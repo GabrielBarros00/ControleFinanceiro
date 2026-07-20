@@ -1,0 +1,30 @@
+# Python
+__pycache__/
+*.pyc
+.venv/
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Env / secrets
+.env
+.env.*
+!.env.example
+
+# Databases (dev/test artifacts)
+*.db
+*.sqlite3
+backups/
+
+# Node / frontend build artifacts
+node_modules/
+dist/
+coverage/
+playwright-report/
+test-results/
+*.tsbuildinfo
+# Intermediário do typegen (o src/types/api.gen.ts gerado é commitado)
+frontend/openapi.json
+
+# Agent orchestration transient state
+.omg/

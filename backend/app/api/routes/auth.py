@@ -1,0 +1,546 @@
+import hashlib
+from datetime import timedelta
+from typing import Optional
+from urllib.parse import urlencode
+
+import httpx
+from fastapi import APIRouter, Depends, HTTPException, status, Response, Cookie
+from fastapi.responses import RedirectResponse
+from sqlmodel import Session, select
+from app.core.config import settings
+from app.db.session import get_session
+from app.models.user import User
+from datetime import datetime, UTC
+from app.models.workspace import (
+    Workspace,
+    WorkspaceMembership,
+    WorkspaceRole,
+    WorkspaceInvite,
+    InviteStatus,
+)
+from app.schemas.user import UserResponse
+from app.core.security import verify_password, get_password_hash
+from app.core.jwt import create_access_token, create_purpose_token, decode_token
+from app.core.cookies import set_auth_cookies, clear_auth_cookies
+from app.services.session_service import start_session, rotate_session, revoke_session, SessionError
+from app.core.context import set_current_user_id
+from app.core.rate_limit import rate_limit_auth
+from app.models.audit import ActionType
+from app.services.audit_service import AuditService
+from app.services.email_service import EmailService
+from app.services.category_service import seed_default_categories
+from app.services.event_service import publish_event
+from pydantic import BaseModel, EmailStr, Field
+
+from app.models.income import Income
+from app.models.credit_card import CreditCard
+from decimal import Decimal
+
+router = APIRouter(prefix="/auth", tags=["auth"])
+
+# Sentinela para contas criadas via OAuth (sem senha local). Nunca é um hash válido.
+OAUTH_PASSWORD_SENTINEL = "!oauth-google"
+
+GOOGLE_AUTH_URL = "https://accounts.google.com/o/oauth2/v2/auth"
+GOOGLE_TOKEN_URL = "https://oauth2.googleapis.com/token"
+GOOGLE_USERINFO_URL = "https://openidconnect.googleapis.com/v1/userinfo"
+
+
+def _password_fingerprint(password_hash: str) -> str:
+    """Fingerprint do hash atual — invalida tokens de reset após a troca de senha."""
+    return hashlib.sha256(password_hash.encode()).hexdigest()[:16]
+
+
+def _setup_default_workspace(db: Session, user: User) -> Workspace:
+    """Cria o workspace pessoal padrão com papel de owner para um usuário novo."""
+    workspace = Workspace(
+        name="Meu Workspace",
+        description="Espaço pessoal criado automaticamente",
+        created_by_user_id=user.id
+    )
+    db.add(workspace)
+    db.commit()
+    db.refresh(workspace)
+
+    membership = WorkspaceMembership(
+        user_id=user.id,
+        workspace_id=workspace.id,
+        role=WorkspaceRole.owner
+    )
+    db.add(membership)
+    seed_default_categories(db, workspace.id)
+    db.commit()
+    return workspace
+
+
+def _accept_pending_invites(db: Session, user: User) -> None:
+    """Converte convites por email pendentes (e não expirados) em memberships."""
+    now = datetime.now(UTC)
+    invites = db.exec(
+        select(WorkspaceInvite).where(
+            WorkspaceInvite.email == user.email,
+            WorkspaceInvite.status == InviteStatus.pending,
+        )
+    ).all()
+    for invite in invites:
+        expires_at = invite.expires_at
+        if expires_at.tzinfo is None:
+            expires_at = expires_at.replace(tzinfo=UTC)
+        if expires_at < now:
+            continue
+        already_member = db.exec(
+            select(WorkspaceMembership).where(
+                WorkspaceMembership.workspace_id == invite.workspace_id,
+                WorkspaceMembership.user_id == user.id,
+            )
+        ).first()
+        if not already_member:
+            db.add(WorkspaceMembership(
+                workspace_id=invite.workspace_id,
+                user_id=user.id,
+                role=invite.role,
+            ))
+            publish_event(db, invite.workspace_id, "member.added", "member", user.id, user.id)
+        invite.status = InviteStatus.accepted
+        db.add(invite)
+    if invites:
+        db.commit()
+
+async def get_current_user(
+    access_token: Optional[str] = Cookie(None),
+    db: Session = Depends(get_session)
+) -> User:
+    if not access_token:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Não autenticado"
+        )
+    try:
+        payload = decode_token(access_token)
+        if payload.get("token_type") != "access":
+            raise ValueError("Tipo de token inválido")
+        user_id_str: str = payload.get("sub")
+        if user_id_str is None:
+            raise ValueError("Token sem sub")
+        user_id = int(user_id_str)
+    except Exception:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Token inválido ou expirado"
+        )
+    
+    user = db.get(User, user_id)
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Usuário não encontrado"
+        )
+    # Conta desativada/excluída perde acesso imediatamente (não espera o token expirar)
+    if user.deleted_at is not None or not user.is_active:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Conta desativada"
+        )
+
+    # Set the user ID in the context for automated auditing
+    set_current_user_id(user.id)
+
+    return user
+
+class LoginRequest(BaseModel):
+    email: str
+    password: str = Field(..., max_length=72)
+
+class RegisterRequest(BaseModel):
+    name: str = Field(..., min_length=1, max_length=100)
+    email: EmailStr
+    password: str = Field(..., min_length=6, max_length=72)
+
+class OnboardingRequest(BaseModel):
+    workspace_id: int
+    salary: Decimal
+    credit_card_name: Optional[str] = None
+    credit_card_limit: Optional[Decimal] = None
+    credit_card_closing_day: Optional[int] = Field(None, ge=1, le=31)
+
+@router.post("/onboarding")
+async def finish_onboarding(
+    data: OnboardingRequest,
+    db: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user)
+):
+    # 0. O workspace precisa existir e o usuário ser membro (anti-IDOR)
+    membership = db.exec(
+        select(WorkspaceMembership).where(
+            WorkspaceMembership.workspace_id == data.workspace_id,
+            WorkspaceMembership.user_id == current_user.id,
+        )
+    ).first()
+    if not membership:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Você não é membro deste workspace"
+        )
+
+    # 1. Create Income (Salary) — pular a etapa não cria renda de valor zero
+    if data.salary and data.salary > 0:
+        income = Income(
+            title="Salário Mensal",
+            amount=data.salary,
+            category="Salary",
+            workspace_id=data.workspace_id,
+            user_id=current_user.id
+        )
+        db.add(income)
+        db.flush()
+        publish_event(db, data.workspace_id, "income.created", "income", income.id, current_user.id)
+
+    # 2. Create Credit Card (Optional)
+    if data.credit_card_name and data.credit_card_limit:
+        card = CreditCard(
+            name=data.credit_card_name,
+            limit=data.credit_card_limit,
+            closing_day=data.credit_card_closing_day or 5,
+            due_day=((data.credit_card_closing_day or 5) + 10) % 31 or 1,
+            workspace_id=data.workspace_id
+        )
+        db.add(card)
+        db.flush()
+        publish_event(db, data.workspace_id, "credit_card.created", "credit_card", card.id, current_user.id)
+
+    # 3. Mark as onboarded
+    current_user.needs_onboarding = False
+    db.add(current_user)
+
+    db.commit()
+    return {"status": "ok"}
+
+@router.post("/register", response_model=UserResponse, dependencies=[Depends(rate_limit_auth)])
+async def register(
+    register_data: RegisterRequest,
+    db: Session = Depends(get_session)
+):
+    # Check if user already exists
+    existing_user = db.exec(select(User).where(User.email == register_data.email)).first()
+    if existing_user:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Este email já está cadastrado"
+        )
+    
+    # Create user
+    user = User(
+        name=register_data.name,
+        email=register_data.email,
+        password_hash=get_password_hash(register_data.password)
+    )
+    db.add(user)
+    db.commit()
+    db.refresh(user)
+
+    _setup_default_workspace(db, user)
+    _accept_pending_invites(db, user)
+
+    return user
+
+@router.post("/login", dependencies=[Depends(rate_limit_auth)])
+async def login(
+    response: Response,
+    login_data: LoginRequest,
+    db: Session = Depends(get_session)
+):
+    user = db.exec(select(User).where(User.email == login_data.email)).first()
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Email ou senha incorretos"
+        )
+    if user.password_hash.startswith("!"):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Esta conta usa login com Google. Use o botão 'Entrar com Google'."
+        )
+    if not verify_password(login_data.password, user.password_hash):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Email ou senha incorretos"
+        )
+
+    access_token = create_access_token(data={"sub": str(user.id)})
+    refresh_token = start_session(db, user.id)  # sessão persistida (SEC-004)
+
+    set_auth_cookies(response, access_token, refresh_token)
+    # log_action commita a sessão (a RefreshSession recém-criada persiste junto)
+    AuditService.log_action(db, ActionType.login, user_id=user.id, resource_type="User", resource_id=user.id)
+
+    return {"message": "Login realizado com sucesso"}
+
+@router.get("/me", response_model=UserResponse)
+async def get_me(current_user: User = Depends(get_current_user)):
+    return current_user
+
+
+class ProfileUpdate(BaseModel):
+    name: Optional[str] = Field(None, min_length=1, max_length=100)
+
+
+@router.patch("/me", response_model=UserResponse)
+async def update_me(
+    data: ProfileUpdate,
+    db: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user)
+):
+    if data.name is not None:
+        current_user.name = data.name
+    current_user.updated_at = datetime.now(UTC)
+    db.add(current_user)
+    db.commit()
+    db.refresh(current_user)
+    return current_user
+
+@router.post("/logout")
+async def logout(
+    response: Response,
+    db: Session = Depends(get_session),
+    access_token: Optional[str] = Cookie(None),
+    refresh_token: Optional[str] = Cookie(None),
+):
+    # Revoga a sessão de refresh (SEC-004): o token copiado deixa de valer
+    revoke_session(db, refresh_token)
+    db.commit()
+    # Auditoria de logout (best-effort: cookie pode já estar expirado)
+    try:
+        if access_token:
+            payload = decode_token(access_token)
+            if payload.get("token_type") == "access" and payload.get("sub"):
+                user_id = int(payload["sub"])
+                AuditService.log_action(db, ActionType.logout, user_id=user_id, resource_type="User", resource_id=user_id)
+    except Exception:
+        pass
+    clear_auth_cookies(response)
+    return {"message": "Logout realizado com sucesso"}
+
+
+@router.post("/refresh")
+async def refresh_session(
+    response: Response,
+    refresh_token: Optional[str] = Cookie(None),
+    db: Session = Depends(get_session)
+):
+    """Renova a sessão a partir do cookie refresh_token, reemitindo ambos os cookies."""
+    if not refresh_token:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Sessão expirada"
+        )
+
+    # Rotação + detecção de reuso (SEC-004): reapresentar um token já rotacionado
+    # revoga a família inteira (persistida no commit abaixo, mesmo no erro)
+    try:
+        user_id, new_refresh = rotate_session(db, refresh_token)
+    except SessionError:
+        db.commit()
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Sessão expirada"
+        )
+
+    user = db.get(User, user_id)
+    if not user or user.deleted_at is not None or not user.is_active:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Sessão expirada"
+        )
+
+    new_access = create_access_token(data={"sub": str(user.id)})
+    set_auth_cookies(response, new_access, new_refresh)
+    db.commit()
+    return {"message": "Sessão renovada"}
+
+
+class ChangePasswordRequest(BaseModel):
+    current_password: str = Field(..., max_length=72)
+    new_password: str = Field(..., min_length=6, max_length=72)
+
+
+@router.post("/change-password")
+async def change_password(
+    data: ChangePasswordRequest,
+    db: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user)
+):
+    if current_user.password_hash.startswith("!"):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Esta conta usa login com Google e não tem senha local."
+        )
+    if not verify_password(data.current_password, current_user.password_hash):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Senha atual incorreta"
+        )
+    current_user.password_hash = get_password_hash(data.new_password)
+    db.add(current_user)
+    db.commit()
+    return {"message": "Senha alterada com sucesso"}
+
+
+class ForgotPasswordRequest(BaseModel):
+    email: EmailStr
+
+
+class ResetPasswordRequest(BaseModel):
+    token: str
+    new_password: str = Field(..., min_length=6, max_length=72)
+
+
+@router.post("/forgot-password", dependencies=[Depends(rate_limit_auth)])
+def forgot_password(
+    data: ForgotPasswordRequest,
+    db: Session = Depends(get_session)
+):
+    """Sempre retorna 200 para não revelar quais emails estão cadastrados."""
+    user = db.exec(select(User).where(User.email == data.email)).first()
+    if user and user.deleted_at is None and not user.password_hash.startswith("!"):
+        token = create_purpose_token(
+            {"sub": str(user.id), "pwf": _password_fingerprint(user.password_hash)},
+            purpose="password_reset",
+            expires_delta=timedelta(minutes=settings.RESET_TOKEN_EXPIRES_MINUTES),
+        )
+        reset_link = f"{settings.FRONTEND_URL}/reset-password?token={token}"
+        EmailService.send_password_reset(user.email, reset_link)
+
+    return {"message": "Se o email estiver cadastrado, enviaremos as instruções de recuperação."}
+
+
+@router.post("/reset-password")
+def reset_password(
+    data: ResetPasswordRequest,
+    db: Session = Depends(get_session)
+):
+    invalid = HTTPException(
+        status_code=status.HTTP_400_BAD_REQUEST,
+        detail="Link de recuperação inválido ou expirado"
+    )
+    try:
+        payload = decode_token(data.token)
+        if payload.get("token_type") != "password_reset":
+            raise ValueError("Tipo de token inválido")
+        user_id = int(payload.get("sub"))
+    except Exception:
+        raise invalid
+
+    user = db.get(User, user_id)
+    # O fingerprint garante uso único: após a troca, o hash muda e o token morre.
+    if not user or user.deleted_at is not None or _password_fingerprint(user.password_hash) != payload.get("pwf"):
+        raise invalid
+
+    user.password_hash = get_password_hash(data.new_password)
+    db.add(user)
+    db.commit()
+    return {"message": "Senha redefinida com sucesso"}
+
+
+def _google_configured() -> bool:
+    return bool(
+        settings.GOOGLE_CLIENT_ID
+        and settings.GOOGLE_CLIENT_SECRET
+        and settings.GOOGLE_REDIRECT_URI
+    )
+
+
+def _fetch_google_user(code: str) -> dict:
+    """Troca o authorization code por tokens e busca o perfil do usuário no Google."""
+    token_res = httpx.post(
+        GOOGLE_TOKEN_URL,
+        data={
+            "code": code,
+            "client_id": settings.GOOGLE_CLIENT_ID,
+            "client_secret": settings.GOOGLE_CLIENT_SECRET,
+            "redirect_uri": settings.GOOGLE_REDIRECT_URI,
+            "grant_type": "authorization_code",
+        },
+        timeout=15,
+    )
+    token_res.raise_for_status()
+    access_token = token_res.json()["access_token"]
+
+    info_res = httpx.get(
+        GOOGLE_USERINFO_URL,
+        headers={"Authorization": f"Bearer {access_token}"},
+        timeout=15,
+    )
+    info_res.raise_for_status()
+    return info_res.json()
+
+
+@router.get("/google/login")
+def google_login():
+    if not _google_configured():
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Login com Google não está configurado"
+        )
+    state = create_purpose_token({}, purpose="oauth_state", expires_delta=timedelta(minutes=10))
+    params = urlencode({
+        "client_id": settings.GOOGLE_CLIENT_ID,
+        "redirect_uri": settings.GOOGLE_REDIRECT_URI,
+        "response_type": "code",
+        "scope": "openid email profile",
+        "state": state,
+        "access_type": "online",
+        "prompt": "select_account",
+    })
+    return RedirectResponse(f"{GOOGLE_AUTH_URL}?{params}")
+
+
+@router.get("/google/callback")
+def google_callback(
+    code: Optional[str] = None,
+    state: Optional[str] = None,
+    error: Optional[str] = None,
+    db: Session = Depends(get_session)
+):
+    def fail(reason: str) -> RedirectResponse:
+        return RedirectResponse(f"{settings.FRONTEND_URL}/login?error={reason}")
+
+    if not _google_configured():
+        return fail("google_nao_configurado")
+    if error or not code or not state:
+        return fail("google_cancelado")
+
+    try:
+        payload = decode_token(state)
+        if payload.get("token_type") != "oauth_state":
+            raise ValueError("State inválido")
+    except Exception:
+        return fail("google_state_invalido")
+
+    try:
+        info = _fetch_google_user(code)
+    except Exception:
+        return fail("google_falha_autenticacao")
+
+    email = info.get("email")
+    if not email or info.get("email_verified") is False:
+        return fail("google_email_nao_verificado")
+
+    user = db.exec(select(User).where(User.email == email)).first()
+    if not user:
+        user = User(
+            name=info.get("name") or email.split("@")[0],
+            email=email,
+            password_hash=OAUTH_PASSWORD_SENTINEL,
+        )
+        db.add(user)
+        db.commit()
+        db.refresh(user)
+        _setup_default_workspace(db, user)
+        _accept_pending_invites(db, user)
+
+    redirect = RedirectResponse(settings.FRONTEND_URL)
+    access_token = create_access_token(data={"sub": str(user.id)})
+    refresh_token = start_session(db, user.id)  # sessão persistida (SEC-004)
+    set_auth_cookies(redirect, access_token, refresh_token)
+    AuditService.log_action(db, ActionType.login, user_id=user.id, resource_type="User", resource_id=user.id)
+    return redirect

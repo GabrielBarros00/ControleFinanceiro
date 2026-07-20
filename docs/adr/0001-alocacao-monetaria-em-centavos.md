@@ -1,0 +1,3 @@
+# Alocação monetária em centavos com resto distribuído aos primeiros participantes
+
+A divisão anterior arredondava cada cota com HALF_UP e jogava toda a divergência no último participante, o que podia gerar parcela negativa (R$ 0,05 ÷ 10 → 9×0,01 + 1×(−0,04)). Decidimos calcular divisões em unidades mínimas (centavos inteiros) com `divmod`: cota base = quociente, e o resto é distribuído 1 centavo por vez aos N primeiros participantes em ordem estável (user_id crescente). Garantias: soma exata, nenhuma parcela negativa para total ≥ 0 e resultado independente da ordem do payload. O mesmo princípio vale para percentuais. Cálculo financeiro nunca usa `float`.

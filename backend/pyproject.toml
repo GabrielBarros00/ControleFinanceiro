@@ -1,0 +1,14 @@
+[tool.pytest.ini_options]
+testpaths = ['tests']
+python_files = 'test_*.py'
+filterwarnings = [
+    # Deprecação INTERNA do Starlette ao acessar o status 422 no seu próprio
+    # exception handler — fora do nosso controle (nosso código já usa o novo nome).
+    "ignore:'HTTP_422_UNPROCESSABLE_ENTITY' is deprecated:DeprecationWarning",
+]
+
+[tool.ruff.lint.per-file-ignores]
+# Migrações geradas e conftest importam modelos após setup de path/config
+"alembic/versions/*" = ["E402"]
+"alembic/env.py" = ["E402"]
+"tests/*" = ["E402"]

@@ -1,0 +1,129 @@
+import * as React from 'react';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Button } from "@/components/ui/button";
+import { AlertCircle, LockOpen } from 'lucide-react';
+import type { TransactionRead } from '@/types/transaction';
+import { getApiErrorMessage } from '@/lib/api-error';
+import { TransactionForm, type TransactionApiPayload } from './transaction-form/TransactionForm';
+import { fromApiTransaction } from './transaction-form/schema';
+import { AttachmentsSection } from './AttachmentsSection';
+import { TransactionSummary } from './TransactionSummary';
+
+interface TransactionDialogProps {
+  transaction: TransactionRead | null;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  onSave: (data: Record<string, unknown>) => Promise<void> | void;
+  onDelete: (id: number) => void;
+}
+
+// Edição COMPLETA da despesa (campos, pagamento, divisão/itens) — o mesmo form
+// da criação, pré-preenchido. Também serve de tela de detalhe da divisão.
+export function TransactionDialog({
+  transaction,
+  open,
+  onOpenChange,
+  onSave,
+  onDelete
+}: TransactionDialogProps) {
+  const [reopenError, setReopenError] = React.useState<string | null>(null);
+
+  if (!transaction) return null;
+
+  const isPaid = transaction.status === 'paid';
+
+  const handleSubmit = async (payload: TransactionApiPayload) => {
+    // PUT full: payers + splits/items completos — o backend recria tudo
+    // atomicamente e mantém as somas consistentes
+    await onSave(payload);
+  };
+
+  const handleReopen = async () => {
+    setReopenError(null);
+    try {
+      await onSave({ status: 'confirmed' });
+    } catch (err) {
+      setReopenError(getApiErrorMessage(err, 'Erro ao reabrir a despesa.'));
+    }
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="sm:max-w-[640px] max-h-[90vh] overflow-y-auto bg-card border-border shadow-2xl">
+        <DialogHeader>
+          <DialogTitle className="text-2xl font-bold flex items-center gap-2">
+            <span className="w-1.5 h-6 bg-primary rounded-full" />
+            Editar Transação
+          </DialogTitle>
+          <DialogDescription className="text-muted-foreground">
+            Altere os detalhes, a forma de pagamento e a divisão da despesa.
+          </DialogDescription>
+        </DialogHeader>
+
+        {isPaid ? (
+          <div className="space-y-4 py-4">
+            <TransactionSummary transaction={transaction} />
+            <div className="p-4 rounded-lg bg-amber-500/10 border border-amber-500/20 flex items-start gap-3">
+              <AlertCircle className="h-5 w-5 text-amber-500 mt-0.5" />
+              <div className="space-y-1">
+                <p className="text-sm font-bold text-amber-500">Despesa paga</p>
+                <p className="text-xs text-muted-foreground">
+                  Despesas pagas ficam travadas para proteger o histórico de acertos.
+                  Reabra para poder editar ou excluir.
+                </p>
+              </div>
+            </div>
+            <Button
+              type="button"
+              onClick={handleReopen}
+              className="w-full gap-2 bg-primary hover:bg-primary/90 text-primary-foreground font-bold"
+            >
+              <LockOpen className="h-4 w-4" /> Reabrir despesa
+            </Button>
+            {reopenError && (
+              <p role="alert" className="text-sm text-destructive font-medium">{reopenError}</p>
+            )}
+          </div>
+        ) : (
+          <div className="py-2">
+            <TransactionSummary transaction={transaction} />
+            <TransactionForm
+              // updated_at na key: quando o refetch chega com dados novos, o
+              // form REMONTA com defaultValues frescos (o backend garante
+              // updated_at a cada edição) — sem isso a reabertura mostrava
+              // a divisão antiga
+              key={`${transaction.id}-${transaction.updated_at}`}
+              initialValues={fromApiTransaction(transaction)}
+              onSubmit={handleSubmit}
+              submitLabel="Salvar Alterações"
+            />
+
+            <AttachmentsSection transactionId={transaction.id} />
+
+            <div className="mt-6 p-4 rounded-lg bg-destructive/10 border border-destructive/20 flex items-start gap-3">
+              <AlertCircle className="h-5 w-5 text-destructive mt-0.5" />
+              <div className="space-y-1">
+                <p className="text-sm font-bold text-destructive">Zona de Perigo</p>
+                <p className="text-xs text-destructive/80">Esta ação não pode ser desfeita. A transação será marcada como removida.</p>
+                <Button
+                  type="button"
+                  variant="link"
+                  className="p-0 h-auto text-xs text-destructive font-bold hover:underline"
+                  onClick={() => onDelete(transaction.id)}
+                >
+                  Remover transação permanentemente
+                </Button>
+              </div>
+            </div>
+          </div>
+        )}
+      </DialogContent>
+    </Dialog>
+  );
+}

@@ -1,0 +1,3 @@
+# Serviços fazem `flush()`; o commit é único e vive na rota
+
+Serviços (`get_or_create_statement`, recorrência, financiamento) faziam `commit()` internos, quebrando a atomicidade de operações maiores — o parcelamento persistia parcelas anteriores mesmo quando uma posterior falhava, apesar da docstring prometer atomicidade. Decidimos: serviços apenas `flush()` (obtêm IDs sem fechar a transação); cada request tem no máximo um `commit()`, na camada de rota, após `publish_event`; qualquer falha dá rollback do conjunto inteiro. Corridas de unicidade (ex.: fatura do mês) são resolvidas por constraint + retry, não por commit antecipado.

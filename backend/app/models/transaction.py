@@ -1,0 +1,208 @@
+from datetime import datetime, date, UTC
+from enum import Enum
+from typing import Optional, List, TYPE_CHECKING
+from decimal import Decimal
+from sqlalchemy import event
+from sqlalchemy.orm import attributes
+from sqlmodel import SQLModel, Field, Relationship, UniqueConstraint
+
+from app.models.tag import Tag, TransactionTagLink
+
+if TYPE_CHECKING:
+    from app.models.recurring import RecurringExpense
+
+class TransactionStatus(str, Enum):
+    draft = "draft"
+    pending = "pending"
+    confirmed = "confirmed"
+    paid = "paid"
+    cancelled = "cancelled"
+
+class SplitMethod(str, Enum):
+    equal = "equal"
+    percentage = "percentage"
+    fixed = "fixed"
+
+class SplitMode(str, Enum):
+    transaction = "transaction"  # divisão definida no nível da despesa
+    item = "item"                # divisão derivada das shares de cada item
+
+class PaymentMethod(str, Enum):
+    credit_card = "credit_card"
+    debit_card = "debit_card"
+    pix = "pix"
+    cash = "cash"
+    bank_transfer = "bank_transfer"
+    boleto = "boleto"
+    other = "other"
+
+class AdjustmentType(str, Enum):
+    discount = "discount"    # desconto/cupom (negativo)
+    tax = "tax"              # imposto/taxa (positivo)
+    tip = "tip"              # gorjeta (positivo)
+    shipping = "shipping"    # frete (positivo)
+    cashback = "cashback"    # cashback (negativo)
+    rounding = "rounding"    # arredondamento da nota (qualquer sinal)
+    other = "other"
+
+class TransactionBase(SQLModel):
+    title: str = Field(index=True)
+    description: Optional[str] = None
+    currency: str = Field(default="BRL")
+    total_amount: Decimal = Field(decimal_places=2, max_digits=20)
+    transaction_date: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    billing_month: Optional[str] = Field(default=None, index=True) # Formato YYYY-MM
+    status: TransactionStatus = Field(default=TransactionStatus.confirmed)
+    split_mode: SplitMode = Field(default=SplitMode.transaction)
+    payment_method: Optional[PaymentMethod] = Field(default=None, index=True)
+
+class Transaction(TransactionBase, table=True):
+    # uq(recurring, occurrence_date): uma instância por ocorrência da recorrência.
+    # A instância excluída mantém a linha (tombstone) e ocupa a vaga → a unique
+    # bloqueia recriação por natureza (ADR 0012). Transações comuns têm
+    # occurrence_date NULL e não colidem (NULLs são distintos na unique).
+    __table_args__ = (
+        UniqueConstraint("recurring_expense_id", "occurrence_date", name="uq_recurring_occurrence"),
+    )
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    workspace_id: int = Field(foreign_key="workspace.id", index=True)
+    created_by_user_id: Optional[int] = Field(default=None, foreign_key="user.id")
+    card_limit_holder_user_id: Optional[int] = Field(default=None, foreign_key="user.id")
+    recurring_expense_id: Optional[int] = Field(default=None, foreign_key="recurringexpense.id", index=True)
+    occurrence_date: Optional[date] = Field(default=None)
+    
+    # Credit Card links
+    credit_card_id: Optional[int] = Field(default=None, foreign_key="creditcard.id", index=True)
+    statement_id: Optional[int] = Field(default=None, foreign_key="cardstatement.id", index=True)
+
+    # Parcelamento: N transações irmãs compartilham o mesmo group_id
+    installment_no: Optional[int] = Field(default=None)
+    installments_of: Optional[int] = Field(default=None)
+    installment_group_id: Optional[str] = Field(default=None, index=True)
+
+    confirmed_at: Optional[datetime] = None
+    paid_at: Optional[datetime] = None
+    cancelled_at: Optional[datetime] = None
+    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    deleted_at: Optional[datetime] = None
+
+    # Relacionamentos
+    payers: List["TransactionPayer"] = Relationship(back_populates="transaction")
+    splits: List["TransactionSplit"] = Relationship(back_populates="transaction")
+    items: List["TransactionItem"] = Relationship(back_populates="transaction")
+    adjustments: List["TransactionAdjustment"] = Relationship(back_populates="transaction")
+    tags: List[Tag] = Relationship(link_model=TransactionTagLink)
+    recurring_expense: Optional["RecurringExpense"] = Relationship(back_populates="transactions")
+
+
+class TransactionAdjustment(SQLModel, table=True):
+    """Reconciliação com documentos reais: total = soma(itens) + soma(ajustes).
+
+    amount tem SINAL explícito: desconto/cashback negativos, taxa/gorjeta/
+    frete positivos, arredondamento livre.
+    """
+    id: Optional[int] = Field(default=None, primary_key=True)
+    transaction_id: int = Field(foreign_key="transaction.id", index=True)
+    type: AdjustmentType = Field(default=AdjustmentType.other)
+    description: Optional[str] = None
+    amount: Decimal = Field(decimal_places=2, max_digits=20)
+
+    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+
+    transaction: Transaction = Relationship(back_populates="adjustments")
+
+class TransactionItem(SQLModel, table=True):
+    id: Optional[int] = Field(default=None, primary_key=True)
+    transaction_id: int = Field(foreign_key="transaction.id", index=True)
+    title: str
+    description: Optional[str] = None
+    amount: Decimal = Field(decimal_places=2, max_digits=20)  # total da linha
+    quantity: Decimal = Field(default=Decimal("1"), decimal_places=3, max_digits=12)
+    unit_amount: Optional[Decimal] = Field(default=None, decimal_places=2, max_digits=20)
+    position: int = Field(default=0)
+    category_id: Optional[int] = Field(default=None, foreign_key="category.id", index=True)
+
+    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+
+    transaction: Transaction = Relationship(back_populates="items")
+    shares: List["TransactionItemShare"] = Relationship(back_populates="item")
+
+class TransactionItemShare(SQLModel, table=True):
+    __table_args__ = (UniqueConstraint("item_id", "user_id", name="uq_itemshare_item_user"),)
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    item_id: int = Field(foreign_key="transactionitem.id", index=True)
+    user_id: int = Field(foreign_key="user.id", index=True)
+    split_method: SplitMethod = Field(default=SplitMethod.equal)
+    input_value: Decimal = Field(decimal_places=2, max_digits=20)  # % ou valor fixo
+    computed_amount: Decimal = Field(decimal_places=2, max_digits=20)  # parte real do item
+
+    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+
+    item: TransactionItem = Relationship(back_populates="shares")
+
+class TransactionPayer(SQLModel, table=True):
+    """Quem pagou, quanto e DE ONDE saiu o dinheiro (ADR 0004).
+
+    payment_method/account_id por pagador: dois pagadores podem usar meios
+    diferentes. Sem método próprio, herda o da transação (resumo/filtro).
+    """
+    id: Optional[int] = Field(default=None, primary_key=True)
+    transaction_id: int = Field(foreign_key="transaction.id", index=True)
+    user_id: int = Field(foreign_key="user.id")
+    amount: Decimal = Field(decimal_places=2, max_digits=20)
+    payment_method: Optional[PaymentMethod] = Field(default=None)
+    account_id: Optional[int] = Field(default=None, foreign_key="paymentaccount.id", index=True)
+
+    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+
+    transaction: Transaction = Relationship(back_populates="payers")
+
+class TransactionSplit(SQLModel, table=True):
+    id: Optional[int] = Field(default=None, primary_key=True)
+    transaction_id: int = Field(foreign_key="transaction.id", index=True)
+    user_id: int = Field(foreign_key="user.id")
+    split_method: SplitMethod = Field(default=SplitMethod.equal)
+    input_value: Decimal = Field(decimal_places=2, max_digits=20) # Porcentagem ou Valor fixo
+    computed_amount: Decimal = Field(decimal_places=2, max_digits=20) # Valor real em dinheiro
+
+    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+
+    transaction: Transaction = Relationship(back_populates="splits")
+
+
+def _stamp_status(target: Transaction, status: TransactionStatus, now: datetime) -> None:
+    if status == TransactionStatus.confirmed and target.confirmed_at is None:
+        target.confirmed_at = now
+    elif status == TransactionStatus.paid and target.paid_at is None:
+        target.paid_at = now
+    elif status == TransactionStatus.cancelled and target.cancelled_at is None:
+        target.cancelled_at = now
+
+
+@event.listens_for(Transaction, "before_insert")
+def _transaction_stamp_on_insert(mapper, connection, target: Transaction) -> None:
+    # Listener de Mapper: cobre TODOS os caminhos de criação (manual, bulk,
+    # recorrência, import) sem depender de cada rota lembrar do carimbo
+    _stamp_status(target, target.status, datetime.now(UTC))
+
+
+@event.listens_for(Transaction, "before_update")
+def _transaction_stamp_on_update(mapper, connection, target: Transaction) -> None:
+    now = datetime.now(UTC)
+    target.updated_at = now
+    history = attributes.get_history(target, "status")
+    if history.has_changes() and history.deleted:
+        old_status = history.deleted[0]
+        _stamp_status(target, target.status, now)
+        # Reabertura (paid → confirmed): a despesa deixa de estar paga
+        if old_status == TransactionStatus.paid and target.status == TransactionStatus.confirmed:
+            target.paid_at = None
+            target.confirmed_at = now
