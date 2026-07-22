@@ -156,13 +156,7 @@ def test_installments_validations(ws_with_card, override_get_session):
     resp = client.post(url, json=_payload(u1.id, card.id, credit_card_id=None, payment_method="pix"), headers=headers)
     assert resp.status_code == 422
 
-    # Divisão por valor fixo
-    resp = client.post(url, json=_payload(u1.id, card.id, splits=[
-        {"user_id": u1.id, "split_method": "fixed", "input_value": 100.0},
-    ]), headers=headers)
-    assert resp.status_code == 422
-
-    # Múltiplos pagadores
+    # Múltiplos pagadores (parcelamento exige um único pagador)
     resp = client.post(url, json=_payload(u1.id, card.id, payers=[
         {"user_id": u1.id, "amount": 50.0},
         {"user_id": u2.id, "amount": 50.0},
@@ -172,3 +166,123 @@ def test_installments_validations(ws_with_card, override_get_session):
     # Fora da faixa 2..36
     resp = client.post(url, json=_payload(u1.id, card.id, installments_count=1), headers=headers)
     assert resp.status_code == 422
+
+
+def test_installments_with_fixed_split(db_session, ws_with_card, override_get_session):
+    """Valor fixo pela despesa É parcelável: cada split é fatiado pelos N meses."""
+    ws1, u1, u2, card = ws_with_card["ws1"], ws_with_card["u1"], ws_with_card["u2"], ws_with_card["card"]
+    headers = ws_with_card["headers1"]
+
+    resp = client.post(
+        f"/api/v1/workspaces/{ws1.id}/transactions/",
+        json=_payload(u1.id, card.id, total_amount=100.0, installments_count=2, payers=[
+            {"user_id": u1.id, "amount": 100.0},
+        ], splits=[
+            {"user_id": u1.id, "split_method": "fixed", "input_value": 60.0},
+            {"user_id": u2.id, "split_method": "fixed", "input_value": 40.0},
+        ]),
+        headers=headers,
+    )
+    assert resp.status_code == 200, resp.text
+    first = resp.json()
+
+    siblings = db_session.exec(
+        select(Transaction).where(
+            Transaction.installment_group_id == first["installment_group_id"]
+        ).order_by(Transaction.installment_no)
+    ).all()
+    assert len(siblings) == 2
+    assert [tx.total_amount for tx in siblings] == [Decimal("50.00"), Decimal("50.00")]
+    assert sum(tx.total_amount for tx in siblings) == Decimal("100.00")
+    # 1ª parcela: 60→30 e 40→20
+    splits = {s["user_id"]: s["computed_amount"] for s in first["splits"]}
+    assert splits == {u1.id: "30.00", u2.id: "20.00"}
+
+
+def test_installments_split_by_item_equal(db_session, ws_with_card, override_get_session):
+    """Divisão POR ITEM parcelada: cada item é fatiado pelos N meses e os splits
+    da parcela são derivados dos itens fatiados."""
+    ws1, u1, u2, card = ws_with_card["ws1"], ws_with_card["u1"], ws_with_card["u2"], ws_with_card["card"]
+    headers = ws_with_card["headers1"]
+
+    resp = client.post(
+        f"/api/v1/workspaces/{ws1.id}/transactions/",
+        json=_payload(
+            u1.id, card.id, total_amount=90.0, installments_count=2,
+            split_mode="item",
+            payers=[{"user_id": u1.id, "amount": 90.0}],
+            splits=[],
+            items=[
+                {"title": "Carne", "amount": 60.0, "shares": [
+                    {"user_id": u1.id, "split_method": "equal", "input_value": 0},
+                    {"user_id": u2.id, "split_method": "equal", "input_value": 0},
+                ]},
+                {"title": "Cerveja", "amount": 30.0, "shares": [
+                    {"user_id": u1.id, "split_method": "equal", "input_value": 0},
+                    {"user_id": u2.id, "split_method": "equal", "input_value": 0},
+                ]},
+            ],
+        ),
+        headers=headers,
+    )
+    assert resp.status_code == 200, resp.text
+    first = resp.json()
+    assert first["split_mode"] == "item"
+
+    siblings = db_session.exec(
+        select(Transaction).where(
+            Transaction.installment_group_id == first["installment_group_id"]
+        ).order_by(Transaction.installment_no)
+    ).all()
+    assert len(siblings) == 2
+    # Carne 60→30/30, Cerveja 30→15/15 → cada parcela fecha 45
+    assert [tx.total_amount for tx in siblings] == [Decimal("45.00"), Decimal("45.00")]
+    assert sum(tx.total_amount for tx in siblings) == Decimal("90.00")
+
+    # A 1ª parcela mantém os dois itens fatiados, cada um dividido igual
+    items = {it["title"]: it for it in first["items"]}
+    assert Decimal(items["Carne"]["amount"]) == Decimal("30.00")
+    assert Decimal(items["Cerveja"]["amount"]) == Decimal("15.00")
+    derived = {s["user_id"]: s["computed_amount"] for s in first["splits"]}
+    assert derived == {u1.id: "22.50", u2.id: "22.50"}
+
+
+def test_installments_split_by_item_fixed(db_session, ws_with_card, override_get_session):
+    """Item com shares FIXAS parcelado: fatia o valor de cada share e deriva o
+    total da linha da soma — shares seguem fechando o item em cada parcela."""
+    ws1, u1, u2, card = ws_with_card["ws1"], ws_with_card["u1"], ws_with_card["u2"], ws_with_card["card"]
+    headers = ws_with_card["headers1"]
+
+    resp = client.post(
+        f"/api/v1/workspaces/{ws1.id}/transactions/",
+        json=_payload(
+            u1.id, card.id, total_amount=100.0, installments_count=2,
+            split_mode="item",
+            payers=[{"user_id": u1.id, "amount": 100.0}],
+            splits=[],
+            items=[
+                {"title": "TV", "amount": 100.0, "shares": [
+                    {"user_id": u1.id, "split_method": "fixed", "input_value": 70.0},
+                    {"user_id": u2.id, "split_method": "fixed", "input_value": 30.0},
+                ]},
+            ],
+        ),
+        headers=headers,
+    )
+    assert resp.status_code == 200, resp.text
+    first = resp.json()
+
+    siblings = db_session.exec(
+        select(Transaction).where(
+            Transaction.installment_group_id == first["installment_group_id"]
+        ).order_by(Transaction.installment_no)
+    ).all()
+    assert len(siblings) == 2
+    assert [tx.total_amount for tx in siblings] == [Decimal("50.00"), Decimal("50.00")]
+    assert sum(tx.total_amount for tx in siblings) == Decimal("100.00")
+
+    # 70→35/35 e 30→15/15 → item de 50 por parcela, shares fechando
+    tv = first["items"][0]
+    assert Decimal(tv["amount"]) == Decimal("50.00")
+    shares = {s["user_id"]: s["computed_amount"] for s in tv["shares"]}
+    assert shares == {u1.id: "35.00", u2.id: "15.00"}

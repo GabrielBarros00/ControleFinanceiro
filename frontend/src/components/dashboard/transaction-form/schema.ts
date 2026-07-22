@@ -57,13 +57,16 @@ export const transactionFormSchema = z.object({
   // Pagadores: sem repetição; com vários, a soma precisa fechar o total
   const seenPayers = new Set<string>();
   data.payers.forEach((payer, index) => {
-    // Origem coerente (mesmas regras do backend)
+    // Origem coerente (mesmas regras do backend). O requisito de cartão é
+    // emitido no campo SEMPRE visível (credit_card_id) — não num campo de
+    // pagador que pode estar oculto — para o erro sumir assim que o cartão é
+    // escolhido (antes ficava "preso" no path do pagador).
     if (payer.payment_method === 'credit_card') {
       if (!data.credit_card_id) {
         ctx.addIssue({
           code: 'custom',
-          path: ['payers', index, 'payment_method'],
-          message: 'Pagador no crédito exige um cartão na despesa',
+          path: ['credit_card_id'],
+          message: 'Selecione o cartão usado nesta despesa',
         });
       }
       if (payer.account_id) {
@@ -99,20 +102,14 @@ export const transactionFormSchema = z.object({
     }
   }
 
-  // Parcelamento: só no crédito, divisão pela despesa (igual/percentual), 1 pagador
+  // Parcelamento: só no crédito, 1 pagador. A divisão (igual/percentual/fixo,
+  // pela despesa ou por item) é fatiada pelos N meses no backend.
   if (data.installments > 1) {
     if (data.payment_method !== 'credit_card') {
       ctx.addIssue({
         code: 'custom',
         path: ['installments'],
         message: 'Parcelamento exige pagamento no cartão de crédito',
-      });
-    }
-    if (data.split_mode !== 'transaction' || data.split_method === 'fixed') {
-      ctx.addIssue({
-        code: 'custom',
-        path: ['installments'],
-        message: 'Parcelamento não suporta divisão por item nem valor fixo',
       });
     }
     if (data.payers.length > 1) {

@@ -15,7 +15,12 @@ class Income(IncomeBase, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
     workspace_id: int = Field(foreign_key="workspace.id", index=True)
     user_id: int = Field(foreign_key="user.id", index=True)
-    
+
+    # Origem recorrente (quando materializada por RecurringIncome) + mês de
+    # competência para dedup/tombstone. None = renda avulsa.
+    recurring_income_id: Optional[int] = Field(default=None, foreign_key="recurringincome.id", index=True)
+    billing_month: Optional[str] = Field(default=None, index=True)  # YYYY-MM
+
     created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
     updated_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
     deleted_at: Optional[datetime] = Field(default=None)

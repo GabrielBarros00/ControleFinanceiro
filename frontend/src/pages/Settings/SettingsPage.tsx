@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { User, Shield, Users, Palette, LogOut, Globe, Moon, Sun, Laptop, Loader2, Trash2, LinkIcon, Copy, Check, Tag, Plus, Wallet } from 'lucide-react';
 import { useAuthStore } from '@/stores';
 import { useTheme } from '@/hooks/use-theme';
@@ -15,6 +16,8 @@ import { usePaymentAccounts, ACCOUNT_TYPE_OPTIONS, accountTypeLabel, type Paymen
 import { WorkspaceCreateDialog } from '@/components/workspace/WorkspaceCreateDialog';
 import { apiClient } from '@/api/client';
 import { getApiErrorMessage } from '@/lib/api-error';
+import { toast } from '@/stores/toast';
+import { useConfirm } from '@/components/ui/confirm';
 
 type Tab = 'profile' | 'security' | 'members' | 'categories' | 'accounts' | 'appearance';
 
@@ -41,7 +44,7 @@ function ProfileTab() {
       setSaved(true);
       setTimeout(() => setSaved(false), 2500);
     } catch {
-      alert('Erro ao salvar o perfil');
+      toast.error('Erro ao salvar o perfil');
     } finally {
       setSaving(false);
     }
@@ -202,6 +205,7 @@ function MembersTab() {
     changeRole, removeMember, leaveWorkspace,
   } = useMembers();
 
+  const confirm = useConfirm();
   const myRole = members.find((m) => m.user_id === user?.id)?.role;
   const isAdmin = myRole === 'admin' || myRole === 'owner';
   const isOwner = myRole === 'owner';
@@ -302,22 +306,31 @@ function MembersTab() {
               <div className="flex items-center gap-2 shrink-0">
                 {isAdmin && m.role !== 'owner' && m.user_id !== user?.id ? (
                   <>
-                    <select
+                    <Select
+                      items={ROLE_LABELS}
                       value={m.role}
-                      onChange={async (e) => {
-                        try { await changeRole({ userId: m.user_id, role: e.target.value as WorkspaceRole }); }
+                      onValueChange={async (value) => {
+                        try { await changeRole({ userId: m.user_id, role: value as WorkspaceRole }); }
                         catch (err) { showError(err, 'Erro ao alterar papel.'); }
                       }}
-                      className="h-8 rounded-md border border-border bg-background px-2 text-xs font-semibold text-foreground"
                     >
-                      <option value="viewer">Leitor</option>
-                      <option value="member">Membro</option>
-                      {isOwner && <option value="admin">Admin</option>}
-                    </select>
+                      <SelectTrigger className="h-8 w-[112px] text-xs font-semibold"><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="viewer">Leitor</SelectItem>
+                        <SelectItem value="member">Membro</SelectItem>
+                        {isOwner && <SelectItem value="admin">Admin</SelectItem>}
+                      </SelectContent>
+                    </Select>
                     <Button
                       variant="ghost" size="sm"
                       onClick={async () => {
-                        if (!confirm(`Remover ${m.user_name} do workspace?`)) return;
+                        const ok = await confirm({
+                          title: 'Remover membro',
+                          description: `Remover ${m.user_name} do workspace?`,
+                          confirmLabel: 'Remover',
+                          destructive: true,
+                        });
+                        if (!ok) return;
                         try { await removeMember(m.user_id); }
                         catch (err) { showError(err, 'Erro ao remover.'); }
                       }}
@@ -349,15 +362,14 @@ function MembersTab() {
                 onChange={(e) => setInviteEmail(e.target.value)}
                 className="bg-background/50 border-border flex-1"
               />
-              <select
-                value={inviteRole}
-                onChange={(e) => setInviteRole(e.target.value as WorkspaceRole)}
-                className="h-10 rounded-md border border-border bg-background px-3 text-sm font-semibold text-foreground"
-              >
-                <option value="viewer">Leitor</option>
-                <option value="member">Membro</option>
-                {isOwner && <option value="admin">Admin</option>}
-              </select>
+              <Select items={ROLE_LABELS} value={inviteRole} onValueChange={(value) => setInviteRole(value as WorkspaceRole)}>
+                <SelectTrigger className="h-10 w-[130px] text-sm font-semibold"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="viewer">Leitor</SelectItem>
+                  <SelectItem value="member">Membro</SelectItem>
+                  {isOwner && <SelectItem value="admin">Admin</SelectItem>}
+                </SelectContent>
+              </Select>
               <Button onClick={handleInvite} disabled={!inviteEmail.includes('@')} className="bg-primary font-bold">
                 Convidar
               </Button>
@@ -416,7 +428,13 @@ function MembersTab() {
               variant="outline"
               className="border-destructive/40 text-destructive hover:bg-destructive/10"
               onClick={async () => {
-                if (!confirm('Sair deste workspace? Você perderá o acesso.')) return;
+                const ok = await confirm({
+                  title: 'Sair do workspace',
+                  description: 'Sair deste workspace? Você perderá o acesso.',
+                  confirmLabel: 'Sair',
+                  destructive: true,
+                });
+                if (!ok) return;
                 try { await leaveWorkspace(); } catch (err) { showError(err, 'Erro ao sair.'); }
               }}
             >
@@ -428,7 +446,13 @@ function MembersTab() {
               variant="outline"
               className="border-destructive/40 text-destructive hover:bg-destructive/10"
               onClick={async () => {
-                if (!confirm(`Excluir o workspace "${currentWorkspace?.name}"? Esta ação não pode ser desfeita.`)) return;
+                const ok = await confirm({
+                  title: 'Excluir workspace',
+                  description: `Excluir o workspace "${currentWorkspace?.name}"? Esta ação não pode ser desfeita.`,
+                  confirmLabel: 'Excluir',
+                  destructive: true,
+                });
+                if (!ok) return;
                 try { await removeWorkspace(currentWorkspace!.id); } catch (err) { showError(err, 'Erro ao excluir.'); }
               }}
             >
@@ -443,6 +467,7 @@ function MembersTab() {
 
 function CategoriesTab() {
   const { categories, create, update, remove } = useCategories();
+  const confirm = useConfirm();
   const [newName, setNewName] = React.useState('');
   const [editingId, setEditingId] = React.useState<number | null>(null);
   const [editName, setEditName] = React.useState('');
@@ -529,7 +554,13 @@ function CategoriesTab() {
                         variant="ghost" size="sm"
                         className="h-7 w-7 p-0 text-destructive hover:bg-destructive/10"
                         onClick={async () => {
-                          if (!confirm(`Excluir a categoria "${cat.name}"?`)) return;
+                          const ok = await confirm({
+                            title: 'Excluir categoria',
+                            description: `Excluir a categoria "${cat.name}"?`,
+                            confirmLabel: 'Excluir',
+                            destructive: true,
+                          });
+                          if (!ok) return;
                           try { await remove(cat.id); } catch { setError('Erro ao excluir.'); }
                         }}
                       >
@@ -549,6 +580,7 @@ function CategoriesTab() {
 
 function AccountsTab() {
   const { accounts, create, update, remove, isError } = usePaymentAccounts();
+  const confirm = useConfirm();
   const [newName, setNewName] = React.useState('');
   const [newType, setNewType] = React.useState<PaymentAccountType>('checking');
   const [error, setError] = React.useState<string | null>(null);
@@ -583,16 +615,14 @@ function AccountsTab() {
               onKeyDown={(e) => e.key === 'Enter' && handleCreate()}
               className="bg-background/50 border-border"
             />
-            <select
-              aria-label="Tipo da conta"
-              value={newType}
-              onChange={(e) => setNewType(e.target.value as PaymentAccountType)}
-              className="h-10 rounded-md border border-border bg-background px-3 text-sm text-foreground"
-            >
-              {ACCOUNT_TYPE_OPTIONS.map((o) => (
-                <option key={o.value} value={o.value} className="bg-card">{o.label}</option>
-              ))}
-            </select>
+            <Select items={ACCOUNT_TYPE_OPTIONS} value={newType} onValueChange={(value) => setNewType(value as PaymentAccountType)}>
+              <SelectTrigger aria-label="Tipo da conta" className="h-10 w-[150px] text-sm"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                {ACCOUNT_TYPE_OPTIONS.map((o) => (
+                  <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
             <Button onClick={handleCreate} disabled={newName.trim().length < 2} className="bg-primary font-bold gap-2">
               <Plus className="h-4 w-4" /> Criar
             </Button>
@@ -627,7 +657,13 @@ function AccountsTab() {
                     variant="ghost" size="sm"
                     className="h-7 w-7 p-0 text-destructive hover:bg-destructive/10"
                     onClick={async () => {
-                      if (!confirm(`Excluir a conta "${account.name}"? Pagamentos antigos preservam o histórico.`)) return;
+                      const ok = await confirm({
+                        title: 'Excluir conta',
+                        description: `Excluir a conta "${account.name}"? Pagamentos antigos preservam o histórico.`,
+                        confirmLabel: 'Excluir',
+                        destructive: true,
+                      });
+                      if (!ok) return;
                       try { await remove(account.id); }
                       catch (err) { setError(getApiErrorMessage(err, 'Erro ao excluir conta.')); }
                     }}

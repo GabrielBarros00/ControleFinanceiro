@@ -39,6 +39,16 @@ export function ItemsEditor({ participants, defaultUserId }: ItemsEditorProps) {
   const closed = totalCents > 0 && itemsCents === totalCents;
   const diff = Math.abs(totalCents - itemsCents) / 100;
 
+  const appendItem = () => append({
+    title: '',
+    quantity: 1,
+    unit_amount: null,
+    amount: 0,
+    category_id: '',
+    share_method: 'equal',
+    shares: defaultUserId ? [{ user_id: defaultUserId, value: 0 }] : [],
+  });
+
   return (
     <div className="space-y-4 border-t border-border pt-6">
       <div className="flex items-center justify-between">
@@ -47,15 +57,7 @@ export function ItemsEditor({ participants, defaultUserId }: ItemsEditorProps) {
           type="button"
           variant="outline"
           size="sm"
-          onClick={() => append({
-            title: '',
-            quantity: 1,
-            unit_amount: null,
-            amount: 0,
-            category_id: '',
-            share_method: 'equal',
-            shares: defaultUserId ? [{ user_id: defaultUserId, value: 0 }] : [],
-          })}
+          onClick={appendItem}
           className="h-8 border-primary text-primary hover:bg-primary/10 gap-1"
         >
           <Plus className="h-3 w-3" /> Item
@@ -73,17 +75,35 @@ export function ItemsEditor({ participants, defaultUserId }: ItemsEditorProps) {
         ))}
       </div>
 
-      <p
-        data-testid="items-summary"
-        className={`text-xs font-semibold ${closed ? 'text-emerald-500' : 'text-amber-500'}`}
+      {/* Adicionar item também no rodapé: com vários itens, evita rolar até o
+          topo toda vez. Nome acessível distinto do botão do cabeçalho ("Item"). */}
+      <Button
+        type="button"
+        variant="outline"
+        onClick={appendItem}
+        className="w-full border-dashed border-primary/50 text-primary hover:bg-primary/10 gap-1"
       >
-        {closed
-          ? `Itens fecham ${formatCurrency(watchedTotal ?? 0)}`
-          : itemsCents < totalCents
-            ? `Itens: ${formatCurrency(itemsCents / 100)} de ${formatCurrency(totalCents / 100)} — faltam ${formatCurrency(diff)}`
-            : `Itens: ${formatCurrency(itemsCents / 100)} de ${formatCurrency(totalCents / 100)} — ${formatCurrency(diff)} acima do total`}
-      </p>
-      {itemsError && <p className="text-sm text-destructive font-medium">{itemsError}</p>}
+        <Plus className="h-4 w-4" /> Adicionar item
+      </Button>
+
+      <div className="space-y-1">
+        <p
+          data-testid="items-summary"
+          className={`text-xs font-semibold ${closed ? 'text-emerald-500' : 'text-destructive'}`}
+        >
+          {closed
+            ? `Itens fecham ${formatCurrency(watchedTotal ?? 0)}`
+            : itemsCents < totalCents
+              ? `Itens: ${formatCurrency(itemsCents / 100)} de ${formatCurrency(totalCents / 100)} — faltam ${formatCurrency(diff)}`
+              : `Itens: ${formatCurrency(itemsCents / 100)} de ${formatCurrency(totalCents / 100)} — ${formatCurrency(diff)} acima do total`}
+        </p>
+        {/* Resumo ao vivo acima é a fonte única da soma. O erro do schema só
+            aparece quando NÃO há itens — evita a mensagem stale que contradizia
+            o resumo (o amount de item com unitário é derivado via setValue). */}
+        {fields.length === 0 && itemsError && (
+          <p className="text-sm text-destructive font-medium">{itemsError}</p>
+        )}
+      </div>
     </div>
   );
 }
@@ -121,29 +141,41 @@ function ItemRow({ index, participants, onRemove }: ItemRowProps) {
 
   return (
     <div className="space-y-3 p-4 rounded-xl bg-accent/20 border border-border/50" data-testid={`item-row-${index}`}>
-      <div className="flex items-start gap-3">
+      {/* Título — linha própria e larga; a lixeira acompanha o input */}
+      <div className="flex items-end gap-3">
         <div className="flex-1 space-y-1">
+          <Label className="text-[11px] font-semibold text-muted-foreground">Item</Label>
           <Input
-            placeholder="Item (ex: Carne)"
+            placeholder="Ex: Carne"
             aria-label="Título do item"
             {...register(`items.${index}.title` as const)}
             className="bg-background border-border"
           />
-          {itemErrors?.title && <p className="text-[10px] text-destructive font-medium">{itemErrors.title.message as string}</p>}
         </div>
+        <Button type="button" variant="ghost" size="sm" aria-label="Remover item" onClick={onRemove} className="h-9 w-9 p-0 text-destructive hover:bg-destructive/10">
+          <Trash2 className="h-4 w-4" />
+        </Button>
+      </div>
+      {itemErrors?.title && <p className="text-[10px] text-destructive font-medium">{itemErrors.title.message as string}</p>}
+
+      {/* Quantidade × unitário (ou total direto) — cada campo rotulado */}
+      <div className="flex items-start gap-3">
         <div className="w-20 space-y-1">
+          <Label className="text-[11px] font-semibold text-muted-foreground">Qtd</Label>
           <Input
             type="number"
             step="0.001"
             min="0"
-            placeholder="Qtd"
             aria-label="Quantidade"
             {...register(`items.${index}.quantity` as const, { valueAsNumber: true })}
             className="bg-background border-border"
           />
           {itemErrors?.quantity && <p className="text-[10px] text-destructive font-medium">{itemErrors.quantity.message as string}</p>}
         </div>
-        <div className="w-28">
+        <div className="flex-1 space-y-1">
+          <Label className="text-[11px] font-semibold text-muted-foreground">
+            Valor unitário <span className="font-normal">(opcional)</span>
+          </Label>
           <Controller
             name={`items.${index}.unit_amount` as const}
             control={control}
@@ -156,9 +188,9 @@ function ItemRow({ index, participants, onRemove }: ItemRowProps) {
               />
             )}
           />
-          <p className="text-[10px] text-muted-foreground mt-0.5">Unitário (opcional)</p>
         </div>
-        <div className="w-28 space-y-1">
+        <div className="flex-1 space-y-1">
+          <Label className="text-[11px] font-semibold text-muted-foreground">Total</Label>
           {hasUnitPrice ? (
             <div className="h-9 flex items-center px-3 rounded-md border border-border bg-muted text-sm font-bold" aria-label="Total do item">
               {formatCurrency(Number.isFinite(amount) ? amount : 0)}
@@ -179,15 +211,14 @@ function ItemRow({ index, participants, onRemove }: ItemRowProps) {
           )}
           {itemErrors?.amount && <p className="text-[10px] text-destructive font-medium">{itemErrors.amount.message as string}</p>}
         </div>
-        <Button type="button" variant="ghost" size="sm" aria-label="Remover item" onClick={onRemove} className="h-9 w-9 p-0 text-destructive hover:bg-destructive/10">
-          <Trash2 className="h-4 w-4" />
-        </Button>
       </div>
 
-      <div className="flex items-center gap-4">
+      {/* Categoria — linha própria, rotulada e com largura total */}
+      <div className="space-y-1">
+        <Label className="text-[11px] font-semibold text-muted-foreground">Categoria</Label>
         <select
           aria-label="Categoria do item"
-          className={`${selectClass} max-w-[200px]`}
+          className={selectClass}
           {...register(`items.${index}.category_id` as const)}
         >
           <option value="" className="bg-card">Sem categoria</option>
@@ -195,7 +226,11 @@ function ItemRow({ index, participants, onRemove }: ItemRowProps) {
             <option key={c.id} value={c.id} className="bg-card">{c.name}</option>
           ))}
         </select>
+      </div>
 
+      {/* Como dividir este item + participantes */}
+      <div className="flex items-center gap-4 flex-wrap">
+        <Label className="text-[11px] font-semibold text-muted-foreground">Dividir este item</Label>
         <Controller
           name={`items.${index}.share_method` as const}
           control={control}

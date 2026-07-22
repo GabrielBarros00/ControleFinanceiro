@@ -24,16 +24,11 @@ test('importa CSV pela UI: parse, preview e confirmação', async ({ page, conte
   await expect(page.getByText('Mercado E2E')).toBeVisible({ timeout: 15_000 });
   await expect(page.getByText('Padaria E2E')).toBeVisible();
 
-  const dialogs: string[] = [];
-  page.on('dialog', (d) => {
-    dialogs.push(d.message());
-    d.accept();
-  });
   await page.getByRole('button', { name: /Confirmar 2 Transações/ }).click();
 
-  // Volta ao dashboard e as transações importadas existem no backend
+  // Toast confirma a importação e a navegação volta ao dashboard
+  await expect(page.getByText(/2 criada\(s\)/)).toBeVisible({ timeout: 15_000 });
   await expect(page).toHaveURL(/\/$/, { timeout: 15_000 });
-  expect(dialogs.some((m) => m.includes('2 criada(s)'))).toBeTruthy();
   const list = await (await page.request.get(`/api/v1/workspaces/${ws.id}/transactions/`)).json();
   const titles = (list.items ?? list).map((t: { title: string }) => t.title);
   expect(titles).toContain('Mercado E2E');

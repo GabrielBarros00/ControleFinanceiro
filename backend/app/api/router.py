@@ -1,7 +1,7 @@
 from fastapi import APIRouter
 from app.api.routes import (
     auth, workspaces, members, transactions, income, analytics, credit_cards,
-    recurring, debts, imports, categories, financing, settlements, tags, attachments,
+    recurring, recurring_income, debts, imports, categories, financing, settlements, tags, attachments,
     payment_accounts, audit,
 )
 from app.ws import routes as ws_routes
@@ -17,6 +17,7 @@ router.include_router(income.router)
 router.include_router(analytics.router)
 router.include_router(credit_cards.router)
 router.include_router(recurring.router)
+router.include_router(recurring_income.router)
 router.include_router(debts.router)
 router.include_router(settlements.router)
 router.include_router(imports.router)

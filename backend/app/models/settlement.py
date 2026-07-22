@@ -17,6 +17,9 @@ class Settlement(SQLModel, table=True):
     to_user_id: int = Field(foreign_key="user.id", index=True)    # quem recebeu (credor)
     amount: Decimal = Field(decimal_places=2, max_digits=20)
     note: Optional[str] = None
+    # Mês (YYYY-MM) que este acerto quita quando registrado a partir do ledger
+    # mensal ("Dívidas do mês"). None = acerto global (só afeta o balanço geral).
+    billing_month: Optional[str] = Field(default=None, index=True)
     settled_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
     created_by_user_id: Optional[int] = Field(default=None, foreign_key="user.id")
 

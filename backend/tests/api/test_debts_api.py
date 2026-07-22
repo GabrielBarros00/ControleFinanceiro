@@ -77,9 +77,50 @@ def test_get_workspace_debts(db_session: Session, auth_header, test_workspace, o
     response = client.get(f"/api/v1/workspaces/{test_workspace.id}/debts", headers=auth_header)
     assert response.status_code == 200
     data = response.json()
-    
+
     # User 2 should owe User 1 50.00
     assert len(data) == 1
     assert data[0]["debtor_id"] == other_user.id
     assert data[0]["creditor_id"] == user1.id
     assert Decimal(data[0]["amount"]) == Decimal("50.00")
+
+
+def test_get_monthly_debts(db_session: Session, auth_header, test_workspace, other_user, override_get_session):
+    user1 = db_session.exec(select(User).where(User.email == "user1@example.com")).first()
+
+    # Parcela 1/3 de janeiro: user1 paga 100, dividida 50/50
+    tx = Transaction(
+        title="Compra (1/3)", total_amount=Decimal("100.00"),
+        transaction_date=datetime(2026, 1, 10, tzinfo=UTC), workspace_id=test_workspace.id,
+        created_by_user_id=user1.id, currency="BRL", status="confirmed",
+        billing_month="2026-01", installment_no=1, installments_of=3,
+    )
+    db_session.add(tx)
+    db_session.commit()
+    db_session.refresh(tx)
+    db_session.add(TransactionPayer(transaction_id=tx.id, user_id=user1.id, amount=Decimal("100.00")))
+    db_session.add(TransactionSplit(transaction_id=tx.id, user_id=user1.id, split_method=SplitMethod.equal, input_value=Decimal("0"), computed_amount=Decimal("50.00")))
+    db_session.add(TransactionSplit(transaction_id=tx.id, user_id=other_user.id, split_method=SplitMethod.equal, input_value=Decimal("0"), computed_amount=Decimal("50.00")))
+    db_session.commit()
+
+    # Mês com a parcela
+    resp = client.get(f"/api/v1/workspaces/{test_workspace.id}/debts/monthly?month=2026-01", headers=auth_header)
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["month"] == "2026-01"
+    assert len(data["expenses"]) == 1
+    assert data["expenses"][0]["installments_of"] == 3
+    assert data["expenses"][0]["is_paid"] is False
+    assert len(data["net_debts"]) == 1
+    assert data["net_debts"][0]["debtor_id"] == other_user.id
+    assert data["net_debts"][0]["creditor_id"] == user1.id
+    assert Decimal(data["net_debts"][0]["amount"]) == Decimal("50.00")
+
+    # Outro mês: retrato vazio
+    resp2 = client.get(f"/api/v1/workspaces/{test_workspace.id}/debts/monthly?month=2026-02", headers=auth_header)
+    assert resp2.status_code == 200
+    assert resp2.json()["expenses"] == []
+
+    # Formato de mês inválido
+    resp3 = client.get(f"/api/v1/workspaces/{test_workspace.id}/debts/monthly?month=xx", headers=auth_header)
+    assert resp3.status_code == 400

@@ -6,6 +6,9 @@ export interface Workspace {
   id: number;
   name: string;
   description?: string | null;
+  owner_user_id?: number | null;
+  owner_name?: string | null;
+  member_count?: number;
 }
 
 export function useWorkspaces() {

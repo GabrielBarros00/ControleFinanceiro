@@ -813,6 +813,62 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/workspaces/{workspace_id}/recurring-income": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Recurring Income */
+        get: operations["list_recurring_income_api_v1_workspaces__workspace_id__recurring_income_get"];
+        put?: never;
+        /** Create Recurring Income */
+        post: operations["create_recurring_income_api_v1_workspaces__workspace_id__recurring_income_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/workspaces/{workspace_id}/recurring-income/generate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Generate Recurring Income
+         * @description Materializa as rendas recorrentes vencidas do mês corrente (idempotente).
+         */
+        post: operations["generate_recurring_income_api_v1_workspaces__workspace_id__recurring_income_generate_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/workspaces/{workspace_id}/recurring-income/{recurring_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Update Recurring Income */
+        put: operations["update_recurring_income_api_v1_workspaces__workspace_id__recurring_income__recurring_id__put"];
+        post?: never;
+        /** Delete Recurring Income */
+        delete: operations["delete_recurring_income_api_v1_workspaces__workspace_id__recurring_income__recurring_id__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/workspaces/{workspace_id}/debts": {
         parameters: {
             query?: never;
@@ -822,6 +878,27 @@ export interface paths {
         };
         /** Get Debts */
         get: operations["get_debts_api_v1_workspaces__workspace_id__debts_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/workspaces/{workspace_id}/debts/monthly": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Monthly Debts
+         * @description Dívidas do mês selecionado (por billing_month): quem pagou, quanto cada
+         *     um deve e se a despesa está paga. Parcelas aparecem só no mês delas.
+         */
+        get: operations["get_monthly_debts_api_v1_workspaces__workspace_id__debts_monthly_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -1278,7 +1355,10 @@ export interface components {
         };
         /** Body_parse_csv_api_v1_workspaces__workspace_id__imports_parse_post */
         Body_parse_csv_api_v1_workspaces__workspace_id__imports_parse_post: {
-            /** File */
+            /**
+             * File
+             * Format: binary
+             */
             file: string;
             /** Date Column */
             date_column: string;
@@ -1309,7 +1389,10 @@ export interface components {
         };
         /** Body_upload_attachment_api_v1_workspaces__workspace_id__transactions__transaction_id__attachments_post */
         Body_upload_attachment_api_v1_workspaces__workspace_id__transactions__transaction_id__attachments_post: {
-            /** File */
+            /**
+             * File
+             * Format: binary
+             */
             file: string;
         };
         /** Category */
@@ -1561,6 +1644,10 @@ export interface components {
             workspace_id: number;
             /** User Id */
             user_id: number;
+            /** Recurring Income Id */
+            recurring_income_id?: number | null;
+            /** Billing Month */
+            billing_month?: string | null;
             /**
              * Created At
              * Format: date-time
@@ -1833,6 +1920,13 @@ export interface components {
             /** @default monthly */
             frequency: components["schemas"]["RecurrenceFrequency"];
             /**
+             * Interval
+             * @default 1
+             */
+            interval: number;
+            /** Start Date */
+            start_date?: string | null;
+            /**
              * Day Of Month
              * @default 1
              */
@@ -1864,6 +1958,13 @@ export interface components {
             base_amount: string;
             /** @default monthly */
             frequency: components["schemas"]["RecurrenceFrequency"];
+            /**
+             * Interval
+             * @default 1
+             */
+            interval: number;
+            /** Start Date */
+            start_date?: string | null;
             /** Day Of Month */
             day_of_month: number;
             /** Day Of Week */
@@ -1904,6 +2005,133 @@ export interface components {
              */
             updated_at?: string;
         };
+        /**
+         * RecurringIncome
+         * @description Template de renda recorrente. Materializa entradas Income mensais
+         *     (RecurringIncomeService.generate_due_income), espelhando RecurringExpense
+         *     mas sem divisão/pagador (renda é pessoal).
+         */
+        RecurringIncome: {
+            /** Title */
+            title: string;
+            /** Description */
+            description?: string | null;
+            /** Base Amount */
+            base_amount: string;
+            /**
+             * Currency
+             * @default BRL
+             */
+            currency: string;
+            /** Category */
+            category?: string | null;
+            /** @default monthly */
+            frequency: components["schemas"]["RecurrenceFrequency"];
+            /**
+             * Interval
+             * @default 1
+             */
+            interval: number;
+            /** Start Date */
+            start_date?: string | null;
+            /**
+             * Day Of Month
+             * @default 1
+             */
+            day_of_month: number;
+            /** Day Of Week */
+            day_of_week?: number | null;
+            /** Month Of Year */
+            month_of_year?: number | null;
+            /**
+             * Is Active
+             * @default true
+             */
+            is_active: boolean;
+            /** Id */
+            id?: number | null;
+            /** Workspace Id */
+            workspace_id: number;
+            /** Created By User Id */
+            created_by_user_id?: number | null;
+            /** User Id */
+            user_id: number;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at?: string;
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at?: string;
+        };
+        /** RecurringIncomeCreate */
+        RecurringIncomeCreate: {
+            /** Title */
+            title: string;
+            /** Description */
+            description?: string | null;
+            /** Base Amount */
+            base_amount: number | string;
+            /**
+             * Currency
+             * @default BRL
+             */
+            currency: string;
+            /** Category */
+            category?: string | null;
+            /** @default monthly */
+            frequency: components["schemas"]["RecurrenceFrequency"];
+            /**
+             * Interval
+             * @default 1
+             */
+            interval: number;
+            /** Start Date */
+            start_date?: string | null;
+            /**
+             * Day Of Month
+             * @default 1
+             */
+            day_of_month: number;
+            /** Day Of Week */
+            day_of_week?: number | null;
+            /** Month Of Year */
+            month_of_year?: number | null;
+            /**
+             * Is Active
+             * @default true
+             */
+            is_active: boolean;
+        };
+        /** RecurringIncomeUpdate */
+        RecurringIncomeUpdate: {
+            /** Title */
+            title?: string | null;
+            /** Description */
+            description?: string | null;
+            /** Base Amount */
+            base_amount?: number | string | null;
+            /** Currency */
+            currency?: string | null;
+            /** Category */
+            category?: string | null;
+            frequency?: components["schemas"]["RecurrenceFrequency"] | null;
+            /** Interval */
+            interval?: number | null;
+            /** Start Date */
+            start_date?: string | null;
+            /** Day Of Month */
+            day_of_month?: number | null;
+            /** Day Of Week */
+            day_of_week?: number | null;
+            /** Month Of Year */
+            month_of_year?: number | null;
+            /** Is Active */
+            is_active?: boolean | null;
+        };
         /** RecurringSplitEntry */
         RecurringSplitEntry: {
             /** User Id */
@@ -1925,6 +2153,10 @@ export interface components {
             /** Base Amount */
             base_amount?: number | string | null;
             frequency?: components["schemas"]["RecurrenceFrequency"] | null;
+            /** Interval */
+            interval?: number | null;
+            /** Start Date */
+            start_date?: string | null;
             /** Day Of Month */
             day_of_month?: number | null;
             /** Day Of Week */
@@ -1972,6 +2204,8 @@ export interface components {
             amount: number | string;
             /** Note */
             note?: string | null;
+            /** Billing Month */
+            billing_month?: string | null;
             /** Settled At */
             settled_at?: string | null;
         };
@@ -1987,6 +2221,8 @@ export interface components {
             amount: string;
             /** Note */
             note: string | null;
+            /** Billing Month */
+            billing_month: string | null;
             /**
              * Settled At
              * Format: date-time
@@ -2386,10 +2622,6 @@ export interface components {
             msg: string;
             /** Error Type */
             type: string;
-            /** Input */
-            input?: unknown;
-            /** Context */
-            ctx?: Record<string, never>;
         };
         /** WorkspaceCreate */
         WorkspaceCreate: {
@@ -2416,6 +2648,15 @@ export interface components {
              * Format: date-time
              */
             updated_at: string;
+            /** Owner User Id */
+            owner_user_id?: number | null;
+            /** Owner Name */
+            owner_name?: string | null;
+            /**
+             * Member Count
+             * @default 1
+             */
+            member_count: number;
         };
         /**
          * WorkspaceRole
@@ -4629,6 +4870,181 @@ export interface operations {
             };
         };
     };
+    list_recurring_income_api_v1_workspaces__workspace_id__recurring_income_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                workspace_id: number;
+            };
+            cookie?: {
+                access_token?: string | null;
+            };
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RecurringIncome"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    create_recurring_income_api_v1_workspaces__workspace_id__recurring_income_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                workspace_id: number;
+            };
+            cookie?: {
+                access_token?: string | null;
+            };
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RecurringIncomeCreate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RecurringIncome"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    generate_recurring_income_api_v1_workspaces__workspace_id__recurring_income_generate_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                workspace_id: number;
+            };
+            cookie?: {
+                access_token?: string | null;
+            };
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_recurring_income_api_v1_workspaces__workspace_id__recurring_income__recurring_id__put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                workspace_id: number;
+                recurring_id: number;
+            };
+            cookie?: {
+                access_token?: string | null;
+            };
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RecurringIncomeUpdate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RecurringIncome"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_recurring_income_api_v1_workspaces__workspace_id__recurring_income__recurring_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                workspace_id: number;
+                recurring_id: number;
+            };
+            cookie?: {
+                access_token?: string | null;
+            };
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     get_debts_api_v1_workspaces__workspace_id__debts_get: {
         parameters: {
             query?: never;
@@ -4651,6 +5067,43 @@ export interface operations {
                     "application/json": {
                         [key: string]: unknown;
                     }[];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_monthly_debts_api_v1_workspaces__workspace_id__debts_monthly_get: {
+        parameters: {
+            query?: {
+                month?: string | null;
+            };
+            header?: never;
+            path: {
+                workspace_id: number;
+            };
+            cookie?: {
+                access_token?: string | null;
+            };
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
                 };
             };
             /** @description Validation Error */

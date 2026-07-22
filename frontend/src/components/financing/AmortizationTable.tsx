@@ -13,6 +13,14 @@ import { MoneyInput } from "@/components/ui/MoneyInput";
 import { Loader2, Trash2 } from 'lucide-react';
 import { useFinancing, useFinancingSchedule, type Financing } from '@/hooks/use-financing';
 import { formatCurrency } from '@/lib/money';
+import { toast } from '@/stores/toast';
+import { useConfirm } from '@/components/ui/confirm';
+
+// Base UI Select abre num portal fora do focus-trap do Dialog (Radix) e fecha
+// na hora — dentro de diálogos usamos <select> nativo (mesmo padrão de
+// SettlementDialog/RecurringTransactionsPage/PaymentMethodField).
+const selectClass =
+  'flex h-10 w-full rounded-md border border-border bg-background px-3 py-2 text-sm font-semibold text-foreground focus:outline-none focus:ring-2 focus:ring-ring';
 
 function CreateFinancingDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (o: boolean) => void }) {
   const { create } = useFinancing();
@@ -86,10 +94,10 @@ function CreateFinancingDialog({ open, onOpenChange }: { open: boolean; onOpenCh
               <select
                 value={method}
                 onChange={(e) => setMethod(e.target.value as 'SAC' | 'PRICE')}
-                className="flex h-10 w-full rounded-md border border-border bg-background px-3 text-sm font-semibold text-foreground"
+                className={selectClass}
               >
-                <option value="SAC">SAC</option>
-                <option value="PRICE">PRICE</option>
+                <option value="SAC" className="bg-card">SAC</option>
+                <option value="PRICE" className="bg-card">PRICE</option>
               </select>
             </div>
           </div>
@@ -201,7 +209,7 @@ function FinancingDetail({ financing }: { financing: Financing }) {
                         onClick={async () => {
                           try {
                             await payInstallment({ financingId: financing.id, installmentNumber: row.installment_number });
-                          } catch { alert('Erro ao pagar parcela.'); }
+                          } catch { toast.error('Erro ao pagar parcela.'); }
                         }}
                       >
                         Pagar
@@ -222,6 +230,7 @@ function FinancingDetail({ financing }: { financing: Financing }) {
 
 export function AmortizationTable() {
   const { financings, isLoading, remove } = useFinancing();
+  const confirm = useConfirm();
   const [selectedId, setSelectedId] = React.useState<number | null>(null);
   const [createOpen, setCreateOpen] = React.useState(false);
 
@@ -268,8 +277,14 @@ export function AmortizationTable() {
               variant="ghost"
               className="text-destructive hover:bg-destructive/10 gap-2"
               onClick={async () => {
-                if (!confirm(`Excluir o financiamento "${selected.title}"?`)) return;
-                try { await remove(selected.id); } catch { alert('Erro ao excluir.'); }
+                const ok = await confirm({
+                  title: 'Excluir financiamento',
+                  description: `Excluir o financiamento "${selected.title}"?`,
+                  confirmLabel: 'Excluir',
+                  destructive: true,
+                });
+                if (!ok) return;
+                try { await remove(selected.id); } catch { toast.error('Erro ao excluir.'); }
               }}
             >
               <Trash2 className="h-4 w-4" /> Excluir

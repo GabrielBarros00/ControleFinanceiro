@@ -7,7 +7,7 @@ from app.domain.query_policy import (
     workspace_base_currency,
 )
 from app.models.transaction import Transaction
-from app.models.recurring import RecurringExpense, RecurrenceFrequency
+from app.models.recurring import RecurringExpense, RecurringIncome, RecurrenceFrequency
 from app.models.estimate import MonthlyEstimate
 from app.models.income import Income
 from app.models.credit_card import CreditCard, CardStatement, StatementStatus
@@ -142,6 +142,38 @@ class ForecastService:
             .where(Income.deleted_at.is_(None))
         ).one() or Decimal("0.00")
 
+        # 6b. Rendas recorrentes ainda NÃO materializadas no mês → projeção.
+        # Simétrico ao remaining_fixed das despesas: já materializadas contam em
+        # income_actual; as pendentes (sem instância) entram como renda esperada.
+        income_pending = Decimal("0.00")
+        if is_current or target_month > today:
+            recurring_incomes = db.exec(
+                select(RecurringIncome)
+                .where(RecurringIncome.workspace_id == workspace_id)
+                .where(RecurringIncome.is_active.is_(True))
+            ).all()
+            materialized_income = db.exec(
+                select(Income.recurring_income_id, Income.received_at)
+                .where(Income.workspace_id == workspace_id)
+                .where(Income.billing_month == billing_month)
+                .where(Income.recurring_income_id.is_not(None))
+                .where(Income.deleted_at.is_(None))
+            ).all()
+            mat_income_dates = {(rid, dt.date()) for rid, dt in materialized_income}
+            mat_income_templates = {rid for rid, _ in materialized_income}
+            for ri in recurring_incomes:
+                for occ in RecurringService.occurrences_in_month(
+                    ri, target_month.year, target_month.month
+                ):
+                    if ri.frequency in per_occurrence:
+                        already = (ri.id, occ) in mat_income_dates
+                    else:
+                        already = ri.id in mat_income_templates
+                    if not already:
+                        income_pending += ri.base_amount
+
+        projected_income = income_actual + income_pending
+
         # Lançamentos em moeda estrangeira ficam fora da projeção (ADR 0006);
         # a contagem sinaliza isso ao usuário (E5/F-04).
         excluded_foreign_count = db.exec(
@@ -167,5 +199,7 @@ class ForecastService:
             "total_budget": total_budget,
             "is_over_budget": projected_total > total_budget if total_budget > 0 else False,
             "income_actual": income_actual,
-            "projected_net": (income_actual - projected_total).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP),
+            "income_pending": income_pending,
+            "projected_income": projected_income,
+            "projected_net": (projected_income - projected_total).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP),
         }

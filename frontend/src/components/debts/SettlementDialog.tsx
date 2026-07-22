@@ -23,6 +23,8 @@ export interface SettlementDraft {
   from_user_id: number;
   to_user_id: number;
   amount: number;
+  // Quando o acerto vem do ledger mensal, quita a dívida daquele mês (YYYY-MM)
+  billing_month?: string;
 }
 
 interface SettlementDialogProps {
@@ -71,6 +73,7 @@ export function SettlementDialog({ open, onOpenChange, draft, members }: Settlem
         to_user_id: Number(toId),
         amount,
         note: note.trim() || undefined,
+        billing_month: draft?.billing_month,
       });
       onOpenChange(false);
     } catch (err) {

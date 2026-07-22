@@ -23,6 +23,11 @@ class WorkspaceRead(WorkspaceBase):
     id: int
     created_at: datetime
     updated_at: datetime
+    # Quem criou/é dono e quantos membros — para o switcher indicar "de quem é"
+    # quando o workspace é compartilhado (member_count > 1)
+    owner_user_id: Optional[int] = None
+    owner_name: Optional[str] = None
+    member_count: int = 1
 
 
 class MemberRead(BaseModel):

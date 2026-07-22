@@ -24,6 +24,7 @@ export function PayersEditor({ participants }: PayersEditorProps) {
 
   const watchedPayers = watch('payers');
   const watchedTotal = watch('total_amount');
+  const creditCardId = watch('credit_card_id');
   const multi = fields.length > 1;
 
   const payersError = errors.payers?.root?.message
@@ -107,9 +108,17 @@ export function PayersEditor({ participants }: PayersEditorProps) {
                   {...register(`payers.${index}.payment_method` as const)}
                 >
                   <option value="" className="bg-card">Método da despesa</option>
-                  {PAYMENT_METHOD_OPTIONS.map((opt) => (
-                    <option key={opt.value} value={opt.value} className="bg-card">{opt.label}</option>
-                  ))}
+                  {PAYMENT_METHOD_OPTIONS.map((opt) => {
+                    // Crédito por pagador exige o cartão da despesa definido —
+                    // desabilita a opção enquanto não houver, evitando o estado
+                    // inválido que travava a mensagem de erro
+                    const needsCard = opt.value === 'credit_card' && !creditCardId;
+                    return (
+                      <option key={opt.value} value={opt.value} className="bg-card" disabled={needsCard}>
+                        {opt.label}{needsCard ? ' — defina o cartão da despesa' : ''}
+                      </option>
+                    );
+                  })}
                 </select>
                 {watchedPayers?.[index]?.payment_method !== 'credit_card' && activeAccounts.length > 0 && (
                   <select

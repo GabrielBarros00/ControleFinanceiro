@@ -27,6 +27,8 @@ class RecurringCreate(BaseModel):
     description: Optional[str] = None
     base_amount: Decimal = Field(gt=0)
     frequency: RecurrenceFrequency = RecurrenceFrequency.monthly
+    interval: int = Field(default=1, ge=1)
+    start_date: Optional[date] = None
     day_of_month: int = Field(default=1, ge=1, le=31)
     day_of_week: Optional[int] = Field(default=None, ge=0, le=6)
     month_of_year: Optional[int] = Field(default=None, ge=1, le=12)
@@ -43,6 +45,8 @@ class RecurringUpdate(BaseModel):
     description: Optional[str] = None
     base_amount: Optional[Decimal] = Field(default=None, gt=0)
     frequency: Optional[RecurrenceFrequency] = None
+    interval: Optional[int] = Field(default=None, ge=1)
+    start_date: Optional[date] = None
     day_of_month: Optional[int] = Field(default=None, ge=1, le=31)
     day_of_week: Optional[int] = Field(default=None, ge=0, le=6)
     month_of_year: Optional[int] = Field(default=None, ge=1, le=12)
@@ -58,7 +62,14 @@ def _validate_frequency_fields(
     frequency: RecurrenceFrequency,
     day_of_week: Optional[int],
     month_of_year: Optional[int],
+    interval: int = 1,
+    start_date: Optional[date] = None,
 ) -> None:
+    # Personalizado (a cada N>1): tudo deriva de start_date, que passa a ser exigido
+    if interval and interval > 1:
+        if start_date is None:
+            raise HTTPException(status_code=400, detail="Recorrência personalizada (a cada N) exige a data de início")
+        return
     if frequency == RecurrenceFrequency.weekly and day_of_week is None:
         raise HTTPException(status_code=400, detail="Recorrência semanal exige o dia da semana")
     if frequency == RecurrenceFrequency.yearly and month_of_year is None:
@@ -113,7 +124,8 @@ def create_recurring(
     membership: WorkspaceMembership = Depends(require_role(WorkspaceRole.member))
 ):
     _validate_frequency_fields(
-        recurring_in.frequency, recurring_in.day_of_week, recurring_in.month_of_year
+        recurring_in.frequency, recurring_in.day_of_week, recurring_in.month_of_year,
+        recurring_in.interval, recurring_in.start_date,
     )
     _validate_snapshot(
         session, workspace_id,
@@ -195,7 +207,8 @@ def update_recurring(
 
     # Estado FINAL precisa ser coerente (frequência × campos auxiliares + snapshot)
     _validate_frequency_fields(
-        db_recurring.frequency, db_recurring.day_of_week, db_recurring.month_of_year
+        db_recurring.frequency, db_recurring.day_of_week, db_recurring.month_of_year,
+        db_recurring.interval, db_recurring.start_date,
     )
     _validate_snapshot(
         session, workspace_id,

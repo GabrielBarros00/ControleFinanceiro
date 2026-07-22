@@ -1,12 +1,13 @@
 import calendar
-from datetime import date, datetime, UTC
+from datetime import date, datetime, timedelta, UTC
 from decimal import Decimal
 from typing import List, Optional, Tuple
 
 from sqlmodel import Session, select
 
 from app.models.category import Category
-from app.models.recurring import RecurringExpense, RecurrenceFrequency
+from app.models.income import Income
+from app.models.recurring import RecurringExpense, RecurringIncome, RecurrenceFrequency
 from app.models.transaction import (
     Transaction,
     TransactionItem,
@@ -26,9 +27,20 @@ EDIT_SCOPES = ("none", "future", "all")
 
 class RecurringService:
     @staticmethod
-    def occurrences_in_month(template: RecurringExpense, year: int, month: int) -> List[date]:
-        """Datas em que o template ocorre no mês (respeitando a frequência)."""
+    def occurrences_in_month(template, year: int, month: int) -> List[date]:
+        """Datas em que o template ocorre no mês.
+
+        interval == 1 → preset "phase-free" (legado): diário = todo dia; semanal =
+        day_of_week; mensal = day_of_month; anual = month_of_year + day_of_month.
+        interval > 1 → "a cada N períodos" ancorado em start_date (fallback
+        created_at): o dia/semana/mês/ano deriva da âncora. Serve tanto
+        RecurringExpense quanto RecurringIncome (duck typing dos mesmos campos).
+        """
         last_day = calendar.monthrange(year, month)[1]
+        interval = getattr(template, "interval", 1) or 1
+
+        if interval > 1:
+            return RecurringService._interval_occurrences(template, year, month, interval, last_day)
 
         if template.frequency == RecurrenceFrequency.daily:
             return [date(year, month, day) for day in range(1, last_day + 1)]
@@ -48,6 +60,55 @@ class RecurringService:
 
         # monthly (e yearly no mês certo): dia limitado ao fim do mês
         return [date(year, month, min(template.day_of_month, last_day))]
+
+    @staticmethod
+    def _interval_occurrences(template, year: int, month: int, interval: int, last_day: int) -> List[date]:
+        """Ocorrências de "a cada N períodos" no mês, ancoradas em start_date."""
+        anchor = getattr(template, "start_date", None)
+        if anchor is None:
+            created = getattr(template, "created_at", None)
+            anchor = created.date() if created is not None else date(year, month, 1)
+
+        month_start = date(year, month, 1)
+        month_end = date(year, month, last_day)
+        if anchor > month_end:
+            return []
+
+        freq = template.frequency
+
+        # Diário/semanal: passo fixo em dias a partir da âncora
+        if freq in (RecurrenceFrequency.daily, RecurrenceFrequency.weekly):
+            step = interval if freq == RecurrenceFrequency.daily else interval * 7
+            if anchor >= month_start:
+                first = anchor
+            else:
+                gap = (month_start - anchor).days
+                k = -(-gap // step)  # ceil(gap/step): 1ª ocorrência >= início do mês
+                first = anchor + timedelta(days=k * step)
+            out: List[date] = []
+            d = first
+            while d <= month_end:
+                out.append(d)
+                d += timedelta(days=step)
+            return out
+
+        # Mensal: mesmo dia da âncora, a cada N meses alinhados à âncora
+        if freq == RecurrenceFrequency.monthly:
+            anchor_mi = anchor.year * 12 + (anchor.month - 1)
+            target_mi = year * 12 + (month - 1)
+            if target_mi < anchor_mi or (target_mi - anchor_mi) % interval != 0:
+                return []
+            occ = date(year, month, min(anchor.day, last_day))
+            return [occ] if occ >= anchor else []
+
+        # Anual: mesmo mês/dia da âncora, a cada N anos alinhados à âncora
+        if freq == RecurrenceFrequency.yearly:
+            if month != anchor.month or year < anchor.year or (year - anchor.year) % interval != 0:
+                return []
+            occ = date(year, month, min(anchor.day, last_day))
+            return [occ] if occ >= anchor else []
+
+        return []
 
     # ---- Materialização COMPLETA (ADR 0012) ---------------------------------
 
@@ -266,3 +327,64 @@ class RecurringService:
                     pass
                 RecurringService._apply_category(db, template, tx)
         db.flush()
+
+
+class RecurringIncomeService:
+    """Materializa rendas recorrentes em entradas Income mensais. Espelha
+    RecurringService.generate_due_instances, mas renda não tem divisão/pagador —
+    reusa RecurringService.occurrences_in_month para o calendário."""
+
+    @staticmethod
+    def generate_due_income(db: Session, workspace_id: int, today: date) -> int:
+        """Cria as rendas recorrentes VENCIDAS (data <= hoje) do mês corrente.
+
+        Dedup por (recurring_income, occurrence) — instância excluída deixa
+        tombstone (deleted_at) e não ressuscita. Não faz commit (ADR 0010).
+        """
+        billing_month = f"{today.year:04d}-{today.month:02d}"
+
+        templates = db.exec(
+            select(RecurringIncome)
+            .where(RecurringIncome.workspace_id == workspace_id)
+            .where(RecurringIncome.is_active.is_(True))
+        ).all()
+        if not templates:
+            return 0
+
+        # Inclui excluídas de propósito: tombstone bloqueia recriação
+        existing = db.exec(
+            select(Income.recurring_income_id, Income.received_at)
+            .where(Income.workspace_id == workspace_id)
+            .where(Income.billing_month == billing_month)
+            .where(Income.recurring_income_id.is_not(None))
+        ).all()
+        existing_dates = {(rid, dt.date()) for rid, dt in existing}
+        existing_templates = {rid for rid, _ in existing}
+
+        per_occurrence = (RecurrenceFrequency.daily, RecurrenceFrequency.weekly)
+
+        created = 0
+        for template in templates:
+            for occ in RecurringService.occurrences_in_month(template, today.year, today.month):
+                if occ > today:
+                    continue
+                if template.frequency in per_occurrence:
+                    if (template.id, occ) in existing_dates:
+                        continue
+                elif template.id in existing_templates:
+                    continue
+
+                db.add(Income(
+                    title=template.title,
+                    description=template.description,
+                    amount=template.base_amount,
+                    currency=template.currency,
+                    category=template.category,
+                    received_at=datetime(occ.year, occ.month, occ.day, tzinfo=UTC),
+                    workspace_id=template.workspace_id,
+                    user_id=template.user_id,
+                    recurring_income_id=template.id,
+                    billing_month=billing_month,
+                ))
+                created += 1
+        return created

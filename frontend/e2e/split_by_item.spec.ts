@@ -26,29 +26,35 @@ test.describe('Divisão por item e edição completa', () => {
     const email = `item_e2e_${Date.now()}@example.com`;
     await registerAndOnboard(page, 'Item Tester', email);
 
-    await page.getByLabel('Título / Descrição').fill('Churrasco E2E');
-    await page.getByLabel('Valor Total').fill('90,00');
-    await page.getByLabel('Forma de pagamento').selectOption('pix');
+    // Abre o modal de Nova Despesa
+    await page.getByRole('button', { name: 'Nova Despesa' }).click();
+    const createDialog = page.getByRole('dialog');
+    await expect(createDialog).toBeVisible();
 
-    // Alterna para divisão por item — abre o editor com um item semeado
-    await page.getByRole('radio', { name: 'Por item' }).click();
-    await expect(page.getByLabel('Título do item')).toBeVisible();
+    await createDialog.getByLabel('Título / Descrição').fill('Churrasco E2E');
+    await createDialog.getByLabel('Valor Total').fill('90,00');
+    await createDialog.getByLabel('Forma de pagamento').selectOption('pix');
+
+    // Divisão por item mora em "Opções avançadas"
+    await createDialog.getByRole('button', { name: /Opções avançadas/ }).click();
+    await createDialog.getByRole('radio', { name: 'Por item' }).click();
+    await expect(createDialog.getByLabel('Título do item')).toBeVisible();
 
     // Item 1: Carne, total direto de R$ 60
-    await page.getByLabel('Título do item').fill('Carne');
-    await page.getByLabel('Total do item').fill('60,00');
+    await createDialog.getByLabel('Título do item').fill('Carne');
+    await createDialog.getByLabel('Total do item').fill('60,00');
 
     // Item 2: Cerveja, 3 × R$ 10 (total da linha derivado)
-    await page.getByRole('button', { name: 'Item', exact: true }).click();
-    await page.getByLabel('Título do item').nth(1).fill('Cerveja');
-    await page.getByLabel('Quantidade').nth(1).fill('3');
-    await page.getByLabel('Valor unitário').nth(1).fill('10,00');
+    await createDialog.getByRole('button', { name: 'Item', exact: true }).click();
+    await createDialog.getByLabel('Título do item').nth(1).fill('Cerveja');
+    await createDialog.getByLabel('Quantidade').nth(1).fill('3');
+    await createDialog.getByLabel('Valor unitário').nth(1).fill('10,00');
 
     // Resumo fecha o total
-    await expect(page.getByTestId('items-summary')).toContainText('Itens fecham');
+    await expect(createDialog.getByTestId('items-summary')).toContainText('Itens fecham');
 
-    await page.getByRole('button', { name: 'Salvar Despesa' }).click();
-    await expect(page.getByText('Salvo com sucesso!')).toBeVisible({ timeout: 10_000 });
+    await createDialog.getByRole('button', { name: 'Salvar Despesa' }).click();
+    await expect(createDialog).not.toBeVisible({ timeout: 10_000 });
 
     // Histórico: transação com forma de pagamento Pix
     const row = page.getByRole('row', { name: /Churrasco E2E/ });
@@ -67,16 +73,21 @@ test.describe('Divisão por item e edição completa', () => {
     const email = `edit_e2e_${Date.now()}@example.com`;
     await registerAndOnboard(page, 'Edit Tester', email);
 
-    await page.getByLabel('Título / Descrição').fill('Edicao Full E2E');
-    await page.getByLabel('Valor Total').fill('100,00');
-    await page.getByRole('button', { name: 'Salvar Despesa' }).click();
-    await expect(page.getByText('Salvo com sucesso!')).toBeVisible({ timeout: 10_000 });
+    await page.getByRole('button', { name: 'Nova Despesa' }).click();
+    const createDialog = page.getByRole('dialog');
+    await expect(createDialog).toBeVisible();
+    await createDialog.getByLabel('Título / Descrição').fill('Edicao Full E2E');
+    await createDialog.getByLabel('Valor Total').fill('100,00');
+    await createDialog.getByRole('button', { name: 'Salvar Despesa' }).click();
+    await expect(createDialog).not.toBeVisible({ timeout: 10_000 });
 
     const row = page.getByRole('row', { name: /Edicao Full E2E/ });
     await expect(row).toBeVisible({ timeout: 10_000 });
     await row.getByRole('button', { name: 'Editar transação' }).click();
 
     const dialog = page.getByRole('dialog');
+    // A despesa criada é "igual" (simples) → abre as opções avançadas para trocar o método
+    await dialog.getByRole('button', { name: /Opções avançadas/ }).click();
     await dialog.getByRole('radio', { name: 'Valor Fixo' }).click();
     await dialog.getByRole('textbox', { name: 'Valor fixo' }).fill('100,00');
     await expect(dialog.getByTestId('split-summary')).toContainText('Valores fecham');

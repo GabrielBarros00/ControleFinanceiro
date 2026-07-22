@@ -9,6 +9,7 @@ import { MoneyInput } from "@/components/ui/MoneyInput";
 import { PiggyBank, Loader2 } from 'lucide-react';
 import { useEstimates } from '@/hooks/use-estimates';
 import { formatCurrency } from '@/lib/money';
+import { toast } from '@/stores/toast';
 
 interface BudgetCardProps {
   totalBudget: number;
@@ -31,7 +32,7 @@ export function BudgetCard({ totalBudget, isOverBudget }: BudgetCardProps) {
       await setBudget(amount);
       setDialogOpen(false);
     } catch {
-      alert('Erro ao salvar o orçamento.');
+      toast.error('Erro ao salvar o orçamento.');
     }
   };
 

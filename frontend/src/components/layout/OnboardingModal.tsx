@@ -6,6 +6,7 @@ import { MoneyInput } from "@/components/ui/MoneyInput";
 import { useAuth } from '@/hooks/use-auth';
 import { apiClient } from '@/api/client';
 import { useUIStore } from '@/stores';
+import { toast } from '@/stores/toast';
 import { Wallet, CreditCard, Sparkles, ChevronRight, ArrowLeft, Calendar } from 'lucide-react';
 
 export function OnboardingModal() {
@@ -39,8 +40,8 @@ export function OnboardingModal() {
       });
       setIsOpen(false);
       window.location.reload(); // Reload to refresh user state and dashboard
-    } catch (err) {
-      alert('Erro ao salvar onboarding. Verifique se preencheu todos os campos corretamente.');
+    } catch {
+      toast.error('Erro ao salvar onboarding', 'Verifique se preencheu todos os campos corretamente.');
     } finally {
       setLoading(false);
     }

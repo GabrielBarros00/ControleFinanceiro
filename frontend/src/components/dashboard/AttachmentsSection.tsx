@@ -4,6 +4,7 @@ import { Label } from '@/components/ui/label';
 import { Paperclip, FileText, Image as ImageIcon, Trash2, Loader2, Upload } from 'lucide-react';
 import { useAttachments, type AttachmentMeta } from '@/hooks/use-attachments';
 import { getApiErrorMessage } from '@/lib/api-error';
+import { useConfirm } from '@/components/ui/confirm';
 
 function formatSize(bytes: number): string {
   if (bytes >= 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
@@ -15,6 +16,7 @@ export function AttachmentsSection({ transactionId }: { transactionId: number })
   const { attachments, upload, remove, open, isUploading } = useAttachments(transactionId);
   const inputRef = React.useRef<HTMLInputElement>(null);
   const [error, setError] = React.useState<string | null>(null);
+  const confirm = useConfirm();
 
   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -29,7 +31,13 @@ export function AttachmentsSection({ transactionId }: { transactionId: number })
   };
 
   const handleDelete = async (attachment: AttachmentMeta) => {
-    if (!confirm(`Remover o anexo "${attachment.filename}"?`)) return;
+    const ok = await confirm({
+      title: 'Remover anexo',
+      description: `Remover o anexo "${attachment.filename}"? Esta ação não pode ser desfeita.`,
+      confirmLabel: 'Remover',
+      destructive: true,
+    });
+    if (!ok) return;
     setError(null);
     try {
       await remove(attachment.id);

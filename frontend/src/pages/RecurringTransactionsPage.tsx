@@ -19,13 +19,20 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { MoneyInput } from "@/components/ui/MoneyInput";
+import { RecurrenceEditor } from "@/components/recurrence/RecurrenceEditor";
+import { recurrenceLabel, recurrenceFromItem, toRecurrencePayload, type RecurrenceValue } from "@/lib/recurrence";
 import { getApiErrorMessage } from '@/lib/api-error';
+import { toast } from '@/stores/toast';
+import { useConfirm } from '@/components/ui/confirm';
 
 const recurringSchema = z.object({
   title: z.string().min(1, 'Título é obrigatório'),
   description: z.string().optional(),
   base_amount: z.number().min(0.01, 'Valor deve ser maior que zero'),
+  custom: z.boolean(),
   frequency: z.enum(['daily', 'weekly', 'monthly', 'yearly']),
+  interval: z.number().min(1),
+  start_date: z.string(),
   day_of_month: z.number().min(1).max(31),
   day_of_week: z.number().min(0).max(6),
   month_of_year: z.number().min(1).max(12),
@@ -40,94 +47,97 @@ interface RecurringItem {
   description?: string | null;
   base_amount: string;
   frequency: 'daily' | 'weekly' | 'monthly' | 'yearly';
+  interval?: number | null;
+  start_date?: string | null;
   day_of_month: number;
   day_of_week?: number | null;
   month_of_year?: number | null;
   is_active: boolean;
 }
 
-const WEEKDAYS = ['Segunda', 'Terça', 'Quarta', 'Quinta', 'Sexta', 'Sábado', 'Domingo'];
-const MONTHS = [
-  'Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho',
-  'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro',
-];
+const todayStr = () => new Date().toISOString().slice(0, 10);
 
-function recurrenceLabel(item: RecurringItem): string {
-  if (item.frequency === 'daily') {
-    return 'Todo dia';
-  }
-  if (item.frequency === 'weekly') {
-    return `Toda ${WEEKDAYS[item.day_of_week ?? 0]?.toLowerCase() ?? ''}`;
-  }
-  if (item.frequency === 'yearly') {
-    return `Todo ano em ${item.day_of_month}/${String(item.month_of_year ?? 1).padStart(2, '0')}`;
-  }
-  return `Dia ${item.day_of_month}`;
-}
-
-const selectClass =
-  'flex h-10 w-full rounded-md border border-border bg-background px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring';
+const DEFAULTS: RecurringValues = {
+  title: '',
+  description: '',
+  base_amount: 0,
+  custom: false,
+  frequency: 'monthly',
+  interval: 1,
+  start_date: todayStr(),
+  day_of_month: 1,
+  day_of_week: 0,
+  month_of_year: 1,
+  is_active: true,
+};
 
 export function RecurringTransactionsPage() {
   const { recurring, isLoading, create, update, remove, generate, isGenerating } = useRecurring();
+  const confirm = useConfirm();
   const [dialogOpen, setDialogOpen] = React.useState(false);
   const [editingId, setEditingId] = React.useState<number | null>(null);
 
   const { register, handleSubmit, setValue, watch, reset, formState: { errors } } = useForm<RecurringValues>({
     resolver: zodResolver(recurringSchema),
-    defaultValues: {
-      is_active: true,
-      frequency: 'monthly',
-      day_of_month: 1,
-      day_of_week: 0,
-      month_of_year: 1,
-    }
+    defaultValues: DEFAULTS,
   });
 
   const baseAmount = watch('base_amount');
-  const frequency = watch('frequency');
+
+  // Ponte entre o react-hook-form e o RecurrenceEditor (controlado)
+  const recurrence: RecurrenceValue = {
+    custom: watch('custom'),
+    frequency: watch('frequency'),
+    interval: watch('interval'),
+    start_date: watch('start_date'),
+    day_of_week: watch('day_of_week'),
+    day_of_month: watch('day_of_month'),
+    month_of_year: watch('month_of_year'),
+  };
+  const patchRecurrence = (patch: Partial<RecurrenceValue>) => {
+    (Object.entries(patch) as [keyof RecurrenceValue, RecurrenceValue[keyof RecurrenceValue]][])
+      .forEach(([k, v]) => setValue(k, v as never));
+  };
 
   const openCreate = () => {
     setEditingId(null);
-    reset({
-      title: '',
-      description: '',
-      base_amount: 0,
-      frequency: 'monthly',
-      day_of_month: 1,
-      day_of_week: 0,
-      month_of_year: 1,
-      is_active: true,
-    });
+    reset({ ...DEFAULTS, start_date: todayStr() });
     setDialogOpen(true);
   };
 
   const openEdit = (item: RecurringItem) => {
     setEditingId(item.id);
+    const rec = recurrenceFromItem(item);
     reset({
       title: item.title,
       description: item.description || '',
       base_amount: parseFloat(item.base_amount),
-      frequency: item.frequency ?? 'monthly',
-      day_of_month: item.day_of_month,
-      day_of_week: item.day_of_week ?? 0,
-      month_of_year: item.month_of_year ?? 1,
       is_active: item.is_active,
+      ...rec,
     });
     setDialogOpen(true);
   };
 
   const onSubmit = async (data: RecurringValues) => {
-    // Envia só os campos relevantes para a frequência escolhida
+    if (data.custom && !data.start_date) {
+      toast.error('Escolha a data de início da recorrência personalizada.');
+      return;
+    }
+    const recValue: RecurrenceValue = {
+      custom: data.custom,
+      frequency: data.frequency,
+      interval: data.interval,
+      start_date: data.start_date,
+      day_of_week: data.day_of_week,
+      day_of_month: data.day_of_month,
+      month_of_year: data.month_of_year,
+    };
     const payload = {
       title: data.title,
       description: data.description,
       base_amount: data.base_amount,
-      frequency: data.frequency,
-      day_of_month: data.day_of_month,
-      day_of_week: data.frequency === 'weekly' ? data.day_of_week : null,
-      month_of_year: data.frequency === 'yearly' ? data.month_of_year : null,
       is_active: data.is_active,
+      ...toRecurrencePayload(recValue),
     };
     try {
       if (editingId) {
@@ -137,27 +147,35 @@ export function RecurringTransactionsPage() {
       }
       setDialogOpen(false);
     } catch (err) {
-      alert(getApiErrorMessage(err, 'Erro ao salvar despesa recorrente'));
+      toast.error(getApiErrorMessage(err, 'Erro ao salvar despesa recorrente'));
     }
   };
 
   const handleDelete = async (id: number) => {
-    if (!confirm('Tem certeza que deseja excluir esta despesa recorrente? Isso não afetará transações já geradas.')) return;
+    const ok = await confirm({
+      title: 'Excluir despesa recorrente',
+      description: 'Tem certeza? Isso não afetará transações já geradas.',
+      confirmLabel: 'Excluir',
+      destructive: true,
+    });
+    if (!ok) return;
     try {
       await remove(id);
     } catch (err) {
-      alert(getApiErrorMessage(err, 'Erro ao excluir despesa recorrente'));
+      toast.error(getApiErrorMessage(err, 'Erro ao excluir despesa recorrente'));
     }
   };
 
   const handleGenerate = async () => {
     try {
       const result = await generate();
-      alert(result.created > 0
-        ? `${result.created} lançamento(s) pendente(s) criado(s).`
-        : 'Nenhum lançamento pendente — tudo em dia.');
+      if (result.created > 0) {
+        toast.success(`${result.created} lançamento(s) pendente(s) criado(s).`);
+      } else {
+        toast.info('Nenhum lançamento pendente — tudo em dia.');
+      }
     } catch (err) {
-      alert(getApiErrorMessage(err, 'Erro ao lançar pendentes'));
+      toast.error(getApiErrorMessage(err, 'Erro ao lançar pendentes'));
     }
   };
 
@@ -174,7 +192,7 @@ export function RecurringTransactionsPage() {
       <div className="flex items-center justify-between">
         <div>
           <h2 className="text-2xl font-bold tracking-tight text-foreground">Despesas Recorrentes</h2>
-          <p className="text-muted-foreground">Gerencie seus gastos fixos mensais que são gerados automaticamente.</p>
+          <p className="text-muted-foreground">Gerencie seus gastos fixos que são gerados automaticamente.</p>
         </div>
         <div className="flex items-center gap-2">
           <Button variant="outline" onClick={handleGenerate} disabled={isGenerating} className="gap-2 font-bold">
@@ -222,8 +240,8 @@ export function RecurringTransactionsPage() {
                   </TableCell>
                   <TableCell>
                     <div className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-black uppercase tracking-tighter ${
-                      item.is_active 
-                        ? 'bg-emerald-500/10 text-emerald-500 border border-emerald-500/20' 
+                      item.is_active
+                        ? 'bg-emerald-500/10 text-emerald-500 border border-emerald-500/20'
                         : 'bg-muted text-muted-foreground border border-border'
                     }`}>
                       {item.is_active ? 'Ativo' : 'Inativo'}
@@ -236,17 +254,17 @@ export function RecurringTransactionsPage() {
                   </TableCell>
                   <TableCell>
                     <div className="flex items-center justify-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                      <Button 
-                        variant="ghost" 
-                        size="sm" 
+                      <Button
+                        variant="ghost"
+                        size="sm"
                         onClick={() => openEdit(item)}
                         className="h-8 w-8 p-0 text-primary hover:bg-primary/10"
                       >
                         <Edit2 className="h-4 w-4" />
                       </Button>
-                      <Button 
-                        variant="ghost" 
-                        size="sm" 
+                      <Button
+                        variant="ghost"
+                        size="sm"
                         onClick={() => handleDelete(item.id)}
                         className="h-8 w-8 p-0 text-destructive hover:bg-destructive/10"
                       >
@@ -266,7 +284,7 @@ export function RecurringTransactionsPage() {
           <DialogHeader>
             <DialogTitle>{editingId ? 'Editar Despesa' : 'Nova Despesa Recorrente'}</DialogTitle>
             <DialogDescription>
-              Configure os detalhes da sua despesa mensal automática.
+              Configure os detalhes da sua despesa automática.
             </DialogDescription>
           </DialogHeader>
           <form onSubmit={handleSubmit(onSubmit)} className="space-y-4 py-4">
@@ -274,10 +292,10 @@ export function RecurringTransactionsPage() {
               <Label htmlFor="title">Título</Label>
               <div className="relative group">
                 <Repeat className="absolute left-3 top-2.5 h-4 w-4 text-muted-foreground group-focus-within:text-primary" />
-                <Input 
-                  id="title" 
-                  placeholder="Ex: Aluguel, Internet, Academia..." 
-                  {...register('title')} 
+                <Input
+                  id="title"
+                  placeholder="Ex: Aluguel, Internet, Academia..."
+                  {...register('title')}
                   className="pl-10 bg-background/50"
                 />
               </div>
@@ -286,86 +304,38 @@ export function RecurringTransactionsPage() {
 
             <div className="space-y-2">
               <Label htmlFor="description">Descrição (Opcional)</Label>
-              <Input 
-                id="description" 
-                placeholder="Detalhes adicionais..." 
-                {...register('description')} 
+              <Input
+                id="description"
+                placeholder="Detalhes adicionais..."
+                {...register('description')}
                 className="bg-background/50"
               />
             </div>
 
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label htmlFor="base_amount">Valor Base</Label>
-                <MoneyInput
-                  id="base_amount"
-                  value={baseAmount}
-                  onChange={(val: number) => setValue('base_amount', val)}
-                  className="bg-background/50"
-                />
-                {errors.base_amount && <p className="text-xs text-destructive font-medium">{errors.base_amount.message}</p>}
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="frequency">Frequência</Label>
-                <select id="frequency" className={selectClass} {...register('frequency')}>
-                  <option value="monthly">Mensal</option>
-                  <option value="weekly">Semanal</option>
-                  <option value="daily">Diária</option>
-                  <option value="yearly">Anual</option>
-                </select>
-              </div>
+            <div className="space-y-2">
+              <Label htmlFor="base_amount">Valor Base</Label>
+              <MoneyInput
+                id="base_amount"
+                value={baseAmount}
+                onChange={(val: number) => setValue('base_amount', val)}
+                className="bg-background/50"
+              />
+              {errors.base_amount && <p className="text-xs text-destructive font-medium">{errors.base_amount.message}</p>}
             </div>
 
-            <div className="grid grid-cols-2 gap-4">
-              {frequency === 'weekly' ? (
-                <div className="space-y-2">
-                  <Label htmlFor="day_of_week">Dia da Semana</Label>
-                  <select id="day_of_week" className={selectClass} {...register('day_of_week', { valueAsNumber: true })}>
-                    {WEEKDAYS.map((name, idx) => (
-                      <option key={idx} value={idx}>{name}</option>
-                    ))}
-                  </select>
-                </div>
-              ) : (
-                <div className="space-y-2">
-                  <Label htmlFor="day_of_month">Dia do Vencimento</Label>
-                  <div className="relative group">
-                    <Calendar className="absolute left-3 top-2.5 h-4 w-4 text-muted-foreground group-focus-within:text-primary" />
-                    <Input
-                      id="day_of_month"
-                      type="number"
-                      min={1}
-                      max={31}
-                      {...register('day_of_month', { valueAsNumber: true })}
-                      className="pl-10 bg-background/50"
-                    />
-                  </div>
-                  {errors.day_of_month && <p className="text-xs text-destructive font-medium">{errors.day_of_month.message}</p>}
-                </div>
-              )}
-              {frequency === 'yearly' && (
-                <div className="space-y-2">
-                  <Label htmlFor="month_of_year">Mês do Ano</Label>
-                  <select id="month_of_year" className={selectClass} {...register('month_of_year', { valueAsNumber: true })}>
-                    {MONTHS.map((name, idx) => (
-                      <option key={idx} value={idx + 1}>{name}</option>
-                    ))}
-                  </select>
-                </div>
-              )}
-            </div>
+            <RecurrenceEditor value={recurrence} onChange={patchRecurrence} idPrefix="rec" />
 
             <div className="flex items-center justify-between p-3 rounded-lg bg-accent/30 border border-border">
               <div className="space-y-0.5">
                 <Label>Despesa Ativa</Label>
                 <p className="text-[10px] text-muted-foreground font-medium">Desative para pausar a geração automática.</p>
               </div>
-              <Switch 
-                checked={watch('is_active')} 
-                onCheckedChange={(val) => setValue('is_active', val)} 
+              <Switch
+                checked={watch('is_active')}
+                onCheckedChange={(val) => setValue('is_active', val)}
               />
             </div>
-            
+
             <DialogFooter className="pt-4">
               <Button type="button" variant="ghost" onClick={() => setDialogOpen(false)}>Cancelar</Button>
               <Button type="submit" className="bg-primary font-bold px-8">Salvar</Button>

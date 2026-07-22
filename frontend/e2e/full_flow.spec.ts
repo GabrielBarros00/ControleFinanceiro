@@ -28,24 +28,20 @@ test.describe('Full User Flow', () => {
     ]);
     await expect(page.getByRole('heading', { name: 'Dashboard' })).toBeVisible({ timeout: 15_000 });
 
-    // 3. Cria transação pela Entrada Rápida
-    await page.getByLabel('Título / Descrição').fill('E2E Test Tx');
-    await page.getByLabel('Valor Total').fill('123,45');
+    // 3. Cria transação pelo modal Nova Despesa
+    await page.getByRole('button', { name: 'Nova Despesa' }).click();
+    const dialog = page.getByRole('dialog');
+    await expect(dialog).toBeVisible();
 
-    // Seleciona pagador e participante (aguarda membros carregarem nas opções)
-    const payer = page.getByLabel('Quem pagou?');
-    await expect(payer.locator('option', { hasText: 'Test User' })).toHaveCount(1, { timeout: 10_000 });
-    await payer.selectOption({ label: 'Test User' });
+    await dialog.getByLabel('Título / Descrição').fill('E2E Test Tx');
+    await dialog.getByLabel('Valor Total').fill('123,45');
 
-    const participants = page.getByLabel('Participante');
-    if (await participants.count() === 0) {
-      await page.getByRole('button', { name: '+ Participante' }).click();
-    }
-    await participants.first().selectOption({ label: 'Test User' });
+    // Pagador e divisão usam os padrões (você paga e divide consigo mesmo)
+    await dialog.getByRole('button', { name: 'Salvar Despesa' }).click();
 
-    await page.getByRole('button', { name: 'Salvar Despesa' }).click();
-
-    await expect(page.getByText('Salvo com sucesso!')).toBeVisible({ timeout: 10_000 });
+    // Modal fecha ao salvar; toast confirma
+    await expect(dialog).not.toBeVisible({ timeout: 10_000 });
+    await expect(page.getByText('Despesa adicionada')).toBeVisible({ timeout: 10_000 });
 
     // 4. A transação aparece no histórico
     await expect(page.getByText('E2E Test Tx').first()).toBeVisible({ timeout: 10_000 });

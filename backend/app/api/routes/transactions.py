@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlmodel import Session, select, func
-from typing import List, Optional
+from typing import Dict, List, Optional
 from decimal import Decimal
 import math
 import datetime
@@ -21,7 +21,10 @@ from app.models.transaction import (
 )
 from app.schemas.transaction import (
     TransactionCreate,
+    TransactionItemCreate,
+    TransactionItemShareBase,
     TransactionRead,
+    TransactionSplitBase,
     TransactionUpdate,
     TransactionListResponse,
     normalize_payment_method,
@@ -167,6 +170,104 @@ def create_transaction(
     return db_transaction
 
 
+def _split_amounts(amount: Decimal, parts: int) -> List[Decimal]:
+    """Fatia um valor pelos N meses em centavos exatos (resíduo 1¢ aos primeiros
+    — ADR 0001). Soma das fatias == valor original por construção."""
+    return [m.amount for m in Money(amount).split_equal(parts)]
+
+
+def _plan_installment_items(
+    items: List[TransactionItemCreate], count: int
+) -> List[List[TransactionItemCreate]]:
+    """Divisão POR ITEM parcelada: fatia cada item pelos N meses, preservando a
+    estrutura de participantes. Para shares fixas, fatia o valor de CADA share e
+    deriva o total da linha da soma das fatias — assim as shares continuam
+    fechando o valor do item em toda parcela. Retorna, por parcela, a lista de
+    itens já com quantity=1/unit=None (o valor da linha vira direto)."""
+    per_installment: List[List[TransactionItemCreate]] = [[] for _ in range(count)]
+    for position, item in enumerate(items):
+        method = item.shares[0].split_method if item.shares else SplitMethod.equal
+        if method == SplitMethod.fixed:
+            share_slices = [_split_amounts(sh.input_value, count) for sh in item.shares]
+            for i in range(count):
+                shares_i = [
+                    TransactionItemShareBase(
+                        user_id=sh.user_id,
+                        split_method=SplitMethod.fixed,
+                        input_value=share_slices[k][i],
+                    )
+                    for k, sh in enumerate(item.shares)
+                ]
+                amount_i = sum((s.input_value for s in shares_i), Decimal("0"))
+                per_installment[i].append(item.model_copy(update={
+                    "amount": amount_i,
+                    "quantity": Decimal("1"),
+                    "unit_amount": None,
+                    "position": position,
+                    "shares": shares_i,
+                }))
+        else:
+            # equal/percentage: input_value é escala-invariante — só o valor da
+            # linha é fatiado; o serviço recomputa as shares por parcela
+            amount_slices = _split_amounts(item.amount, count)
+            for i in range(count):
+                per_installment[i].append(item.model_copy(update={
+                    "amount": amount_slices[i],
+                    "quantity": Decimal("1"),
+                    "unit_amount": None,
+                    "position": position,
+                    "shares": list(item.shares or []),
+                }))
+    return per_installment
+
+
+def _installment_plan(transaction_in: TransactionCreate, count: int) -> List[Dict]:
+    """Plano por parcela {total, splits, items}: parcelar = fatiar a divisão
+    pelos N meses. Modo item fatia por item; modo transaction/valor fixo fatia
+    cada split; modo transaction igual/porcentagem mantém o comportamento atual
+    (split_equal do total, splits escalam por natureza)."""
+    if transaction_in.split_mode == SplitMode.item:
+        items_per = _plan_installment_items(transaction_in.items or [], count)
+        return [
+            {
+                "total": sum((it.amount for it in items_i), Decimal("0")),
+                "splits": [],
+                "items": items_i,
+            }
+            for items_i in items_per
+        ]
+
+    method = (
+        transaction_in.splits[0].split_method
+        if transaction_in.splits
+        else SplitMethod.equal
+    )
+    if method == SplitMethod.fixed:
+        split_slices = [_split_amounts(s.input_value, count) for s in transaction_in.splits]
+        plans: List[Dict] = []
+        for i in range(count):
+            splits_i = [
+                TransactionSplitBase(
+                    user_id=s.user_id,
+                    split_method=SplitMethod.fixed,
+                    input_value=split_slices[k][i],
+                )
+                for k, s in enumerate(transaction_in.splits)
+            ]
+            plans.append({
+                "total": sum((sp.input_value for sp in splits_i), Decimal("0")),
+                "splits": splits_i,
+                "items": None,
+            })
+        return plans
+
+    amounts = _split_amounts(transaction_in.total_amount, count)
+    return [
+        {"total": amounts[i], "splits": list(transaction_in.splits), "items": None}
+        for i in range(count)
+    ]
+
+
 def _create_installments(
     session: Session,
     workspace_id: int,
@@ -174,12 +275,13 @@ def _create_installments(
     membership: WorkspaceMembership,
     card: Optional[CreditCard],
 ):
-    """Cria N transações irmãs (i/N) com valores split_equal do total, cada uma
-    roteada para a fatura do seu mês. Atômico: qualquer falha descarta tudo."""
+    """Cria N transações irmãs (i/N), cada uma roteada para a fatura do seu mês,
+    fatiando a divisão pelos N meses (igual/porcentagem/valor fixo, pela despesa
+    ou por item). Atômico: qualquer falha descarta tudo."""
     count = transaction_in.installments_count
-    amounts = Money(transaction_in.total_amount).split_equal(count)
     group_id = uuid.uuid4().hex
     payer = transaction_in.payers[0]
+    plans = _installment_plan(transaction_in, count)
 
     base_data = transaction_in.model_dump(exclude={
         "payers", "splits", "items", "adjustments", "tag_ids", "installments_count",
@@ -189,7 +291,9 @@ def _create_installments(
     first_tx = None
     try:
         for i in range(count):
-            inst_amount = amounts[i].amount
+            plan = plans[i]
+            inst_amount = plan["total"]
+            inst_title = f"{transaction_in.title} ({i + 1}/{count})"
             inst_date = _add_months(transaction_in.transaction_date, i)
 
             statement_id = None
@@ -199,7 +303,7 @@ def _create_installments(
 
             db_transaction = Transaction(
                 **base_data,
-                title=f"{transaction_in.title} ({i + 1}/{count})",
+                title=inst_title,
                 total_amount=inst_amount,
                 transaction_date=inst_date,
                 billing_month=inst_date.strftime("%Y-%m"),
@@ -213,12 +317,12 @@ def _create_installments(
             session.add(db_transaction)
             session.flush()
 
-            # Item-categoria único (se houver) escala junto com a parcela
-            items = None
-            if transaction_in.items:
+            items = plan["items"]
+            if items is None and transaction_in.items:
+                # Modo transaction: item-categoria único escala com a parcela
                 template = transaction_in.items[0]
                 items = [template.model_copy(update={
-                    "title": db_transaction.title,
+                    "title": inst_title,
                     "amount": inst_amount,
                     "quantity": Decimal("1"),
                     "unit_amount": None,
@@ -231,7 +335,7 @@ def _create_installments(
                 total_amount=inst_amount,
                 split_mode=transaction_in.split_mode,
                 payers=[payer.model_copy(update={"amount": inst_amount})],
-                splits=transaction_in.splits,  # equal/percentage escalam por natureza
+                splits=plan["splits"],
                 items=items,
             )
 

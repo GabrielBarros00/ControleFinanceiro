@@ -6,10 +6,11 @@ import { Input } from '@/components/ui/input';
 import { MoneyInput } from '@/components/ui/MoneyInput';
 import { Label } from '@/components/ui/label';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
-import { Loader2, CheckCircle2, AlertCircle } from 'lucide-react';
+import { Loader2, CheckCircle2, AlertCircle, SlidersHorizontal, ChevronDown } from 'lucide-react';
 import { useMembers } from '@/hooks/use-members';
 import { useCategories } from '@/hooks/use-categories';
 import { useAuthStore } from '@/stores';
+import { cn } from '@/lib/utils';
 import { getApiErrorMessage } from '@/lib/api-error';
 import {
   transactionFormSchema,
@@ -20,7 +21,8 @@ import { SplitEditor } from './SplitEditor';
 import { ItemsEditor } from './ItemsEditor';
 import { PaymentMethodField } from './PaymentMethodField';
 import { PayersEditor } from './PayersEditor';
-import { TagsField } from './TagsField';
+import { TagMultiSelect } from './TagMultiSelect';
+import { SimpleSplitChips } from './SimpleSplitChips';
 
 const selectClass =
   'flex h-10 w-full rounded-md border border-border bg-background px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring';
@@ -33,17 +35,26 @@ interface TransactionFormProps {
   submitLabel: string;
   resetOnSuccess?: boolean;
   allowInstallments?: boolean;
+  // Chamado após um submit bem-sucedido (ex.: fechar o modal)
+  onSuccess?: () => void;
 }
 
-// Form compartilhado criar/editar despesa: campos base + forma de pagamento +
-// divisão pela despesa (SplitEditor) OU por item (ItemsEditor)
-export function TransactionForm({ initialValues, onSubmit, submitLabel, resetOnSuccess = false, allowInstallments = false }: TransactionFormProps) {
+// Form compartilhado criar/editar despesa. Layout slim: o essencial fica sempre
+// visível; método %/fixo, divisão por item e categoria moram em "Opções
+// avançadas" (progressive disclosure).
+export function TransactionForm({ initialValues, onSubmit, submitLabel, resetOnSuccess = false, allowInstallments = false, onSuccess }: TransactionFormProps) {
   const { user } = useAuthStore();
   const { members } = useMembers();
   const { categories } = useCategories();
   const [loading, setLoading] = React.useState(false);
   const [success, setSuccess] = React.useState(false);
   const [apiError, setApiError] = React.useState<string | null>(null);
+
+  // Abre "avançado" já aberto quando os valores iniciais não são o caso simples
+  // (edição de despesa em %/fixo ou por item)
+  const [advanced, setAdvanced] = React.useState(
+    () => initialValues.split_mode === 'item' || initialValues.split_method !== 'equal'
+  );
 
   // Participantes reais do workspace (fallback: usuário atual enquanto carrega)
   const participants = members.length > 0
@@ -78,6 +89,21 @@ export function TransactionForm({ initialValues, onSubmit, submitLabel, resetOnS
     }
   };
 
+  const toggleAdvanced = () => {
+    setAdvanced((prev) => {
+      const next = !prev;
+      // Ao recolher, volta ao caso simples: divisão igual pela despesa
+      if (!next) {
+        if (getValues('split_mode') !== 'transaction') setValue('split_mode', 'transaction', { shouldValidate: true });
+        if (getValues('split_method') !== 'equal') setValue('split_method', 'equal', { shouldValidate: true });
+        if ((getValues('splits') ?? []).length === 0 && defaultUserId) {
+          setValue('splits', [{ user_id: defaultUserId, value: 0 }], { shouldValidate: true });
+        }
+      }
+      return next;
+    });
+  };
+
   const submit = async (data: unknown) => {
     const values = data as TransactionFormValues;
     setLoading(true);
@@ -89,6 +115,7 @@ export function TransactionForm({ initialValues, onSubmit, submitLabel, resetOnS
         setSuccess(true);
         setTimeout(() => setSuccess(false), 3000);
       }
+      onSuccess?.();
     } catch (err) {
       setApiError(getApiErrorMessage(err, 'Erro ao salvar despesa. Verifique os campos.'));
     } finally {
@@ -99,9 +126,9 @@ export function TransactionForm({ initialValues, onSubmit, submitLabel, resetOnS
   return (
     <FormProvider {...methods}>
       <form onSubmit={handleSubmit(submit)}>
-        <div className="space-y-6">
+        <div className="space-y-5">
 
-          <div className="grid grid-cols-2 gap-6">
+          <div className="grid grid-cols-2 gap-4">
             <div className="space-y-2">
               <Label htmlFor="title" className="text-sm font-semibold text-foreground">Título / Descrição</Label>
               <Input id="title" placeholder="Ex: Mercado" {...register('title')} className="bg-background border-border focus:ring-primary" />
@@ -125,7 +152,7 @@ export function TransactionForm({ initialValues, onSubmit, submitLabel, resetOnS
             </div>
           </div>
 
-          <div className="grid grid-cols-2 gap-6">
+          <div className="grid grid-cols-2 gap-4">
             <PayersEditor participants={participants} />
             <div className="space-y-2">
               <Label htmlFor="transaction_date" className="text-sm font-semibold text-foreground">Data</Label>
@@ -136,43 +163,61 @@ export function TransactionForm({ initialValues, onSubmit, submitLabel, resetOnS
 
           <PaymentMethodField allowInstallments={allowInstallments} />
 
-          <TagsField />
+          <TagMultiSelect />
 
-          {splitMode === 'transaction' && (
-            <div className="grid grid-cols-2 gap-6">
-              <div className="space-y-2">
-                <Label htmlFor="category_id" className="text-sm font-semibold text-foreground">Categoria</Label>
-                <select id="category_id" className={selectClass} {...register('category_id')}>
-                  <option value="" className="bg-card">Sem categoria</option>
-                  {categories.map(c => (
-                    <option key={c.id} value={c.id} className="bg-card">{c.name}</option>
-                  ))}
-                </select>
-              </div>
-            </div>
-          )}
+          {/* Divisão simples (padrão): rateio igual entre os selecionados */}
+          {!advanced && <SimpleSplitChips participants={participants} />}
 
-          <div className="space-y-3 p-4 rounded-xl bg-accent/30 border border-border/50">
-            <Label className="text-sm font-bold text-foreground">Como dividir?</Label>
-            <RadioGroup
-              value={splitMode}
-              onValueChange={(value) => handleSplitModeChange(value as 'transaction' | 'item')}
-              className="flex space-x-6"
+          <div>
+            <button
+              type="button"
+              onClick={toggleAdvanced}
+              aria-expanded={advanced}
+              className="flex items-center gap-2 text-sm font-semibold text-primary transition-colors hover:text-primary/80"
             >
-              <div className="flex items-center space-x-2">
-                <RadioGroupItem value="transaction" id="mode-transaction" className="border-primary text-primary" />
-                <Label htmlFor="mode-transaction" className="text-sm font-medium text-foreground cursor-pointer">Pela despesa</Label>
-              </div>
-              <div className="flex items-center space-x-2">
-                <RadioGroupItem value="item" id="mode-item" className="border-primary text-primary" />
-                <Label htmlFor="mode-item" className="text-sm font-medium text-foreground cursor-pointer">Por item</Label>
-              </div>
-            </RadioGroup>
+              <SlidersHorizontal className="h-4 w-4" />
+              Opções avançadas
+              <ChevronDown className={cn('h-4 w-4 transition-transform', advanced && 'rotate-180')} />
+            </button>
           </div>
 
-          {splitMode === 'transaction'
-            ? <SplitEditor participants={participants} />
-            : <ItemsEditor participants={participants} defaultUserId={defaultUserId} />}
+          {advanced && (
+            <div className="space-y-5 rounded-xl border border-border/60 bg-accent/20 p-4 animate-in fade-in slide-in-from-top-1 duration-200">
+              <div className="space-y-3">
+                <Label className="text-sm font-bold text-foreground">Como dividir?</Label>
+                <RadioGroup
+                  value={splitMode}
+                  onValueChange={(value) => handleSplitModeChange(value as 'transaction' | 'item')}
+                  className="flex space-x-6"
+                >
+                  <div className="flex items-center space-x-2">
+                    <RadioGroupItem value="transaction" id="mode-transaction" className="border-primary text-primary" />
+                    <Label htmlFor="mode-transaction" className="text-sm font-medium text-foreground cursor-pointer">Pela despesa</Label>
+                  </div>
+                  <div className="flex items-center space-x-2">
+                    <RadioGroupItem value="item" id="mode-item" className="border-primary text-primary" />
+                    <Label htmlFor="mode-item" className="text-sm font-medium text-foreground cursor-pointer">Por item</Label>
+                  </div>
+                </RadioGroup>
+              </div>
+
+              {splitMode === 'transaction' && (
+                <div className="space-y-2">
+                  <Label htmlFor="category_id" className="text-sm font-semibold text-foreground">Categoria</Label>
+                  <select id="category_id" className={selectClass} {...register('category_id')}>
+                    <option value="" className="bg-card">Sem categoria</option>
+                    {categories.map(c => (
+                      <option key={c.id} value={c.id} className="bg-card">{c.name}</option>
+                    ))}
+                  </select>
+                </div>
+              )}
+
+              {splitMode === 'transaction'
+                ? <SplitEditor participants={participants} />
+                : <ItemsEditor participants={participants} defaultUserId={defaultUserId} />}
+            </div>
+          )}
 
         </div>
 

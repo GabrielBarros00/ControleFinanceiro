@@ -3,7 +3,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { http, HttpResponse } from 'msw';
 import { server } from '@/test/setup';
 import { describe, it, expect, beforeEach } from 'vitest';
-import { SplitEntryForm } from '../../SplitEntryForm';
+import { NewTransactionDialog } from '../../NewTransactionDialog';
 import { useAuthStore, useUIStore } from '@/stores';
 
 const WS = 'http://localhost:8000/api/v1/workspaces/1';
@@ -17,7 +17,7 @@ function renderForm() {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
     <QueryClientProvider client={queryClient}>
-      <SplitEntryForm />
+      <NewTransactionDialog open onOpenChange={() => {}} />
     </QueryClientProvider>
   );
 }
@@ -38,6 +38,8 @@ describe('TransactionForm — divisão por item', () => {
   async function switchToItemMode() {
     fireEvent.change(screen.getByLabelText('Título / Descrição'), { target: { value: 'Churrasco' } });
     fireEvent.change(screen.getByLabelText('Valor Total'), { target: { value: '90,00' } });
+    // A divisão por item mora em "Opções avançadas"
+    fireEvent.click(screen.getByRole('button', { name: /Opções avançadas/i }));
     fireEvent.click(screen.getByRole('radio', { name: 'Por item' }));
     await waitFor(() => {
       expect(screen.getByTestId('item-row-0')).toBeInTheDocument();

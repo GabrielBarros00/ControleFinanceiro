@@ -33,7 +33,7 @@ def get_summary(
     else:
         target_date = date.today()
 
-    return ReportService.get_summary(session, workspace_id, target_date)
+    return ReportService.get_summary(session, workspace_id, target_date, user_id=membership.user_id)
 
 
 @router.get("/reports", response_model=Dict[str, Any])
@@ -43,8 +43,8 @@ def get_reports(
     membership: WorkspaceMembership = Depends(get_workspace_membership)
 ):
     return {
-        "monthly_history": ReportService.get_last_6_months(session, workspace_id),
-        "current_summary": ReportService.get_summary(session, workspace_id, date.today())
+        "monthly_history": ReportService.get_last_6_months(session, workspace_id, user_id=membership.user_id),
+        "current_summary": ReportService.get_summary(session, workspace_id, date.today(), user_id=membership.user_id)
     }
 
 

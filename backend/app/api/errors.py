@@ -4,6 +4,10 @@ from fastapi.exceptions import RequestValidationError
 from starlette.exceptions import HTTPException as StarletteHTTPException
 from app.schemas.common import ErrorResponse, ErrorDetail
 
+# Starlette 0.47 renomeou HTTP_422_UNPROCESSABLE_ENTITY → HTTP_422_UNPROCESSABLE_CONTENT.
+# Aceita as duas versões para não quebrar o handler de validação.
+HTTP_422 = getattr(status, "HTTP_422_UNPROCESSABLE_CONTENT", None) or status.HTTP_422_UNPROCESSABLE_ENTITY
+
 async def validation_exception_handler(request: Request, exc: RequestValidationError):
     """Tratamento de erros de validação do Pydantic (422)."""
     details = {}
@@ -19,7 +23,7 @@ async def validation_exception_handler(request: Request, exc: RequestValidationE
         )
     )
     return JSONResponse(
-        status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+        status_code=HTTP_422,
         content=error_res.model_dump()
     )
 

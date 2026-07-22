@@ -16,7 +16,7 @@ from app.core.config import settings
 from app.models.user import User  # noqa: F401,E402
 from app.models.workspace import Workspace, WorkspaceMembership, WorkspaceInvite  # noqa: F401,E402
 from app.models.transaction import Transaction, TransactionPayer, TransactionSplit, TransactionItem, TransactionItemShare  # noqa: F401,E402
-from app.models.recurring import RecurringExpense  # noqa: F401,E402
+from app.models.recurring import RecurringExpense, RecurringIncome  # noqa: F401,E402
 from app.models.audit import AuditLog  # noqa: F401,E402
 from app.models.income import Income  # noqa: F401,E402
 from app.models.credit_card import CreditCard, CardStatement  # noqa: F401,E402

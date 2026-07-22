@@ -3,7 +3,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { http, HttpResponse } from 'msw';
 import { server } from '@/test/setup';
 import { describe, it, expect, beforeEach } from 'vitest';
-import { SplitEntryForm } from '../../SplitEntryForm';
+import { NewTransactionDialog } from '../../NewTransactionDialog';
 import { useAuthStore, useUIStore } from '@/stores';
 
 const WS = 'http://localhost:8000/api/v1/workspaces/1';
@@ -17,7 +17,7 @@ function renderForm() {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
     <QueryClientProvider client={queryClient}>
-      <SplitEntryForm />
+      <NewTransactionDialog open onOpenChange={() => {}} />
     </QueryClientProvider>
   );
 }

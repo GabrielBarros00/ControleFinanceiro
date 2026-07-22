@@ -8,6 +8,7 @@ import { useImports } from '@/hooks/use-imports';
 import { FileUp, Check, Loader2, Settings2, CopyX } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { getApiErrorMessage } from '@/lib/api-error';
+import { toast } from '@/stores/toast';
 
 interface ParsedRow {
   line?: number;
@@ -54,7 +55,7 @@ export function ImportPage() {
       setPreview(data.rows);
       setSkippedRows(data.skipped);
     } catch (err) {
-      alert(getApiErrorMessage(err, 'Erro ao processar arquivo. Verifique o delimitador e os nomes das colunas.'));
+      toast.error(getApiErrorMessage(err, 'Erro ao processar arquivo. Verifique o delimitador e os nomes das colunas.'));
     }
   };
 
@@ -66,7 +67,7 @@ export function ImportPage() {
   const handleImport = async () => {
     if (!preview) return;
     if (rowsToImport.length === 0) {
-      alert('Nada a importar: todas as linhas são duplicatas.');
+      toast.warning('Nada a importar', 'Todas as linhas são duplicatas.');
       return;
     }
     try {
@@ -80,13 +81,14 @@ export function ImportPage() {
         decision: (skipDuplicates && r.duplicate ? 'ignore' : 'import') as 'import' | 'ignore',
       }));
       const result = await commit({ filename: file?.name, rows });
-      alert(
-        `Importação concluída: ${result.imported} criada(s), ` +
-        `${result.duplicate} duplicata(s), ${result.ignored} ignorada(s), ${result.skipped} inválida(s).`
+      toast.success(
+        'Importação concluída',
+        `${result.imported} criada(s), ${result.duplicate} duplicata(s), ` +
+        `${result.ignored} ignorada(s), ${result.skipped} inválida(s).`
       );
       navigate('/');
     } catch (err) {
-      alert(getApiErrorMessage(err, 'Erro ao importar transações.'));
+      toast.error(getApiErrorMessage(err, 'Erro ao importar transações.'));
     }
   };
 

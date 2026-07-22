@@ -15,6 +15,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Search, Download, FilterX } from 'lucide-react';
 import { getApiErrorMessage } from '@/lib/api-error';
 import { paymentMethodLabel, PAYMENT_METHOD_OPTIONS } from '@/lib/payment-methods';
+import { useConfirm } from '@/components/ui/confirm';
+import { toast } from '@/stores/toast';
 import type { TransactionRead } from '@/types/transaction';
 
 export function TransactionHistory() {
@@ -47,6 +49,7 @@ export function TransactionHistory() {
   const { members } = useMembers();
   const { tags } = useTags();
   const { canWrite } = useWorkspaceRole();  // viewer não edita/exclui (RBAC-FE-001)
+  const confirm = useConfirm();
 
   const memberName = React.useCallback(
     (userId: number) => members.find((m) => m.user_id === userId)?.user_name ?? `#${userId}`,
@@ -114,12 +117,18 @@ export function TransactionHistory() {
   };
 
   const handleDelete = async (id: number) => {
-    if (!confirm('Tem certeza que deseja remover esta transação?')) return;
+    const ok = await confirm({
+      title: 'Remover transação',
+      description: 'Tem certeza que deseja remover esta transação?',
+      confirmLabel: 'Remover',
+      destructive: true,
+    });
+    if (!ok) return;
     try {
       await remove(id);
       setDialogOpen(false);
     } catch (err) {
-      alert(getApiErrorMessage(err, 'Erro ao remover transação'));
+      toast.error(getApiErrorMessage(err, 'Erro ao remover transação'));
     }
   };
 
@@ -185,7 +194,7 @@ export function TransactionHistory() {
             />
           </div>
           <div className="flex gap-2">
-            <Select value={filters.month} onValueChange={handleMonthChange}>
+            <Select items={months} value={filters.month} onValueChange={handleMonthChange}>
               <SelectTrigger className="w-[180px] bg-background/50 border-border">
                 <SelectValue placeholder="Selecionar Mês" />
               </SelectTrigger>
@@ -196,6 +205,7 @@ export function TransactionHistory() {
               </SelectContent>
             </Select>
             <Select
+              items={[{ value: 'all', label: 'Todo pagamento' }, ...PAYMENT_METHOD_OPTIONS]}
               value={filters.payment_method || 'all'}
               onValueChange={(value: string | null) =>
                 setFilters(prev => ({ ...prev, payment_method: value === 'all' ? undefined : value ?? undefined, page: 1 }))
@@ -213,6 +223,7 @@ export function TransactionHistory() {
             </Select>
             {tags.length > 0 && (
               <Select
+                items={[{ value: 'all', label: 'Toda tag' }, ...tags.map((t) => ({ value: String(t.id), label: t.name }))]}
                 value={filters.tag_id ? String(filters.tag_id) : 'all'}
                 onValueChange={(value: string | null) =>
                   setFilters(prev => ({ ...prev, tag_id: value && value !== 'all' ? Number(value) : undefined, page: 1 }))

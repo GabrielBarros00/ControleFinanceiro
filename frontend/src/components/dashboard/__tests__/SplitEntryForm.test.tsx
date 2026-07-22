@@ -3,7 +3,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { http, HttpResponse } from 'msw';
 import { server } from '@/test/setup';
 import { describe, it, expect, beforeEach } from 'vitest';
-import { SplitEntryForm } from '../SplitEntryForm';
+import { NewTransactionDialog } from '../NewTransactionDialog';
 import { useAuthStore, useUIStore } from '@/stores';
 
 const WS = 'http://localhost:8000/api/v1/workspaces/1';
@@ -17,7 +17,7 @@ function renderForm() {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
     <QueryClientProvider client={queryClient}>
-      <SplitEntryForm />
+      <NewTransactionDialog open onOpenChange={() => {}} />
     </QueryClientProvider>
   );
 }
@@ -27,13 +27,18 @@ async function fillBaseFields(total = '90,00') {
   fireEvent.change(screen.getByLabelText('Valor Total'), { target: { value: total } });
 }
 
+// A divisão %/fixo e a divisão por item moram em "Opções avançadas"
+function openAdvanced() {
+  fireEvent.click(screen.getByRole('button', { name: /Opções avançadas/i }));
+}
+
 async function addBobAsSecondParticipant() {
   fireEvent.click(screen.getByRole('button', { name: '+ Participante' }));
   const participantSelects = screen.getAllByLabelText('Participante');
   fireEvent.change(participantSelects[1], { target: { value: '2' } });
 }
 
-describe('SplitEntryForm — método de divisão', () => {
+describe('NewTransactionDialog — método de divisão', () => {
   beforeEach(() => {
     useAuthStore.getState().setUser({ id: 1, name: 'Alice', email: 'alice@t.com' });
     useUIStore.getState().setCurrentWorkspaceId(1);
@@ -49,6 +54,7 @@ describe('SplitEntryForm — método de divisão', () => {
   it('abre os inputs de percentual ao selecionar Porcentagem (regressão do bug do RadioGroup)', async () => {
     renderForm();
     await screen.findAllByText('Alice');
+    openAdvanced();
 
     // Com "Igual" (default) não há input de valor por participante
     expect(screen.queryAllByLabelText('Percentual')).toHaveLength(0);
@@ -63,6 +69,7 @@ describe('SplitEntryForm — método de divisão', () => {
   it('abre os inputs de valor ao selecionar Valor Fixo', async () => {
     renderForm();
     await screen.findAllByText('Alice');
+    openAdvanced();
 
     fireEvent.click(screen.getByRole('radio', { name: 'Valor Fixo' }));
 
@@ -83,6 +90,7 @@ describe('SplitEntryForm — método de divisão', () => {
     await screen.findAllByText('Alice');
 
     await fillBaseFields();
+    openAdvanced();
     fireEvent.click(screen.getByRole('radio', { name: 'Porcentagem' }));
     await addBobAsSecondParticipant();
 
@@ -108,6 +116,7 @@ describe('SplitEntryForm — método de divisão', () => {
     await screen.findAllByText('Alice');
 
     await fillBaseFields();
+    openAdvanced();
     fireEvent.click(screen.getByRole('radio', { name: 'Porcentagem' }));
     await addBobAsSecondParticipant();
 
@@ -137,6 +146,7 @@ describe('SplitEntryForm — método de divisão', () => {
     await screen.findAllByText('Alice');
 
     await fillBaseFields('90,00');
+    openAdvanced();
     fireEvent.click(screen.getByRole('radio', { name: 'Valor Fixo' }));
     await addBobAsSecondParticipant();
 
@@ -162,6 +172,7 @@ describe('SplitEntryForm — método de divisão', () => {
     await screen.findAllByText('Alice');
 
     await fillBaseFields('90,00');
+    openAdvanced();
     fireEvent.click(screen.getByRole('radio', { name: 'Valor Fixo' }));
     await addBobAsSecondParticipant();
 
@@ -190,6 +201,7 @@ describe('SplitEntryForm — método de divisão', () => {
     await screen.findAllByText('Alice');
 
     await fillBaseFields();
+    openAdvanced();
     fireEvent.click(screen.getByRole('button', { name: '+ Participante' }));
     const participantSelects = screen.getAllByLabelText('Participante');
     fireEvent.change(participantSelects[1], { target: { value: '1' } });

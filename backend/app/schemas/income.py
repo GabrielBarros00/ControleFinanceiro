@@ -26,5 +26,7 @@ class IncomeRead(IncomeBase):
     id: int
     workspace_id: int
     user_id: int
+    recurring_income_id: Optional[int] = None
+    billing_month: Optional[str] = None
     created_at: datetime
     updated_at: datetime

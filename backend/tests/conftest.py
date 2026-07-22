@@ -14,7 +14,7 @@ from app.core.rate_limit import auth_limiter
 from app.models.user import User  # noqa: F401
 from app.models.workspace import Workspace, WorkspaceMembership, WorkspaceRole, WorkspaceInvite  # noqa: F401
 from app.models.transaction import Transaction, TransactionPayer, TransactionSplit, TransactionItem  # noqa: F401
-from app.models.recurring import RecurringExpense  # noqa: F401
+from app.models.recurring import RecurringExpense, RecurringIncome  # noqa: F401
 from app.models.audit import AuditLog  # noqa: F401
 from app.models.income import Income  # noqa: F401
 from app.models.credit_card import CreditCard, CardStatement  # noqa: F401

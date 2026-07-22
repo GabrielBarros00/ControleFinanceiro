@@ -47,30 +47,36 @@ export function ReportsPage() {
   }
 
   const monthlyData = data?.monthly_history || [];
-  const currentSummary = data?.current_summary || { total_expenses: 0, total_income: 0, net_savings: 0, categories: [] };
+  const currentSummary = data?.current_summary || { total_expenses: 0, total_income: 0, net_savings: 0, my_expenses: 0, my_income: 0, my_net: 0, categories: [] };
   const categoryData = currentSummary.categories || [];
+  // Destaque = a sua parte (splits); sublinha = total da casa/workspace
+  const myExpenses = Number(currentSummary.my_expenses ?? 0);
+  const myIncome = Number(currentSummary.my_income ?? 0);
+  const myNet = Number(currentSummary.my_net ?? 0);
 
   return (
     <div className="space-y-8 animate-in fade-in duration-700">
       <div className="grid gap-4 md:grid-cols-4">
         <Card className="bg-card border-border shadow-lg transition-all hover:shadow-xl group">
           <CardHeader className="pb-2">
-            <CardTitle className="text-[10px] font-bold text-muted-foreground uppercase tracking-[0.2em]">Total Gasto (Mês)</CardTitle>
+            <CardTitle className="text-[10px] font-bold text-muted-foreground uppercase tracking-[0.2em]">Seu Gasto (Mês)</CardTitle>
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-black text-foreground group-hover:text-primary transition-colors">
-              R$ {currentSummary.total_expenses.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+              R$ {myExpenses.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
             </div>
+            <p className="text-[10px] text-muted-foreground mt-1">Casa: R$ {Number(currentSummary.total_expenses).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</p>
           </CardContent>
         </Card>
         <Card className="bg-card border-border shadow-lg transition-all hover:shadow-xl group border-l-4 border-l-emerald-500">
           <CardHeader className="pb-2">
-            <CardTitle className="text-[10px] font-bold text-muted-foreground uppercase tracking-[0.2em]">Receita Total (Mês)</CardTitle>
+            <CardTitle className="text-[10px] font-bold text-muted-foreground uppercase tracking-[0.2em]">Sua Receita (Mês)</CardTitle>
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-black text-foreground">
-              R$ {currentSummary.total_income.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+              R$ {myIncome.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
             </div>
+            <p className="text-[10px] text-muted-foreground mt-1">Casa: R$ {Number(currentSummary.total_income).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</p>
           </CardContent>
         </Card>
         <Card className="bg-card border-border shadow-lg transition-all hover:shadow-xl group">
@@ -85,12 +91,13 @@ export function ReportsPage() {
         </Card>
         <Card className="bg-card border-border shadow-lg transition-all hover:shadow-xl group">
           <CardHeader className="pb-2">
-            <CardTitle className="text-[10px] font-bold text-muted-foreground uppercase tracking-[0.2em]">Saldo Líquido</CardTitle>
+            <CardTitle className="text-[10px] font-bold text-muted-foreground uppercase tracking-[0.2em]">Seu Saldo (Mês)</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className={`text-2xl font-black ${currentSummary.net_savings >= 0 ? 'text-emerald-500' : 'text-destructive'}`}>
-              R$ {currentSummary.net_savings.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+            <div className={`text-2xl font-black ${myNet >= 0 ? 'text-emerald-500' : 'text-destructive'}`}>
+              R$ {myNet.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
             </div>
+            <p className="text-[10px] text-muted-foreground mt-1">Casa: R$ {Number(currentSummary.net_savings).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</p>
           </CardContent>
         </Card>
       </div>
@@ -128,7 +135,8 @@ export function ReportsPage() {
                       itemStyle={{ color: 'oklch(0.985 0 0)', fontWeight: 'bold' }}
                     />
                     <Bar dataKey="income" fill="oklch(0.696 0.17 162.48)" radius={[4, 4, 0, 0]} name="Receita" />
-                    <Bar dataKey="expenses" fill="oklch(0.488 0.243 264.376)" radius={[4, 4, 0, 0]} name="Despesa" />
+                    <Bar dataKey="expenses" fill="oklch(0.488 0.243 264.376)" radius={[4, 4, 0, 0]} name="Despesa (casa)" />
+                    <Bar dataKey="my_expenses" fill="oklch(0.769 0.188 70.08)" radius={[4, 4, 0, 0]} name="Minha parte" />
                   </BarChart>
                 </ResponsiveContainer>
               ) : (
@@ -216,7 +224,8 @@ export function ReportsPage() {
                       contentStyle={{ backgroundColor: 'oklch(0.165 0 0)', border: '1px solid oklch(0.205 0 0)', borderRadius: '12px' }}
                     />
                     <Line type="monotone" dataKey="income" stroke="oklch(0.696 0.17 162.48)" strokeWidth={3} dot={{ r: 6, strokeWidth: 2, fill: 'oklch(0.165 0 0)' }} name="Receita" />
-                    <Line type="monotone" dataKey="expenses" stroke="oklch(0.488 0.243 264.376)" strokeWidth={3} dot={{ r: 6, strokeWidth: 2, fill: 'oklch(0.165 0 0)' }} name="Despesa" />
+                    <Line type="monotone" dataKey="expenses" stroke="oklch(0.488 0.243 264.376)" strokeWidth={3} dot={{ r: 6, strokeWidth: 2, fill: 'oklch(0.165 0 0)' }} name="Despesa (casa)" />
+                    <Line type="monotone" dataKey="my_expenses" stroke="oklch(0.769 0.188 70.08)" strokeWidth={2} strokeDasharray="4 4" dot={{ r: 4, strokeWidth: 2, fill: 'oklch(0.165 0 0)' }} name="Minha parte" />
                   </LineChart>
                 </ResponsiveContainer>
               ) : (

@@ -21,6 +21,8 @@ class SettlementCreate(BaseModel):
     to_user_id: int
     amount: Decimal = Field(gt=0)
     note: Optional[str] = None
+    # YYYY-MM: quando vem do ledger mensal, quita a dívida daquele mês
+    billing_month: Optional[str] = None
     settled_at: Optional[datetime] = None
 
 
@@ -30,6 +32,7 @@ class SettlementRead(BaseModel):
     to_user_id: int
     amount: Decimal
     note: Optional[str]
+    billing_month: Optional[str]
     settled_at: datetime
     created_by_user_id: Optional[int]
 
@@ -98,6 +101,7 @@ def create_settlement(
         to_user_id=settlement_in.to_user_id,
         amount=settlement_in.amount,
         note=settlement_in.note,
+        billing_month=settlement_in.billing_month,
         settled_at=settlement_in.settled_at or datetime.now(UTC),
         created_by_user_id=membership.user_id,
     )

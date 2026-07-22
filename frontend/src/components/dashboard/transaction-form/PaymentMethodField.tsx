@@ -15,12 +15,20 @@ interface PaymentMethodFieldProps {
 }
 
 export function PaymentMethodField({ allowInstallments = false }: PaymentMethodFieldProps) {
-  const { register, watch, setValue, getValues, formState: { errors } } = useFormContext<TransactionFormValues>();
+  const { register, watch, setValue, getValues, trigger, formState: { errors } } = useFormContext<TransactionFormValues>();
   const { cards } = useCreditCards();
   const { activeAccounts } = usePaymentAccounts();
   const paymentMethod = watch('payment_method');
+  const creditCardId = watch('credit_card_id');
   const totalAmount = watch('total_amount');
   const singlePayer = (watch('payers') ?? []).length <= 1;
+
+  // Revalida cruzado: escolher o cartão limpa na hora o erro "selecione o cartão"
+  // (que pode ter sido disparado pela origem de um pagador). Corrige o caso em
+  // que a mensagem ficava presa mesmo após preencher a Forma de pagamento.
+  React.useEffect(() => {
+    trigger(['credit_card_id', 'payers']);
+  }, [creditCardId, trigger]);
 
   // Trocar de crédito para outro método descarta o cartão — o backend rejeita
   // (com razão) pix/dinheiro com credit_card_id preenchido — e volta à vista

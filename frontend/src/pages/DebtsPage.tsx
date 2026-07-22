@@ -9,7 +9,10 @@ import { useAuth } from '@/hooks/use-auth';
 import { useMembers } from '@/hooks/use-members';
 import { useSettlements } from '@/hooks/use-settlements';
 import { SettlementDialog, type SettlementDraft } from '@/components/debts/SettlementDialog';
+import { MonthlyDebtsSection } from '@/components/debts/MonthlyDebtsSection';
 import { getApiErrorMessage } from '@/lib/api-error';
+import { toast } from '@/stores/toast';
+import { useConfirm } from '@/components/ui/confirm';
 
 interface Debt {
   debtor_id: number;
@@ -26,6 +29,7 @@ export function DebtsPage() {
   const { canWrite } = useWorkspaceRole();  // viewer não registra/desfaz acertos (RBAC-FE-001)
   const { members } = useMembers();
   const { settlements, remove } = useSettlements();
+  const confirm = useConfirm();
   const [dialogOpen, setDialogOpen] = React.useState(false);
   const [draft, setDraft] = React.useState<SettlementDraft | null>(null);
 
@@ -43,11 +47,17 @@ export function DebtsPage() {
   };
 
   const undoSettlement = async (id: number) => {
-    if (!confirm('Desfazer este acerto? A dívida correspondente volta ao balanço.')) return;
+    const ok = await confirm({
+      title: 'Desfazer acerto',
+      description: 'Desfazer este acerto? A dívida correspondente volta ao balanço.',
+      confirmLabel: 'Desfazer',
+      destructive: true,
+    });
+    if (!ok) return;
     try {
       await remove(id);
     } catch (err) {
-      alert(getApiErrorMessage(err, 'Erro ao desfazer o acerto.'));
+      toast.error(getApiErrorMessage(err, 'Erro ao desfazer o acerto.'));
     }
   };
 
@@ -64,9 +74,9 @@ export function DebtsPage() {
     return (
       <div className="p-12 text-center rounded-xl bg-destructive/10 border border-destructive/20">
         <p className="text-sm font-bold text-destructive">Não foi possível carregar as dívidas.</p>
-        <button onClick={() => refetch()} className="mt-3 text-xs font-bold text-primary hover:underline">
+        <Button variant="link" onClick={() => refetch()} className="mt-3 text-primary font-bold">
           Tentar novamente
-        </button>
+        </Button>
       </div>
     );
   }
@@ -86,6 +96,22 @@ export function DebtsPage() {
         <Button variant="outline" onClick={() => refetch()} className="gap-2">
           <RefreshCcw className="h-4 w-4" /> Atualizar
         </Button>
+      </div>
+
+      {/* Dívidas mês a mês: parcelas aparecem no mês delas, com status */}
+      <MonthlyDebtsSection
+        members={members}
+        currentUserId={user?.id}
+        canWrite={canWrite}
+        onSettle={(draft) => {
+          setDraft(draft);
+          setDialogOpen(true);
+        }}
+      />
+
+      <div className="space-y-1">
+        <h3 className="text-lg font-bold tracking-tight text-foreground">Saldo geral a acertar</h3>
+        <p className="text-sm text-muted-foreground">Balanço consolidado de todos os meses, já descontando os acertos.</p>
       </div>
 
       <div className="grid gap-6 md:grid-cols-2">

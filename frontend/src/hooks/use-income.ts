@@ -10,6 +10,8 @@ export interface Income {
   received_at: string;
   category?: string | null;
   user_id: number;
+  recurring_income_id?: number | null;
+  billing_month?: string | null;
 }
 
 export function useIncome() {

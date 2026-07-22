@@ -24,21 +24,26 @@ test.describe('Dashboard and Split Entry Form', () => {
 
     // Dashboard renderizado
     await expect(page.getByRole('heading', { name: 'Dashboard' })).toBeVisible();
-    await expect(page.getByText('Nova Despesa', { exact: true })).toBeVisible();
+
+    // Abre o modal de Nova Despesa
+    await page.getByRole('button', { name: 'Nova Despesa' }).click();
+    const dialog = page.getByRole('dialog');
+    await expect(dialog).toBeVisible();
 
     // Preenche o formulário básico
-    await page.getByLabel('Título / Descrição').fill('Pizza com amigos');
-    await page.getByLabel('Valor Total').fill('150,00');
+    await dialog.getByLabel('Título / Descrição').fill('Pizza com amigos');
+    await dialog.getByLabel('Valor Total').fill('150,00');
 
-    // Método de divisão "Valor Fixo"
-    await page.getByText('Valor Fixo').click();
+    // Método de divisão "Valor Fixo" mora em "Opções avançadas"
+    await dialog.getByRole('button', { name: /Opções avançadas/ }).click();
+    await dialog.getByText('Valor Fixo').click();
 
     // Adiciona participante: 1 linha inicial + 1 nova = 2 botões de remover
-    await page.getByRole('button', { name: '+ Participante' }).click();
-    await expect(page.getByRole('button', { name: 'Remover participante' })).toHaveCount(2);
+    await dialog.getByRole('button', { name: '+ Participante' }).click();
+    await expect(dialog.getByRole('button', { name: 'Remover participante' })).toHaveCount(2);
 
     // Botão de submit presente
-    await expect(page.getByRole('button', { name: 'Salvar Despesa' })).toBeVisible();
+    await expect(dialog.getByRole('button', { name: 'Salvar Despesa' })).toBeVisible();
 
     await context.close();
   });

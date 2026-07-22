@@ -1,9 +1,16 @@
 from sqlmodel import Session
 from datetime import date, datetime
 from decimal import Decimal
-from app.models.transaction import Transaction, TransactionItem
+from app.models.transaction import (
+    Transaction,
+    TransactionItem,
+    TransactionPayer,
+    TransactionSplit,
+    SplitMethod,
+)
 from app.models.income import Income
 from app.models.category import Category
+from app.models.user import User
 from app.services.report_service import ReportService
 
 def test_get_summary_with_data(db_session: Session, seed_ws):
@@ -92,3 +99,53 @@ def test_get_last_6_months(db_session: Session):
         assert "name" in item
         assert "expenses" in item
         assert "income" in item
+        assert "my_expenses" in item
+
+
+def test_get_summary_my_share(db_session: Session, seed_ws):
+    """A 'minha parte' vem dos splits do usuário, não do valor cheio (issue 2)."""
+    workspace_id = seed_ws["ws"].id
+    user = seed_ws["user"]
+    u2 = User(name="Outro", email="outro-share@test.com", password_hash="h")
+    db_session.add(u2)
+    db_session.commit()
+    db_session.refresh(u2)
+    target_month = date(2026, 5, 1)
+
+    # Despesa de 300 dividida 50/50; user pagou tudo
+    tx = Transaction(
+        title="Geladeira", total_amount=Decimal("300.00"),
+        transaction_date=datetime(2026, 5, 10), workspace_id=workspace_id,
+        created_by_user_id=user.id,
+    )
+    db_session.add(tx)
+    db_session.flush()
+    db_session.add(TransactionPayer(transaction_id=tx.id, user_id=user.id, amount=Decimal("300.00")))
+    db_session.add(TransactionSplit(
+        transaction_id=tx.id, user_id=user.id, split_method=SplitMethod.fixed,
+        input_value=Decimal("150.00"), computed_amount=Decimal("150.00"),
+    ))
+    db_session.add(TransactionSplit(
+        transaction_id=tx.id, user_id=u2.id, split_method=SplitMethod.fixed,
+        input_value=Decimal("150.00"), computed_amount=Decimal("150.00"),
+    ))
+    # Rendas por usuário (Income tem user_id)
+    db_session.add(Income(amount=Decimal("5000.00"), received_at=datetime(2026, 5, 5), workspace_id=workspace_id, title="Sal", user_id=user.id))
+    db_session.add(Income(amount=Decimal("2000.00"), received_at=datetime(2026, 5, 6), workspace_id=workspace_id, title="Sal2", user_id=u2.id))
+    db_session.commit()
+
+    s_user = ReportService.get_summary(db_session, workspace_id, target_month, user_id=user.id)
+    assert s_user["total_expenses"] == Decimal("300.00")   # visão da casa
+    assert s_user["my_expenses"] == Decimal("150.00")      # só a minha parte
+    assert s_user["total_income"] == Decimal("7000.00")
+    assert s_user["my_income"] == Decimal("5000.00")
+    assert s_user["my_net"] == Decimal("4850.00")
+
+    s_u2 = ReportService.get_summary(db_session, workspace_id, target_month, user_id=u2.id)
+    assert s_u2["my_expenses"] == Decimal("150.00")
+    assert s_u2["my_income"] == Decimal("2000.00")
+
+    # Sem user_id: campos "my_*" zerados (visão só da casa)
+    s_none = ReportService.get_summary(db_session, workspace_id, target_month)
+    assert s_none["my_expenses"] == Decimal("0.00")
+    assert s_none["my_income"] == Decimal("0.00")

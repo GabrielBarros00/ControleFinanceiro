@@ -11,6 +11,8 @@ import { Label } from "@/components/ui/label";
 import { MoneyInput } from "@/components/ui/MoneyInput";
 import { useCreditCards } from '@/hooks/use-credit-cards';
 import { formatCurrency } from '@/lib/money';
+import { toast } from '@/stores/toast';
+import { useConfirm } from '@/components/ui/confirm';
 
 interface CreditCardListProps {
   selectedCardId?: number | null;
@@ -19,6 +21,7 @@ interface CreditCardListProps {
 
 export function CreditCardList({ selectedCardId, onSelectCard }: CreditCardListProps) {
   const { cards, isLoading, create, remove } = useCreditCards();
+  const confirm = useConfirm();
   const [dialogOpen, setDialogOpen] = React.useState(false);
   const [name, setName] = React.useState('');
   const [limit, setLimit] = React.useState(0);
@@ -94,8 +97,14 @@ export function CreditCardList({ selectedCardId, onSelectCard }: CreditCardListP
                     className="h-8 w-8 p-0 text-destructive hover:bg-destructive/10 opacity-0 group-hover:opacity-100 transition-opacity"
                     onClick={async (e) => {
                       e.stopPropagation();
-                      if (!confirm(`Excluir o cartão ${card.name}?`)) return;
-                      try { await remove(card.id); } catch { alert('Erro ao excluir cartão.'); }
+                      const ok = await confirm({
+                        title: 'Excluir cartão',
+                        description: `Excluir o cartão ${card.name}?`,
+                        confirmLabel: 'Excluir',
+                        destructive: true,
+                      });
+                      if (!ok) return;
+                      try { await remove(card.id); } catch { toast.error('Erro ao excluir cartão.'); }
                     }}
                   >
                     <Trash2 className="h-4 w-4" />

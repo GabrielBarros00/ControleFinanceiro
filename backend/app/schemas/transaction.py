@@ -238,21 +238,20 @@ class TransactionCreate(TransactionBase):
         if self.installments_count:
             if self.payment_method != PaymentMethod.credit_card:
                 raise ValueError("Parcelamento exige pagamento no cartão de crédito")
-            if self.split_mode != SplitMode.transaction:
-                raise ValueError("Parcelamento não suporta divisão por item")
-            if any(s.split_method == SplitMethod.fixed for s in self.splits):
-                raise ValueError(
-                    "Parcelamento não suporta divisão por valor fixo — use igual ou porcentagem"
-                )
             if len(self.payers) != 1:
                 raise ValueError("Parcelamento exige um único pagador")
-            # Único item aceito é o item-categoria (sem shares, valor == total)
-            if self.items and (
+            # Parcelar = fatiar a divisão pelos N meses; item/porcentagem/valor
+            # fixo são suportados pelo motor de parcelas. No modo transaction só
+            # entra o item-categoria (sem shares, valor == total) — itens
+            # detalhados exigem split_mode='item'.
+            if self.split_mode == SplitMode.transaction and self.items and (
                 len(self.items) > 1
                 or self.items[0].shares
                 or self.items[0].amount != self.total_amount
             ):
-                raise ValueError("Parcelamento não suporta itens detalhados")
+                raise ValueError(
+                    "Parcelamento pela despesa não suporta itens detalhados — use divisão por item"
+                )
         return self
 
 class TransactionPayerRead(TransactionPayerBase):

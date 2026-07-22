@@ -4,6 +4,7 @@ import { http, HttpResponse } from 'msw';
 import { server } from '@/test/setup';
 import { describe, it, expect, beforeEach } from 'vitest';
 import { TransactionHistory } from '../TransactionHistory';
+import { ConfirmProvider } from '@/components/ui/confirm';
 import { useAuthStore, useUIStore } from '@/stores';
 
 const WS = 'http://localhost:8000/api/v1/workspaces/1';
@@ -55,7 +56,9 @@ function renderHistory() {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
     <QueryClientProvider client={queryClient}>
-      <TransactionHistory />
+      <ConfirmProvider>
+        <TransactionHistory />
+      </ConfirmProvider>
     </QueryClientProvider>
   );
 }

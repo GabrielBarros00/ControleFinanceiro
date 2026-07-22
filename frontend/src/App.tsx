@@ -3,10 +3,11 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import { BentoDashboard } from './components/dashboard/BentoDashboard';
 import { Layout } from './components/layout/Layout';
-import { SplitEntryForm } from './components/dashboard/SplitEntryForm';
 import { useAuth } from './hooks/use-auth';
 import { useTheme } from './hooks/use-theme';
 import { useAuthStore, useUIStore } from './stores';
+import { Toaster } from './components/ui/toaster';
+import { ConfirmProvider } from './components/ui/confirm';
 
 // Code-splitting por rota: o dashboard carrega no bundle inicial; o resto
 // (em especial o recharts dos relatórios) só quando a rota é visitada
@@ -89,6 +90,7 @@ function AppContent() {
   return (
     <BrowserRouter>
       <div className="min-h-screen bg-background text-foreground font-sans selection:bg-primary/30">
+        <ConfirmProvider>
         <React.Suspense fallback={<RouteFallback />}>
         <Routes>
           {/* Public Routes */}
@@ -102,13 +104,6 @@ function AppContent() {
             <ProtectedRoute>
               <Layout title="Dashboard" subtitle="Bem-vindo de volta ao seu centro de controle.">
                 <BentoDashboard />
-                <section id="entrada-rapida" className="mt-12">
-                  <h2 className="text-xl font-semibold mb-6 flex items-center gap-2 text-foreground">
-                    <span className="w-2 h-6 bg-primary rounded-full shadow-lg shadow-primary/50" />
-                    Entrada Rápida
-                  </h2>
-                  <SplitEntryForm />
-                </section>
               </Layout>
             </ProtectedRoute>
           } />
@@ -186,6 +181,8 @@ function AppContent() {
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
         </React.Suspense>
+        </ConfirmProvider>
+        <Toaster />
       </div>
     </BrowserRouter>
   );

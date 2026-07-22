@@ -17,6 +17,7 @@ export interface SettlementCreate {
   to_user_id: number;
   amount: number;
   note?: string;
+  billing_month?: string;
 }
 
 export function useSettlements() {
@@ -35,6 +36,9 @@ export function useSettlements() {
   const invalidate = () => {
     queryClient.invalidateQueries({ queryKey: ['settlements', currentWorkspaceId] });
     queryClient.invalidateQueries({ queryKey: ['debts', currentWorkspaceId] });
+    // O ledger mensal agora é ciente de acertos — sem isso a "Dívidas do mês"
+    // não refazia o fetch e parecia que ninguém tinha pago (causa secundária).
+    queryClient.invalidateQueries({ queryKey: ['debts-monthly', currentWorkspaceId] });
   };
 
   const createMutation = useMutation({

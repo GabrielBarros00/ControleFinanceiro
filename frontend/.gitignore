@@ -12,6 +12,12 @@ dist
 dist-ssr
 *.local
 
+# Artefatos transitórios do roteiro de captura de telas (docs/frontend-redesign)
+# As telas versionadas ficam em docs/frontend-redesign/telas-atuais/
+screenshots/
+shots.db
+test-results/
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json
