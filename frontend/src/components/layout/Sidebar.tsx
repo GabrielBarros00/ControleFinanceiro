@@ -1,22 +1,21 @@
 import * as React from 'react';
-import { Link, useLocation } from 'react-router-dom';
-import { LayoutDashboard, CreditCard, Landmark, BarChart3, Settings, Repeat, Users, FileUp, Plus, Check, ChevronsUpDown, Wallet } from 'lucide-react';
-import { cn } from "@/lib/utils";
+import { Link, useLocation, useNavigate } from 'react-router-dom';
+import { Landmark, Plus, Check, ChevronsUpDown, Users, LogOut } from 'lucide-react';
+import { cn } from '@/lib/utils';
 import { useWorkspaces, type Workspace } from '@/hooks/use-workspaces';
 import { useAuth } from '@/hooks/use-auth';
 import { WorkspaceCreateDialog } from '@/components/workspace/WorkspaceCreateDialog';
+import { NAV_SECTIONS } from './nav-items';
 
-const menuItems = [
-  { icon: LayoutDashboard, label: 'Dashboard', path: '/' },
-  { icon: Wallet, label: 'Rendas', path: '/income' },
-  { icon: CreditCard, label: 'Cartões', path: '/cards' },
-  { icon: Landmark, label: 'Financiamentos', path: '/financing' },
-  { icon: BarChart3, label: 'Relatórios', path: '/reports' },
-  { icon: Repeat, label: 'Recorrência', path: '/recurring' },
-  { icon: Users, label: 'Dívidas', path: '/debts' },
-  { icon: FileUp, label: 'Importar', path: '/import' },
-  { icon: Settings, label: 'Configurações', path: '/settings' },
-];
+function useOnClickOutside(ref: React.RefObject<HTMLElement | null>, handler: () => void) {
+  React.useEffect(() => {
+    const onClick = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) handler();
+    };
+    document.addEventListener('mousedown', onClick);
+    return () => document.removeEventListener('mousedown', onClick);
+  }, [ref, handler]);
+}
 
 function WorkspaceSwitcher() {
   const { workspaces, currentWorkspace, switchWorkspace } = useWorkspaces();
@@ -24,79 +23,65 @@ function WorkspaceSwitcher() {
   const [open, setOpen] = React.useState(false);
   const [createOpen, setCreateOpen] = React.useState(false);
   const containerRef = React.useRef<HTMLDivElement>(null);
+  useOnClickOutside(containerRef, () => setOpen(false));
 
-  // Só faz sentido indicar "de quem é" quando o workspace é compartilhado
   const sharedHint = (ws: Workspace): string | null => {
     if ((ws.member_count ?? 1) <= 1) return null;
     if (ws.owner_user_id && ws.owner_user_id === user?.id) return 'Compartilhado por você';
     return ws.owner_name ? `de ${ws.owner_name}` : 'Compartilhado';
   };
 
-  React.useEffect(() => {
-    const onClickOutside = (e: MouseEvent) => {
-      if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
-        setOpen(false);
-      }
-    };
-    document.addEventListener('mousedown', onClickOutside);
-    return () => document.removeEventListener('mousedown', onClickOutside);
-  }, []);
-
   return (
     <div ref={containerRef} className="relative">
       <button
         type="button"
         onClick={() => setOpen((o) => !o)}
-        className="w-full bg-accent/50 rounded-2xl p-4 border border-border text-left hover:bg-accent/70 transition-colors"
+        className="flex w-full items-center justify-between gap-2 rounded-lg border border-border bg-card px-3 py-2.5 text-left transition-colors hover:bg-muted"
       >
-        <p className="text-[10px] text-muted-foreground mb-2 uppercase tracking-widest font-bold">Workspace</p>
-        <div className="flex items-center justify-between gap-2">
-          <div className="flex items-center gap-2 min-w-0">
-            <div className="w-2 h-2 bg-emerald-500 rounded-full animate-pulse shrink-0" />
-            <div className="min-w-0">
-              <span className="block text-sm font-semibold truncate">
-                {currentWorkspace?.name ?? 'Selecione...'}
+        <div className="flex min-w-0 items-center gap-2.5">
+          <span className="h-2 w-2 shrink-0 rounded-full bg-success" />
+          <div className="min-w-0">
+            <span className="block truncate text-sm font-semibold text-foreground">
+              {currentWorkspace?.name ?? 'Selecione...'}
+            </span>
+            {currentWorkspace && sharedHint(currentWorkspace) && (
+              <span className="flex items-center gap-1 truncate text-[11px] text-muted-foreground">
+                <Users className="h-3 w-3 shrink-0" /> {sharedHint(currentWorkspace)}
               </span>
-              {currentWorkspace && sharedHint(currentWorkspace) && (
-                <span className="flex items-center gap-1 text-[10px] text-muted-foreground truncate">
-                  <Users className="h-3 w-3 shrink-0" /> {sharedHint(currentWorkspace)}
-                </span>
-              )}
-            </div>
+            )}
           </div>
-          <ChevronsUpDown className="h-4 w-4 text-muted-foreground shrink-0" />
         </div>
+        <ChevronsUpDown className="h-4 w-4 shrink-0 text-muted-foreground" />
       </button>
 
       {open && (
-        <div className="absolute bottom-full mb-2 left-0 right-0 bg-card border border-border rounded-xl shadow-2xl overflow-hidden z-50 animate-in fade-in slide-in-from-bottom-2 duration-150">
+        <div className="absolute left-0 right-0 top-full z-50 mt-2 overflow-hidden rounded-lg border border-border bg-card shadow-md animate-in fade-in slide-in-from-top-1 duration-150">
           <div className="max-h-56 overflow-y-auto py-1">
             {workspaces.map((ws) => (
               <button
                 key={ws.id}
                 type="button"
-                onClick={() => { switchWorkspace(ws.id); setOpen(false); }}
+                onClick={() => {
+                  switchWorkspace(ws.id);
+                  setOpen(false);
+                }}
                 className={cn(
-                  "w-full flex items-center justify-between gap-2 px-4 py-2.5 text-sm hover:bg-accent transition-colors",
-                  ws.id === currentWorkspace?.id ? "font-bold text-primary" : "text-foreground"
+                  'flex w-full items-center justify-between gap-2 px-3 py-2 text-sm transition-colors hover:bg-muted',
+                  ws.id === currentWorkspace?.id ? 'font-semibold text-brand' : 'text-foreground',
                 )}
               >
-                <div className="flex flex-col min-w-0 text-left">
-                  <span className="truncate">{ws.name}</span>
-                  {sharedHint(ws) && (
-                    <span className="flex items-center gap-1 text-[10px] font-normal text-muted-foreground truncate">
-                      <Users className="h-3 w-3 shrink-0" /> {sharedHint(ws)}
-                    </span>
-                  )}
-                </div>
+                <span className="truncate text-left">{ws.name}</span>
                 {ws.id === currentWorkspace?.id && <Check className="h-4 w-4 shrink-0" />}
               </button>
             ))}
           </div>
           <button
             type="button"
-            onClick={() => { setOpen(false); setCreateOpen(true); }}
-            className="w-full flex items-center gap-2 px-4 py-2.5 text-sm text-primary font-semibold border-t border-border hover:bg-accent transition-colors"
+            onClick={() => {
+              setOpen(false);
+              setCreateOpen(true);
+            }}
+            className="flex w-full items-center gap-2 border-t border-border px-3 py-2 text-sm font-medium text-brand transition-colors hover:bg-muted"
           >
             <Plus className="h-4 w-4" /> Criar workspace
           </button>
@@ -108,43 +93,90 @@ function WorkspaceSwitcher() {
   );
 }
 
+function UserMenu() {
+  const { user, logout } = useAuth();
+  const navigate = useNavigate();
+  return (
+    <div className="flex items-center gap-2.5">
+      <Link
+        to="/settings"
+        className="flex min-w-0 flex-1 items-center gap-2.5 rounded-lg p-1.5 transition-colors hover:bg-muted"
+      >
+        <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-brand-subtle text-sm font-semibold text-brand">
+          {user?.name?.[0]?.toUpperCase() ?? 'U'}
+        </span>
+        <div className="min-w-0">
+          <p className="truncate text-sm font-medium text-foreground">{user?.name ?? 'Usuário'}</p>
+          <p className="truncate text-[11px] text-muted-foreground">{user?.email}</p>
+        </div>
+      </Link>
+      <button
+        type="button"
+        onClick={() => {
+          logout().finally(() => navigate('/login'));
+        }}
+        aria-label="Sair da conta"
+        className="rounded-lg p-2 text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive"
+      >
+        <LogOut className="h-4 w-4" />
+      </button>
+    </div>
+  );
+}
+
 export function Sidebar() {
   const location = useLocation();
+  const isActive = (to: string) =>
+    to === '/' ? location.pathname === '/' : location.pathname === to || location.pathname.startsWith(`${to}/`);
 
   return (
-    <aside className="w-64 border-r bg-card flex flex-col h-screen sticky top-0">
-      <div className="p-8">
-        <h1 className="text-xl font-bold tracking-tighter flex items-center gap-2">
-          <div className="w-8 h-8 bg-primary rounded-lg flex items-center justify-center shadow-lg shadow-primary/20">
-            <Landmark className="h-5 w-5 text-primary-foreground" />
-          </div>
-          CFv4 <span className="text-muted-foreground font-normal">Pro</span>
-        </h1>
+    <aside className="sticky top-0 hidden h-screen w-[240px] shrink-0 flex-col border-r border-border bg-card md:flex">
+      <div className="px-5 py-5">
+        <Link to="/" className="flex items-center gap-2 text-lg font-semibold tracking-tight text-foreground">
+          <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-brand text-primary-foreground">
+            <Landmark className="h-5 w-5" />
+          </span>
+          CFv4 <span className="font-normal text-muted-foreground">Pro</span>
+        </Link>
       </div>
 
-      <nav className="flex-1 px-4 space-y-2">
-        {menuItems.map((item) => (
-          <Link
-            key={item.path}
-            to={item.path}
-            className={cn(
-              "flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-200 group",
-              location.pathname === item.path 
-                ? "bg-primary text-primary-foreground shadow-lg shadow-primary/20" 
-                : "text-muted-foreground hover:text-foreground hover:bg-accent"
-            )}
-          >
-            <item.icon className={cn(
-              "h-5 w-5 transition-transform duration-200",
-              location.pathname === item.path ? "scale-110" : "group-hover:scale-110"
-            )} />
-            <span className="font-medium">{item.label}</span>
-          </Link>
+      <div className="px-3">
+        <WorkspaceSwitcher />
+      </div>
+
+      <nav className="flex-1 space-y-5 overflow-y-auto px-3 py-5">
+        {NAV_SECTIONS.map((section) => (
+          <div key={section.label} className="space-y-1">
+            <p className="px-3 pb-1 text-[11px] font-medium uppercase tracking-wide text-muted-foreground/70">
+              {section.label}
+            </p>
+            {section.items.map((item) => {
+              const active = isActive(item.to);
+              return (
+                <Link
+                  key={item.to}
+                  to={item.to}
+                  className={cn(
+                    'group relative flex items-center gap-3 rounded-lg px-3 py-2 text-sm transition-colors',
+                    active
+                      ? 'bg-brand-subtle font-medium text-brand'
+                      : 'text-muted-foreground hover:bg-muted hover:text-foreground',
+                  )}
+                >
+                  {active && (
+                    <span className="absolute inset-y-1.5 left-0 w-0.5 rounded-full bg-brand" aria-hidden />
+                  )}
+                  <item.icon className="h-[18px] w-[18px] shrink-0" />
+                  {item.label}
+                </Link>
+              );
+            })}
+          </div>
         ))}
       </nav>
 
-      <div className="p-4 mt-auto">
-        <WorkspaceSwitcher />
+      <div className="border-t border-border p-3">
+        <UserMenu />
       </div>
     </aside>
   );

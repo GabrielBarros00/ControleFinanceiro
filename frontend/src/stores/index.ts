@@ -46,3 +46,15 @@ export const useUIStore = create<UIState>()(
     { name: 'cf4-ui' }
   )
 );
+
+// Dialog global de "Nova despesa" — acionado pelo FAB (mobile), header e empty
+// states de qualquer tela. NÃO persistido: não deve reabrir no reload.
+interface NewTxState {
+  open: boolean;
+  setOpen: (open: boolean) => void;
+}
+
+export const useNewTxStore = create<NewTxState>((set) => ({
+  open: false,
+  setOpen: (open) => set({ open }),
+}));
