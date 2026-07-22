@@ -119,7 +119,7 @@ function AppContent() {
 
           <Route path="/income" element={
             <ProtectedRoute>
-              <Layout title="Rendas" subtitle="Salários e entradas que alimentam sua previsão mensal.">
+              <Layout>
                 <IncomePage />
               </Layout>
             </ProtectedRoute>
@@ -173,7 +173,7 @@ function AppContent() {
 
           <Route path="/debts" element={
             <ProtectedRoute>
-              <Layout title="Dívidas" subtitle="Balanço de acertos entre membros do workspace.">
+              <Layout>
                 <DebtsPage />
               </Layout>
             </ProtectedRoute>

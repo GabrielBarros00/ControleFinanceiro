@@ -13,6 +13,8 @@ import { MonthlyDebtsSection } from '@/components/debts/MonthlyDebtsSection';
 import { getApiErrorMessage } from '@/lib/api-error';
 import { toast } from '@/stores/toast';
 import { useConfirm } from '@/components/ui/confirm';
+import { PageHeader } from '@/components/layout/PageHeader';
+import { StatTile } from '@/components/ui/stat-tile';
 
 interface Debt {
   debtor_id: number;
@@ -86,16 +88,31 @@ export function DebtsPage() {
   const myCredits = typedDebts.filter((d) => d.creditor_id === user?.id);
   const otherDebts = typedDebts.filter((d) => d.debtor_id !== user?.id && d.creditor_id !== user?.id);
 
+  const totalOwed = myDebts.reduce((a, d) => a + parseFloat(d.amount), 0);
+  const totalCredit = myCredits.reduce((a, d) => a + parseFloat(d.amount), 0);
+  const netBalance = totalCredit - totalOwed;
+
   return (
-    <div className="space-y-6 animate-in fade-in duration-500">
-      <div className="flex items-center justify-between">
-        <div>
-          <h2 className="text-2xl font-bold tracking-tight text-foreground">Balanço de Dívidas</h2>
-          <p className="text-muted-foreground">Veja quem precisa pagar para quem — e registre os acertos feitos.</p>
-        </div>
-        <Button variant="outline" onClick={() => refetch()} className="gap-2">
-          <RefreshCcw className="h-4 w-4" /> Atualizar
-        </Button>
+    <div className="space-y-6">
+      <PageHeader
+        title="Dívidas & acertos"
+        subtitle="Quem deve para quem — e os acertos já feitos."
+        action={
+          <Button variant="outline" onClick={() => refetch()} className="gap-2">
+            <RefreshCcw className="h-4 w-4" /> Atualizar
+          </Button>
+        }
+      />
+
+      <div className="grid gap-4 sm:grid-cols-3">
+        <StatTile label="Você deve" value={totalOwed} kind={totalOwed > 0 ? 'expense' : 'neutral'} />
+        <StatTile label="Você recebe" value={totalCredit} kind={totalCredit > 0 ? 'income' : 'neutral'} />
+        <StatTile
+          label="Saldo líquido"
+          value={netBalance}
+          kind={netBalance > 0 ? 'income' : netBalance < 0 ? 'expense' : 'neutral'}
+          hint={netBalance === 0 ? 'Tudo certo por aqui' : netBalance > 0 ? 'a receber, no total' : 'a pagar, no total'}
+        />
       </div>
 
       {/* Dívidas mês a mês: parcelas aparecem no mês delas, com status */}

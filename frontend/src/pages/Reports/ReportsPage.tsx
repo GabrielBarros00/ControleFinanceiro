@@ -20,6 +20,8 @@ import { useReports } from '@/hooks/use-reports';
 import { Skeleton } from "@/components/ui/skeleton";
 import { BudgetPanel } from './BudgetPanel';
 import { useChartTheme } from '@/hooks/use-chart-theme';
+import { StatTile } from '@/components/ui/stat-tile';
+import { formatMoney } from '@/lib/money';
 
 export function ReportsPage() {
   const { data, isLoading, isError } = useReports();
@@ -65,57 +67,40 @@ export function ReportsPage() {
   return (
     <div className="space-y-8 animate-in fade-in duration-700">
       <div className="grid gap-4 md:grid-cols-4">
-        <Card className="bg-card border-border shadow-lg transition-all hover:shadow-xl group">
-          <CardHeader className="pb-2">
-            <CardTitle className="text-[10px] font-bold text-muted-foreground uppercase tracking-[0.2em]">Seu Gasto (Mês)</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-black text-foreground group-hover:text-primary transition-colors">
-              R$ {myExpenses.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
-            </div>
-            <p className="text-[10px] text-muted-foreground mt-1">Casa: R$ {Number(currentSummary.total_expenses).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</p>
-          </CardContent>
-        </Card>
-        <Card className="bg-card border-border shadow-lg transition-all hover:shadow-xl group border-l-4 border-l-emerald-500">
-          <CardHeader className="pb-2">
-            <CardTitle className="text-[10px] font-bold text-muted-foreground uppercase tracking-[0.2em]">Sua Receita (Mês)</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-black text-foreground">
-              R$ {myIncome.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
-            </div>
-            <p className="text-[10px] text-muted-foreground mt-1">Casa: R$ {Number(currentSummary.total_income).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</p>
-          </CardContent>
-        </Card>
-        <Card className="bg-card border-border shadow-lg transition-all hover:shadow-xl group">
-          <CardHeader className="pb-2">
-            <CardTitle className="text-[10px] font-bold text-muted-foreground uppercase tracking-[0.2em]">Maior Categoria</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-black text-foreground capitalize">
-              {categoryData.length > 0 ? [...categoryData].sort((a: { value: number }, b: { value: number }) => b.value - a.value)[0].name : 'Nenhuma'}
-            </div>
-          </CardContent>
-        </Card>
-        <Card className="bg-card border-border shadow-lg transition-all hover:shadow-xl group">
-          <CardHeader className="pb-2">
-            <CardTitle className="text-[10px] font-bold text-muted-foreground uppercase tracking-[0.2em]">Seu Saldo (Mês)</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className={`text-2xl font-black ${myNet >= 0 ? 'text-emerald-500' : 'text-destructive'}`}>
-              R$ {myNet.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
-            </div>
-            <p className="text-[10px] text-muted-foreground mt-1">Casa: R$ {Number(currentSummary.net_savings).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</p>
-          </CardContent>
-        </Card>
+        <StatTile
+          label="Seu gasto (mês)"
+          value={myExpenses}
+          kind="expense"
+          hint={`Casa ${formatMoney(Number(currentSummary.total_expenses))}`}
+        />
+        <StatTile
+          label="Sua receita (mês)"
+          value={myIncome}
+          kind="income"
+          hint={`Casa ${formatMoney(Number(currentSummary.total_income))}`}
+        />
+        <div className="rounded-xl border border-border bg-card p-4">
+          <p className="text-sm text-muted-foreground">Maior categoria</p>
+          <p className="mt-1 truncate text-2xl font-semibold text-foreground">
+            {categoryData.length > 0
+              ? [...categoryData].sort((a: { value: number }, b: { value: number }) => b.value - a.value)[0].name
+              : 'Nenhuma'}
+          </p>
+        </div>
+        <StatTile
+          label="Seu saldo (mês)"
+          value={myNet}
+          kind={myNet >= 0 ? 'income' : 'expense'}
+          hint={`Casa ${formatMoney(Number(currentSummary.net_savings))}`}
+        />
       </div>
 
       <Tabs defaultValue="overview" className="space-y-4">
-        <TabsList className="bg-muted border border-border p-1">
-          <TabsTrigger value="overview" className="data-[state=active]:bg-primary data-[state=active]:text-primary-foreground font-bold">Visão Geral</TabsTrigger>
-          <TabsTrigger value="categories" className="data-[state=active]:bg-primary data-[state=active]:text-primary-foreground font-bold">Categorias</TabsTrigger>
-          <TabsTrigger value="trends" className="data-[state=active]:bg-primary data-[state=active]:text-primary-foreground font-bold">Fluxo</TabsTrigger>
-          <TabsTrigger value="budget" className="data-[state=active]:bg-primary data-[state=active]:text-primary-foreground font-bold">Orçamento</TabsTrigger>
+        <TabsList>
+          <TabsTrigger value="overview">Visão geral</TabsTrigger>
+          <TabsTrigger value="categories">Categorias</TabsTrigger>
+          <TabsTrigger value="trends">Fluxo</TabsTrigger>
+          <TabsTrigger value="budget">Orçamento</TabsTrigger>
         </TabsList>
 
         <TabsContent value="budget" className="animate-in slide-in-from-bottom-4 duration-500">

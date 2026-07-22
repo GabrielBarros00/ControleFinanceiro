@@ -29,6 +29,8 @@ import { formatCurrency } from '@/lib/money';
 import { getApiErrorMessage } from '@/lib/api-error';
 import { toast } from '@/stores/toast';
 import { useConfirm } from '@/components/ui/confirm';
+import { PageHeader } from '@/components/layout/PageHeader';
+import { MoneyText } from '@/components/money/MoneyText';
 
 export function IncomePage() {
   const { incomes, isLoading, create, update, remove } = useIncome();
@@ -193,24 +195,22 @@ export function IncomePage() {
   }
 
   return (
-    <div className="space-y-6 animate-in fade-in duration-500">
-      <div className="flex items-center justify-between">
-        <div>
-          <h2 className="text-2xl font-bold tracking-tight text-foreground">Rendas</h2>
-          <p className="text-muted-foreground">
-            Salários e outras entradas do workspace — total registrado: <span className="font-bold text-emerald-500">{formatCurrency(total)}</span>
-          </p>
-        </div>
-        <div className="flex items-center gap-2">
-          <Button variant="outline" onClick={handleGenerate} disabled={isGenerating} className="gap-2 font-bold">
-            {isGenerating ? <Loader2 className="h-4 w-4 animate-spin" /> : <Repeat className="h-4 w-4" />}
-            Lançar pendentes
-          </Button>
-          <Button onClick={openCreate} className="gap-2 font-bold shadow-lg shadow-primary/20">
-            <Plus className="h-4 w-4" /> Nova Renda
-          </Button>
-        </div>
-      </div>
+    <div className="space-y-6">
+      <PageHeader
+        title="Rendas"
+        subtitle={`Salários e entradas do mês — total ${formatCurrency(total)}`}
+        action={
+          <div className="flex items-center gap-2">
+            <Button variant="outline" onClick={handleGenerate} disabled={isGenerating} className="gap-2">
+              {isGenerating ? <Loader2 className="h-4 w-4 animate-spin" /> : <Repeat className="h-4 w-4" />}
+              Lançar pendentes
+            </Button>
+            <Button onClick={openCreate} className="gap-2">
+              <Plus className="h-4 w-4" /> Nova renda
+            </Button>
+          </div>
+        }
+      />
 
       <Card className="bg-card border-border shadow-xl">
         <CardContent className="p-0">
@@ -250,7 +250,7 @@ export function IncomePage() {
                     </div>
                   </TableCell>
                   <TableCell className="text-right">
-                    <span className="font-black text-emerald-500">{formatCurrency(parseFloat(income.amount))}</span>
+                    <MoneyText value={income.amount} kind="income" className="font-semibold" />
                   </TableCell>
                   <TableCell>
                     <div className="flex items-center justify-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
@@ -331,7 +331,7 @@ export function IncomePage() {
                       </span>
                     </TableCell>
                     <TableCell className="text-right">
-                      <span className="font-black text-emerald-500">{formatCurrency(parseFloat(item.base_amount))}</span>
+                      <MoneyText value={item.base_amount} kind="income" className="font-semibold" />
                     </TableCell>
                     <TableCell>
                       <div className="flex items-center justify-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
