@@ -1,7 +1,7 @@
 import * as React from 'react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom';
-import { BentoDashboard } from './components/dashboard/BentoDashboard';
+import { Home } from './pages/Home';
 import { Layout } from './components/layout/Layout';
 import { useAuth } from './hooks/use-auth';
 import { useTheme } from './hooks/use-theme';
@@ -18,6 +18,7 @@ const ReportsPage = React.lazy(() => import('./pages/Reports/ReportsPage').then(
 const SettingsPage = React.lazy(() => import('./pages/Settings/SettingsPage').then(m => ({ default: m.SettingsPage })));
 const RecurringTransactionsPage = React.lazy(() => import('./pages/RecurringTransactionsPage').then(m => ({ default: m.RecurringTransactionsPage })));
 const DebtsPage = React.lazy(() => import('./pages/DebtsPage').then(m => ({ default: m.DebtsPage })));
+const TransactionsPage = React.lazy(() => import('./pages/TransactionsPage').then(m => ({ default: m.TransactionsPage })));
 const ImportPage = React.lazy(() => import('./pages/ImportPage').then(m => ({ default: m.ImportPage })));
 const IncomePage = React.lazy(() => import('./pages/IncomePage').then(m => ({ default: m.IncomePage })));
 const LoginPage = React.lazy(() => import('./pages/Auth/LoginPage').then(m => ({ default: m.LoginPage })));
@@ -102,8 +103,16 @@ function AppContent() {
           {/* Protected Routes */}
           <Route path="/" element={
             <ProtectedRoute>
-              <Layout title="Dashboard" subtitle="Bem-vindo de volta ao seu centro de controle.">
-                <BentoDashboard />
+              <Layout>
+                <Home />
+              </Layout>
+            </ProtectedRoute>
+          } />
+
+          <Route path="/transactions" element={
+            <ProtectedRoute>
+              <Layout>
+                <TransactionsPage />
               </Layout>
             </ProtectedRoute>
           } />

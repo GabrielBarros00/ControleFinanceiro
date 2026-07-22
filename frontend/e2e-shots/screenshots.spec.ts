@@ -31,6 +31,7 @@ function iso(daysAgo: number): string {
 // Rotas autenticadas do app (title do Layout como âncora de "carregou")
 const APP_ROUTES: Array<{ path: string; slug: string }> = [
   { path: '/', slug: 'dashboard' },
+  { path: '/transactions', slug: 'lancamentos' },
   { path: '/income', slug: 'rendas' },
   { path: '/cards', slug: 'cartoes' },
   { path: '/financing', slug: 'financiamentos' },
@@ -196,6 +197,20 @@ test('seed data and capture all screens', async ({ page, playwright }) => {
 
   await captureAll('light');
   await captureAll('dark');
+
+  // ---- Mobile (bottom-nav + responsivo, tema claro) ----
+  await page.goto('/');
+  await page.evaluate(() => localStorage.setItem('theme', 'light'));
+  await page.setViewportSize({ width: 390, height: 844 });
+  for (const r of [
+    { path: '/', slug: 'inicio' },
+    { path: '/transactions', slug: 'lancamentos' },
+    { path: '/reports', slug: 'relatorios' },
+  ]) {
+    await page.goto(r.path);
+    await settle();
+    await shot(`mobile-${r.slug}`);
+  }
 
   console.log(`\n>>> Screenshots salvos em: ${SHOTS}\n`);
 });
