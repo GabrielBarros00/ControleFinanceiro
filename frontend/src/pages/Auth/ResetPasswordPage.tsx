@@ -4,6 +4,7 @@ import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import * as z from 'zod';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from "@/components/ui/card";
+import { AuthShell } from '@/components/auth/AuthShell';
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -47,10 +48,8 @@ export function ResetPasswordPage() {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-background p-4 relative overflow-hidden">
-      <div className="absolute top-[-10%] left-[-10%] w-[40%] h-[40%] bg-primary/10 rounded-full blur-[120px]" />
-
-      <Card className="w-full max-w-md bg-card/50 backdrop-blur-xl border-border shadow-2xl animate-in zoom-in-95 duration-500 relative z-10">
+    <AuthShell>
+      <Card className="w-full border-border shadow-sm">
         <CardHeader className="space-y-2 text-center pt-8">
           <div className="mx-auto w-12 h-12 bg-accent rounded-xl flex items-center justify-center shadow-lg mb-4 text-primary">
             {done ? <CheckCircle2 className="h-6 w-6" /> : <KeyRound className="h-6 w-6" />}
@@ -132,6 +131,6 @@ export function ResetPasswordPage() {
           </form>
         )}
       </Card>
-    </div>
+    </AuthShell>
   );
 }

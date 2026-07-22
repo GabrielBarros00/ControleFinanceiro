@@ -180,17 +180,31 @@ export function ReportsPage() {
                 <CardTitle>Detalhamento de Gastos</CardTitle>
               </CardHeader>
               <CardContent>
-                <div className="space-y-4">
-                  {categoryData.length > 0 ? categoryData.map((item: { name: string; value: number }, idx: number) => (
-                    <div key={item.name} className="flex items-center justify-between p-2 rounded-lg hover:bg-accent/30 transition-colors">
-                      <div className="flex items-center gap-3">
-                        <div className="w-3 h-3 rounded-full" style={{ backgroundColor: COLORS[idx % COLORS.length] }} />
-                        <span className="text-sm font-medium">{item.name}</span>
-                      </div>
-                      <span className="text-sm font-black">R$ {item.value.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</span>
-                    </div>
-                  )) : (
-                    <p className="text-center text-muted-foreground py-8">Comece a registrar gastos para ver os detalhes.</p>
+                <div className="space-y-3.5">
+                  {categoryData.length > 0 ? (
+                    [...categoryData]
+                      .sort((a: { value: number }, b: { value: number }) => b.value - a.value)
+                      .map((item: { name: string; value: number }, idx: number) => {
+                        const max = Math.max(...categoryData.map((c: { value: number }) => c.value), 1);
+                        const pct = (item.value / max) * 100;
+                        const color = COLORS[idx % COLORS.length];
+                        return (
+                          <div key={item.name} className="space-y-1.5">
+                            <div className="flex items-center justify-between">
+                              <div className="flex min-w-0 items-center gap-2.5">
+                                <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ backgroundColor: color }} />
+                                <span className="truncate text-sm font-medium text-foreground">{item.name}</span>
+                              </div>
+                              <span className="tabular text-sm font-semibold text-foreground">{formatMoney(item.value)}</span>
+                            </div>
+                            <div className="h-1.5 w-full overflow-hidden rounded-full bg-muted">
+                              <div className="h-full rounded-full" style={{ width: `${pct}%`, backgroundColor: color }} />
+                            </div>
+                          </div>
+                        );
+                      })
+                  ) : (
+                    <p className="py-8 text-center text-muted-foreground">Comece a registrar gastos para ver os detalhes.</p>
                   )}
                 </div>
               </CardContent>

@@ -2,7 +2,7 @@ import * as React from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Progress } from "@/components/ui/progress";
-import { Badge } from "@/components/ui/badge";
+import { StatusPill } from "@/components/ui/status-pill";
 import { Button } from "@/components/ui/button";
 import {
   Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle,
@@ -200,7 +200,7 @@ function FinancingDetail({ financing }: { financing: Financing }) {
                   <TableCell className="text-right text-muted-foreground">{formatCurrency(parseFloat(row.remaining_balance))}</TableCell>
                   <TableCell className="text-center">
                     {row.is_paid ? (
-                      <Badge className="bg-emerald-500/20 text-emerald-500 border-none">Paga</Badge>
+                      <StatusPill tone="success">Paga</StatusPill>
                     ) : row.installment_number === nextInstallment?.installment_number ? (
                       <Button
                         size="sm"
@@ -215,7 +215,7 @@ function FinancingDetail({ financing }: { financing: Financing }) {
                         Pagar
                       </Button>
                     ) : (
-                      <Badge variant="outline" className="border-border text-muted-foreground">Pendente</Badge>
+                      <StatusPill tone="neutral">Pendente</StatusPill>
                     )}
                   </TableCell>
                 </TableRow>

@@ -93,12 +93,7 @@ export function ImportPage() {
   };
 
   return (
-    <div className="space-y-6 animate-in fade-in duration-500">
-      <div>
-        <h2 className="text-2xl font-bold tracking-tight text-foreground">Importar Extrato (CSV)</h2>
-        <p className="text-muted-foreground">Carregue um arquivo CSV para adicionar múltiplas transações de uma vez.</p>
-      </div>
-
+    <div className="space-y-6">
       <div className="grid gap-6 lg:grid-cols-3">
         <Card className="lg:col-span-1 bg-card border-border shadow-xl">
           <CardHeader>

@@ -18,6 +18,7 @@ import { apiClient } from '@/api/client';
 import { getApiErrorMessage } from '@/lib/api-error';
 import { toast } from '@/stores/toast';
 import { useConfirm } from '@/components/ui/confirm';
+import { CategoryGlyph } from '@/components/money/CategoryGlyph';
 
 type Tab = 'profile' | 'security' | 'members' | 'categories' | 'accounts' | 'appearance';
 
@@ -535,12 +536,9 @@ function CategoriesTab() {
                   </div>
                 ) : (
                   <>
-                    <div className="flex items-center gap-2 min-w-0">
-                      <span
-                        className="w-3 h-3 rounded-full shrink-0"
-                        style={{ backgroundColor: cat.color ?? '#64748b' }}
-                      />
-                      <span className="text-sm font-bold truncate">{cat.name}</span>
+                    <div className="flex items-center gap-2.5 min-w-0">
+                      <CategoryGlyph category={cat} size="sm" />
+                      <span className="text-sm font-medium truncate">{cat.name}</span>
                     </div>
                     <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
                       <Button

@@ -1,7 +1,8 @@
 import * as React from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Badge } from "@/components/ui/badge";
+import { StatusPill, type PillTone } from "@/components/ui/status-pill";
+import { MoneyText } from "@/components/money/MoneyText";
 import { Button } from "@/components/ui/button";
 import {
   Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle,
@@ -13,11 +14,11 @@ import { usePaymentAccounts } from '@/hooks/use-payment-accounts';
 import { getApiErrorMessage } from '@/lib/api-error';
 import { formatCurrency } from '@/lib/money';
 
-const STATUS_LABELS: Record<string, { label: string; className: string }> = {
-  open: { label: 'ABERTA', className: 'bg-emerald-500/20 text-emerald-500' },
-  closed: { label: 'FECHADA', className: 'bg-amber-500/20 text-amber-500' },
-  paid: { label: 'PAGA', className: 'bg-primary/20 text-primary' },
-  overdue: { label: 'VENCIDA', className: 'bg-destructive/20 text-destructive' },
+const STATUS_LABELS: Record<string, { label: string; tone: PillTone }> = {
+  open: { label: 'Aberta', tone: 'success' },
+  closed: { label: 'Fechada', tone: 'warning' },
+  paid: { label: 'Paga', tone: 'brand' },
+  overdue: { label: 'Vencida', tone: 'danger' },
 };
 
 export function StatementView({ cardId }: { cardId: number | null }) {
@@ -124,7 +125,7 @@ export function StatementView({ cardId }: { cardId: number | null }) {
                 ))}
               </select>
             )}
-            <Badge className={`${status.className} hover:opacity-90 border-none px-4 py-1`}>{status.label}</Badge>
+            <StatusPill tone={status.tone}>{status.label}</StatusPill>
           </div>
         </div>
       </CardHeader>
@@ -156,8 +157,8 @@ export function StatementView({ cardId }: { cardId: number | null }) {
                       {new Date(tx.transaction_date).toLocaleDateString('pt-BR')}
                     </TableCell>
                     <TableCell>{tx.title}</TableCell>
-                    <TableCell className="text-right font-bold">
-                      {formatCurrency(parseFloat(tx.total_amount))}
+                    <TableCell className="text-right">
+                      <MoneyText value={tx.total_amount} kind="expense" className="font-semibold" />
                     </TableCell>
                   </TableRow>
                 ))}
