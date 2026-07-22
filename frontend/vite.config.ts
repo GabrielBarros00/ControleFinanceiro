@@ -15,11 +15,11 @@ export default defineConfig({
     globals: true,
     environment: 'jsdom',
     setupFiles: './src/test/setup.ts',
-    exclude: ['**/node_modules/**', '**/dist/**', '**/e2e/**', '**/e2e-prod/**'],
+    exclude: ['**/node_modules/**', '**/dist/**', '**/e2e/**', '**/e2e-prod/**', '**/e2e-shots/**'],
     coverage: {
       provider: 'v8',
       reporter: ['text', 'json', 'html'],
-      exclude: ['node_modules/', 'src/test/', 'e2e/', 'e2e-prod/'],
+      exclude: ['node_modules/', 'src/test/', 'e2e/', 'e2e-prod/', 'e2e-shots/'],
     },
   },
 })

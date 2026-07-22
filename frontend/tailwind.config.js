@@ -38,6 +38,25 @@ export default {
           DEFAULT: 'var(--destructive)',
           foreground: 'var(--destructive-foreground)'
         },
+        brand: {
+          DEFAULT: 'var(--brand)',
+          hover: 'var(--brand-hover)',
+          subtle: 'var(--brand-subtle)',
+          border: 'var(--brand-border)'
+        },
+        income: {
+          DEFAULT: 'var(--income)',
+          subtle: 'var(--income-subtle)'
+        },
+        expense: {
+          DEFAULT: 'var(--expense)',
+          subtle: 'var(--expense-subtle)'
+        },
+        warning: {
+          DEFAULT: 'var(--warning)',
+          subtle: 'var(--warning-subtle)'
+        },
+        success: 'var(--success)',
         border: 'var(--border)',
         input: 'var(--input)',
         ring: 'var(--ring)',
@@ -46,13 +65,19 @@ export default {
           '2': 'var(--chart-2)',
           '3': 'var(--chart-3)',
           '4': 'var(--chart-4)',
-          '5': 'var(--chart-5)'
+          '5': 'var(--chart-5)',
+          '6': 'var(--chart-6)'
         }
       },
       borderRadius: {
         lg: 'var(--radius)',
         md: 'calc(var(--radius) - 2px)',
         sm: 'calc(var(--radius) - 4px)'
+      },
+      boxShadow: {
+        sm: 'var(--shadow-sm)',
+        md: 'var(--shadow-md)',
+        lg: 'var(--shadow-lg)'
       }
     }
   },
