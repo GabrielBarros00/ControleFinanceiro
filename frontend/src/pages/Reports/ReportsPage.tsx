@@ -19,11 +19,13 @@ import { BarChart3, TrendingUp, PieChart as PieChartIcon } from 'lucide-react';
 import { useReports } from '@/hooks/use-reports';
 import { Skeleton } from "@/components/ui/skeleton";
 import { BudgetPanel } from './BudgetPanel';
-
-const COLORS = ['oklch(0.488 0.243 264.376)', 'oklch(0.696 0.17 162.48)', 'oklch(0.769 0.188 70.08)', 'oklch(0.627 0.265 303.9)', 'oklch(0.645 0.246 16.439)'];
+import { useChartTheme } from '@/hooks/use-chart-theme';
 
 export function ReportsPage() {
   const { data, isLoading, isError } = useReports();
+  // Cores lidas do tema atual (claro/escuro) — nunca hardcoded (corrige B3)
+  const chart = useChartTheme();
+  const COLORS = chart.series;
 
   if (isLoading) {
     return (
@@ -47,6 +49,12 @@ export function ReportsPage() {
   }
 
   const monthlyData = data?.monthly_history || [];
+  // "Pouca história" (B4): conta meses com movimento real, não o tamanho da série
+  // (o back devolve 6 meses, a maioria zerada para quem é novo).
+  const monthsWithData = monthlyData.filter(
+    (m: { income?: number | string; expenses?: number | string }) =>
+      (Number(m.income) || 0) + (Number(m.expenses) || 0) > 0,
+  ).length;
   const currentSummary = data?.current_summary || { total_expenses: 0, total_income: 0, net_savings: 0, my_expenses: 0, my_income: 0, my_net: 0, categories: [] };
   const categoryData = currentSummary.categories || [];
   // Destaque = a sua parte (splits); sublinha = total da casa/workspace
@@ -103,7 +111,7 @@ export function ReportsPage() {
       </div>
 
       <Tabs defaultValue="overview" className="space-y-4">
-        <TabsList className="bg-card border border-border">
+        <TabsList className="bg-muted border border-border p-1">
           <TabsTrigger value="overview" className="data-[state=active]:bg-primary data-[state=active]:text-primary-foreground font-bold">Visão Geral</TabsTrigger>
           <TabsTrigger value="categories" className="data-[state=active]:bg-primary data-[state=active]:text-primary-foreground font-bold">Categorias</TabsTrigger>
           <TabsTrigger value="trends" className="data-[state=active]:bg-primary data-[state=active]:text-primary-foreground font-bold">Fluxo</TabsTrigger>
@@ -124,19 +132,19 @@ export function ReportsPage() {
               <CardDescription>Comparativo mensal dos últimos 6 meses.</CardDescription>
             </CardHeader>
             <CardContent className="h-[400px]">
-              {monthlyData.length > 0 ? (
+              {monthsWithData >= 2 ? (
                 <ResponsiveContainer width="100%" height="100%">
                   <BarChart data={monthlyData}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" vertical={false} />
-                    <XAxis dataKey="name" stroke="oklch(0.556 0 0)" fontSize={12} tickLine={false} axisLine={false} />
-                    <YAxis stroke="oklch(0.556 0 0)" fontSize={12} tickLine={false} axisLine={false} tickFormatter={(value) => `R$${value}`} />
+                    <CartesianGrid strokeDasharray="3 3" stroke={chart.grid} vertical={false} />
+                    <XAxis dataKey="name" stroke={chart.axis} fontSize={12} tickLine={false} axisLine={false} />
+                    <YAxis stroke={chart.axis} fontSize={12} tickLine={false} axisLine={false} tickFormatter={(value) => `R$${value}`} />
                     <Tooltip 
-                      contentStyle={{ backgroundColor: 'oklch(0.165 0 0)', border: '1px solid oklch(0.205 0 0)', borderRadius: '12px' }}
-                      itemStyle={{ color: 'oklch(0.985 0 0)', fontWeight: 'bold' }}
+                      contentStyle={{ backgroundColor: chart.tooltipBg, border: `1px solid ${chart.tooltipBorder}`, borderRadius: '12px', color: chart.tooltipText }}
+                      itemStyle={{ color: chart.tooltipText, fontWeight: 'bold' }}
                     />
-                    <Bar dataKey="income" fill="oklch(0.696 0.17 162.48)" radius={[4, 4, 0, 0]} name="Receita" />
-                    <Bar dataKey="expenses" fill="oklch(0.488 0.243 264.376)" radius={[4, 4, 0, 0]} name="Despesa (casa)" />
-                    <Bar dataKey="my_expenses" fill="oklch(0.769 0.188 70.08)" radius={[4, 4, 0, 0]} name="Minha parte" />
+                    <Bar dataKey="income" fill={chart.series[1]} radius={[4, 4, 0, 0]} name="Receita" />
+                    <Bar dataKey="expenses" fill={chart.series[0]} radius={[4, 4, 0, 0]} name="Despesa (casa)" />
+                    <Bar dataKey="my_expenses" fill={chart.series[2]} radius={[4, 4, 0, 0]} name="Minha parte" />
                   </BarChart>
                 </ResponsiveContainer>
               ) : (
@@ -173,7 +181,7 @@ export function ReportsPage() {
                         ))}
                       </Pie>
                       <Tooltip 
-                        contentStyle={{ backgroundColor: 'oklch(0.165 0 0)', border: '1px solid oklch(0.205 0 0)', borderRadius: '12px' }}
+                        contentStyle={{ backgroundColor: chart.tooltipBg, border: `1px solid ${chart.tooltipBorder}`, borderRadius: '12px', color: chart.tooltipText }}
                       />
                     </PieChart>
                   </ResponsiveContainer>
@@ -214,18 +222,18 @@ export function ReportsPage() {
               </CardTitle>
             </CardHeader>
             <CardContent className="h-[400px]">
-               {monthlyData.length > 0 ? (
+               {monthsWithData >= 2 ? (
                 <ResponsiveContainer width="100%" height="100%">
                   <LineChart data={monthlyData}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" vertical={false} />
-                    <XAxis dataKey="name" stroke="oklch(0.556 0 0)" fontSize={12} tickLine={false} axisLine={false} />
-                    <YAxis stroke="oklch(0.556 0 0)" fontSize={12} tickLine={false} axisLine={false} />
+                    <CartesianGrid strokeDasharray="3 3" stroke={chart.grid} vertical={false} />
+                    <XAxis dataKey="name" stroke={chart.axis} fontSize={12} tickLine={false} axisLine={false} />
+                    <YAxis stroke={chart.axis} fontSize={12} tickLine={false} axisLine={false} />
                     <Tooltip 
-                      contentStyle={{ backgroundColor: 'oklch(0.165 0 0)', border: '1px solid oklch(0.205 0 0)', borderRadius: '12px' }}
+                      contentStyle={{ backgroundColor: chart.tooltipBg, border: `1px solid ${chart.tooltipBorder}`, borderRadius: '12px', color: chart.tooltipText }}
                     />
-                    <Line type="monotone" dataKey="income" stroke="oklch(0.696 0.17 162.48)" strokeWidth={3} dot={{ r: 6, strokeWidth: 2, fill: 'oklch(0.165 0 0)' }} name="Receita" />
-                    <Line type="monotone" dataKey="expenses" stroke="oklch(0.488 0.243 264.376)" strokeWidth={3} dot={{ r: 6, strokeWidth: 2, fill: 'oklch(0.165 0 0)' }} name="Despesa (casa)" />
-                    <Line type="monotone" dataKey="my_expenses" stroke="oklch(0.769 0.188 70.08)" strokeWidth={2} strokeDasharray="4 4" dot={{ r: 4, strokeWidth: 2, fill: 'oklch(0.165 0 0)' }} name="Minha parte" />
+                    <Line type="monotone" dataKey="income" stroke={chart.series[1]} strokeWidth={3} dot={{ r: 6, strokeWidth: 2, fill: chart.tooltipBg }} name="Receita" />
+                    <Line type="monotone" dataKey="expenses" stroke={chart.series[0]} strokeWidth={3} dot={{ r: 6, strokeWidth: 2, fill: chart.tooltipBg }} name="Despesa (casa)" />
+                    <Line type="monotone" dataKey="my_expenses" stroke={chart.series[2]} strokeWidth={2} strokeDasharray="4 4" dot={{ r: 4, strokeWidth: 2, fill: chart.tooltipBg }} name="Minha parte" />
                   </LineChart>
                 </ResponsiveContainer>
               ) : (

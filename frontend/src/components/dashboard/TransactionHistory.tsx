@@ -18,6 +18,7 @@ import { paymentMethodLabel, PAYMENT_METHOD_OPTIONS } from '@/lib/payment-method
 import { useConfirm } from '@/components/ui/confirm';
 import { toast } from '@/stores/toast';
 import type { TransactionRead } from '@/types/transaction';
+import { MoneyText } from '@/components/money/MoneyText';
 
 export function TransactionHistory() {
   const [filters, setFilters] = React.useState<TransactionFilters>({
@@ -319,9 +320,12 @@ export function TransactionHistory() {
                   </div>
                 </TableCell>
                 <TableCell className="text-right">
-                  <span className={`font-bold ${parseFloat(tx.total_amount) < 0 ? 'text-destructive' : 'text-emerald-500'}`}>
-                    R$ {Math.abs(parseFloat(tx.total_amount)).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
-                  </span>
+                  {/* Cor/sinal por TIPO do lançamento, não pelo sinal cru (corrige o "tudo verde") */}
+                  <MoneyText
+                    value={tx.total_amount}
+                    kind={parseFloat(tx.total_amount) < 0 ? 'income' : 'expense'}
+                    className="font-bold"
+                  />
                 </TableCell>
                 <TableCell>
                   <div className="flex items-center justify-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity">

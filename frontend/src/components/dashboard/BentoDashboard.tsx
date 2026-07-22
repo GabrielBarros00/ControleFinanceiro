@@ -7,6 +7,7 @@ import { NewTransactionDialog } from './NewTransactionDialog';
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { TrendingUp, Target, Loader2, Wallet, Plus } from 'lucide-react';
+import { formatMoney } from '@/lib/money';
 
 export function BentoDashboard() {
   const { forecast, isLoading: isForecastLoading } = useAnalytics();
@@ -47,8 +48,8 @@ export function BentoDashboard() {
             <TrendingUp className="h-4 w-4 text-primary group-hover:scale-125 transition-transform" />
           </CardHeader>
           <CardContent>
-            <div className="text-3xl font-black text-foreground">
-              R$ {projectedTotal.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+            <div className="text-3xl font-black text-foreground tabular">
+              {formatMoney(projectedTotal)}
             </div>
             <p className="text-[10px] font-bold text-muted-foreground mt-1">Gasto total estimado para este mês</p>
           </CardContent>
