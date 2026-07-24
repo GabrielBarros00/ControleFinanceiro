@@ -150,6 +150,9 @@ def update_recurring_income(
     db_rec.updated_at = datetime.now(UTC)
 
     session.add(db_rec)
+    # A edição vale do mês visualizado pra frente: reaplica ao lançamento do mês
+    # corrente; meses anteriores (fechados) ficam congelados.
+    RecurringIncomeService.sync_current_month_income(session, db_rec, date.today())
     publish_event(session, workspace_id, "recurring_income.updated", "recurring_income", db_rec.id, membership.user_id)
     session.commit()
     session.refresh(db_rec)

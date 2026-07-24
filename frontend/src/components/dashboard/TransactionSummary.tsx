@@ -48,7 +48,7 @@ export function TransactionSummary({ transaction }: TransactionSummaryProps) {
       </div>
 
       <div className="space-y-1">
-        <p className="text-[11px] font-black uppercase text-muted-foreground flex items-center gap-1">
+        <p className="text-[11px] font-semibold uppercase text-muted-foreground flex items-center gap-1">
           <Landmark className="h-3 w-3" /> Quem pagou
         </p>
         {(transaction.payers ?? []).map((payer) => {
@@ -57,7 +57,7 @@ export function TransactionSummary({ transaction }: TransactionSummaryProps) {
           return (
             <p key={payer.id} className="text-xs text-foreground">
               <span className="font-bold">{memberName(payer.user_id)}</span>
-              {' '}pagou <span className="font-bold">{formatCurrency(parseFloat(payer.amount))}</span>
+              {' '}pagou <span className="font-bold">{formatCurrency(parseFloat(payer.amount), transaction.currency)}</span>
               {method && <> via {paymentMethodLabel(method)}</>}
               {account && <> (conta {account})</>}
             </p>
@@ -66,26 +66,26 @@ export function TransactionSummary({ transaction }: TransactionSummaryProps) {
       </div>
 
       <div className="space-y-1">
-        <p className="text-[11px] font-black uppercase text-muted-foreground flex items-center gap-1">
+        <p className="text-[11px] font-semibold uppercase text-muted-foreground flex items-center gap-1">
           <Users className="h-3 w-3" /> Divisão
         </p>
         {(transaction.splits ?? []).map((split) => (
           <p key={split.id} className="text-xs text-foreground">
             <span className="font-bold">{memberName(split.user_id)}</span>
-            {' '}deve <span className="font-bold">{formatCurrency(parseFloat(split.computed_amount))}</span>
+            {' '}deve <span className="font-bold">{formatCurrency(parseFloat(split.computed_amount), transaction.currency)}</span>
           </p>
         ))}
       </div>
 
       {hasAdjustments && (
         <div className="space-y-1">
-          <p className="text-[11px] font-black uppercase text-muted-foreground">Ajustes do documento</p>
+          <p className="text-[11px] font-semibold uppercase text-muted-foreground">Ajustes do documento</p>
           {(transaction.adjustments ?? []).map((adj) => (
             <p key={adj.id} className="text-xs text-foreground">
               {ADJUSTMENT_TYPE_LABELS[adj.type]}
               {adj.description ? ` (${adj.description})` : ''}:{' '}
               <span className={`font-bold ${parseFloat(adj.amount) < 0 ? 'text-emerald-500' : ''}`}>
-                {formatCurrency(parseFloat(adj.amount))}
+                {formatCurrency(parseFloat(adj.amount), transaction.currency)}
               </span>
             </p>
           ))}

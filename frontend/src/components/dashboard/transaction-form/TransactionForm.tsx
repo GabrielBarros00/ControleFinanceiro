@@ -9,8 +9,10 @@ import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { Loader2, CheckCircle2, AlertCircle, SlidersHorizontal, ChevronDown } from 'lucide-react';
 import { useMembers } from '@/hooks/use-members';
 import { useCategories } from '@/hooks/use-categories';
+import { useExchangeRate } from '@/hooks/use-exchange-rate';
 import { useAuthStore } from '@/stores';
 import { cn } from '@/lib/utils';
+import { currencySymbol, formatMoney } from '@/lib/money';
 import { getApiErrorMessage } from '@/lib/api-error';
 import {
   transactionFormSchema,
@@ -23,6 +25,7 @@ import { PaymentMethodField } from './PaymentMethodField';
 import { PayersEditor } from './PayersEditor';
 import { TagMultiSelect } from './TagMultiSelect';
 import { SimpleSplitChips } from './SimpleSplitChips';
+import { CurrencyCombobox } from './CurrencyCombobox';
 
 const selectClass =
   'flex h-10 w-full rounded-md border border-border bg-background px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring';
@@ -69,6 +72,7 @@ export function TransactionForm({ initialValues, onSubmit, submitLabel, resetOnS
   const { register, control, handleSubmit, watch, reset, getValues, setValue, formState: { errors } } = methods;
 
   const splitMode = watch('split_mode');
+  const currency = watch('currency');
   const defaultUserId = user ? String(user.id) : '';
 
   const handleSplitModeChange = (mode: 'transaction' | 'item') => {
@@ -136,19 +140,26 @@ export function TransactionForm({ initialValues, onSubmit, submitLabel, resetOnS
             </div>
             <div className="space-y-2">
               <Label htmlFor="total_amount" className="text-sm font-semibold text-foreground">Valor Total</Label>
-              <Controller
-                name="total_amount"
-                control={control}
-                render={({ field }) => (
-                  <MoneyInput
-                    id="total_amount"
-                    value={field.value}
-                    onChange={field.onChange}
-                    className="bg-background border-border focus:ring-primary font-bold"
-                  />
-                )}
-              />
+              <div className="flex gap-2">
+                <Controller
+                  name="total_amount"
+                  control={control}
+                  render={({ field }) => (
+                    <MoneyInput
+                      id="total_amount"
+                      value={field.value}
+                      onChange={field.onChange}
+                      prefix={currencySymbol(currency)}
+                      className="bg-background border-border focus:ring-primary font-bold flex-1"
+                    />
+                  )}
+                />
+                <CurrencyCombobox value={currency} onChange={(c) => setValue('currency', c, { shouldValidate: true })} />
+              </div>
               {errors.total_amount && <p className="text-xs text-destructive font-medium">{errors.total_amount.message as string}</p>}
+              {currency && currency !== 'BRL' && (
+                <CurrencyHint currency={currency} amount={watch('total_amount')} />
+              )}
             </div>
           </div>
 
@@ -238,5 +249,17 @@ export function TransactionForm({ initialValues, onSubmit, submitLabel, resetOnS
         </div>
       </form>
     </FormProvider>
+  );
+}
+
+// Referência para moeda estrangeira: mostra a estimativa em BRL (PTAX, best-effort)
+// e lembra do IOF no cartão. O valor final é congelado no servidor na criação.
+function CurrencyHint({ currency, amount }: { currency: string; amount: number }) {
+  const { rate } = useExchangeRate(currency);
+  return (
+    <p className="text-[11px] font-medium text-muted-foreground">
+      {rate ? `≈ ${formatMoney((amount || 0) * rate)} (câmbio ${rate.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}) · ` : ''}
+      convertido para BRL na entrada (+3,5% de IOF no cartão).
+    </p>
   );
 }

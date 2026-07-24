@@ -1,12 +1,27 @@
-export const formatCurrency = (value: number | string): string => {
-  const amount = typeof value === 'string' ? parseFloat(value.replace(/\D/g, '')) / 100 : value;
-  if (isNaN(amount)) return 'R$ 0,00';
-  
-  return new Intl.NumberFormat('pt-BR', {
-    style: 'currency',
-    currency: 'BRL',
-  }).format(amount);
+export const formatCurrency = (value: number | string, currency: string = 'BRL'): string => {
+  const raw = typeof value === 'string' ? parseFloat(value.replace(/\D/g, '')) / 100 : value;
+  const amount = isNaN(raw) ? 0 : raw;
+
+  try {
+    return new Intl.NumberFormat('pt-BR', { style: 'currency', currency }).format(amount);
+  } catch {
+    // Código de moeda inválido para o Intl: mostra o código + valor (não quebra)
+    return `${currency} ${amount.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  }
 };
+
+/** Símbolo curto por moeda — usado como prefixo do MoneyInput. Fora das majores,
+ *  usa o próprio código (ex.: "ARS"). */
+export function currencySymbol(currency: string): string {
+  switch (currency) {
+    case 'BRL': return 'R$';
+    case 'USD': return 'US$';
+    case 'EUR': return '€';
+    case 'GBP': return '£';
+    case 'JPY': return '¥';
+    default: return currency;
+  }
+}
 
 export const parseCurrency = (value: string): number => {
   const digits = value.replace(/\D/g, '');
@@ -39,18 +54,27 @@ export interface FormatMoneyOptions {
   sign?: boolean;
   /** arredonda para inteiro (heróis, eixos de gráfico) */
   hideCents?: boolean;
+  /** moeda do lançamento (default BRL) — para exibir USD/EUR na própria moeda */
+  currency?: string;
 }
 
 export function formatMoney(value: number | string, opts: FormatMoneyOptions = {}): string {
   const n = toNum(value);
-  if (!Number.isFinite(n)) return 'R$ 0,00';
+  const currency = opts.currency ?? 'BRL';
+  if (!Number.isFinite(n)) return formatCurrency(0, currency);
   const digits = opts.hideCents ? 0 : 2;
-  const body = new Intl.NumberFormat('pt-BR', {
-    style: 'currency',
-    currency: 'BRL',
-    minimumFractionDigits: digits,
-    maximumFractionDigits: digits,
-  }).format(Math.abs(n));
+  let body: string;
+  try {
+    body = new Intl.NumberFormat('pt-BR', {
+      style: 'currency',
+      currency,
+      minimumFractionDigits: digits,
+      maximumFractionDigits: digits,
+    }).format(Math.abs(n));
+  } catch {
+    // Código de moeda inválido para o Intl: código + valor (não quebra a tela)
+    body = `${currency} ${Math.abs(n).toLocaleString('pt-BR', { minimumFractionDigits: digits, maximumFractionDigits: digits })}`;
+  }
   const prefix = n < 0 ? '−' : opts.sign && n > 0 ? '+' : '';
   return `${prefix}${body}`;
 }

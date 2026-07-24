@@ -2,7 +2,7 @@ from datetime import datetime, date, UTC
 from enum import Enum
 from typing import Optional, List, TYPE_CHECKING
 from decimal import Decimal
-from sqlalchemy import event
+from sqlalchemy import event, Index
 from sqlalchemy.orm import attributes
 from sqlmodel import SQLModel, Field, Relationship, UniqueConstraint
 
@@ -61,8 +61,10 @@ class Transaction(TransactionBase, table=True):
     # A instância excluída mantém a linha (tombstone) e ocupa a vaga → a unique
     # bloqueia recriação por natureza (ADR 0012). Transações comuns têm
     # occurrence_date NULL e não colidem (NULLs são distintos na unique).
+    # Índice único (não constraint) para casar com o schema das migrações
+    # (o banco sempre teve isto como UNIQUE INDEX uq_recurring_occurrence).
     __table_args__ = (
-        UniqueConstraint("recurring_expense_id", "occurrence_date", name="uq_recurring_occurrence"),
+        Index("uq_recurring_occurrence", "recurring_expense_id", "occurrence_date", unique=True),
     )
 
     id: Optional[int] = Field(default=None, primary_key=True)
@@ -80,6 +82,17 @@ class Transaction(TransactionBase, table=True):
     installment_no: Optional[int] = Field(default=None)
     installments_of: Optional[int] = Field(default=None)
     installment_group_id: Optional[str] = Field(default=None, index=True)
+
+    # Conversão de moeda (ADR 0006 revisitado): lançamento estrangeiro é
+    # convertido para a moeda-base na ENTRADA — total_amount/currency ficam em
+    # BRL e os campos abaixo guardam o original (PTAX do dia + IOF congelados)
+    # só para exibição. None = lançamento nativo em BRL.
+    original_amount: Optional[Decimal] = Field(default=None, decimal_places=2, max_digits=20)
+    original_currency: Optional[str] = Field(default=None)
+    exchange_rate: Optional[Decimal] = Field(default=None, decimal_places=6, max_digits=20)
+    iof_rate: Optional[Decimal] = Field(default=None, decimal_places=6, max_digits=8)
+    # Fonte da taxa: 'ptax' (oficial) | 'market' (referência) | None (BRL nativo)
+    rate_source: Optional[str] = Field(default=None)
 
     confirmed_at: Optional[datetime] = None
     paid_at: Optional[datetime] = None

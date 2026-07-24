@@ -7,21 +7,28 @@ export interface Income {
   title: string;
   description?: string | null;
   amount: string;
+  currency?: string | null;
   received_at: string;
   category?: string | null;
   user_id: number;
   recurring_income_id?: number | null;
   billing_month?: string | null;
+  original_amount?: string | null;
+  original_currency?: string | null;
+  exchange_rate?: string | null;
+  rate_source?: string | null;
 }
 
-export function useIncome() {
+export function useIncome(month?: string) {
   const queryClient = useQueryClient();
   const { currentWorkspaceId } = useUIStore();
 
   const listQuery = useQuery({
-    queryKey: ['income', currentWorkspaceId],
+    queryKey: ['income', currentWorkspaceId, month],
     queryFn: async (): Promise<Income[]> => {
-      const response = await apiClient.get(`/workspaces/${currentWorkspaceId}/income/`);
+      const response = await apiClient.get(`/workspaces/${currentWorkspaceId}/income/`, {
+        params: { month },
+      });
       return response.data;
     },
     enabled: !!currentWorkspaceId,
@@ -34,7 +41,7 @@ export function useIncome() {
   };
 
   const createMutation = useMutation({
-    mutationFn: async (data: { title: string; amount: number; received_at: string; description?: string }) => {
+    mutationFn: async (data: { title: string; amount: number; received_at: string; description?: string; currency?: string }) => {
       const response = await apiClient.post(`/workspaces/${currentWorkspaceId}/income/`, data);
       return response.data as Income;
     },
@@ -42,7 +49,7 @@ export function useIncome() {
   });
 
   const updateMutation = useMutation({
-    mutationFn: async ({ id, data }: { id: number; data: Partial<{ title: string; amount: number; received_at: string; description: string }> }) => {
+    mutationFn: async ({ id, data }: { id: number; data: Partial<{ title: string; amount: number; received_at: string; description: string; currency: string }> }) => {
       const response = await apiClient.put(`/workspaces/${currentWorkspaceId}/income/${id}`, data);
       return response.data as Income;
     },

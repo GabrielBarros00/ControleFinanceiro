@@ -1,9 +1,10 @@
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlmodel import Session, select, func
 from typing import Dict, List, Optional
-from decimal import Decimal
+from decimal import Decimal, ROUND_HALF_UP
 import math
 import datetime
+import re
 import uuid
 
 from app.db.session import get_session
@@ -32,16 +33,24 @@ from app.schemas.transaction import (
     validate_split_structure,
 )
 from app.api.deps import get_workspace_membership, require_role
+from app.core.config import settings
 from app.domain.money import Money
+from app.domain.query_policy import workspace_base_currency
 from app.models.tag import Tag, TransactionTagLink
+from app.services.currency_service import ExchangeRateUnavailable
+from app.services.exchange_rate_store import ExchangeRateStore
 from app.services.event_service import publish_event
 from app.services.transaction_service import (
+    _allocate_proportional,
+    _cents,
     compute_transaction_breakdown,
+    convert_division_to_base,
     delete_transaction_children,
     persist_transaction_children,
     validate_status_transition,
 )
 from app.services.credit_card_service import CreditCardService
+from app.services.recurring_service import RecurringMaterializationService
 from app.models.credit_card import CreditCard
 
 router = APIRouter(prefix="/workspaces/{workspace_id}/transactions", tags=["transactions"])
@@ -101,6 +110,85 @@ def _ensure_not_cancelled(db_transaction: Transaction):
         )
 
 
+def _compute_base_conversion(
+    session: Session,
+    workspace_id: int,
+    *,
+    currency: Optional[str],
+    total_amount: Decimal,
+    transaction_date: datetime.datetime,
+    payment_method: Optional[PaymentMethod],
+) -> Optional[Dict]:
+    """Fator de conversão para a moeda-base (BRL) na ENTRADA: PTAX do dia × (1 +
+    IOF no cartão). Retorna None se já for base; 422 se a taxa faltar. A divisão
+    (pagadores/splits/itens/ajustes) é convertida à parte por
+    `convert_division_to_base` — inclusive valor fixo, por item e multi-pagador."""
+    base = workspace_base_currency(session, workspace_id)
+    if not currency or currency == base:
+        return None
+
+    occ = transaction_date.date() if hasattr(transaction_date, "date") else transaction_date
+    try:
+        rate, source = ExchangeRateStore.get_or_fetch(session, currency, occ)
+    except ExchangeRateUnavailable as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
+
+    # IOF só em compra internacional no cartão (crédito/débito)
+    iof = (
+        settings.IOF_INTERNATIONAL_CARD_RATE
+        if payment_method in (PaymentMethod.credit_card, PaymentMethod.debit_card)
+        else Decimal("0")
+    )
+    factor = rate * (Decimal("1") + iof)
+    brl_total = (total_amount * factor).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+
+    return {
+        "base_currency": base,
+        "brl_total": brl_total,
+        "factor": factor,
+        "meta": {
+            "original_amount": total_amount,
+            "original_currency": currency,
+            "exchange_rate": rate,
+            "iof_rate": iof,
+            "rate_source": source,
+        },
+    }
+
+
+def _convert_create_to_base(
+    session: Session, workspace_id: int, transaction_in: TransactionCreate
+):
+    """Aplica a conversão a um TransactionCreate — devolve (transaction_in em BRL
+    com a divisão inteira reconvertida, meta|None)."""
+    conv = _compute_base_conversion(
+        session, workspace_id,
+        currency=transaction_in.currency,
+        total_amount=transaction_in.total_amount,
+        transaction_date=transaction_in.transaction_date,
+        payment_method=transaction_in.payment_method,
+    )
+    if conv is None:
+        return transaction_in, None
+    div = convert_division_to_base(
+        factor=conv["factor"],
+        brl_total=conv["brl_total"],
+        payers=transaction_in.payers,
+        splits=transaction_in.splits or [],
+        items=transaction_in.items,
+        adjustments=transaction_in.adjustments,
+    )
+    converted = transaction_in.model_copy(update={
+        "total_amount": conv["brl_total"],
+        "currency": conv["base_currency"],
+        "payers": div["payers"],
+        "splits": div["splits"],
+        "items": div["items"],
+        "adjustments": div["adjustments"],
+    })
+    return converted, conv["meta"]
+
+
 @router.post("/", response_model=TransactionRead)
 def create_transaction(
     workspace_id: int,
@@ -117,9 +205,17 @@ def create_transaction(
         if not card or card.workspace_id != workspace_id or card.deleted_at:
             raise HTTPException(status_code=400, detail="Cartão de crédito inválido para este workspace")
 
+    # Moeda estrangeira: converte para BRL na entrada (PTAX do dia + IOF no cartão)
+    transaction_in, conv_meta = _convert_create_to_base(session, workspace_id, transaction_in)
+
     # Parcelamento: N transações irmãs, uma por mês/fatura
     if transaction_in.installments_count and transaction_in.installments_count > 1:
-        return _create_installments(session, workspace_id, transaction_in, membership, card)
+        first_tx = _create_installments(session, workspace_id, transaction_in, membership, card, conv_meta=conv_meta)
+        # Evento ÚNICO agregado — N parcelas não podem virar N refetches
+        publish_event(session, workspace_id, "transaction.bulk_created", "transaction", None, membership.user_id)
+        session.commit()
+        session.refresh(first_tx)
+        return first_tx
 
     if card:
         statement = CreditCardService.get_or_create_statement(session, card, transaction_in.transaction_date)
@@ -136,7 +232,8 @@ def create_transaction(
         **transaction_data,
         workspace_id=workspace_id,
         created_by_user_id=membership.user_id,
-        statement_id=statement_id
+        statement_id=statement_id,
+        **(conv_meta or {}),
     )
     session.add(db_transaction)
     # flush (não commit): mantém a criação ATÔMICA — se payers/splits/itens
@@ -274,14 +371,21 @@ def _create_installments(
     transaction_in: TransactionCreate,
     membership: WorkspaceMembership,
     card: Optional[CreditCard],
+    group_id: Optional[str] = None,
+    conv_meta: Optional[Dict] = None,
 ):
     """Cria N transações irmãs (i/N), cada uma roteada para a fatura do seu mês,
     fatiando a divisão pelos N meses (igual/porcentagem/valor fixo, pela despesa
-    ou por item). Atômico: qualquer falha descarta tudo."""
+    ou por item). Atômico: qualquer falha descarta tudo. NÃO comita nem publica
+    evento — quem chama decide (create → bulk_created, group-edit → bulk_updated).
+    Reusa `group_id` quando informado (edição do grupo mantém a mesma identidade).
+    Com `conv_meta` (lançamento estrangeiro convertido), congela taxa/IOF por
+    parcela e fatia o valor ORIGINAL na mesma proporção do total em BRL."""
     count = transaction_in.installments_count
-    group_id = uuid.uuid4().hex
+    group_id = group_id or uuid.uuid4().hex
     payer = transaction_in.payers[0]
     plans = _installment_plan(transaction_in, count)
+    orig_slices = _split_amounts(conv_meta["original_amount"], count) if conv_meta else None
 
     base_data = transaction_in.model_dump(exclude={
         "payers", "splits", "items", "adjustments", "tag_ids", "installments_count",
@@ -301,6 +405,16 @@ def _create_installments(
                 statement = CreditCardService.get_or_create_statement(session, card, inst_date)
                 statement_id = statement.id
 
+            inst_meta = {}
+            if conv_meta:
+                inst_meta = {
+                    "original_amount": orig_slices[i],
+                    "original_currency": conv_meta["original_currency"],
+                    "exchange_rate": conv_meta["exchange_rate"],
+                    "iof_rate": conv_meta["iof_rate"],
+                    "rate_source": conv_meta.get("rate_source"),
+                }
+
             db_transaction = Transaction(
                 **base_data,
                 title=inst_title,
@@ -313,6 +427,7 @@ def _create_installments(
                 installment_no=i + 1,
                 installments_of=count,
                 installment_group_id=group_id,
+                **inst_meta,
             )
             session.add(db_transaction)
             session.flush()
@@ -348,10 +463,6 @@ def _create_installments(
         session.rollback()
         raise HTTPException(status_code=400, detail=str(exc))
 
-    # Evento ÚNICO agregado — N parcelas não podem virar N refetches
-    publish_event(session, workspace_id, "transaction.bulk_created", "transaction", None, membership.user_id)
-    session.commit()
-    session.refresh(first_tx)
     return first_tx
 
 @router.post("/preview")
@@ -396,6 +507,10 @@ def list_transactions(
     tag_id: Optional[int] = None
 ):
     offset = (page - 1) * limit
+
+    # Despesas recorrentes vencidas do mês corrente entram sozinhas (lazy accrual)
+    # antes de montar o extrato — assim "tudo que é recorrente" aparece sem o botão.
+    RecurringMaterializationService.ensure_and_commit(session, workspace_id)
 
     # Base query
     statement = select(Transaction).where(
@@ -556,6 +671,13 @@ def update_transaction(
             if split.split_method == SplitMethod.fixed:
                 split.input_value = new_total
             session.add(split)
+        # Total alterado no caminho parcial (semântica BRL): a proveniência
+        # estrangeira congelada (original_*) não corresponde mais ao novo total —
+        # limpa p/ o registro não afirmar um câmbio que já não bate. Edição de
+        # moeda estrangeira usa a edição completa (_full_edit), que re-converte.
+        if db_transaction.original_currency:
+            for k in ("original_amount", "original_currency", "exchange_rate", "iof_rate", "rate_source"):
+                update_data[k] = None
 
     # Categoria: upsert do item único (modelo simplificado de 1 categoria/transação)
     if "category_id" in update_data:
@@ -611,6 +733,37 @@ def _full_edit(
     items = transaction_in.items
     # Conjunto completo: sem o campo, os ajustes anteriores são descartados
     adjustments = transaction_in.adjustments
+
+    # Moeda estrangeira: converte o total/pagador para BRL e congela o original.
+    # Editar em BRL (ou trocar de volta) limpa o original congelado.
+    conv = _compute_base_conversion(
+        session, workspace_id,
+        currency=update_data.get("currency", db_transaction.currency),
+        total_amount=effective_total,
+        transaction_date=update_data.get("transaction_date", db_transaction.transaction_date),
+        payment_method=update_data.get("payment_method", db_transaction.payment_method),
+    )
+    if conv is not None:
+        div = convert_division_to_base(
+            factor=conv["factor"],
+            brl_total=conv["brl_total"],
+            payers=transaction_in.payers,
+            splits=splits,
+            items=items,
+            adjustments=adjustments,
+        )
+        effective_total = conv["brl_total"]
+        splits = div["splits"]
+        items = div["items"]
+        adjustments = div["adjustments"]
+        transaction_in = transaction_in.model_copy(update={"payers": div["payers"]})
+        # total_amount vem em update_data (setattr) — precisa virar BRL também
+        update_data["total_amount"] = conv["brl_total"]
+        update_data["currency"] = conv["base_currency"]
+        update_data.update(conv["meta"])
+    else:
+        for k in ("original_amount", "original_currency", "exchange_rate", "iof_rate", "rate_source"):
+            update_data[k] = None
 
     try:
         validate_split_structure(effective_mode, splits, items)
@@ -711,6 +864,267 @@ def _get_group_anchor(
     return anchor
 
 
+# "Compra (3/12)" → "Compra": o sufixo de parcela é derivado, não faz parte do
+# título base que o usuário edita.
+_INSTALLMENT_SUFFIX_RE = re.compile(r"\s*\(\d+/\d+\)\s*$")
+
+
+def _strip_installment_suffix(title: str) -> str:
+    return _INSTALLMENT_SUFFIX_RE.sub("", title).strip()
+
+
+def _aggregate_group_whole(
+    siblings: List[Transaction], base_title: str, group_total: Decimal
+) -> Dict:
+    """Reconstrói a definição da COMPRA INTEIRA (formato TransactionRead) a partir
+    das parcelas vivas, para o form de edição pré-preencher o total cheio + a
+    divisão certa. Métodos igual/porcentagem são estruturais (vêm da 1ª parcela);
+    valor fixo e itens são SOMADOS entre as parcelas (senão não fechariam o total
+    cheio)."""
+    ref = min(siblings, key=lambda t: t.installment_no or 0)
+    payer = ref.payers[0] if ref.payers else None
+
+    # Compra estrangeira: o form edita na MOEDA ORIGINAL (soma dos originais); o
+    # backend re-converte no save. Sem original, edita direto em BRL.
+    if ref.original_currency:
+        whole_currency = ref.original_currency
+        whole_total = sum((t.original_amount or Decimal("0") for t in siblings), Decimal("0"))
+    else:
+        whole_currency = ref.currency
+        whole_total = group_total
+
+    whole: Dict = {
+        "id": ref.id,
+        "workspace_id": ref.workspace_id,
+        "title": base_title,
+        "description": ref.description,
+        "currency": whole_currency,
+        "total_amount": str(whole_total),
+        "transaction_date": ref.transaction_date,
+        "billing_month": ref.billing_month,
+        "status": ref.status,
+        "credit_card_id": ref.credit_card_id,
+        "statement_id": ref.statement_id,
+        "split_mode": ref.split_mode,
+        "payment_method": ref.payment_method,
+        "installment_no": None,
+        "installments_of": ref.installments_of,
+        "installment_group_id": ref.installment_group_id,
+        "created_by_user_id": ref.created_by_user_id,
+        "created_at": ref.created_at,
+        "updated_at": ref.updated_at,
+        "payers": [{
+            "id": payer.id if payer else 0,
+            "user_id": payer.user_id if payer else ref.created_by_user_id,
+            "amount": str(whole_total),
+            "payment_method": payer.payment_method if payer else None,
+            "account_id": payer.account_id if payer else None,
+        }],
+        "splits": [],
+        "items": [],
+        "adjustments": [],
+        "tags": [{"id": t.id, "name": t.name, "color": t.color} for t in ref.tags],
+    }
+
+    if ref.split_mode == SplitMode.transaction:
+        method = ref.splits[0].split_method if ref.splits else SplitMethod.equal
+        if method == SplitMethod.fixed:
+            totals: Dict[int, Decimal] = {}
+            for s in siblings:
+                for sp in s.splits:
+                    totals[sp.user_id] = totals.get(sp.user_id, Decimal("0")) + sp.computed_amount
+            # Grupo estrangeiro: reconstrói o valor fixo na MOEDA ORIGINAL (BRL ÷
+            # fator) para o form fechar com o total exibido na moeda original.
+            if ref.original_currency and ref.exchange_rate:
+                factor = ref.exchange_rate * (Decimal("1") + (ref.iof_rate or Decimal("0")))
+                if factor:
+                    totals = {
+                        uid: (v / factor).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+                        for uid, v in totals.items()
+                    }
+            whole["splits"] = [
+                {"id": 0, "user_id": uid, "split_method": "fixed",
+                 "input_value": str(v), "computed_amount": str(v)}
+                for uid, v in totals.items()
+            ]
+        else:
+            whole["splits"] = [
+                {"id": sp.id, "user_id": sp.user_id, "split_method": sp.split_method,
+                 "input_value": str(sp.input_value), "computed_amount": str(sp.computed_amount)}
+                for sp in ref.splits
+            ]
+        if ref.items:
+            it = ref.items[0]
+            whole["items"] = [{
+                "id": it.id, "title": base_title, "amount": str(group_total),
+                "quantity": "1", "unit_amount": None, "position": 0,
+                "category_id": it.category_id, "shares": [],
+            }]
+        return whole
+
+    # split_mode == item: soma cada item (por posição) e cada share entre as parcelas
+    by_pos: Dict[int, Dict] = {}
+    for s in siblings:
+        for it in s.items:
+            agg = by_pos.get(it.position)
+            share_method = it.shares[0].split_method if it.shares else SplitMethod.equal
+            if agg is None:
+                agg = {
+                    "id": it.id, "title": it.title, "category_id": it.category_id,
+                    "amount": Decimal("0"), "method": share_method,
+                    "fixed": {}, "struct": [(sh.user_id, sh.split_method, sh.input_value) for sh in it.shares],
+                }
+                by_pos[it.position] = agg
+            agg["amount"] += it.amount
+            for sh in it.shares:
+                agg["fixed"][sh.user_id] = agg["fixed"].get(sh.user_id, Decimal("0")) + sh.computed_amount
+
+    # Grupo estrangeiro: re-expressa itens e shares fixas na MOEDA ORIGINAL,
+    # rateando o total original (soma dos original_amount) pelos pesos em BRL em
+    # CENTAVOS exatos — os itens fecham o total exibido e as shares fecham o item
+    # (o save re-rateia o BRL). Sem original, mantém os valores em BRL.
+    positions = sorted(by_pos)
+    item_orig_cents = None
+    if ref.original_currency and ref.exchange_rate:
+        weights = {pos: _cents(by_pos[pos]["amount"]) for pos in positions}
+        if sum(weights.values()) > 0:
+            item_orig_cents = _allocate_proportional(_cents(whole_total), weights)
+
+    items = []
+    for pos in positions:
+        agg = by_pos[pos]
+        item_amount = (
+            Decimal(item_orig_cents[pos]) / Decimal("100") if item_orig_cents else agg["amount"]
+        )
+        if agg["method"] == SplitMethod.fixed:
+            fixed_vals = agg["fixed"]
+            if item_orig_cents:
+                sw = {uid: _cents(v) for uid, v in agg["fixed"].items()}
+                if sum(sw.values()) > 0:
+                    share_cents = _allocate_proportional(_cents(item_amount), sw)
+                    fixed_vals = {uid: Decimal(share_cents[uid]) / Decimal("100") for uid in agg["fixed"]}
+            shares = [
+                {"id": 0, "user_id": uid, "split_method": "fixed",
+                 "input_value": str(v), "computed_amount": str(v)}
+                for uid, v in fixed_vals.items()
+            ]
+        else:
+            shares = [
+                {"id": 0, "user_id": uid, "split_method": m, "input_value": str(iv), "computed_amount": "0"}
+                for (uid, m, iv) in agg["struct"]
+            ]
+        items.append({
+            "id": agg["id"], "title": agg["title"], "amount": str(item_amount),
+            "quantity": "1", "unit_amount": None, "position": pos,
+            "category_id": agg["category_id"], "shares": shares,
+        })
+    whole["items"] = items
+    return whole
+
+
+def _recompute_open_installments(
+    session: Session,
+    workspace_id: int,
+    transaction_in: TransactionCreate,
+    siblings: List[Transaction],
+    paid: List[Transaction],
+    card: Optional[CreditCard],
+    membership: WorkspaceMembership,
+    conv_meta: Optional[Dict] = None,
+) -> Transaction:
+    """Congela as parcelas pagas e recalcula as em aberto para fechar o novo
+    total da compra (total − já pago), fatiando o restante entre as parcelas em
+    aberto. Mantém o número de parcelas. Não comita (o chamador decide)."""
+    new_count = transaction_in.installments_count
+    paid_sum = sum((t.total_amount for t in paid), Decimal("0"))
+    remaining = transaction_in.total_amount - paid_sum
+
+    open_sibs = sorted(
+        [
+            t for t in siblings
+            if t.status in (
+                TransactionStatus.draft, TransactionStatus.pending, TransactionStatus.confirmed,
+            )
+        ],
+        key=lambda t: t.installment_no or 0,
+    )
+    if not open_sibs:
+        raise ValueError("Não há parcelas em aberto para recalcular")
+
+    # Fatiamento do restante entre as parcelas abertas — reusa o mesmo motor da
+    # criação (igual/porcentagem/valor fixo, pela despesa ou por item).
+    sub_plan_source = transaction_in.model_copy(update={
+        "total_amount": remaining,
+        "installments_count": len(open_sibs),
+    })
+    plans = _installment_plan(sub_plan_source, len(open_sibs))
+
+    payer = transaction_in.payers[0]
+    base_title = transaction_in.title
+
+    first_tx: Optional[Transaction] = None
+    for sib, plan in zip(open_sibs, plans):
+        inst_amount = plan["total"]
+        sib.title = f"{base_title} ({sib.installment_no}/{new_count})"
+        sib.description = transaction_in.description
+        sib.total_amount = inst_amount
+        sib.currency = transaction_in.currency
+        sib.payment_method = transaction_in.payment_method
+        sib.credit_card_id = transaction_in.credit_card_id
+        sib.installments_of = new_count
+        if conv_meta:
+            factor = conv_meta["exchange_rate"] * (Decimal("1") + conv_meta["iof_rate"])
+            sib.original_amount = (
+                (inst_amount / factor).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP) if factor else None
+            )
+            sib.original_currency = conv_meta["original_currency"]
+            sib.exchange_rate = conv_meta["exchange_rate"]
+            sib.iof_rate = conv_meta["iof_rate"]
+            sib.rate_source = conv_meta.get("rate_source")
+        else:
+            sib.original_amount = None
+            sib.original_currency = None
+            sib.exchange_rate = None
+            sib.iof_rate = None
+            sib.rate_source = None
+        # Fatura re-derivada por data/cartão (ADR 0002)
+        if card:
+            statement = CreditCardService.get_or_create_statement(session, card, sib.transaction_date)
+            sib.statement_id = statement.id
+        else:
+            sib.statement_id = None
+        session.add(sib)
+
+        items = plan["items"]
+        if items is None and transaction_in.items:
+            template = transaction_in.items[0]
+            items = [template.model_copy(update={
+                "title": sib.title,
+                "amount": inst_amount,
+                "quantity": Decimal("1"),
+                "unit_amount": None,
+            })]
+
+        delete_transaction_children(session, sib.id)
+        session.flush()
+        persist_transaction_children(
+            session,
+            workspace_id,
+            sib,
+            total_amount=inst_amount,
+            split_mode=transaction_in.split_mode,
+            payers=[payer.model_copy(update={"amount": inst_amount})],
+            splits=plan["splits"],
+            items=items,
+        )
+        if transaction_in.tag_ids is not None:
+            _set_transaction_tags(session, workspace_id, sib.id, transaction_in.tag_ids)
+        if first_tx is None:
+            first_tx = sib
+
+    return first_tx or paid[0]
+
+
 @router.post("/{transaction_id}/installment-group/cancel")
 def cancel_installment_group(
     workspace_id: int,
@@ -766,6 +1180,119 @@ def delete_installment_group(
     publish_event(session, workspace_id, "transaction.bulk_updated", "transaction", None, membership.user_id)
     session.commit()
     return {"status": "ok", "deleted": deleted, "skipped_paid": skipped_paid}
+
+
+@router.get("/{transaction_id}/installment-group")
+def get_installment_group(
+    workspace_id: int,
+    transaction_id: int,
+    session: Session = Depends(get_session),
+    membership: WorkspaceMembership = Depends(get_workspace_membership),
+):
+    """Resumo do grupo de parcelas para pré-preencher a edição da compra inteira:
+    total da compra (soma das parcelas vivas), nº de parcelas, quantas já pagas e
+    o título base (sem o sufixo i/N)."""
+    anchor = session.get(Transaction, transaction_id)
+    if not anchor or anchor.workspace_id != workspace_id or anchor.deleted_at:
+        raise HTTPException(status_code=404, detail="Transaction not found")
+    if not anchor.installment_group_id:
+        raise HTTPException(status_code=400, detail="Lançamento não é uma compra parcelada")
+
+    siblings = _load_group_siblings(session, workspace_id, anchor)
+    paid = [t for t in siblings if t.status == TransactionStatus.paid]
+    group_total = sum((t.total_amount for t in siblings), Decimal("0"))
+    base_title = _strip_installment_suffix(anchor.title)
+
+    return {
+        "installment_group_id": anchor.installment_group_id,
+        "installments_of": anchor.installments_of,
+        "count_live": len(siblings),
+        "paid_count": len(paid),
+        "group_total": group_total,
+        "title": base_title,
+        # Definição da compra inteira (formato TransactionRead) p/ o form editar
+        "whole": _aggregate_group_whole(siblings, base_title, group_total),
+    }
+
+
+@router.put("/{transaction_id}/installment-group", response_model=TransactionRead)
+def update_installment_group(
+    workspace_id: int,
+    transaction_id: int,
+    *,
+    session: Session = Depends(get_session),
+    transaction_in: TransactionCreate,
+    membership: WorkspaceMembership = Depends(require_role(WorkspaceRole.member)),
+):
+    """Edita a compra parcelada INTEIRA a partir da definição do total da compra
+    + nº de parcelas (mesmo corpo do create). Sem parcelas pagas: refaz o grupo
+    (refatiando total/nº pelas parcelas). Com parcelas pagas: congela as pagas e
+    recalcula só as em aberto para fechar o novo total — sem mudar o nº de
+    parcelas nem reduzir o total abaixo do já pago."""
+    anchor = _get_group_anchor(session, workspace_id, transaction_id, membership)
+    if not anchor.installment_group_id:
+        raise HTTPException(status_code=400, detail="Lançamento não é uma compra parcelada")
+    if not transaction_in.installments_count or transaction_in.installments_count < 2:
+        raise HTTPException(status_code=400, detail="Informe o número de parcelas (mínimo 2)")
+
+    # Título base sem o sufixo "(i/N)" — o motor de parcelas o re-aplica por parcela
+    transaction_in = transaction_in.model_copy(
+        update={"title": _strip_installment_suffix(transaction_in.title)}
+    )
+
+    # Cartão efetivo (parcelamento sempre é no crédito — o schema já exige)
+    card = None
+    if transaction_in.credit_card_id:
+        card = session.get(CreditCard, transaction_in.credit_card_id)
+        if not card or card.workspace_id != workspace_id or card.deleted_at:
+            raise HTTPException(status_code=400, detail="Cartão de crédito inválido para este workspace")
+
+    # Moeda estrangeira: converte o total da compra para BRL (PTAX do dia + IOF)
+    transaction_in, conv_meta = _convert_create_to_base(session, workspace_id, transaction_in)
+
+    siblings = _load_group_siblings(session, workspace_id, anchor)
+    paid = [t for t in siblings if t.status == TransactionStatus.paid]
+    new_count = transaction_in.installments_count
+    group_id = anchor.installment_group_id
+
+    if paid:
+        paid_sum = sum((t.total_amount for t in paid), Decimal("0"))
+        if new_count != anchor.installments_of:
+            raise HTTPException(
+                status_code=409,
+                detail="Há parcelas pagas — reabra-as antes de mudar o número de parcelas.",
+            )
+        if transaction_in.total_amount < paid_sum:
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    f"O novo total (R$ {transaction_in.total_amount}) é menor que o já pago "
+                    f"(R$ {paid_sum}). Reabra as parcelas pagas antes."
+                ),
+            )
+        try:
+            first_tx = _recompute_open_installments(
+                session, workspace_id, transaction_in, siblings, paid, card, membership, conv_meta=conv_meta
+            )
+        except ValueError as exc:
+            session.rollback()
+            raise HTTPException(status_code=400, detail=str(exc))
+    else:
+        # Sem parcelas pagas: refaz o grupo do zero (mantendo o group_id). As
+        # antigas viram tombstone (soft-delete), como no delete de grupo.
+        now = datetime.datetime.now(datetime.UTC)
+        for t in siblings:
+            t.deleted_at = now
+            session.add(t)
+        session.flush()
+        first_tx = _create_installments(
+            session, workspace_id, transaction_in, membership, card, group_id=group_id, conv_meta=conv_meta
+        )
+
+    publish_event(session, workspace_id, "transaction.bulk_updated", "transaction", None, membership.user_id)
+    session.commit()
+    session.refresh(first_tx)
+    return first_tx
 
 
 @router.post("/bulk")

@@ -1,0 +1,190 @@
+from decimal import Decimal
+from typing import Any, Dict, List
+
+from sqlmodel import Session, select, func
+
+from app.domain.query_policy import REALIZED_STATUSES, workspace_base_currency
+from app.models.credit_card import CardStatement, CreditCard, StatementStatus
+from app.models.financing import (
+    AmortizationInstallment,
+    Financing,
+    FinancingStatus,
+)
+from app.models.transaction import Transaction, TransactionSplit
+from app.services.credit_card_service import CreditCardService
+
+ZERO = Decimal("0.00")
+
+
+class LiabilityService:
+    """Panorama de endividamento: quanto o workspace deve a terceiros
+    (financiamentos + faturas de cartão), no total, no mês e por pessoa.
+
+    É um eixo DIFERENTE do acerto entre membros (DebtService): aqui a dívida é
+    com o banco/cartão, não entre os membros. Responsável:
+      - Financiamento tem dono único (created_by_user_id) — não é rateado.
+      - Fatura de cartão é rateada pelos *splits* das compras (mesma noção de
+        "minha parte" do resto do app).
+
+    Só leitura/agregação — reusa card_committed/effective_total do serviço de
+    cartão para não divergir do limite comprometido já mostrado nos cartões.
+    """
+
+    @staticmethod
+    def get_overview(db: Session, workspace_id: int, month: str) -> Dict[str, Any]:
+        base_currency = workspace_base_currency(db, workspace_id)
+
+        financing_outstanding, financing_due, by_person_financing, financings_out = (
+            LiabilityService._financings(db, workspace_id, base_currency, month)
+        )
+        cards_committed, cards_due, by_person_cards, cards_out = (
+            LiabilityService._cards(db, workspace_id, base_currency, month)
+        )
+
+        all_users = set(by_person_financing) | set(by_person_cards)
+        by_person = [
+            {
+                "user_id": uid,
+                "financing": by_person_financing.get(uid, ZERO),
+                "cards": by_person_cards.get(uid, ZERO),
+                "total": by_person_financing.get(uid, ZERO) + by_person_cards.get(uid, ZERO),
+            }
+            for uid in all_users
+        ]
+        by_person.sort(key=lambda p: p["total"], reverse=True)
+
+        return {
+            "month": month,
+            "base_currency": base_currency,
+            "totals": {
+                "financing_outstanding": financing_outstanding,
+                "cards_committed": cards_committed,
+                "grand_total": financing_outstanding + cards_committed,
+            },
+            "month_due": {
+                "financing_due": financing_due,
+                "cards_due": cards_due,
+                "total": financing_due + cards_due,
+            },
+            "by_person": by_person,
+            "financings": financings_out,
+            "cards": cards_out,
+        }
+
+    @staticmethod
+    def _financings(db: Session, workspace_id: int, base_currency: str, month: str):
+        """Saldo devedor = principal ainda não pago (juros futuros não são dívida
+        até a parcela cair). Simulados/quitados ficam de fora. Cada financiamento
+        vai inteiro para o dono."""
+        financings = db.exec(
+            select(Financing).where(
+                Financing.workspace_id == workspace_id,
+                Financing.deleted_at.is_(None),
+                Financing.status == FinancingStatus.active,
+                Financing.currency == base_currency,
+            )
+        ).all()
+
+        insts_by_fin: Dict[int, List[AmortizationInstallment]] = {}
+        fin_ids = [f.id for f in financings]
+        if fin_ids:
+            for inst in db.exec(
+                select(AmortizationInstallment).where(
+                    AmortizationInstallment.financing_id.in_(fin_ids)
+                )
+            ).all():
+                insts_by_fin.setdefault(inst.financing_id, []).append(inst)
+
+        total_outstanding = ZERO
+        total_due = ZERO
+        by_person: Dict[int, Decimal] = {}
+        out: List[Dict[str, Any]] = []
+        for f in financings:
+            unpaid = [i for i in insts_by_fin.get(f.id, []) if not i.is_paid]
+            outstanding = sum((i.principal_amount for i in unpaid), ZERO)
+            due = sum(
+                (i.total_amount for i in unpaid if i.due_date.strftime("%Y-%m") == month),
+                ZERO,
+            )
+            next_due = min((i.due_date for i in unpaid), default=None)
+
+            total_outstanding += outstanding
+            total_due += due
+            by_person[f.created_by_user_id] = (
+                by_person.get(f.created_by_user_id, ZERO) + outstanding
+            )
+            out.append({
+                "id": f.id,
+                "title": f.title,
+                "owner_id": f.created_by_user_id,
+                "outstanding": outstanding,
+                "month_due": due,
+                "next_due_date": next_due,
+                "installments_count": f.installments_count,
+                "remaining_installments": len(unpaid),
+            })
+
+        out.sort(key=lambda x: x["outstanding"], reverse=True)
+        return total_outstanding, total_due, by_person, out
+
+    @staticmethod
+    def _cards(db: Session, workspace_id: int, base_currency: str, month: str):
+        """Dívida do cartão = faturas ainda não pagas (card_committed já soma
+        aberta=calculada + fechada=congelada). O que vence no mês são as faturas
+        com due_date no mês. Por pessoa vem dos splits das compras — pode divergir
+        alguns centavos do congelado numa fatura fechada e reeditada; o total
+        autoritativo continua sendo o comprometido."""
+        cards = db.exec(
+            select(CreditCard).where(
+                CreditCard.workspace_id == workspace_id,
+                CreditCard.deleted_at.is_(None),
+            )
+        ).all()
+
+        total_committed = ZERO
+        total_due = ZERO
+        out: List[Dict[str, Any]] = []
+        unpaid_statement_ids: List[int] = []
+        for card in cards:
+            committed = CreditCardService.card_committed(db, card)
+            total_committed += committed
+
+            statements = db.exec(
+                select(CardStatement).where(CardStatement.card_id == card.id)
+            ).all()
+            card_due = ZERO
+            for s in statements:
+                if s.status == StatementStatus.paid:
+                    continue
+                unpaid_statement_ids.append(s.id)
+                if s.due_date.strftime("%Y-%m") == month:
+                    card_due += CreditCardService.effective_total(db, s)
+            total_due += card_due
+            out.append({
+                "id": card.id,
+                "name": card.name,
+                "committed": committed,
+                "month_due": card_due,
+            })
+
+        by_person: Dict[int, Decimal] = {}
+        if unpaid_statement_ids:
+            rows = db.exec(
+                select(
+                    TransactionSplit.user_id,
+                    func.sum(TransactionSplit.computed_amount),
+                )
+                .join(Transaction, Transaction.id == TransactionSplit.transaction_id)
+                .where(
+                    Transaction.statement_id.in_(unpaid_statement_ids),
+                    Transaction.deleted_at.is_(None),
+                    Transaction.status.in_(REALIZED_STATUSES),
+                    Transaction.currency == base_currency,
+                )
+                .group_by(TransactionSplit.user_id)
+            ).all()
+            for uid, amount in rows:
+                by_person[uid] = amount or ZERO
+
+        out.sort(key=lambda x: x["committed"], reverse=True)
+        return total_committed, total_due, by_person, out

@@ -58,3 +58,24 @@ export const useNewTxStore = create<NewTxState>((set) => ({
   open: false,
   setOpen: (open) => set({ open }),
 }));
+
+// Detalhe/edição global de um lançamento — abre por id a partir de qualquer lugar
+// que referencia a transação (Início, Lançamentos, Dívidas). 'view' = preview
+// read-only; 'edit' = form completo. NÃO persistido.
+type TxDetailMode = 'view' | 'edit';
+
+interface TxDetailState {
+  txId: number | null;
+  mode: TxDetailMode;
+  open: (txId: number, mode?: TxDetailMode) => void;
+  setMode: (mode: TxDetailMode) => void;
+  close: () => void;
+}
+
+export const useTxDetailStore = create<TxDetailState>((set) => ({
+  txId: null,
+  mode: 'view',
+  open: (txId, mode = 'view') => set({ txId, mode }),
+  setMode: (mode) => set({ mode }),
+  close: () => set({ txId: null, mode: 'view' }),
+}));

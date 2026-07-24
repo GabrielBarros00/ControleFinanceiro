@@ -9,6 +9,7 @@ import {
   FileUp,
   Settings,
   Wallet,
+  Scale,
   type LucideIcon,
 } from 'lucide-react';
 
@@ -43,6 +44,7 @@ export const NAV_SECTIONS: NavSection[] = [
     items: [
       { icon: CreditCard, label: 'Cartões', to: '/cards' },
       { icon: Landmark, label: 'Financiamentos', to: '/financing' },
+      { icon: Scale, label: 'Endividamento', to: '/liabilities' },
     ],
   },
   {

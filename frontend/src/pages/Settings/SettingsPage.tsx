@@ -5,11 +5,14 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { User, Shield, Users, Palette, LogOut, Globe, Moon, Sun, Laptop, Loader2, Trash2, LinkIcon, Copy, Check, Tag, Plus, Wallet } from 'lucide-react';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { User, Shield, Users, Palette, LogOut, Globe, Moon, Sun, Laptop, Loader2, Trash2, LinkIcon, Copy, Check, Tag, Plus, Wallet, History } from 'lucide-react';
 import { useAuthStore } from '@/stores';
 import { useTheme } from '@/hooks/use-theme';
 import { useAuth } from '@/hooks/use-auth';
 import { useWorkspaces } from '@/hooks/use-workspaces';
+import { useWorkspaceRole } from '@/hooks/use-workspace-role';
+import { useAudit } from '@/hooks/use-audit';
 import { useMembers, type WorkspaceRole } from '@/hooks/use-members';
 import { useCategories } from '@/hooks/use-categories';
 import { usePaymentAccounts, ACCOUNT_TYPE_OPTIONS, accountTypeLabel, type PaymentAccountType } from '@/hooks/use-payment-accounts';
@@ -20,7 +23,7 @@ import { toast } from '@/stores/toast';
 import { useConfirm } from '@/components/ui/confirm';
 import { CategoryGlyph } from '@/components/money/CategoryGlyph';
 
-type Tab = 'profile' | 'security' | 'members' | 'categories' | 'accounts' | 'appearance';
+type Tab = 'profile' | 'security' | 'members' | 'categories' | 'accounts' | 'appearance' | 'audit';
 
 const ROLE_LABELS: Record<WorkspaceRole, string> = {
   owner: 'Dono',
@@ -721,8 +724,87 @@ function AppearanceTab() {
   );
 }
 
+const AUDIT_ACTION_LABELS: Record<string, string> = {
+  create: 'Criou',
+  update: 'Alterou',
+  delete: 'Removeu',
+  login: 'Entrou',
+  logout: 'Saiu',
+};
+
+const AUDIT_RESOURCE_LABELS: Record<string, string> = {
+  Transaction: 'lançamento',
+  Income: 'renda',
+  Workspace: 'workspace',
+  Settlement: 'acerto',
+  Category: 'categoria',
+  CreditCard: 'cartão',
+  Financing: 'financiamento',
+  Tag: 'tag',
+  PaymentAccount: 'conta',
+};
+
+// Trilha de auditoria (read-only) — só admin/owner chegam aqui (o backend também
+// recusa com 403). Mostra quando, quem, ação e recurso das 100 ações recentes.
+function AuditTab() {
+  const { entries, isLoading } = useAudit();
+  const { members } = useMembers();
+
+  const who = (id?: number | null) =>
+    id == null ? 'Sistema' : members.find((m) => m.user_id === id)?.user_name ?? `#${id}`;
+  const resource = (type?: string | null, resId?: number | null) => {
+    if (!type) return '—';
+    const label = AUDIT_RESOURCE_LABELS[type] ?? type;
+    return resId != null ? `${label} #${resId}` : label;
+  };
+
+  return (
+    <Card className="bg-card border-border shadow-xl">
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2">
+          <History className="h-5 w-5 text-primary" /> Auditoria
+        </CardTitle>
+        <CardDescription>Ações recentes no workspace (as 100 últimas). Visível só para admins.</CardDescription>
+      </CardHeader>
+      <CardContent className="p-0">
+        {isLoading ? (
+          <div className="flex h-32 items-center justify-center">
+            <Loader2 className="h-6 w-6 animate-spin text-primary" />
+          </div>
+        ) : entries.length === 0 ? (
+          <p className="py-12 text-center text-sm text-muted-foreground">Nenhuma ação registrada ainda.</p>
+        ) : (
+          <Table>
+            <TableHeader>
+              <TableRow className="border-border hover:bg-transparent">
+                <TableHead className="text-xs font-semibold text-muted-foreground">Quando</TableHead>
+                <TableHead className="text-xs font-semibold text-muted-foreground">Quem</TableHead>
+                <TableHead className="text-xs font-semibold text-muted-foreground">Ação</TableHead>
+                <TableHead className="text-xs font-semibold text-muted-foreground">Recurso</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {entries.map((e) => (
+                <TableRow key={e.id} className="border-border hover:bg-accent/30">
+                  <TableCell className="text-sm text-muted-foreground">
+                    {new Date(e.created_at).toLocaleString('pt-BR')}
+                  </TableCell>
+                  <TableCell className="text-sm font-medium text-foreground">{who(e.user_id)}</TableCell>
+                  <TableCell className="text-sm">{AUDIT_ACTION_LABELS[e.action] ?? e.action}</TableCell>
+                  <TableCell className="text-sm text-foreground">{resource(e.resource_type, e.resource_id)}</TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
 export function SettingsPage() {
   const { logout } = useAuth();
+  const { isAdmin } = useWorkspaceRole();
   const [activeTab, setActiveTab] = React.useState<Tab>('profile');
 
   const menuItems = [
@@ -732,7 +814,14 @@ export function SettingsPage() {
     { id: 'categories', label: 'Categorias', icon: Tag },
     { id: 'accounts', label: 'Contas', icon: Wallet },
     { id: 'appearance', label: 'Aparência', icon: Palette },
+    // Auditoria é sensível (AUD-001): só admin/owner
+    ...(isAdmin ? [{ id: 'audit', label: 'Auditoria', icon: History }] : []),
   ];
+
+  // Não-admin nunca fica preso na aba de auditoria (ex.: perdeu o papel)
+  React.useEffect(() => {
+    if (activeTab === 'audit' && !isAdmin) setActiveTab('profile');
+  }, [activeTab, isAdmin]);
 
   const renderTab = () => {
     switch (activeTab) {
@@ -742,6 +831,7 @@ export function SettingsPage() {
       case 'categories': return <CategoriesTab />;
       case 'accounts': return <AccountsTab />;
       case 'appearance': return <AppearanceTab />;
+      case 'audit': return isAdmin ? <AuditTab /> : null;
       default: return null;
     }
   };

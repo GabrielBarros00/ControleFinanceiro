@@ -34,6 +34,7 @@ const itemSchema = z.object({
 export const transactionFormSchema = z.object({
   title: z.string().min(2, 'O título deve ter pelo menos 2 caracteres'),
   total_amount: z.number().min(0.01, 'O valor deve ser maior que zero'),
+  currency: z.string(),
   transaction_date: z.string().min(1, 'Informe a data'),
   payers: z.array(payerSchema).min(1, 'Adicione pelo menos um pagador'),
   payment_method: z.string(), // '' = não informado
@@ -272,7 +273,7 @@ export function toApiPayload(v: TransactionFormValues) {
     total_amount: v.total_amount,
     transaction_date: transactionDate,
     billing_month: v.transaction_date.slice(0, 7),
-    currency: 'BRL',
+    currency: v.currency || 'BRL',
     payment_method: paymentMethod,
     credit_card_id: v.credit_card_id ? Number(v.credit_card_id) : null,
     split_mode: v.split_mode,
@@ -331,7 +332,9 @@ export function toApiPayload(v: TransactionFormValues) {
 export function fromApiTransaction(tx: TransactionRead): TransactionFormValues {
   const base = {
     title: tx.title,
-    total_amount: parseFloat(tx.total_amount),
+    // Estrangeiro: edita o valor/moeda ORIGINAIS (o backend re-converte no save)
+    total_amount: tx.original_currency && tx.original_amount ? parseFloat(tx.original_amount) : parseFloat(tx.total_amount),
+    currency: tx.original_currency ?? tx.currency ?? 'BRL',
     transaction_date: tx.transaction_date?.split('T')[0] || todayLocalISO(),
     payers: (tx.payers ?? []).map((p) => ({
       user_id: String(p.user_id),

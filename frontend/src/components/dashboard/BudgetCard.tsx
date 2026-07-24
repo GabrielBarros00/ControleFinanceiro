@@ -45,7 +45,7 @@ export function BudgetCard({ totalBudget, isOverBudget }: BudgetCardProps) {
         }`}
       >
         <CardHeader className="flex flex-row items-center justify-between pb-2 space-y-0">
-          <CardTitle className="text-xs font-black uppercase tracking-widest text-amber-500">Orçamento do Mês</CardTitle>
+          <CardTitle className="text-xs font-semibold uppercase tracking-widest text-amber-500">Orçamento do Mês</CardTitle>
           <PiggyBank className="h-4 w-4 text-amber-500 group-hover:scale-110 transition-transform" />
         </CardHeader>
         <CardContent>

@@ -1,10 +1,12 @@
 import calendar
 from datetime import date, datetime, timedelta, UTC
-from decimal import Decimal
+from decimal import Decimal, ROUND_HALF_UP
 from typing import List, Optional, Tuple
 
 from sqlmodel import Session, select
 
+from app.core.config import settings
+from app.domain.query_policy import workspace_base_currency
 from app.models.category import Category
 from app.models.income import Income
 from app.models.recurring import RecurringExpense, RecurringIncome, RecurrenceFrequency
@@ -14,15 +16,37 @@ from app.models.transaction import (
     TransactionStatus,
     SplitMethod,
     SplitMode,
+    PaymentMethod,
 )
 from app.schemas.transaction import TransactionPayerBase, TransactionSplitBase
 from app.services.transaction_service import (
     persist_transaction_children,
     delete_transaction_children,
+    convert_division_to_base,
 )
+from app.services.exchange_rate_store import ExchangeRateStore
 
 # Escopo da edição de um template sobre as instâncias já materializadas
 EDIT_SCOPES = ("none", "future", "all")
+
+
+def _recurring_conversion(db, workspace_id, base_amount, currency, occ_date, payment_method):
+    """Converte o valor de um template recorrente para a moeda-base (BRL) na data
+    da OCORRÊNCIA — cada materialização usa a taxa daquele dia (recorrência
+    estrangeira re-converte todo mês). IOF só em despesa no cartão (renda não tem).
+    Devolve (brl, rate, iof, source, factor); rate=None se já for base."""
+    base = workspace_base_currency(db, workspace_id)
+    if not currency or currency == base:
+        return base_amount, None, Decimal("0"), None, Decimal("1")
+    rate, source = ExchangeRateStore.get_or_fetch(db, currency, occ_date)
+    iof = (
+        settings.IOF_INTERNATIONAL_CARD_RATE
+        if payment_method in (PaymentMethod.credit_card, PaymentMethod.debit_card)
+        else Decimal("0")
+    )
+    factor = rate * (Decimal("1") + iof)
+    brl = (base_amount * factor).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+    return brl, rate, iof, source, factor
 
 
 class RecurringService:
@@ -43,23 +67,29 @@ class RecurringService:
             return RecurringService._interval_occurrences(template, year, month, interval, last_day)
 
         if template.frequency == RecurrenceFrequency.daily:
-            return [date(year, month, day) for day in range(1, last_day + 1)]
+            occs = [date(year, month, day) for day in range(1, last_day + 1)]
+        elif template.frequency == RecurrenceFrequency.weekly:
+            occs = (
+                []
+                if template.day_of_week is None
+                else [
+                    date(year, month, day)
+                    for day in range(1, last_day + 1)
+                    if date(year, month, day).weekday() == template.day_of_week
+                ]
+            )
+        elif template.frequency == RecurrenceFrequency.yearly and template.month_of_year != month:
+            occs = []
+        else:
+            # monthly (e yearly no mês certo): dia limitado ao fim do mês
+            occs = [date(year, month, min(template.day_of_month, last_day))]
 
-        if template.frequency == RecurrenceFrequency.weekly:
-            if template.day_of_week is None:
-                return []
-            return [
-                date(year, month, day)
-                for day in range(1, last_day + 1)
-                if date(year, month, day).weekday() == template.day_of_week
-            ]
-
-        if template.frequency == RecurrenceFrequency.yearly:
-            if template.month_of_year != month:
-                return []
-
-        # monthly (e yearly no mês certo): dia limitado ao fim do mês
-        return [date(year, month, min(template.day_of_month, last_day))]
+        # Piso: a recorrência (preset) só vale a partir de start_date, quando
+        # definido. Templates antigos têm start_date=None → filtro é no-op.
+        start = getattr(template, "start_date", None)
+        if start is not None:
+            occs = [o for o in occs if o >= start]
+        return occs
 
     @staticmethod
     def _interval_occurrences(template, year: int, month: int, interval: int, last_day: int) -> List[date]:
@@ -146,11 +176,18 @@ class RecurringService:
         Retorna None se não há pagador válido (template sem criador/pagador —
         cai no caminho legado nu, evitado na prática) ou se a divisão do
         snapshot for inválida (membro que saiu do workspace)."""
+        # Moeda estrangeira: converte na data da ocorrência (re-converte todo mês)
+        brl, rate, iof, source, factor = _recurring_conversion(
+            db, template.workspace_id, template.base_amount, template.currency, occ, template.payment_method
+        )
+        is_foreign = rate is not None
+        base_currency = workspace_base_currency(db, template.workspace_id)
+
         tx = Transaction(
             title=template.title,
             description=template.description,
-            total_amount=template.base_amount,
-            currency=template.currency,
+            total_amount=brl,
+            currency=base_currency if is_foreign else template.currency,
             payment_method=template.payment_method,
             transaction_date=datetime(occ.year, occ.month, occ.day, tzinfo=UTC),
             billing_month=billing_month,
@@ -159,6 +196,11 @@ class RecurringService:
             created_by_user_id=template.created_by_user_id,
             recurring_expense_id=template.id,
             status=TransactionStatus.confirmed,
+            original_amount=template.base_amount if is_foreign else None,
+            original_currency=template.currency if is_foreign else None,
+            exchange_rate=rate if is_foreign else None,
+            iof_rate=iof if is_foreign else None,
+            rate_source=source if is_foreign else None,
         )
         db.add(tx)
         db.flush()
@@ -168,13 +210,16 @@ class RecurringService:
             # Legado: sem pagador não dá para montar divisão — instância "nua"
             return tx
 
-        payers = [TransactionPayerBase(user_id=payer_user, amount=template.base_amount)]
+        payers = [TransactionPayerBase(user_id=payer_user, amount=brl)]
+        if is_foreign:
+            div = convert_division_to_base(factor=factor, brl_total=brl, payers=payers, splits=splits, items=None, adjustments=None)
+            payers, splits = div["payers"], div["splits"]
         try:
             persist_transaction_children(
                 db,
                 template.workspace_id,
                 tx,
-                total_amount=template.base_amount,
+                total_amount=brl,
                 split_mode=SplitMode.transaction,
                 payers=payers,
                 splits=splits,
@@ -186,11 +231,13 @@ class RecurringService:
             db.flush()
             return None
 
-        RecurringService._apply_category(db, template, tx)
+        RecurringService._apply_category(db, template, tx, amount=brl)
         return tx
 
     @staticmethod
-    def _apply_category(db: Session, template: RecurringExpense, tx: Transaction) -> None:
+    def _apply_category(
+        db: Session, template: RecurringExpense, tx: Transaction, amount: Optional[Decimal] = None
+    ) -> None:
         if template.category_id is None:
             return
         category = db.get(Category, template.category_id)
@@ -199,7 +246,7 @@ class RecurringService:
         db.add(TransactionItem(
             transaction_id=tx.id,
             title=template.title,
-            amount=template.base_amount,
+            amount=amount if amount is not None else template.base_amount,
             category_id=template.category_id,
         ))
 
@@ -302,30 +349,47 @@ class RecurringService:
             return
 
         payer_user, splits = RecurringService._participants(template)
+        base_currency = workspace_base_currency(db, template.workspace_id)
         for tx in unpaid_txs:
+            # Re-converte cada instância na SUA data (meses diferentes, taxas diferentes)
+            occ = tx.transaction_date.date() if hasattr(tx.transaction_date, "date") else tx.transaction_date
+            brl, rate, iof, source, factor = _recurring_conversion(
+                db, template.workspace_id, template.base_amount, template.currency, occ, template.payment_method
+            )
+            is_foreign = rate is not None
             tx.title = template.title
             tx.description = template.description
-            tx.total_amount = template.base_amount
-            tx.currency = template.currency
+            tx.total_amount = brl
+            tx.currency = base_currency if is_foreign else template.currency
             tx.payment_method = template.payment_method
+            tx.original_amount = template.base_amount if is_foreign else None
+            tx.original_currency = template.currency if is_foreign else None
+            tx.exchange_rate = rate if is_foreign else None
+            tx.iof_rate = iof if is_foreign else None
+            tx.rate_source = source if is_foreign else None
             db.add(tx)
             # Recria os filhos no valor novo (senão payer/split divergem do total)
             if payer_user is not None and splits:
                 delete_transaction_children(db, tx.id)
+                p = [TransactionPayerBase(user_id=payer_user, amount=brl)]
+                s = splits
+                if is_foreign:
+                    div = convert_division_to_base(factor=factor, brl_total=brl, payers=p, splits=s, items=None, adjustments=None)
+                    p, s = div["payers"], div["splits"]
                 try:
                     persist_transaction_children(
                         db,
                         template.workspace_id,
                         tx,
-                        total_amount=template.base_amount,
+                        total_amount=brl,
                         split_mode=SplitMode.transaction,
-                        payers=[TransactionPayerBase(user_id=payer_user, amount=template.base_amount)],
-                        splits=splits,
+                        payers=p,
+                        splits=s,
                         items=None,
                     )
                 except ValueError:
                     pass
-                RecurringService._apply_category(db, template, tx)
+                RecurringService._apply_category(db, template, tx, amount=brl)
         db.flush()
 
 
@@ -362,6 +426,7 @@ class RecurringIncomeService:
         existing_templates = {rid for rid, _ in existing}
 
         per_occurrence = (RecurrenceFrequency.daily, RecurrenceFrequency.weekly)
+        base_currency = workspace_base_currency(db, workspace_id)
 
         created = 0
         for template in templates:
@@ -374,17 +439,86 @@ class RecurringIncomeService:
                 elif template.id in existing_templates:
                     continue
 
+                # Renda estrangeira: converte na data da ocorrência (sem IOF)
+                brl, rate, _iof, source, _factor = _recurring_conversion(
+                    db, template.workspace_id, template.base_amount, template.currency, occ, None
+                )
+                is_foreign = rate is not None
                 db.add(Income(
                     title=template.title,
                     description=template.description,
-                    amount=template.base_amount,
-                    currency=template.currency,
+                    amount=brl,
+                    currency=base_currency if is_foreign else template.currency,
                     category=template.category,
                     received_at=datetime(occ.year, occ.month, occ.day, tzinfo=UTC),
                     workspace_id=template.workspace_id,
                     user_id=template.user_id,
                     recurring_income_id=template.id,
                     billing_month=billing_month,
+                    original_amount=template.base_amount if is_foreign else None,
+                    original_currency=template.currency if is_foreign else None,
+                    exchange_rate=rate if is_foreign else None,
+                    rate_source=source if is_foreign else None,
                 ))
                 created += 1
         return created
+
+    @staticmethod
+    def sync_current_month_income(db: Session, template: RecurringIncome, today: date) -> None:
+        """Reaplica título/valor/moeda/categoria à(s) entrada(s) Income do mês
+        CORRENTE geradas por este template. Meses anteriores (fechados) ficam
+        congelados — só o mês visualizado pra frente acompanha a edição. Não
+        faz commit (ADR 0010)."""
+        billing_month = f"{today.year:04d}-{today.month:02d}"
+        rows = db.exec(
+            select(Income)
+            .where(Income.recurring_income_id == template.id)
+            .where(Income.billing_month == billing_month)
+            .where(Income.deleted_at.is_(None))
+        ).all()
+        base_currency = workspace_base_currency(db, template.workspace_id)
+        for inc in rows:
+            occ = inc.received_at.date() if hasattr(inc.received_at, "date") else inc.received_at
+            brl, rate, _iof, source, _factor = _recurring_conversion(
+                db, template.workspace_id, template.base_amount, template.currency, occ, None
+            )
+            is_foreign = rate is not None
+            inc.title = template.title
+            inc.amount = brl
+            inc.currency = base_currency if is_foreign else template.currency
+            inc.category = template.category
+            inc.original_amount = template.base_amount if is_foreign else None
+            inc.original_currency = template.currency if is_foreign else None
+            inc.exchange_rate = rate if is_foreign else None
+            inc.rate_source = source if is_foreign else None
+            db.add(inc)
+
+
+class RecurringMaterializationService:
+    """Materialização preguiçosa (lazy accrual) das recorrências vencidas do mês
+    corrente. Chamada nas rotas de LEITURA (Início, Rendas, Lançamentos) para que
+    tudo que é recorrente apareça sozinho, sem depender do botão "Lançar
+    pendentes". Idempotente (dedup por tombstone) e restrita ao mês de `today`,
+    então nunca cria retroativo em mês fechado."""
+
+    @staticmethod
+    def ensure_current_month(db: Session, workspace_id: int, today: date) -> dict:
+        exp = RecurringService.generate_due_instances(db, workspace_id, today)
+        inc = RecurringIncomeService.generate_due_income(db, workspace_id, today)
+        return {"expenses": exp, "income": inc}
+
+    @staticmethod
+    def ensure_and_commit(db: Session, workspace_id: int, today: Optional[date] = None) -> dict:
+        """Conveniência para o caminho de leitura: materializa e comita. Best-effort
+        — nunca propaga erro para não derrubar um GET (a materialização é acessória
+        à resposta). Não emite eventos: o próprio refetch já traz os dados novos e
+        publicar aqui provocaria tempestade de refetch (WS/seq)."""
+        try:
+            result = RecurringMaterializationService.ensure_current_month(
+                db, workspace_id, today or date.today()
+            )
+            db.commit()
+            return result
+        except Exception:
+            db.rollback()
+            return {"expenses": 0, "income": 0}

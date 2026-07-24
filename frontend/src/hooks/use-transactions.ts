@@ -47,6 +47,16 @@ export function useTransactions(filters: TransactionFilters = { page: 1, limit: 
     enabled: !!currentWorkspaceId
   });
 
+  // Lançamento mexe no extrato, nos analytics e no saldo do Início (reports)
+  const invalidateTransactionData = () => {
+    queryClient.invalidateQueries({ queryKey: ['transactions', currentWorkspaceId] });
+    queryClient.invalidateQueries({ queryKey: ['transaction', currentWorkspaceId] });
+    queryClient.invalidateQueries({ queryKey: ['installment-group', currentWorkspaceId] });
+    queryClient.invalidateQueries({ queryKey: ['debts-monthly', currentWorkspaceId] });
+    queryClient.invalidateQueries({ queryKey: ['analytics'] });
+    queryClient.invalidateQueries({ queryKey: ['reports', currentWorkspaceId] });
+  };
+
   // Create transaction
   const createMutation = useMutation({
     mutationFn: async (data: Record<string, unknown>) => {
@@ -54,10 +64,7 @@ export function useTransactions(filters: TransactionFilters = { page: 1, limit: 
       const response = await apiClient.post(`/workspaces/${currentWorkspaceId}/transactions/`, data);
       return response.data;
     },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['transactions', currentWorkspaceId] });
-      queryClient.invalidateQueries({ queryKey: ['analytics'] });
-    }
+    onSuccess: invalidateTransactionData
   });
 
   // Update transaction
@@ -67,22 +74,37 @@ export function useTransactions(filters: TransactionFilters = { page: 1, limit: 
       const response = await apiClient.put(`/workspaces/${currentWorkspaceId}/transactions/${id}`, data);
       return response.data;
     },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['transactions', currentWorkspaceId] });
-      queryClient.invalidateQueries({ queryKey: ['analytics'] });
-    }
+    onSuccess: invalidateTransactionData
   });
 
-  // Delete transaction
+  // Delete transaction (uma parcela avulsa ou lançamento comum)
   const deleteMutation = useMutation({
     mutationFn: async (id: number) => {
       if (!currentWorkspaceId) throw new Error('Workspace not selected');
       await apiClient.delete(`/workspaces/${currentWorkspaceId}/transactions/${id}`);
     },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['transactions', currentWorkspaceId] });
-      queryClient.invalidateQueries({ queryKey: ['analytics'] });
-    }
+    onSuccess: invalidateTransactionData
+  });
+
+  // Excluir a COMPRA parcelada inteira: soft-delete de todas as parcelas vivas
+  // do grupo de uma vez (backend preserva as já pagas).
+  const deleteGroupMutation = useMutation({
+    mutationFn: async (id: number): Promise<{ deleted: number; skipped_paid: number }> => {
+      if (!currentWorkspaceId) throw new Error('Workspace not selected');
+      const response = await apiClient.delete(`/workspaces/${currentWorkspaceId}/transactions/${id}/installment-group`);
+      return response.data;
+    },
+    onSuccess: invalidateTransactionData
+  });
+
+  // Editar a COMPRA parcelada inteira (refatia total/nº de parcelas; congela pagas)
+  const updateGroupMutation = useMutation({
+    mutationFn: async ({ id, data }: { id: number, data: Record<string, unknown> }) => {
+      if (!currentWorkspaceId) throw new Error('Workspace not selected');
+      const response = await apiClient.put(`/workspaces/${currentWorkspaceId}/transactions/${id}/installment-group`, data);
+      return response.data;
+    },
+    onSuccess: invalidateTransactionData
   });
 
   return {
@@ -94,7 +116,56 @@ export function useTransactions(filters: TransactionFilters = { page: 1, limit: 
     isError: listQuery.isError,
     create: createMutation.mutateAsync,
     update: updateMutation.mutateAsync,
+    updateGroup: updateGroupMutation.mutateAsync,
     remove: deleteMutation.mutateAsync,
+    removeGroup: deleteGroupMutation.mutateAsync,
     isMutating: createMutation.isPending || updateMutation.isPending || deleteMutation.isPending
   };
+}
+
+// Busca um único lançamento pelo id (detalhe/preview). Sempre traz payers,
+// splits, items e parcela — a mesma fonte do TransactionRead da lista.
+export function useTransaction(id?: number | null) {
+  const { currentWorkspaceId } = useUIStore();
+  const query = useQuery({
+    queryKey: ['transaction', currentWorkspaceId, id],
+    queryFn: async (): Promise<TransactionRead> => {
+      const response = await apiClient.get(`/workspaces/${currentWorkspaceId}/transactions/${id}`);
+      return response.data;
+    },
+    enabled: !!currentWorkspaceId && id != null,
+  });
+
+  return {
+    transaction: query.data ?? null,
+    isLoading: query.isLoading,
+    isError: query.isError,
+  };
+}
+
+export interface InstallmentGroupSummary {
+  installment_group_id: string;
+  installments_of: number;
+  count_live: number;
+  paid_count: number;
+  group_total: string | number;
+  title: string;
+  // Definição da compra INTEIRA (formato TransactionRead) p/ pré-preencher o form
+  whole: TransactionRead;
+}
+
+// Resumo do grupo de parcelas (total da compra, nº, quantas pagas, definição
+// inteira). Usado só ao editar uma compra parcelada.
+export function useInstallmentGroup(id?: number | null, enabled = true) {
+  const { currentWorkspaceId } = useUIStore();
+  const query = useQuery({
+    queryKey: ['installment-group', currentWorkspaceId, id],
+    queryFn: async (): Promise<InstallmentGroupSummary> => {
+      const response = await apiClient.get(`/workspaces/${currentWorkspaceId}/transactions/${id}/installment-group`);
+      return response.data;
+    },
+    enabled: !!currentWorkspaceId && id != null && enabled,
+  });
+
+  return { group: query.data ?? null, isLoading: query.isLoading };
 }

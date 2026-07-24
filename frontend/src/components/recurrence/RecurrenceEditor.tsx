@@ -96,6 +96,24 @@ export function RecurrenceEditor({ value, onChange, idPrefix = 'rec' }: Recurren
         </div>
       )}
 
+      {/* Preset: data em que a recorrência começa a valer (ocorrências anteriores
+          não são geradas). Default = 1º do mês corrente, então o mês atual conta. */}
+      {!value.custom && (
+        <div className="space-y-2">
+          <Label htmlFor={`${idPrefix}-preset-start`}>Começa em</Label>
+          <Input
+            id={`${idPrefix}-preset-start`}
+            type="date"
+            value={value.start_date}
+            onChange={(e) => onChange({ start_date: e.target.value })}
+            className="bg-background/50"
+          />
+          <p className="text-[11px] text-muted-foreground">
+            A recorrência passa a valer a partir desta data.
+          </p>
+        </div>
+      )}
+
       {/* Personalizado: "a cada N períodos" a partir de uma data-âncora */}
       {value.custom && (
         <div className="grid grid-cols-2 gap-4">

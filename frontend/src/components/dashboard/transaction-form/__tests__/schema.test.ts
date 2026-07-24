@@ -11,6 +11,7 @@ import type { TransactionRead } from '@/types/transaction';
 const baseValues: TransactionFormValues = {
   title: 'Mercado',
   total_amount: 90,
+  currency: 'BRL',
   transaction_date: todayLocalISO(),
   payers: [{ user_id: '1', amount: 0, payment_method: '', account_id: '' }],
   payment_method: '',

@@ -5,7 +5,10 @@ from app.models.workspace import Workspace
 from app.models.user import User
 from app.models.recurring import RecurringIncome
 from app.models.income import Income
-from app.services.recurring_service import RecurringIncomeService
+from app.services.recurring_service import (
+    RecurringIncomeService,
+    RecurringMaterializationService,
+)
 
 
 def _setup(db_session: Session, tag: str):
@@ -103,3 +106,60 @@ def test_generate_due_income_tombstone_not_resurrected(db_session: Session):
     all_rows = db_session.exec(select(Income).where(Income.workspace_id == ws.id)).all()
     assert len(all_rows) == 1
     assert all_rows[0].deleted_at is not None
+
+
+def test_ensure_current_month_materializes_and_is_idempotent(db_session: Session):
+    # Cenário do dono: renda mensal dia 1, começa no 1º do mês → conta no mês
+    # corrente sozinha (sem "Lançar pendentes") e não duplica ao recarregar.
+    u, ws = _setup(db_session, "ri6")
+    db_session.add(_template(ws.id, u.id, day_of_month=1, start_date=date(2026, 7, 1)))
+    db_session.commit()
+
+    res = RecurringMaterializationService.ensure_current_month(db_session, ws.id, date(2026, 7, 23))
+    db_session.commit()
+    assert res["income"] == 1
+
+    # Recarregar a mesma tela (2ª chamada) não duplica
+    res2 = RecurringMaterializationService.ensure_current_month(db_session, ws.id, date(2026, 7, 25))
+    db_session.commit()
+    assert res2["income"] == 0
+
+    rows = db_session.exec(select(Income).where(Income.workspace_id == ws.id)).all()
+    assert len(rows) == 1
+
+
+def test_sync_current_month_income_updates_current(db_session: Session):
+    u, ws = _setup(db_session, "ri7")
+    tmpl = _template(ws.id, u.id, day_of_month=1, start_date=date(2026, 7, 1), base_amount=Decimal("100.00"))
+    db_session.add(tmpl)
+    db_session.commit()
+    RecurringIncomeService.generate_due_income(db_session, ws.id, date(2026, 7, 23))
+    db_session.commit()
+
+    tmpl.base_amount = Decimal("200.00")
+    tmpl.title = "Salário Novo"
+    db_session.add(tmpl)
+    RecurringIncomeService.sync_current_month_income(db_session, tmpl, date(2026, 7, 23))
+    db_session.commit()
+
+    inc = db_session.exec(select(Income).where(Income.recurring_income_id == tmpl.id)).one()
+    assert inc.amount == Decimal("200.00")
+    assert inc.title == "Salário Novo"
+
+
+def test_sync_current_month_income_freezes_previous_months(db_session: Session):
+    # Editar em agosto não pode alterar o lançamento (fechado) de julho
+    u, ws = _setup(db_session, "ri8")
+    tmpl = _template(ws.id, u.id, day_of_month=1, start_date=date(2026, 7, 1), base_amount=Decimal("100.00"))
+    db_session.add(tmpl)
+    db_session.commit()
+    RecurringIncomeService.generate_due_income(db_session, ws.id, date(2026, 7, 23))
+    db_session.commit()
+
+    tmpl.base_amount = Decimal("999.00")
+    db_session.add(tmpl)
+    RecurringIncomeService.sync_current_month_income(db_session, tmpl, date(2026, 8, 10))
+    db_session.commit()
+
+    july = db_session.exec(select(Income).where(Income.billing_month == "2026-07")).one()
+    assert july.amount == Decimal("100.00")  # mês fechado permanece congelado

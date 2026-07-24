@@ -18,33 +18,42 @@ export function useRecurring() {
     enabled: !!currentWorkspaceId,
   });
 
+  // Criar/editar/excluir template pode materializar (ou re-sincronizar) a despesa
+  // do mês corrente no backend — refaz o extrato e os relatórios também.
+  const invalidateAll = () => {
+    queryClient.invalidateQueries({ queryKey });
+    queryClient.invalidateQueries({ queryKey: ['transactions', currentWorkspaceId] });
+    queryClient.invalidateQueries({ queryKey: ['reports', currentWorkspaceId] });
+    queryClient.invalidateQueries({ queryKey: ['analytics'] });
+  };
+
   const createMutation = useMutation({
     mutationFn: async (data: Record<string, unknown>) => {
       const response = await apiClient.post(`/workspaces/${currentWorkspaceId}/recurring`, data);
       return response.data;
     },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey });
-    },
+    onSuccess: invalidateAll,
   });
 
+  // scope decide o alcance sobre as instâncias já geradas (não pagas):
+  // 'future' (mês corrente em diante, padrão), 'all' (todas), 'none' (só o modelo)
   const updateMutation = useMutation({
-    mutationFn: async ({ id, data }: { id: number; data: Record<string, unknown> }) => {
-      const response = await apiClient.put(`/workspaces/${currentWorkspaceId}/recurring/${id}`, data);
+    mutationFn: async ({ id, data, scope }: { id: number; data: Record<string, unknown>; scope?: 'none' | 'future' | 'all' }) => {
+      const response = await apiClient.put(
+        `/workspaces/${currentWorkspaceId}/recurring/${id}`,
+        data,
+        { params: scope ? { scope } : undefined },
+      );
       return response.data;
     },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey });
-    },
+    onSuccess: invalidateAll,
   });
 
   const removeMutation = useMutation({
     mutationFn: async (id: number) => {
       await apiClient.delete(`/workspaces/${currentWorkspaceId}/recurring/${id}`);
     },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey });
-    },
+    onSuccess: invalidateAll,
   });
 
   // Materializa as instâncias vencidas do mês (idempotente no backend)

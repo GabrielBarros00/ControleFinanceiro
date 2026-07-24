@@ -43,14 +43,19 @@ export interface RecurrenceItemLike {
   month_of_year?: number | null;
 }
 
-const today = () => new Date().toISOString().slice(0, 10);
+// 1º dia do mês corrente (componentes locais, sem armadilha de fuso do toISOString).
+// Default de start_date: garante que o mês corrente CONTE (dia < hoje não some).
+const firstOfCurrentMonth = () => {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-01`;
+};
 
 export function defaultRecurrenceValue(): RecurrenceValue {
   return {
     custom: false,
     frequency: 'monthly',
     interval: 1,
-    start_date: today(),
+    start_date: firstOfCurrentMonth(),
     day_of_week: 0,
     day_of_month: 1,
     month_of_year: 1,
@@ -63,7 +68,7 @@ export function recurrenceFromItem(item: RecurrenceItemLike): RecurrenceValue {
     custom: interval > 1,
     frequency: item.frequency,
     interval,
-    start_date: item.start_date ?? today(),
+    start_date: item.start_date ?? firstOfCurrentMonth(),
     day_of_week: item.day_of_week ?? 0,
     day_of_month: item.day_of_month ?? 1,
     month_of_year: item.month_of_year ?? 1,
@@ -100,7 +105,9 @@ export function toRecurrencePayload(v: RecurrenceValue) {
   return {
     frequency: v.frequency,
     interval: 1,
-    start_date: null as string | null,
+    // Preset também carrega start_date: "vale a partir de" (backend filtra as
+    // ocorrências anteriores). null só quando o usuário limpa o campo.
+    start_date: v.start_date || null,
     day_of_month: v.day_of_month,
     day_of_week: v.frequency === 'weekly' ? v.day_of_week : null,
     month_of_year: v.frequency === 'yearly' ? v.month_of_year : null,

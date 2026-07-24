@@ -7,7 +7,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
-import { AlertCircle, LockOpen } from 'lucide-react';
+import { AlertCircle, CreditCard, Loader2, LockOpen } from 'lucide-react';
 import type { TransactionRead } from '@/types/transaction';
 import { getApiErrorMessage } from '@/lib/api-error';
 import { TransactionForm, type TransactionApiPayload } from './transaction-form/TransactionForm';
@@ -21,6 +21,10 @@ interface TransactionDialogProps {
   onOpenChange: (open: boolean) => void;
   onSave: (data: Record<string, unknown>) => Promise<void> | void;
   onDelete: (id: number) => void;
+  // Compra parcelada: definição INTEIRA (agregada) para editar o grupo todo, e
+  // quantas parcelas já estão pagas (mostrado no aviso).
+  installmentWhole?: TransactionRead | null;
+  paidCount?: number;
 }
 
 // Edição COMPLETA da despesa (campos, pagamento, divisão/itens) — o mesmo form
@@ -30,13 +34,17 @@ export function TransactionDialog({
   open,
   onOpenChange,
   onSave,
-  onDelete
+  onDelete,
+  installmentWhole = null,
+  paidCount = 0,
 }: TransactionDialogProps) {
   const [reopenError, setReopenError] = React.useState<string | null>(null);
 
   if (!transaction) return null;
 
   const isPaid = transaction.status === 'paid';
+  // Compra parcelada: o form edita a COMPRA INTEIRA (total cheio + nº de parcelas)
+  const isGroup = (transaction.installments_of ?? 0) > 1;
 
   const handleSubmit = async (payload: TransactionApiPayload) => {
     // PUT full: payers + splits/items completos — o backend recria tudo
@@ -90,21 +98,49 @@ export function TransactionDialog({
               <p role="alert" className="text-sm text-destructive font-medium">{reopenError}</p>
             )}
           </div>
+        ) : isGroup && !installmentWhole ? (
+          <div className="flex h-40 items-center justify-center">
+            <Loader2 className="h-6 w-6 animate-spin text-primary" />
+          </div>
         ) : (
           <div className="py-2">
-            <TransactionSummary transaction={transaction} />
+            {isGroup ? (
+              <div className="mb-4 flex items-start gap-3 rounded-lg border border-primary/20 bg-primary/10 p-3">
+                <CreditCard className="mt-0.5 h-5 w-5 shrink-0 text-primary" />
+                <div className="space-y-0.5">
+                  <p className="text-sm font-bold text-primary">
+                    Compra parcelada em {installmentWhole!.installments_of}×
+                  </p>
+                  <p className="text-xs text-muted-foreground">
+                    Alterar o valor, o número de parcelas ou a divisão vale para todas as parcelas.
+                    {paidCount > 0 && ` ${paidCount} parcela(s) já paga(s) serão mantidas e as em aberto recalculadas.`}
+                  </p>
+                </div>
+              </div>
+            ) : (
+              <TransactionSummary transaction={transaction} />
+            )}
             <TransactionForm
               // updated_at na key: quando o refetch chega com dados novos, o
               // form REMONTA com defaultValues frescos (o backend garante
               // updated_at a cada edição) — sem isso a reabertura mostrava
-              // a divisão antiga
-              key={`${transaction.id}-${transaction.updated_at}`}
-              initialValues={fromApiTransaction(transaction)}
+              // a divisão antiga. No grupo, a chave segue a definição inteira.
+              key={
+                isGroup
+                  ? `group-${installmentWhole!.id}-${installmentWhole!.updated_at}`
+                  : `${transaction.id}-${transaction.updated_at}`
+              }
+              initialValues={
+                isGroup
+                  ? { ...fromApiTransaction(installmentWhole!), installments: installmentWhole!.installments_of ?? 1 }
+                  : fromApiTransaction(transaction)
+              }
               onSubmit={handleSubmit}
               submitLabel="Salvar Alterações"
+              allowInstallments={isGroup}
             />
 
-            <AttachmentsSection transactionId={transaction.id} />
+            {!isGroup && <AttachmentsSection transactionId={transaction.id} />}
 
             <div className="mt-6 p-4 rounded-lg bg-destructive/10 border border-destructive/20 flex items-start gap-3">
               <AlertCircle className="h-5 w-5 text-destructive mt-0.5" />

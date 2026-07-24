@@ -49,6 +49,22 @@ export function useCreditCards() {
     },
   });
 
+  const updateMutation = useMutation({
+    mutationFn: async ({
+      id,
+      data,
+    }: {
+      id: number;
+      data: Partial<{ name: string; limit: number; closing_day: number; due_day: number }>;
+    }) => {
+      const response = await apiClient.put(`/workspaces/${currentWorkspaceId}/credit-cards/${id}`, data);
+      return response.data;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['credit-cards', currentWorkspaceId] });
+    },
+  });
+
   const deleteMutation = useMutation({
     mutationFn: async (id: number) => {
       await apiClient.delete(`/workspaces/${currentWorkspaceId}/credit-cards/${id}`);
@@ -63,6 +79,7 @@ export function useCreditCards() {
     isLoading: listQuery.isLoading,
     isError: listQuery.isError,
     create: createMutation.mutateAsync,
+    update: updateMutation.mutateAsync,
     remove: deleteMutation.mutateAsync,
   };
 }

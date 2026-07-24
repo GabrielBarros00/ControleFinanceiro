@@ -4,7 +4,7 @@ import { useReports } from '@/hooks/use-reports';
 import { useAnalytics } from '@/hooks/use-analytics';
 import { useTransactions } from '@/hooks/use-transactions';
 import { useAuth } from '@/hooks/use-auth';
-import { useNewTxStore } from '@/stores';
+import { useNewTxStore, useTxDetailStore } from '@/stores';
 import { PageHeader } from '@/components/layout/PageHeader';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -28,6 +28,7 @@ export function Home() {
   const { forecast, isLoading: forecastLoading } = useAnalytics();
   const { transactions, isLoading: txLoading } = useTransactions({ page: 1, limit: 6, month: currentMonth() });
   const setNewTxOpen = useNewTxStore((s) => s.setOpen);
+  const openDetail = useTxDetailStore((s) => s.open);
 
   const loading = reportsLoading || forecastLoading;
   const summary = reports?.current_summary;
@@ -126,7 +127,7 @@ export function Home() {
                   }
                 />
               ) : (
-                <TransactionLedger transactions={transactions} showDayTotals={false} />
+                <TransactionLedger transactions={transactions} showDayTotals={false} onSelect={(tx) => openDetail(tx.id)} />
               )}
             </div>
           </section>

@@ -60,8 +60,8 @@ test('seed data and capture all screens', async ({ page, playwright }) => {
   const wss = await (await api.get(u('/workspaces/'))).json();
   const wsId: number = wss[0].id;
 
-  const cats = await (await api.get(u(`/workspaces/${wsId}/categories`))).json();
-  const catId = (n: string): number | undefined => cats.find((c: any) => c.name === n)?.id;
+  const cats: { id: number; name: string }[] = await (await api.get(u(`/workspaces/${wsId}/categories`))).json();
+  const catId = (n: string): number | undefined => cats.find((c) => c.name === n)?.id;
 
   // Rendas
   await api.post(u(`/workspaces/${wsId}/income/`), { data: { title: 'Salário', amount: 7200, received_at: iso(20) } });
@@ -84,7 +84,7 @@ test('seed data and capture all screens', async ({ page, playwright }) => {
     { title: 'Presente Aniversário', total_amount: 120, transaction_date: iso(5), cat: 'Outros' },
   ];
   await api.post(u(`/workspaces/${wsId}/transactions/bulk`), {
-    data: txs.map(({ cat, ...t }) => t),
+    data: txs.map((t) => ({ title: t.title, total_amount: t.total_amount, transaction_date: t.transaction_date })),
   });
 
   // Atribui categoria (item único) a cada despesa recém-criada
@@ -191,6 +191,25 @@ test('seed data and capture all screens', async ({ page, playwright }) => {
       await page.getByRole('dialog').waitFor({ state: 'visible' }).catch(() => {});
       await page.waitForTimeout(600);
       await shot(`nova-despesa-modal-${theme}`);
+      await page.keyboard.press('Escape').catch(() => {});
+    }
+
+    // Modal Nova Renda — verifica o switch "Renda recorrente" (contraste OFF/ON)
+    // e o campo "Começa em" do editor de recorrência.
+    await page.goto('/income');
+    await settle();
+    const novaRenda = page.getByRole('button', { name: /Nova renda/i });
+    if (await novaRenda.count()) {
+      await novaRenda.first().click();
+      await page.getByRole('dialog').waitFor({ state: 'visible' }).catch(() => {});
+      await page.waitForTimeout(500);
+      await shot(`nova-renda-modal-off-${theme}`);
+      const sw = page.getByRole('switch');
+      if (await sw.count()) {
+        await sw.first().click();
+        await page.waitForTimeout(500);
+        await shot(`nova-renda-modal-on-${theme}`);
+      }
       await page.keyboard.press('Escape').catch(() => {});
     }
   };

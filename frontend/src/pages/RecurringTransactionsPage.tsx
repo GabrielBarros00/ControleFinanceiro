@@ -19,6 +19,8 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { MoneyInput } from "@/components/ui/MoneyInput";
+import { CurrencyCombobox } from "@/components/dashboard/transaction-form/CurrencyCombobox";
+import { currencySymbol, formatCurrency } from "@/lib/money";
 import { RecurrenceEditor } from "@/components/recurrence/RecurrenceEditor";
 import { recurrenceLabel, recurrenceFromItem, toRecurrencePayload, type RecurrenceValue } from "@/lib/recurrence";
 import { getApiErrorMessage } from '@/lib/api-error';
@@ -29,6 +31,7 @@ const recurringSchema = z.object({
   title: z.string().min(1, 'Título é obrigatório'),
   description: z.string().optional(),
   base_amount: z.number().min(0.01, 'Valor deve ser maior que zero'),
+  currency: z.string(),
   custom: z.boolean(),
   frequency: z.enum(['daily', 'weekly', 'monthly', 'yearly']),
   interval: z.number().min(1),
@@ -46,6 +49,7 @@ interface RecurringItem {
   title: string;
   description?: string | null;
   base_amount: string;
+  currency?: string | null;
   frequency: 'daily' | 'weekly' | 'monthly' | 'yearly';
   interval?: number | null;
   start_date?: string | null;
@@ -61,6 +65,7 @@ const DEFAULTS: RecurringValues = {
   title: '',
   description: '',
   base_amount: 0,
+  currency: 'BRL',
   custom: false,
   frequency: 'monthly',
   interval: 1,
@@ -76,6 +81,8 @@ export function RecurringTransactionsPage() {
   const confirm = useConfirm();
   const [dialogOpen, setDialogOpen] = React.useState(false);
   const [editingId, setEditingId] = React.useState<number | null>(null);
+  // Alcance da edição sobre as instâncias já geradas (não pagas)
+  const [editScope, setEditScope] = React.useState<'none' | 'future' | 'all'>('future');
 
   const { register, handleSubmit, setValue, watch, reset, formState: { errors } } = useForm<RecurringValues>({
     resolver: zodResolver(recurringSchema),
@@ -83,6 +90,7 @@ export function RecurringTransactionsPage() {
   });
 
   const baseAmount = watch('base_amount');
+  const currency = watch('currency');
 
   // Ponte entre o react-hook-form e o RecurrenceEditor (controlado)
   const recurrence: RecurrenceValue = {
@@ -101,17 +109,20 @@ export function RecurringTransactionsPage() {
 
   const openCreate = () => {
     setEditingId(null);
+    setEditScope('future');
     reset({ ...DEFAULTS, start_date: todayStr() });
     setDialogOpen(true);
   };
 
   const openEdit = (item: RecurringItem) => {
     setEditingId(item.id);
+    setEditScope('future');
     const rec = recurrenceFromItem(item);
     reset({
       title: item.title,
       description: item.description || '',
       base_amount: parseFloat(item.base_amount),
+      currency: item.currency ?? 'BRL',
       is_active: item.is_active,
       ...rec,
     });
@@ -136,12 +147,13 @@ export function RecurringTransactionsPage() {
       title: data.title,
       description: data.description,
       base_amount: data.base_amount,
+      currency: data.currency || 'BRL',
       is_active: data.is_active,
       ...toRecurrencePayload(recValue),
     };
     try {
       if (editingId) {
-        await update({ id: editingId, data: payload });
+        await update({ id: editingId, data: payload, scope: editScope });
       } else {
         await create(payload);
       }
@@ -210,11 +222,11 @@ export function RecurringTransactionsPage() {
           <Table>
             <TableHeader>
               <TableRow className="border-border hover:bg-transparent">
-                <TableHead className="w-[300px] text-muted-foreground font-bold uppercase tracking-wider text-[10px]">Descrição</TableHead>
-                <TableHead className="text-muted-foreground font-bold uppercase tracking-wider text-[10px]">Recorrência</TableHead>
-                <TableHead className="text-muted-foreground font-bold uppercase tracking-wider text-[10px]">Status</TableHead>
-                <TableHead className="text-right text-muted-foreground font-bold uppercase tracking-wider text-[10px]">Valor Base</TableHead>
-                <TableHead className="text-center text-muted-foreground font-bold uppercase tracking-wider text-[10px]">Ações</TableHead>
+                <TableHead className="w-[300px] text-muted-foreground font-semibold text-xs">Descrição</TableHead>
+                <TableHead className="text-muted-foreground font-semibold text-xs">Recorrência</TableHead>
+                <TableHead className="text-muted-foreground font-semibold text-xs">Status</TableHead>
+                <TableHead className="text-right text-muted-foreground font-semibold text-xs">Valor Base</TableHead>
+                <TableHead className="text-center text-muted-foreground font-semibold text-xs">Ações</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -239,7 +251,7 @@ export function RecurringTransactionsPage() {
                     </div>
                   </TableCell>
                   <TableCell>
-                    <div className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-black uppercase tracking-tighter ${
+                    <div className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold uppercase tracking-tighter ${
                       item.is_active
                         ? 'bg-emerald-500/10 text-emerald-500 border border-emerald-500/20'
                         : 'bg-muted text-muted-foreground border border-border'
@@ -249,7 +261,7 @@ export function RecurringTransactionsPage() {
                   </TableCell>
                   <TableCell className="text-right">
                     <span className="font-black text-foreground">
-                      R$ {parseFloat(item.base_amount).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                      {formatCurrency(parseFloat(item.base_amount), item.currency ?? 'BRL')}
                     </span>
                   </TableCell>
                   <TableCell>
@@ -314,16 +326,44 @@ export function RecurringTransactionsPage() {
 
             <div className="space-y-2">
               <Label htmlFor="base_amount">Valor Base</Label>
-              <MoneyInput
-                id="base_amount"
-                value={baseAmount}
-                onChange={(val: number) => setValue('base_amount', val)}
-                className="bg-background/50"
-              />
+              <div className="flex gap-2">
+                <MoneyInput
+                  id="base_amount"
+                  value={baseAmount}
+                  onChange={(val: number) => setValue('base_amount', val)}
+                  prefix={currencySymbol(currency)}
+                  className="bg-background/50 flex-1"
+                />
+                <CurrencyCombobox value={currency} onChange={(c) => setValue('currency', c, { shouldValidate: true })} />
+              </div>
               {errors.base_amount && <p className="text-xs text-destructive font-medium">{errors.base_amount.message}</p>}
+              {currency && currency !== 'BRL' && (
+                <p className="text-[11px] font-medium text-muted-foreground">
+                  Recorrência em moeda estrangeira: converte para BRL a cada mês, com a taxa do dia.
+                </p>
+              )}
             </div>
 
             <RecurrenceEditor value={recurrence} onChange={patchRecurrence} idPrefix="rec" />
+
+            {editingId && (
+              <div className="space-y-2 rounded-lg bg-accent/30 border border-border p-3">
+                <Label htmlFor="edit-scope">Aplicar alterações a</Label>
+                <select
+                  id="edit-scope"
+                  value={editScope}
+                  onChange={(e) => setEditScope(e.target.value as 'none' | 'future' | 'all')}
+                  className="flex h-10 w-full rounded-md border border-border bg-background px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+                >
+                  <option value="future">Deste mês em diante (lançamentos não pagos)</option>
+                  <option value="all">Todos os lançamentos não pagos</option>
+                  <option value="none">Só o modelo (não mexer nos lançamentos)</option>
+                </select>
+                <p className="text-[10px] text-muted-foreground font-medium">
+                  Lançamentos já pagos nunca são alterados.
+                </p>
+              </div>
+            )}
 
             <div className="flex items-center justify-between p-3 rounded-lg bg-accent/30 border border-border">
               <div className="space-y-0.5">

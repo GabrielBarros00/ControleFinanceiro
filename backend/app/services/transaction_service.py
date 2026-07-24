@@ -1,4 +1,4 @@
-from decimal import Decimal
+from decimal import Decimal, ROUND_HALF_UP
 from typing import Any, Dict, List, Optional
 
 from sqlmodel import Session, select
@@ -122,6 +122,81 @@ def _allocate_proportional(amount_cents: int, weights: Dict[int, int]) -> Dict[i
         floors[uid] += 1
         remainder -= 1
     return floors
+
+
+def convert_division_to_base(
+    *,
+    factor: Decimal,
+    brl_total: Decimal,
+    payers: List[TransactionPayerBase],
+    splits: List[TransactionSplitBase],
+    items: Optional[List[TransactionItemCreate]],
+    adjustments: Optional[List[TransactionAdjustmentCreate]],
+) -> Dict[str, Any]:
+    """Re-expressa uma divisão em moeda estrangeira na moeda-base (BRL), com o
+    total já convertido (`brl_total`). Cada VALOR ABSOLUTO (pagadores, valores
+    fixos, itens, shares fixas, ajustes) é rateado proporcionalmente em CENTAVOS
+    exatos (reusa `_allocate_proportional`), então as somas continuam fechando o
+    total. Igual/percentual são escala-invariantes e passam direto.
+
+    Retorna {payers, splits, items, adjustments} prontos para o fluxo normal
+    (`persist_transaction_children`, que revalida)."""
+    brl_cents = _cents(brl_total)
+
+    def _reallocate(entries, value_of, target_cents):
+        """Distribui target_cents entre `entries` na proporção de value_of(e)."""
+        weights = {i: _cents(value_of(e)) for i, e in enumerate(entries)}
+        if sum(weights.values()) <= 0:
+            # Sem pesos (não deveria ocorrer): rateio igual defensivo
+            return [t / Decimal("100") for t in _allocate_proportional(target_cents, {i: 1 for i in range(len(entries))}).values()]
+        alloc = _allocate_proportional(target_cents, weights)
+        return [Decimal(alloc[i]) / Decimal("100") for i in range(len(entries))]
+
+    # Pagadores: somam o total
+    payer_amounts = _reallocate(payers, lambda p: p.amount, brl_cents)
+    new_payers = [p.model_copy(update={"amount": payer_amounts[i]}) for i, p in enumerate(payers)]
+
+    # Splits pela despesa: fixo rateia; igual/percentual passam
+    new_splits = list(splits or [])
+    if splits and splits[0].split_method == SplitMethod.fixed:
+        vals = _reallocate(splits, lambda s: s.input_value, brl_cents)
+        new_splits = [s.model_copy(update={"input_value": vals[i]}) for i, s in enumerate(splits)]
+
+    # Ajustes: convertidos por fator (mantém o sinal); definem o alvo dos itens
+    new_adjustments = None
+    adj_total_cents = 0
+    if adjustments:
+        new_adjustments = []
+        for a in adjustments:
+            amt = (a.amount * factor).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+            new_adjustments.append(a.model_copy(update={"amount": amt}))
+            adj_total_cents += _cents(amt)
+
+    # Itens: somam (total − ajustes); shares fixas rateiam o BRL do item
+    new_items = None
+    if items:
+        items_target = brl_cents - adj_total_cents
+        item_amounts = _reallocate(items, lambda it: it.amount, items_target)
+        new_items = []
+        for i, it in enumerate(items):
+            it_brl = item_amounts[i]
+            shares = list(it.shares or [])
+            if shares and shares[0].split_method == SplitMethod.fixed:
+                svals = _reallocate(shares, lambda sh: sh.input_value, _cents(it_brl))
+                shares = [sh.model_copy(update={"input_value": svals[j]}) for j, sh in enumerate(shares)]
+            new_items.append(it.model_copy(update={
+                "amount": it_brl,
+                "quantity": Decimal("1"),
+                "unit_amount": None,
+                "shares": shares,
+            }))
+
+    return {
+        "payers": new_payers,
+        "splits": new_splits,
+        "items": new_items,
+        "adjustments": new_adjustments,
+    }
 
 
 def compute_transaction_breakdown(

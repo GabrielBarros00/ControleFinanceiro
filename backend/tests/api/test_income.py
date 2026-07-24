@@ -70,3 +70,103 @@ def test_list_income_forbidden(income_setup, override_get_session):
     ws_id = income_setup["ws1"].id
     response = client.get(f"/api/v1/workspaces/{ws_id}/income/", headers=income_setup["headers2"])
     assert response.status_code == 403
+
+
+def test_list_income_filtra_por_mes(db_session: Session, income_setup, override_get_session):
+    from datetime import datetime
+    ws_id = income_setup["ws1"].id
+    u1_id = income_setup["u1"].id
+    db_session.add(Income(title="Maio", amount=100, workspace_id=ws_id, user_id=u1_id,
+                          received_at=datetime(2026, 5, 10, 12, 0, 0)))
+    db_session.add(Income(title="Junho", amount=200, workspace_id=ws_id, user_id=u1_id,
+                          received_at=datetime(2026, 6, 10, 12, 0, 0)))
+    db_session.commit()
+
+    resp = client.get(f"/api/v1/workspaces/{ws_id}/income/?month=2026-05", headers=income_setup["headers1"])
+    assert resp.status_code == 200
+    assert [i["title"] for i in resp.json()] == ["Maio"]
+
+    resp = client.get(f"/api/v1/workspaces/{ws_id}/income/?month=2026-06", headers=income_setup["headers1"])
+    assert [i["title"] for i in resp.json()] == ["Junho"]
+
+    # Sem mês: retorna tudo (compat. com o comportamento antigo)
+    resp = client.get(f"/api/v1/workspaces/{ws_id}/income/", headers=income_setup["headers1"])
+    assert len(resp.json()) == 2
+
+
+def test_income_estrangeira_converte(db_session: Session, income_setup, override_get_session, monkeypatch):
+    from decimal import Decimal
+    from app.services import currency_service as cs
+    monkeypatch.setattr(cs.CurrencyService, "get_rate_sync", lambda *a, **k: (Decimal("5.00"), "ptax"))
+    ws_id = income_setup["ws1"].id
+    resp = client.post(
+        f"/api/v1/workspaces/{ws_id}/income/",
+        json={"title": "Freela USD", "amount": 100.0, "currency": "USD", "received_at": "2026-05-10T10:00:00"},
+        headers=income_setup["headers1"],
+    )
+    assert resp.status_code == 200, resp.text
+    inc = resp.json()
+    assert inc["amount"] == "500.00"  # 100 × 5, sem IOF (renda)
+    assert inc["currency"] == "BRL"
+    assert inc["original_currency"] == "USD"
+    assert Decimal(inc["original_amount"]) == Decimal("100.00")
+    assert Decimal(inc["exchange_rate"]) == Decimal("5.00")
+
+
+def test_income_edicao_parcial_preserva_original(income_setup, override_get_session, monkeypatch):
+    """Editar só o título de uma renda estrangeira NÃO apaga a proveniência: o PUT
+    parcial que não toca em amount/currency preserva o original congelado."""
+    from decimal import Decimal
+    from app.services import currency_service as cs
+    monkeypatch.setattr(cs.CurrencyService, "get_rate_sync", lambda *a, **k: (Decimal("5.00"), "ptax"))
+    ws_id = income_setup["ws1"].id
+    resp = client.post(
+        f"/api/v1/workspaces/{ws_id}/income/",
+        json={"title": "Freela USD", "amount": 100.0, "currency": "USD", "received_at": "2026-05-10T10:00:00"},
+        headers=income_setup["headers1"],
+    )
+    income_id = resp.json()["id"]
+
+    # PUT só com o título — sem amount/currency
+    resp = client.put(
+        f"/api/v1/workspaces/{ws_id}/income/{income_id}",
+        json={"title": "Freela USD (renomeado)"},
+        headers=income_setup["headers1"],
+    )
+    assert resp.status_code == 200, resp.text
+    upd = resp.json()
+    assert upd["title"] == "Freela USD (renomeado)"
+    # BRL e proveniência preservados
+    assert upd["amount"] == "500.00"
+    assert upd["currency"] == "BRL"
+    assert upd["original_currency"] == "USD"
+    assert Decimal(upd["original_amount"]) == Decimal("100.00")
+    assert Decimal(upd["exchange_rate"]) == Decimal("5.00")
+
+
+def test_income_edicao_para_brl_limpa_original(income_setup, override_get_session, monkeypatch):
+    """Trocar a renda estrangeira de volta para BRL (enviando currency) limpa o
+    original congelado."""
+    from decimal import Decimal
+    from app.services import currency_service as cs
+    monkeypatch.setattr(cs.CurrencyService, "get_rate_sync", lambda *a, **k: (Decimal("5.00"), "ptax"))
+    ws_id = income_setup["ws1"].id
+    resp = client.post(
+        f"/api/v1/workspaces/{ws_id}/income/",
+        json={"title": "Freela USD", "amount": 100.0, "currency": "USD", "received_at": "2026-05-10T10:00:00"},
+        headers=income_setup["headers1"],
+    )
+    income_id = resp.json()["id"]
+
+    resp = client.put(
+        f"/api/v1/workspaces/{ws_id}/income/{income_id}",
+        json={"amount": 300.0, "currency": "BRL"},
+        headers=income_setup["headers1"],
+    )
+    assert resp.status_code == 200, resp.text
+    upd = resp.json()
+    assert upd["amount"] == "300.00"
+    assert upd["currency"] == "BRL"
+    assert upd["original_currency"] is None
+    assert upd["original_amount"] is None
+    assert upd["exchange_rate"] is None

@@ -44,12 +44,19 @@ export function useRecurringIncome() {
     queryClient.invalidateQueries({ queryKey: ['analytics-forecast', currentWorkspaceId] });
   };
 
+  // Criar/editar/excluir template pode materializar (ou re-sincronizar) a renda
+  // do mês corrente no backend — refaz a lista de rendas e os relatórios também.
+  const invalidateAll = () => {
+    invalidateList();
+    invalidateIncome();
+  };
+
   const createMutation = useMutation({
     mutationFn: async (data: Record<string, unknown>) => {
       const response = await apiClient.post(`/workspaces/${currentWorkspaceId}/recurring-income`, data);
       return response.data as RecurringIncome;
     },
-    onSuccess: invalidateList,
+    onSuccess: invalidateAll,
   });
 
   const updateMutation = useMutation({
@@ -57,14 +64,14 @@ export function useRecurringIncome() {
       const response = await apiClient.put(`/workspaces/${currentWorkspaceId}/recurring-income/${id}`, data);
       return response.data as RecurringIncome;
     },
-    onSuccess: invalidateList,
+    onSuccess: invalidateAll,
   });
 
   const removeMutation = useMutation({
     mutationFn: async (id: number) => {
       await apiClient.delete(`/workspaces/${currentWorkspaceId}/recurring-income/${id}`);
     },
-    onSuccess: invalidateList,
+    onSuccess: invalidateAll,
   });
 
   // Materializa as rendas recorrentes vencidas do mês (idempotente no backend)

@@ -461,8 +461,22 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        get?: never;
-        put?: never;
+        /**
+         * Get Installment Group
+         * @description Resumo do grupo de parcelas para pré-preencher a edição da compra inteira:
+         *     total da compra (soma das parcelas vivas), nº de parcelas, quantas já pagas e
+         *     o título base (sem o sufixo i/N).
+         */
+        get: operations["get_installment_group_api_v1_workspaces__workspace_id__transactions__transaction_id__installment_group_get"];
+        /**
+         * Update Installment Group
+         * @description Edita a compra parcelada INTEIRA a partir da definição do total da compra
+         *     + nº de parcelas (mesmo corpo do create). Sem parcelas pagas: refaz o grupo
+         *     (refatiando total/nº pelas parcelas). Com parcelas pagas: congela as pagas e
+         *     recalcula só as em aberto para fechar o novo total — sem mudar o nº de
+         *     parcelas nem reduzir o total abaixo do já pago.
+         */
+        put: operations["update_installment_group_api_v1_workspaces__workspace_id__transactions__transaction_id__installment_group_put"];
         post?: never;
         /**
          * Delete Installment Group
@@ -588,7 +602,8 @@ export interface paths {
         };
         /**
          * Get Exchange Rate
-         * @description Taxa de câmbio oficial (BCB PTAX). Nunca 500: indisponível responde 422.
+         * @description Taxa de câmbio de referência + fonte: PTAX (oficial) para as majores → BRL,
+         *     senão fonte de mercado. Nunca 500: indisponível responde 422.
          */
         get: operations["get_exchange_rate_api_v1_workspaces__workspace_id__analytics_exchange_rate_get"];
         put?: never;
@@ -899,6 +914,27 @@ export interface paths {
          *     um deve e se a despesa está paga. Parcelas aparecem só no mês delas.
          */
         get: operations["get_monthly_debts_api_v1_workspaces__workspace_id__debts_monthly_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/workspaces/{workspace_id}/liabilities/overview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Liabilities Overview
+         * @description Panorama de endividamento: financiamentos + faturas de cartão, com total
+         *     devedor, o que vence no mês selecionado e a parte de cada pessoa.
+         */
+        get: operations["get_liabilities_overview_api_v1_workspaces__workspace_id__liabilities_overview_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -1504,11 +1540,6 @@ export interface components {
             /** Due Day */
             due_day?: number | null;
         };
-        /**
-         * Currency
-         * @enum {string}
-         */
-        Currency: "BRL" | "USD" | "EUR";
         /** EarlySettlementRequest */
         EarlySettlementRequest: {
             /** Settlement Date */
@@ -1648,6 +1679,14 @@ export interface components {
             recurring_income_id?: number | null;
             /** Billing Month */
             billing_month?: string | null;
+            /** Original Amount */
+            original_amount?: string | null;
+            /** Original Currency */
+            original_currency?: string | null;
+            /** Exchange Rate */
+            exchange_rate?: string | null;
+            /** Rate Source */
+            rate_source?: string | null;
             /**
              * Created At
              * Format: date-time
@@ -2509,6 +2548,16 @@ export interface components {
             installments_of?: number | null;
             /** Installment Group Id */
             installment_group_id?: string | null;
+            /** Original Amount */
+            original_amount?: string | null;
+            /** Original Currency */
+            original_currency?: string | null;
+            /** Exchange Rate */
+            exchange_rate?: string | null;
+            /** Iof Rate */
+            iof_rate?: string | null;
+            /** Rate Source */
+            rate_source?: string | null;
             /** Payers */
             payers: components["schemas"]["TransactionPayerRead"][];
             /** Splits */
@@ -2571,6 +2620,8 @@ export interface components {
             description?: string | null;
             /** Total Amount */
             total_amount?: number | string | null;
+            /** Currency */
+            currency?: string | null;
             /** Transaction Date */
             transaction_date?: string | null;
             /** Billing Month */
@@ -3832,6 +3883,78 @@ export interface operations {
             };
         };
     };
+    get_installment_group_api_v1_workspaces__workspace_id__transactions__transaction_id__installment_group_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                workspace_id: number;
+                transaction_id: number;
+            };
+            cookie?: {
+                access_token?: string | null;
+            };
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_installment_group_api_v1_workspaces__workspace_id__transactions__transaction_id__installment_group_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                workspace_id: number;
+                transaction_id: number;
+            };
+            cookie?: {
+                access_token?: string | null;
+            };
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TransactionCreate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TransactionRead"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     delete_installment_group_api_v1_workspaces__workspace_id__transactions__transaction_id__installment_group_delete: {
         parameters: {
             query?: never;
@@ -3907,7 +4030,9 @@ export interface operations {
     };
     list_income_api_v1_workspaces__workspace_id__income__get: {
         parameters: {
-            query?: never;
+            query?: {
+                month?: string | null;
+            };
             header?: never;
             path: {
                 workspace_id: number;
@@ -4159,8 +4284,8 @@ export interface operations {
     get_exchange_rate_api_v1_workspaces__workspace_id__analytics_exchange_rate_get: {
         parameters: {
             query: {
-                from_currency: components["schemas"]["Currency"];
-                to_currency?: components["schemas"]["Currency"];
+                from_currency: string;
+                to_currency?: string;
             };
             header?: never;
             path: {
@@ -5081,6 +5206,43 @@ export interface operations {
         };
     };
     get_monthly_debts_api_v1_workspaces__workspace_id__debts_monthly_get: {
+        parameters: {
+            query?: {
+                month?: string | null;
+            };
+            header?: never;
+            path: {
+                workspace_id: number;
+            };
+            cookie?: {
+                access_token?: string | null;
+            };
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_liabilities_overview_api_v1_workspaces__workspace_id__liabilities_overview_get: {
         parameters: {
             query?: {
                 month?: string | null;

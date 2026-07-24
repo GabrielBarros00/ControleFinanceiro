@@ -18,6 +18,7 @@ const ReportsPage = React.lazy(() => import('./pages/Reports/ReportsPage').then(
 const SettingsPage = React.lazy(() => import('./pages/Settings/SettingsPage').then(m => ({ default: m.SettingsPage })));
 const RecurringTransactionsPage = React.lazy(() => import('./pages/RecurringTransactionsPage').then(m => ({ default: m.RecurringTransactionsPage })));
 const DebtsPage = React.lazy(() => import('./pages/DebtsPage').then(m => ({ default: m.DebtsPage })));
+const EndividamentoPage = React.lazy(() => import('./pages/EndividamentoPage').then(m => ({ default: m.EndividamentoPage })));
 const TransactionsPage = React.lazy(() => import('./pages/TransactionsPage').then(m => ({ default: m.TransactionsPage })));
 const ImportPage = React.lazy(() => import('./pages/ImportPage').then(m => ({ default: m.ImportPage })));
 const IncomePage = React.lazy(() => import('./pages/IncomePage').then(m => ({ default: m.IncomePage })));
@@ -175,6 +176,14 @@ function AppContent() {
             <ProtectedRoute>
               <Layout>
                 <DebtsPage />
+              </Layout>
+            </ProtectedRoute>
+          } />
+
+          <Route path="/liabilities" element={
+            <ProtectedRoute>
+              <Layout>
+                <EndividamentoPage />
               </Layout>
             </ProtectedRoute>
           } />

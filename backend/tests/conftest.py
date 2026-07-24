@@ -28,6 +28,7 @@ from app.models.tag import Tag, TransactionTagLink  # noqa: F401
 from app.models.payment_account import PaymentAccount  # noqa: F401
 from app.models.import_batch import ImportBatch, ImportRow  # noqa: F401
 from app.models.refresh_session import RefreshSession  # noqa: F401
+from app.models.exchange_rate import ExchangeRate  # noqa: F401
 
 from sqlalchemy.pool import StaticPool
 

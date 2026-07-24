@@ -612,10 +612,7 @@ def test_csv_upload_over_limit_rejected(ws_team, monkeypatch):
 def test_exchange_rate_endpoint(ws_team, monkeypatch):
     from app.services.currency_service import CurrencyService
 
-    async def fake_get_rate(from_currency, to_currency=None, target_date=None):
-        return Decimal("5.4321")
-
-    monkeypatch.setattr(CurrencyService, "get_rate", fake_get_rate)
+    monkeypatch.setattr(CurrencyService, "get_rate_sync", lambda *a, **k: (Decimal("5.4321"), "ptax"))
 
     ws, users = ws_team["ws"], ws_team["users"]
     res = client.get(
@@ -625,16 +622,17 @@ def test_exchange_rate_endpoint(ws_team, monkeypatch):
     assert res.status_code == 200
     assert res.json()["rate"] == "5.4321"
     assert res.json()["to_currency"] == "BRL"
+    assert res.json()["source"] == "ptax"
 
 
 def test_exchange_rate_unavailable_returns_422(ws_team, monkeypatch):
     from datetime import date as date_cls
     from app.services.currency_service import CurrencyService, ExchangeRateUnavailable
 
-    async def failing_get_rate(from_currency, to_currency=None, target_date=None):
+    def failing_get_rate(*a, **k):
         raise ExchangeRateUnavailable("USD", date_cls.today())
 
-    monkeypatch.setattr(CurrencyService, "get_rate", failing_get_rate)
+    monkeypatch.setattr(CurrencyService, "get_rate_sync", failing_get_rate)
 
     ws, users = ws_team["ws"], ws_team["users"]
     res = client.get(

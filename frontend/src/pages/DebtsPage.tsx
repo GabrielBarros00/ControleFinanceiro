@@ -224,10 +224,10 @@ export function DebtsPage() {
             <Table>
               <TableHeader>
                 <TableRow className="border-border hover:bg-transparent">
-                  <TableHead className="text-muted-foreground font-bold uppercase tracking-wider text-[10px]">Devedor</TableHead>
+                  <TableHead className="text-muted-foreground font-semibold text-xs">Devedor</TableHead>
                   <TableHead className="text-center w-12"></TableHead>
-                  <TableHead className="text-muted-foreground font-bold uppercase tracking-wider text-[10px]">Credor</TableHead>
-                  <TableHead className="text-right text-muted-foreground font-bold uppercase tracking-wider text-[10px]">Valor</TableHead>
+                  <TableHead className="text-muted-foreground font-semibold text-xs">Credor</TableHead>
+                  <TableHead className="text-right text-muted-foreground font-semibold text-xs">Valor</TableHead>
                   <TableHead className="w-32"></TableHead>
                 </TableRow>
               </TableHeader>
@@ -268,11 +268,11 @@ export function DebtsPage() {
             <Table>
               <TableHeader>
                 <TableRow className="border-border hover:bg-transparent">
-                  <TableHead className="text-muted-foreground font-bold uppercase tracking-wider text-[10px]">Data</TableHead>
-                  <TableHead className="text-muted-foreground font-bold uppercase tracking-wider text-[10px]">Pagou</TableHead>
-                  <TableHead className="text-muted-foreground font-bold uppercase tracking-wider text-[10px]">Recebeu</TableHead>
-                  <TableHead className="text-muted-foreground font-bold uppercase tracking-wider text-[10px]">Obs.</TableHead>
-                  <TableHead className="text-right text-muted-foreground font-bold uppercase tracking-wider text-[10px]">Valor</TableHead>
+                  <TableHead className="text-muted-foreground font-semibold text-xs">Data</TableHead>
+                  <TableHead className="text-muted-foreground font-semibold text-xs">Pagou</TableHead>
+                  <TableHead className="text-muted-foreground font-semibold text-xs">Recebeu</TableHead>
+                  <TableHead className="text-muted-foreground font-semibold text-xs">Obs.</TableHead>
+                  <TableHead className="text-right text-muted-foreground font-semibold text-xs">Valor</TableHead>
                   <TableHead className="w-12"></TableHead>
                 </TableRow>
               </TableHeader>

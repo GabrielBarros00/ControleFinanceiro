@@ -25,15 +25,20 @@ import {
   toRecurrencePayload,
   type RecurrenceValue,
 } from "@/lib/recurrence";
-import { formatCurrency } from '@/lib/money';
+import { formatCurrency, currencySymbol } from '@/lib/money';
+import { CurrencyCombobox } from '@/components/dashboard/transaction-form/CurrencyCombobox';
 import { getApiErrorMessage } from '@/lib/api-error';
 import { toast } from '@/stores/toast';
 import { useConfirm } from '@/components/ui/confirm';
 import { PageHeader } from '@/components/layout/PageHeader';
+import { PeriodPicker } from '@/components/layout/PeriodPicker';
 import { MoneyText } from '@/components/money/MoneyText';
 
+const currentMonth = () => new Date().toISOString().slice(0, 7);
+
 export function IncomePage() {
-  const { incomes, isLoading, create, update, remove } = useIncome();
+  const [month, setMonth] = React.useState(currentMonth);
+  const { incomes, isLoading, create, update, remove } = useIncome(month);
   const {
     recurringIncomes,
     isLoading: loadingRecurring,
@@ -53,6 +58,7 @@ export function IncomePage() {
   const [title, setTitle] = React.useState('');
   const [amount, setAmount] = React.useState(0);
   const [receivedAt, setReceivedAt] = React.useState(() => new Date().toISOString().slice(0, 10));
+  const [currency, setCurrency] = React.useState('BRL');
   const [recurrence, setRecurrence] = React.useState<RecurrenceValue>(defaultRecurrenceValue);
   const [saving, setSaving] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
@@ -64,6 +70,7 @@ export function IncomePage() {
     setTitle('');
     setAmount(0);
     setReceivedAt(new Date().toISOString().slice(0, 10));
+    setCurrency('BRL');
     setRecurrence(defaultRecurrenceValue());
     setIsActive(true);
     setError(null);
@@ -81,7 +88,9 @@ export function IncomePage() {
     setIsRecurring(false);
     resetForm();
     setTitle(income.title);
-    setAmount(parseFloat(income.amount));
+    // Estrangeira: edita o valor/moeda ORIGINAIS (o backend re-converte no save)
+    setAmount(income.original_amount ? parseFloat(income.original_amount) : parseFloat(income.amount));
+    setCurrency(income.original_currency ?? income.currency ?? 'BRL');
     setReceivedAt(income.received_at.slice(0, 10));
     setDialogOpen(true);
   };
@@ -92,6 +101,7 @@ export function IncomePage() {
     resetForm();
     setTitle(item.title);
     setAmount(parseFloat(item.base_amount));
+    setCurrency(item.currency ?? 'BRL');
     setRecurrence(recurrenceFromItem(item));
     setIsActive(item.is_active);
     setDialogOpen(true);
@@ -113,6 +123,7 @@ export function IncomePage() {
         const payload = {
           title: title.trim(),
           base_amount: amount,
+          currency,
           is_active: isActive,
           ...toRecurrencePayload(recurrence),
         };
@@ -125,6 +136,7 @@ export function IncomePage() {
         const payload = {
           title: title.trim(),
           amount,
+          currency,
           received_at: new Date(`${receivedAt}T12:00:00`).toISOString(),
         };
         if (editing?.type === 'income') {
@@ -199,6 +211,7 @@ export function IncomePage() {
       <PageHeader
         title="Rendas"
         subtitle={`Salários e entradas do mês — total ${formatCurrency(total)}`}
+        period={<PeriodPicker value={month} max={currentMonth()} onChange={setMonth} />}
         action={
           <div className="flex items-center gap-2">
             <Button variant="outline" onClick={handleGenerate} disabled={isGenerating} className="gap-2">
@@ -217,17 +230,17 @@ export function IncomePage() {
           <Table>
             <TableHeader>
               <TableRow className="border-border hover:bg-transparent">
-                <TableHead className="w-[300px] text-muted-foreground font-bold uppercase tracking-wider text-[10px]">Título</TableHead>
-                <TableHead className="text-muted-foreground font-bold uppercase tracking-wider text-[10px]">Recebida em</TableHead>
-                <TableHead className="text-right text-muted-foreground font-bold uppercase tracking-wider text-[10px]">Valor</TableHead>
-                <TableHead className="text-center text-muted-foreground font-bold uppercase tracking-wider text-[10px]">Ações</TableHead>
+                <TableHead className="w-[300px] text-muted-foreground font-semibold text-xs">Título</TableHead>
+                <TableHead className="text-muted-foreground font-semibold text-xs">Recebida em</TableHead>
+                <TableHead className="text-right text-muted-foreground font-semibold text-xs">Valor</TableHead>
+                <TableHead className="text-center text-muted-foreground font-semibold text-xs">Ações</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {incomes.length === 0 ? (
                 <TableRow>
                   <TableCell colSpan={4} className="h-32 text-center text-muted-foreground">
-                    Nenhuma renda registrada neste workspace.
+                    Nenhuma renda registrada neste mês.
                   </TableCell>
                 </TableRow>
               ) : incomes.map((income) => (
@@ -237,7 +250,7 @@ export function IncomePage() {
                       <Wallet className="h-4 w-4 text-emerald-500 shrink-0" />
                       <span className="font-bold text-foreground">{income.title}</span>
                       {income.recurring_income_id != null && (
-                        <span className="inline-flex items-center gap-1 rounded-full bg-primary/10 px-1.5 py-0.5 text-[9px] font-black uppercase text-primary">
+                        <span className="inline-flex items-center gap-1 rounded-full bg-primary/10 px-1.5 py-0.5 text-[9px] font-semibold uppercase text-primary">
                           <Repeat className="h-2.5 w-2.5" /> Recorrente
                         </span>
                       )}
@@ -251,6 +264,11 @@ export function IncomePage() {
                   </TableCell>
                   <TableCell className="text-right">
                     <MoneyText value={income.amount} kind="income" className="font-semibold" />
+                    {income.original_currency && income.original_amount && (
+                      <div className="text-[11px] text-muted-foreground">
+                        {formatCurrency(parseFloat(income.original_amount), income.original_currency)}
+                      </div>
+                    )}
                   </TableCell>
                   <TableCell>
                     <div className="flex items-center justify-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
@@ -290,11 +308,11 @@ export function IncomePage() {
             <Table>
               <TableHeader>
                 <TableRow className="border-border hover:bg-transparent">
-                  <TableHead className="w-[300px] text-muted-foreground font-bold uppercase tracking-wider text-[10px]">Título</TableHead>
-                  <TableHead className="text-muted-foreground font-bold uppercase tracking-wider text-[10px]">Recorrência</TableHead>
-                  <TableHead className="text-muted-foreground font-bold uppercase tracking-wider text-[10px]">Status</TableHead>
-                  <TableHead className="text-right text-muted-foreground font-bold uppercase tracking-wider text-[10px]">Valor</TableHead>
-                  <TableHead className="text-center text-muted-foreground font-bold uppercase tracking-wider text-[10px]">Ações</TableHead>
+                  <TableHead className="w-[300px] text-muted-foreground font-semibold text-xs">Título</TableHead>
+                  <TableHead className="text-muted-foreground font-semibold text-xs">Recorrência</TableHead>
+                  <TableHead className="text-muted-foreground font-semibold text-xs">Status</TableHead>
+                  <TableHead className="text-right text-muted-foreground font-semibold text-xs">Valor</TableHead>
+                  <TableHead className="text-center text-muted-foreground font-semibold text-xs">Ações</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -322,7 +340,7 @@ export function IncomePage() {
                       </div>
                     </TableCell>
                     <TableCell>
-                      <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-black uppercase tracking-tighter ${
+                      <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold uppercase tracking-tighter ${
                         item.is_active
                           ? 'bg-emerald-500/10 text-emerald-500 border border-emerald-500/20'
                           : 'bg-muted text-muted-foreground border border-border'
@@ -331,7 +349,7 @@ export function IncomePage() {
                       </span>
                     </TableCell>
                     <TableCell className="text-right">
-                      <MoneyText value={item.base_amount} kind="income" className="font-semibold" />
+                      <MoneyText value={item.base_amount} kind="income" currency={item.currency} className="font-semibold" />
                     </TableCell>
                     <TableCell>
                       <div className="flex items-center justify-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
@@ -401,7 +419,10 @@ export function IncomePage() {
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
                 <Label htmlFor="income-amount">Valor</Label>
-                <MoneyInput id="income-amount" value={amount} onChange={setAmount} className="bg-background/50" />
+                <div className="flex gap-2">
+                  <MoneyInput id="income-amount" value={amount} onChange={setAmount} prefix={currencySymbol(currency)} className="bg-background/50 flex-1" />
+                  <CurrencyCombobox value={currency} onChange={setCurrency} />
+                </div>
               </div>
               {!isRecurring && (
                 <div className="space-y-2">

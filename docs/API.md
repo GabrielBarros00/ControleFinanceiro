@@ -33,7 +33,7 @@ Listagens paginadas (ex.: transações) aceitam `page` e `limit` e retornam:
 Endpoints sensíveis de auth (`/auth/login`, `/auth/register`, `/auth/forgot-password`) têm limite de **5 requisições/min por IP** → `429` ao exceder.
 
 ### Datas e dinheiro
-Datas em ISO-8601 (UTC). Valores monetários como **string decimal** (ex.: `"90.00"`), nunca float. Cada workspace tem uma `base_currency`; valores em outra moeda não entram nas agregações.
+Datas em ISO-8601 (UTC). Valores monetários como **string decimal** (ex.: `"90.00"`), nunca float. Cada workspace tem uma `base_currency` (BRL). Lançamento em moeda estrangeira é **convertido para BRL na entrada** — PTAX oficial do dia para as majores (AUD/CAD/CHF/DKK/EUR/GBP/JPY/NOK/SEK/USD), senão taxa de mercado (referência); + **IOF 3,5%** em compra no cartão. O original fica guardado (`original_amount`, `original_currency`, `exchange_rate`, `iof_rate`, `rate_source` = `ptax`|`market`). Recorrência estrangeira re-converte a cada mês, com a taxa daquele dia. Taxas históricas ficam num store local (`GET /{ws}/analytics/exchange-rate` devolve `{rate, source}`).
 
 ## Endpoints por recurso
 
@@ -44,17 +44,19 @@ Base: `/api/v1`. `{ws}` = `workspaces/{workspace_id}`.
 | **Auth** | `/auth` | `POST register`, `login`, `logout`, `refresh`, `change-password`, `forgot-password`, `reset-password`, `onboarding`; `GET me`, `google/login`, `google/callback`; `PATCH me` |
 | **Workspaces** | `/workspaces` | `GET/POST/PUT/DELETE` |
 | **Membros / convites** | `/{ws}/members`, `/{ws}/invites` | listar/alterar papel/remover; criar/aceitar/revogar convite (e-mail e link) |
-| **Transações** | `/{ws}/transactions` | `GET` (filtros: mês, busca, categoria, método, tag), `POST`, `PUT`, `DELETE`; `POST /preview` (dry-run da divisão); `POST /bulk`; grupo de parcelas: `POST/DELETE /{id}/installment-group[/cancel]` |
+| **Transações** | `/{ws}/transactions` | `GET` (filtros: mês, busca, categoria, método, tag), `POST`, `PUT`, `DELETE`; `POST /preview` (dry-run da divisão); `POST /bulk`; compra parcelada: `GET/PUT/DELETE /{id}/installment-group` (editar/excluir o grupo inteiro) + `POST /{id}/installment-group/cancel` |
 | **Anexos** | `/{ws}/transactions/{id}/attachments`, `/{ws}/attachments/{id}` | upload (magic bytes + hash), listar, download, excluir |
 | **Contas/carteiras** | `/{ws}/payment-accounts` | `GET/POST/PUT/DELETE` |
 | **Cartões e faturas** | `/{ws}/credit-cards` | CRUD do cartão; `POST /{id}/statements/{sid}/close\|pay\|reopen` |
 | **Categorias** | `/{ws}/categories` | `GET/POST/PUT/DELETE` |
 | **Tags** | `/{ws}/tags` | `GET/POST/PUT/DELETE` (nome reativável) |
-| **Renda** | `/{ws}/income` | `GET/POST/PUT/DELETE` |
+| **Renda** | `/{ws}/income` | `GET` (filtro `month=YYYY-MM`, por competência), `POST/PUT/DELETE` |
 | **Dívidas** | `/{ws}/debts` | `GET` (saldo líquido consolidado) |
 | **Acertos** | `/{ws}/settlements` | `GET/POST/DELETE` (validado contra a dívida) |
-| **Recorrências** | `/{ws}/recurring` | CRUD + geração/materialização de instâncias |
+| **Recorrências (despesa)** | `/{ws}/recurring` | CRUD (`PUT` aceita `?scope=none\|future\|all`) + geração/materialização de instâncias |
+| **Recorrências (renda)** | `/{ws}/recurring-income` | CRUD + `POST /generate` (materializa as rendas recorrentes do mês) |
 | **Financiamentos** | `/{ws}/financing` | CRUD; `GET /{id}/schedule`; `POST /{id}/early-settlement`; `POST /{id}/installments/{n}/pay` |
+| **Endividamento** | `/{ws}/liabilities` | `GET` (panorama consolidado: financiamentos + faturas de cartão em aberto) |
 | **Importação CSV** | `/{ws}/imports` | `POST /parse` (mapeia colunas + marca duplicatas), `POST /commit` (decisão por linha, idempotente) |
 | **Analytics** | `/{ws}/analytics` | `GET /summary`, `/reports`, `/forecast`, `/exchange-rate`; estimativas: `GET/POST/PUT/DELETE /estimates` |
 | **Auditoria** | `/{ws}/audit` | `GET` (admin+; trilha por workspace) |

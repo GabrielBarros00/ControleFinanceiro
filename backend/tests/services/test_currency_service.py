@@ -1,106 +1,84 @@
-import pytest
-from decimal import Decimal
+"""CurrencyService (sync) — parsing das fontes PTAX (oficial) e mercado
+(fawazahmed0), look-back, cache. httpx mockado (sem rede)."""
 from datetime import date
+from decimal import Decimal
+
+import pytest
+
+from app.services import currency_service as cs
 from app.services.currency_service import CurrencyService, ExchangeRateUnavailable
-from app.domain.money import Currency
-from unittest.mock import patch, MagicMock
 
-@pytest.mark.asyncio
-async def test_get_rate_brl_to_brl():
-    rate = await CurrencyService.get_rate(Currency.BRL, Currency.BRL)
-    assert rate == Decimal("1.0")
 
-@pytest.mark.asyncio
-async def test_get_rate_usd_to_brl_success():
-    # Clear cache for deterministic test
-    CurrencyService._cache = {}
-    
-    mock_response = MagicMock()
-    mock_response.status_code = 200
-    mock_response.json.return_value = {
-        "value": [{"cotacaoVenda": 5.50}]
-    }
-    mock_response.raise_for_status = MagicMock()
+class _Resp:
+    def __init__(self, data, status=200):
+        self._data = data
+        self.status_code = status
 
-    with patch("httpx.AsyncClient.get", return_value=mock_response):
-        rate = await CurrencyService.get_rate(Currency.USD, Currency.BRL, target_date=date(2026, 5, 4))
-        assert rate == Decimal("5.5")
+    def raise_for_status(self):
+        if self.status_code >= 400:
+            raise Exception("http error")
 
-@pytest.mark.asyncio
-async def test_get_rate_retry_logic():
-    CurrencyService._cache = {}
-    
-    # First call returns empty (e.g. weekend), second call returns rate
-    mock_response_empty = MagicMock()
-    mock_response_empty.status_code = 200
-    mock_response_empty.json.return_value = {"value": []}
-    mock_response_empty.raise_for_status = MagicMock()
-    
-    mock_response_success = MagicMock()
-    mock_response_success.status_code = 200
-    mock_response_success.json.return_value = {"value": [{"cotacaoVenda": 5.40}]}
-    mock_response_success.raise_for_status = MagicMock()
+    def json(self):
+        return self._data
 
-    with patch("httpx.AsyncClient.get", side_effect=[mock_response_empty, mock_response_success]):
-        # Will retry once
-        rate = await CurrencyService.get_rate(Currency.USD, Currency.BRL, target_date=date(2026, 5, 4))
-        assert rate == Decimal("5.4")
 
-@pytest.mark.asyncio
-async def test_get_rate_usd_to_eur_indirect():
-    CurrencyService._cache = {}
-    
-    # USD -> BRL = 5.0
-    mock_resp_usd = MagicMock()
-    mock_resp_usd.json.return_value = {"value": [{"cotacaoVenda": 5.0}]}
-    mock_resp_usd.status_code = 200
-    
-    # EUR -> BRL = 6.0
-    mock_resp_eur = MagicMock()
-    mock_resp_eur.json.return_value = {"value": [{"cotacaoVenda": 6.0}]}
-    mock_resp_eur.status_code = 200
+class _Client:
+    """httpx.Client fake: devolve as respostas em ordem (repete a última)."""
+    def __init__(self, responses):
+        self._responses = list(responses)
+        self._i = 0
 
-    with patch("httpx.AsyncClient.get", side_effect=[mock_resp_usd, mock_resp_eur]):
-        rate = await CurrencyService.get_rate(Currency.USD, Currency.EUR, target_date=date(2026, 5, 4))
-        # 5.0 / 6.0 = 0.83333... -> 0.8333
-        assert rate == Decimal("0.8333")
+    def __enter__(self):
+        return self
 
-@pytest.mark.asyncio
-async def test_get_rate_not_found_after_retries():
-    CurrencyService._cache = {}
-    mock_response_empty = MagicMock()
-    mock_response_empty.json.return_value = {"value": []}
-    mock_response_empty.status_code = 200
-    mock_response_empty.raise_for_status = MagicMock()
-    
-    with patch("httpx.AsyncClient.get", return_value=mock_response_empty):
-        with pytest.raises(ExchangeRateUnavailable):
-            await CurrencyService.get_rate(Currency.USD, Currency.BRL, target_date=date(2026, 5, 4))
+    def __exit__(self, *a):
+        return False
 
-@pytest.mark.asyncio
-async def test_get_rate_cache_hit():
-    # Deterministic test for cache hit
-    test_date = date(2088, 1, 1)
-    key = f"{Currency.USD}_{Currency.BRL}_{test_date.isoformat()}"
-    CurrencyService._cache[key] = Decimal("7.77")
-    
-    rate = await CurrencyService.get_rate(Currency.USD, Currency.BRL, target_date=test_date)
-    assert rate == Decimal("7.77")
+    def get(self, url, **kwargs):
+        r = self._responses[min(self._i, len(self._responses) - 1)]
+        self._i += 1
+        return r
 
-@pytest.mark.asyncio
-async def test_get_rate_default_today():
-    mock_today = date(2077, 7, 7)
-    with patch("app.services.currency_service.date") as mock_date:
-        mock_date.today.return_value = mock_today
-        key = f"{Currency.USD}_{Currency.BRL}_{mock_today.isoformat()}"
-        if key in CurrencyService._cache:
-            del CurrencyService._cache[key]
-            
-        mock_response = MagicMock()
-        mock_response.json.return_value = {"value": [{"cotacaoVenda": 5.88}]}
-        mock_response.status_code = 200
-        mock_response.raise_for_status = MagicMock()
-        
-        with patch("httpx.AsyncClient.get", return_value=mock_response):
-            rate = await CurrencyService.get_rate(Currency.USD, Currency.BRL)
-            assert rate == Decimal("5.88")
+
+def _patch(monkeypatch, responses):
+    monkeypatch.setattr(cs.httpx, "Client", lambda *a, **k: _Client(responses))
+
+
+@pytest.fixture(autouse=True)
+def _clear_cache():
+    CurrencyService._cache_sync.clear()
+    yield
+    CurrencyService._cache_sync.clear()
+
+
+def test_same_currency_is_base():
+    assert CurrencyService.get_rate_sync("BRL", "BRL", date(2026, 5, 4)) == (Decimal("1.0"), "base")
+
+
+def test_ptax_parses_cotacao_venda(monkeypatch):
+    _patch(monkeypatch, [_Resp({"value": [{"cotacaoVenda": 5.50}]})])
+    assert CurrencyService.get_rate_sync("USD", "BRL", date(2026, 5, 4)) == (Decimal("5.5"), "ptax")
+
+
+def test_ptax_look_back_ate_achar(monkeypatch):
+    # fim de semana: 1º dia vazio, 2º dia com cotação
+    _patch(monkeypatch, [_Resp({"value": []}), _Resp({"value": [{"cotacaoVenda": 5.40}]})])
+    assert CurrencyService.get_rate_sync("USD", "BRL", date(2026, 5, 4)) == (Decimal("5.4"), "ptax")
+
+
+def test_ptax_indisponivel_apos_look_back(monkeypatch):
+    _patch(monkeypatch, [_Resp({"value": []})])
+    with pytest.raises(ExchangeRateUnavailable):
+        CurrencyService.get_rate_sync("USD", "BRL", date(2026, 5, 4))
+
+
+def test_mercado_parses_fawazahmed(monkeypatch):
+    # ARS não é PTAX → fonte de mercado (formato fawazahmed0)
+    _patch(monkeypatch, [_Resp({"date": "2026-05-04", "ars": {"brl": 0.0055}})])
+    assert CurrencyService.get_rate_sync("ARS", "BRL", date(2026, 5, 4)) == (Decimal("0.0055"), "market")
+
+
+def test_cache_hit(monkeypatch):
+    CurrencyService._cache_sync["USD_BRL_2088-01-01"] = (Decimal("7.77"), "ptax")
+    # sem mock de httpx: se bater na rede, o teste falharia — prova que veio do cache
+    assert CurrencyService.get_rate_sync("USD", "BRL", date(2088, 1, 1)) == (Decimal("7.77"), "ptax")

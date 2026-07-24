@@ -2,7 +2,7 @@ import * as React from 'react';
 import { Search, Plus, ChevronLeft, ChevronRight, Receipt, FilterX } from 'lucide-react';
 import { useTransactions, type TransactionFilters } from '@/hooks/use-transactions';
 import { useWorkspaceRole } from '@/hooks/use-workspace-role';
-import { useNewTxStore } from '@/stores';
+import { useNewTxStore, useTxDetailStore } from '@/stores';
 import { useConfirm } from '@/components/ui/confirm';
 import { toast } from '@/stores/toast';
 import { getApiErrorMessage } from '@/lib/api-error';
@@ -12,7 +12,6 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { TransactionLedger } from '@/components/money/TransactionLedger';
-import { TransactionDialog } from '@/components/dashboard/TransactionDialog';
 import { EmptyState } from '@/components/ui/empty-state';
 import { ErrorState } from '@/components/ui/error-state';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -29,33 +28,15 @@ export function TransactionsPage() {
     month: currentMonth(),
     search: '',
   });
-  const [selectedTxId, setSelectedTxId] = React.useState<number | null>(null);
-  const [dialogOpen, setDialogOpen] = React.useState(false);
-
-  const { transactions, total, totalPages, currentPage, isLoading, isError, update, remove } =
+  const { transactions, total, totalPages, currentPage, isLoading, isError, remove } =
     useTransactions(filters);
   const { canWrite } = useWorkspaceRole();
   const setNewTxOpen = useNewTxStore((s) => s.setOpen);
+  const openDetail = useTxDetailStore((s) => s.open);
   const confirm = useConfirm();
-
-  const selectedTx = React.useMemo(
-    () => transactions.find((t: TransactionRead) => t.id === selectedTxId) ?? null,
-    [transactions, selectedTxId],
-  );
 
   const patch = (p: Partial<TransactionFilters>) =>
     setFilters((f) => ({ ...f, ...p, page: p.page ?? 1 }));
-
-  const handleEdit = (tx: TransactionRead) => {
-    setSelectedTxId(tx.id);
-    setDialogOpen(true);
-  };
-
-  const handleSave = async (data: Record<string, unknown>) => {
-    if (selectedTxId == null) return;
-    await update({ id: selectedTxId, data });
-    setDialogOpen(false);
-  };
 
   const handleDelete = async (id: number) => {
     const ok = await confirm({
@@ -67,7 +48,6 @@ export function TransactionsPage() {
     if (!ok) return;
     try {
       await remove(id);
-      setDialogOpen(false);
     } catch (err) {
       toast.error(getApiErrorMessage(err, 'Erro ao remover transação'));
     }
@@ -167,7 +147,8 @@ export function TransactionsPage() {
               <TransactionLedger
                 transactions={transactions}
                 canWrite={canWrite}
-                onEdit={handleEdit}
+                onSelect={(tx) => openDetail(tx.id)}
+                onEdit={(tx) => openDetail(tx.id, 'edit')}
                 onDelete={handleDelete}
               />
             </div>
@@ -197,14 +178,6 @@ export function TransactionsPage() {
           </>
         )}
       </div>
-
-      <TransactionDialog
-        transaction={selectedTx}
-        open={dialogOpen}
-        onOpenChange={setDialogOpen}
-        onSave={handleSave}
-        onDelete={handleDelete}
-      />
     </div>
   );
 }

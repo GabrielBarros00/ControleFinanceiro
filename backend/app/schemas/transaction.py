@@ -272,6 +272,12 @@ class TransactionRead(TransactionBase):
     installment_no: Optional[int] = None
     installments_of: Optional[int] = None
     installment_group_id: Optional[str] = None
+    # Conversão de moeda (original congelado quando o lançamento foi estrangeiro)
+    original_amount: Optional[Decimal] = None
+    original_currency: Optional[str] = None
+    exchange_rate: Optional[Decimal] = None
+    iof_rate: Optional[Decimal] = None
+    rate_source: Optional[str] = None
     payers: List[TransactionPayerRead]
     splits: List[TransactionSplitRead]
     items: List[TransactionItemRead] = []
@@ -282,6 +288,8 @@ class TransactionUpdate(BaseModel):
     title: Optional[str] = None
     description: Optional[str] = None
     total_amount: Optional[Decimal] = Field(default=None, gt=0)
+    # Moeda do lançamento na edição: estrangeira dispara reconversão para BRL
+    currency: Optional[str] = None
     transaction_date: Optional[datetime] = None
     billing_month: Optional[str] = None
     status: Optional[TransactionStatus] = None

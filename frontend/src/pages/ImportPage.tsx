@@ -200,9 +200,9 @@ export function ImportPage() {
               <Table>
                 <TableHeader>
                   <TableRow className="border-border">
-                    <TableHead className="text-[10px] font-black uppercase">Data</TableHead>
-                    <TableHead className="text-[10px] font-black uppercase">Descrição</TableHead>
-                    <TableHead className="text-right text-[10px] font-black uppercase">Valor</TableHead>
+                    <TableHead className="text-[10px] font-semibold uppercase">Data</TableHead>
+                    <TableHead className="text-[10px] font-semibold uppercase">Descrição</TableHead>
+                    <TableHead className="text-right text-[10px] font-semibold uppercase">Valor</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>

@@ -151,7 +151,7 @@ def test_monthly_ledger_paid_status(db_session: Session):
     db_session.add_all([u1, u2, ws])
     db_session.flush()
 
-    tx = _make_installment(db_session, ws.id, u1, u2, 1, "2026-05", status=TransactionStatus.paid)
+    _make_installment(db_session, ws.id, u1, u2, 1, "2026-05", status=TransactionStatus.paid)
     db_session.commit()
 
     may = DebtService.get_monthly_ledger(db_session, ws.id, "2026-05")

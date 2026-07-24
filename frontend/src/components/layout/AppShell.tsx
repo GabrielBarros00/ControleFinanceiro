@@ -3,6 +3,7 @@ import { Sidebar } from './Sidebar';
 import { BottomNav } from './BottomNav';
 import { OnboardingModal } from './OnboardingModal';
 import { NewTransactionDialog } from '@/components/dashboard/NewTransactionDialog';
+import { TransactionDetailHost } from '@/components/dashboard/TransactionDetailHost';
 import { useWorkspaceEvents } from '@/hooks/use-workspace-events';
 import { useNewTxStore } from '@/stores';
 
@@ -26,6 +27,7 @@ export function AppShell({ children }: { children: ReactNode }) {
       <BottomNav />
       <OnboardingModal />
       <NewTransactionDialog open={open} onOpenChange={setOpen} />
+      <TransactionDetailHost />
     </div>
   );
 }

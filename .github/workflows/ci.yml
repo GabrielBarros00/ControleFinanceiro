@@ -29,9 +29,11 @@ jobs:
       - name: Run tests (SQLite)
         run: |
           cd backend && python -m pytest -q
-      - name: Validate migration chain (SQLite)
+      - name: Validate migrations + no schema drift (SQLite)
         run: |
-          cd backend && DATABASE_URL=sqlite:///./mig_ci.db python -m alembic upgrade head
+          cd backend
+          DATABASE_URL=sqlite:///./mig_ci.db python -m alembic upgrade head
+          DATABASE_URL=sqlite:///./mig_ci.db python -m alembic check
 
   backend-postgres:
     runs-on: ubuntu-latest
@@ -65,6 +67,9 @@ jobs:
       - name: Run migrations (Postgres)
         run: |
           cd backend && python -m alembic upgrade head
+      - name: Check for schema drift (Postgres)
+        run: |
+          cd backend && python -m alembic check
       - name: Run tests (Postgres)
         run: |
           cd backend && python -m pytest -q

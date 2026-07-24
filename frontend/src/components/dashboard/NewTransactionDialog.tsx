@@ -25,6 +25,7 @@ export function NewTransactionDialog({ open, onOpenChange }: NewTransactionDialo
   const initialValues: TransactionFormValues = {
     title: '',
     total_amount: 0,
+    currency: 'BRL',
     transaction_date: todayLocalISO(),
     payers: user ? [{ user_id: String(user.id), amount: 0, payment_method: '', account_id: '' }] : [],
     payment_method: '',

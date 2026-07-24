@@ -87,6 +87,12 @@ export interface TransactionRead {
   installment_no?: number | null;
   installments_of?: number | null;
   installment_group_id?: string | null;
+  // Conversão de moeda: original congelado quando o lançamento foi estrangeiro
+  original_amount?: string | null;
+  original_currency?: string | null;
+  exchange_rate?: string | null;
+  iof_rate?: string | null;
+  rate_source?: string | null;
   created_by_user_id?: number | null;
   created_at: string;
   updated_at: string;

@@ -1,4 +1,4 @@
-import { CreditCard as CardIcon, Trash2 } from 'lucide-react';
+import { CreditCard as CardIcon, Pencil, Trash2 } from 'lucide-react';
 import { formatMoney } from '@/lib/money';
 import { cn } from '@/lib/utils';
 
@@ -16,6 +16,7 @@ interface CreditCardVisualProps {
   dueDay: number;
   selected?: boolean;
   onClick?: () => void;
+  onEdit?: () => void;
   onDelete?: () => void;
 }
 
@@ -28,6 +29,7 @@ export function CreditCardVisual({
   dueDay,
   selected,
   onClick,
+  onEdit,
   onDelete,
 }: CreditCardVisualProps) {
   const usedPct = limit > 0 ? Math.min((committed / limit) * 100, 100) : 0;
@@ -48,20 +50,36 @@ export function CreditCardVisual({
           <CardIcon className="h-6 w-6 opacity-90" />
           <span className="font-semibold">{name}</span>
         </div>
-        {onDelete && (
-          <span
-            role="button"
-            tabIndex={0}
-            aria-label="Excluir cartão"
-            onClick={(e) => {
-              e.stopPropagation();
-              onDelete();
-            }}
-            className="rounded-md p-1 text-primary-foreground/70 opacity-0 transition-opacity hover:bg-white/15 hover:text-primary-foreground group-hover:opacity-100"
-          >
-            <Trash2 className="h-4 w-4" />
-          </span>
-        )}
+        <div className="flex items-center gap-1">
+          {onEdit && (
+            <span
+              role="button"
+              tabIndex={0}
+              aria-label="Editar cartão"
+              onClick={(e) => {
+                e.stopPropagation();
+                onEdit();
+              }}
+              className="rounded-md p-1 text-primary-foreground/70 opacity-0 transition-opacity hover:bg-white/15 hover:text-primary-foreground group-hover:opacity-100"
+            >
+              <Pencil className="h-4 w-4" />
+            </span>
+          )}
+          {onDelete && (
+            <span
+              role="button"
+              tabIndex={0}
+              aria-label="Excluir cartão"
+              onClick={(e) => {
+                e.stopPropagation();
+                onDelete();
+              }}
+              className="rounded-md p-1 text-primary-foreground/70 opacity-0 transition-opacity hover:bg-white/15 hover:text-primary-foreground group-hover:opacity-100"
+            >
+              <Trash2 className="h-4 w-4" />
+            </span>
+          )}
+        </div>
       </div>
 
       <p className="mt-5 text-xs text-primary-foreground/70">Disponível</p>

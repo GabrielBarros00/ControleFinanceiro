@@ -11,6 +11,24 @@ export default defineConfig({
       "@": path.resolve(__dirname, "./src"),
     },
   },
+  build: {
+    rollupOptions: {
+      output: {
+        // Separa os vendors pesados do código da app: melhora cache (mudam pouco)
+        // e evita o chunk único > 500 kB. recharts/framer já entram por lazy route.
+        // Forma de função (o bundler rolldown do Vite 8 não aceita o objeto).
+        manualChunks(id) {
+          if (!id.includes('node_modules')) return undefined;
+          if (id.includes('recharts')) return 'recharts';
+          if (id.includes('framer-motion')) return 'motion';
+          if (id.includes('react-router') || id.includes('react-dom') || /[\\/]react[\\/]/.test(id)) {
+            return 'react-vendor';
+          }
+          return undefined;
+        },
+      },
+    },
+  },
   test: {
     globals: true,
     environment: 'jsdom',

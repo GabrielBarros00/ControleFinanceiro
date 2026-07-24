@@ -7,10 +7,10 @@ from app.db.session import get_session
 from app.models.workspace import WorkspaceMembership, WorkspaceRole
 from app.models.estimate import MonthlyEstimate
 from app.schemas.estimate import MonthlyEstimateCreate, MonthlyEstimateRead
-from app.domain.money import Currency
 from app.services.currency_service import CurrencyService, ExchangeRateUnavailable
 from app.services.forecast_service import ForecastService
 from app.services.report_service import ReportService
+from app.services.recurring_service import RecurringMaterializationService
 from app.api.deps import get_workspace_membership, require_role
 from app.services.event_service import publish_event
 
@@ -33,6 +33,9 @@ def get_summary(
     else:
         target_date = date.today()
 
+    # Recorrências vencidas do mês corrente entram sozinhas (lazy accrual),
+    # sempre no mês real — visualizar outro mês não materializa retroativo.
+    RecurringMaterializationService.ensure_and_commit(session, workspace_id)
     return ReportService.get_summary(session, workspace_id, target_date, user_id=membership.user_id)
 
 
@@ -42,6 +45,7 @@ def get_reports(
     session: Session = Depends(get_session),
     membership: WorkspaceMembership = Depends(get_workspace_membership)
 ):
+    RecurringMaterializationService.ensure_and_commit(session, workspace_id)
     return {
         "monthly_history": ReportService.get_last_6_months(session, workspace_id, user_id=membership.user_id),
         "current_summary": ReportService.get_summary(session, workspace_id, date.today(), user_id=membership.user_id)
@@ -69,21 +73,23 @@ def get_forecast(
 
 
 @router.get("/exchange-rate", response_model=Dict[str, Any])
-async def get_exchange_rate(
+def get_exchange_rate(
     workspace_id: int,
-    from_currency: Currency,
-    to_currency: Currency = Currency.BRL,
+    from_currency: str,
+    to_currency: str = "BRL",
     membership: WorkspaceMembership = Depends(get_workspace_membership),
 ):
-    """Taxa de câmbio oficial (BCB PTAX). Nunca 500: indisponível responde 422."""
+    """Taxa de câmbio de referência + fonte: PTAX (oficial) para as majores → BRL,
+    senão fonte de mercado. Nunca 500: indisponível responde 422."""
     try:
-        rate = await CurrencyService.get_rate(from_currency, to_currency)
+        rate, source = CurrencyService.get_rate_sync(from_currency, to_currency)
     except ExchangeRateUnavailable as exc:
         raise HTTPException(status_code=422, detail=str(exc))
     return {
-        "from_currency": from_currency.value,
-        "to_currency": to_currency.value,
+        "from_currency": from_currency.upper(),
+        "to_currency": to_currency.upper(),
         "rate": str(rate),
+        "source": source,
     }
 
 
@@ -105,6 +111,26 @@ def create_estimate(
     membership: WorkspaceMembership = Depends(require_role(WorkspaceRole.member))
 ):
     _validate_estimate_category(session, workspace_id, estimate_in.category_id)
+
+    # Idempotente por (workspace, categoria, mês): sem unique no schema, esta é a
+    # única barreira contra orçamentos duplicados — reaproveita o existente em vez
+    # de criar um segundo (a UI já tenta deduplicar, mas não pode ser a única).
+    existing = session.exec(
+        select(MonthlyEstimate)
+        .where(MonthlyEstimate.workspace_id == workspace_id)
+        .where(MonthlyEstimate.category == estimate_in.category)
+        .where(MonthlyEstimate.month == estimate_in.month)
+        .where(MonthlyEstimate.deleted_at.is_(None))
+    ).first()
+    if existing:
+        for key, value in estimate_in.model_dump().items():
+            setattr(existing, key, value)
+        session.add(existing)
+        publish_event(session, workspace_id, "estimate.updated", "estimate", existing.id, membership.user_id)
+        session.commit()
+        session.refresh(existing)
+        return existing
+
     db_estimate = MonthlyEstimate(
         **estimate_in.model_dump(),
         workspace_id=workspace_id,

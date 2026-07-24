@@ -25,6 +25,8 @@ export interface MoneyTextProps {
   showSign?: boolean;
   /** false = sempre --foreground (ex.: colunas neutras) */
   colorize?: boolean;
+  /** moeda do lançamento (default BRL) — exibe USD/EUR na própria moeda */
+  currency?: string;
   className?: string;
 }
 
@@ -34,6 +36,7 @@ export function MoneyText({
   size = 'md',
   showSign,
   colorize = true,
+  currency,
   className,
 }: MoneyTextProps) {
   const n = typeof value === 'string' ? parseFloat(value) : value;
@@ -41,10 +44,10 @@ export function MoneyText({
 
   const text =
     kind === 'expense'
-      ? formatMoney(-magnitude) // sempre '−'
+      ? formatMoney(-magnitude, { currency }) // sempre '−'
       : kind === 'income'
-        ? formatMoney(magnitude, { sign: showSign ?? true })
-        : formatMoney(magnitude);
+        ? formatMoney(magnitude, { sign: showSign ?? true, currency })
+        : formatMoney(magnitude, { currency });
 
   const color = !colorize
     ? undefined

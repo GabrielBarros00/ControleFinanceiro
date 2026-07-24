@@ -1,17 +1,47 @@
-from datetime import datetime, UTC
-from typing import List
+import calendar
+from datetime import date, datetime, UTC
+from decimal import Decimal, ROUND_HALF_UP
+from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException
 from sqlmodel import Session, select
 
 from app.db.session import get_session
+from app.domain.query_policy import workspace_base_currency
 from app.models.workspace import WorkspaceMembership, WorkspaceRole, role_level
 from app.models.income import Income
 from app.schemas.income import IncomeCreate, IncomeRead, IncomeUpdate
 from app.api.deps import get_workspace_membership, require_role
+from app.services.currency_service import ExchangeRateUnavailable
+from app.services.exchange_rate_store import ExchangeRateStore
 from app.services.event_service import publish_event
+from app.services.recurring_service import RecurringMaterializationService
 
 router = APIRouter(prefix="/workspaces/{workspace_id}/income", tags=["income"])
+
+
+def _convert_income_fields(
+    session: Session, workspace_id: int, amount: Decimal, currency: Optional[str], received_at: datetime
+) -> dict:
+    """Renda em moeda estrangeira → BRL na data de recebimento (sem IOF). Devolve
+    os campos a gravar (amount BRL + currency BRL + original_*); {} se já for base."""
+    base = workspace_base_currency(session, workspace_id)
+    if not currency or currency == base:
+        return {}
+    occ = received_at.date() if hasattr(received_at, "date") else received_at
+    try:
+        rate, source = ExchangeRateStore.get_or_fetch(session, currency, occ)
+    except ExchangeRateUnavailable as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
+    brl = (amount * rate).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+    return {
+        "amount": brl,
+        "currency": base,
+        "original_amount": amount,
+        "original_currency": currency,
+        "exchange_rate": rate,
+        "rate_source": source,
+    }
 
 
 def _get_income_or_404(session: Session, workspace_id: int, income_id: int) -> Income:
@@ -37,8 +67,11 @@ def create_income(
     income_in: IncomeCreate,
     membership: WorkspaceMembership = Depends(require_role(WorkspaceRole.member))
 ):
+    data = income_in.model_dump()
+    # Renda estrangeira: converte para BRL na entrada, guardando o original
+    data.update(_convert_income_fields(session, workspace_id, income_in.amount, income_in.currency, income_in.received_at))
     db_income = Income(
-        **income_in.model_dump(),
+        **data,
         workspace_id=workspace_id,
         user_id=membership.user_id
     )
@@ -54,12 +87,40 @@ def create_income(
 def list_income(
     workspace_id: int,
     session: Session = Depends(get_session),
-    membership: WorkspaceMembership = Depends(get_workspace_membership)
+    membership: WorkspaceMembership = Depends(get_workspace_membership),
+    month: Optional[str] = None,  # YYYY-MM: recorta pela competência (received_at)
 ):
+    # Materializa recorrências vencidas só quando o mês pedido é o corrente: a
+    # materialização é sempre restrita ao mês de hoje, então em mês fechado seria
+    # trabalho perdido (e não casaria com o filtro). Sem mês = comportamento antigo.
+    now = datetime.now(UTC)
+    current_month = f"{now.year:04d}-{now.month:02d}"
+    if month is None or month == current_month:
+        RecurringMaterializationService.ensure_and_commit(session, workspace_id)
+
     statement = select(Income).where(
         Income.workspace_id == workspace_id,
-        Income.deleted_at.is_(None)
+        Income.deleted_at.is_(None),
     )
+
+    # Filtro por mês pela DATA DE RECEBIMENTO — mesma competência do
+    # ReportService.get_summary (o "Sua receita" do Início). received_at é a fonte
+    # de verdade da renda; a avulsa não tem billing_month.
+    if month:
+        try:
+            ref = datetime.strptime(month, "%Y-%m")
+        except ValueError:
+            ref = None
+        if ref is not None:
+            last_day_num = calendar.monthrange(ref.year, ref.month)[1]
+            start = datetime.combine(date(ref.year, ref.month, 1), datetime.min.time())
+            end = datetime.combine(date(ref.year, ref.month, last_day_num), datetime.max.time())
+            statement = statement.where(
+                Income.received_at >= start,
+                Income.received_at <= end,
+            )
+
+    statement = statement.order_by(Income.received_at.desc())
     incomes = session.exec(statement).all()
     return incomes
 
@@ -75,8 +136,26 @@ def update_income(
     income = _get_income_or_404(session, workspace_id, income_id)
     _check_income_ownership(membership, income)
 
-    for key, value in income_in.model_dump(exclude_unset=True).items():
+    fields_set = income_in.model_dump(exclude_unset=True)
+    for key, value in fields_set.items():
         setattr(income, key, value)
+
+    # Moeda: só re-converte se o PUT mexeu em valor OU moeda. Um PUT parcial que
+    # NÃO toca em amount/currency preserva o original congelado — senão editar só
+    # o título apagaria a proveniência ("era USD 100 @ 5,00"). Pela UI o form
+    # sempre reenvia amount+currency do original, então o round-trip segue igual;
+    # edição efetiva em BRL (currency=base) limpa o original.
+    if "amount" in fields_set or "currency" in fields_set:
+        conv = _convert_income_fields(session, workspace_id, income.amount, income.currency, income.received_at)
+        if conv:
+            for k, v in conv.items():
+                setattr(income, k, v)
+        else:
+            income.original_amount = None
+            income.original_currency = None
+            income.exchange_rate = None
+            income.rate_source = None
+
     income.updated_at = datetime.now(UTC)
     session.add(income)
     publish_event(session, workspace_id, "income.updated", "income", income.id, membership.user_id)

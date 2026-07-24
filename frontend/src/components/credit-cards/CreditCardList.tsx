@@ -34,9 +34,10 @@ interface CardRow {
 }
 
 export function CreditCardList({ selectedCardId, onSelectCard }: CreditCardListProps) {
-  const { cards, isLoading, create, remove } = useCreditCards();
+  const { cards, isLoading, create, update, remove } = useCreditCards();
   const confirm = useConfirm();
   const [dialogOpen, setDialogOpen] = React.useState(false);
+  const [editingId, setEditingId] = React.useState<number | null>(null);
   const [name, setName] = React.useState('');
   const [limit, setLimit] = React.useState(0);
   const [closingDay, setClosingDay] = React.useState(1);
@@ -49,7 +50,31 @@ export function CreditCardList({ selectedCardId, onSelectCard }: CreditCardListP
     if (!selectedCardId && cards.length > 0) onSelectCard?.((cards[0] as CardRow).id);
   }, [cards, selectedCardId, onSelectCard]);
 
-  const handleCreate = async () => {
+  const resetForm = () => {
+    setName('');
+    setLimit(0);
+    setClosingDay(1);
+    setDueDay(10);
+    setError(null);
+  };
+
+  const openCreate = () => {
+    setEditingId(null);
+    resetForm();
+    setDialogOpen(true);
+  };
+
+  const openEdit = (card: CardRow) => {
+    setEditingId(card.id);
+    setName(card.name);
+    setLimit(parseFloat(card.limit));
+    setClosingDay(card.closing_day);
+    setDueDay(card.due_day);
+    setError(null);
+    setDialogOpen(true);
+  };
+
+  const handleSubmit = async () => {
     if (!name.trim() || limit <= 0) {
       setError('Preencha nome e limite do cartão.');
       return;
@@ -57,14 +82,17 @@ export function CreditCardList({ selectedCardId, onSelectCard }: CreditCardListP
     setSaving(true);
     setError(null);
     try {
-      await create({ name: name.trim(), limit, closing_day: closingDay, due_day: dueDay });
+      const data = { name: name.trim(), limit, closing_day: closingDay, due_day: dueDay };
+      if (editingId != null) {
+        await update({ id: editingId, data });
+      } else {
+        await create(data);
+      }
       setDialogOpen(false);
-      setName('');
-      setLimit(0);
-      setClosingDay(1);
-      setDueDay(10);
+      setEditingId(null);
+      resetForm();
     } catch {
-      setError('Erro ao criar cartão.');
+      setError(editingId != null ? 'Erro ao salvar cartão.' : 'Erro ao criar cartão.');
     } finally {
       setSaving(false);
     }
@@ -97,7 +125,7 @@ export function CreditCardList({ selectedCardId, onSelectCard }: CreditCardListP
     <div className="space-y-5">
       <div className="flex items-center justify-between">
         <h2 className="text-lg font-semibold text-foreground">Meus cartões</h2>
-        <Button onClick={() => setDialogOpen(true)} className="gap-2">
+        <Button onClick={openCreate} className="gap-2">
           <Plus className="h-4 w-4" /> Novo cartão
         </Button>
       </div>
@@ -109,7 +137,7 @@ export function CreditCardList({ selectedCardId, onSelectCard }: CreditCardListP
             title="Nenhum cartão cadastrado"
             description="Cadastre um cartão para acompanhar limite disponível e faturas mês a mês."
             action={
-              <Button onClick={() => setDialogOpen(true)} className="gap-2">
+              <Button onClick={openCreate} className="gap-2">
                 <Plus className="h-4 w-4" /> Novo cartão
               </Button>
             }
@@ -128,12 +156,13 @@ export function CreditCardList({ selectedCardId, onSelectCard }: CreditCardListP
               dueDay={card.due_day}
               selected={selectedCardId === card.id}
               onClick={() => onSelectCard?.(card.id)}
+              onEdit={() => openEdit(card)}
               onDelete={() => handleDelete(card)}
             />
           ))}
           <button
             type="button"
-            onClick={() => setDialogOpen(true)}
+            onClick={openCreate}
             className="flex aspect-[1.9/1] w-full flex-col items-center justify-center gap-2 rounded-2xl border-2 border-dashed border-border text-muted-foreground transition-colors hover:border-brand/50 hover:text-foreground"
           >
             <Plus className="h-6 w-6" />
@@ -145,8 +174,12 @@ export function CreditCardList({ selectedCardId, onSelectCard }: CreditCardListP
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
         <DialogContent className="bg-card border-border sm:max-w-[425px]">
           <DialogHeader>
-            <DialogTitle>Novo cartão de crédito</DialogTitle>
-            <DialogDescription>Cadastre um cartão para vincular transações às faturas.</DialogDescription>
+            <DialogTitle>{editingId != null ? 'Editar cartão de crédito' : 'Novo cartão de crédito'}</DialogTitle>
+            <DialogDescription>
+              {editingId != null
+                ? 'Atualize os dados do cartão. As faturas usam o novo fechamento/vencimento a partir de agora.'
+                : 'Cadastre um cartão para vincular transações às faturas.'}
+            </DialogDescription>
           </DialogHeader>
           <div className="space-y-4 py-4">
             <div className="space-y-2">
@@ -192,8 +225,8 @@ export function CreditCardList({ selectedCardId, onSelectCard }: CreditCardListP
             <Button type="button" variant="ghost" onClick={() => setDialogOpen(false)}>
               Cancelar
             </Button>
-            <Button type="button" onClick={handleCreate} disabled={saving} className="px-8">
-              {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Criar cartão'}
+            <Button type="button" onClick={handleSubmit} disabled={saving} className="px-8">
+              {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : editingId != null ? 'Salvar' : 'Criar cartão'}
             </Button>
           </DialogFooter>
         </DialogContent>

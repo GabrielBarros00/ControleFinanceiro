@@ -4,6 +4,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Button } from "@/components/ui/button";
 import { ChevronLeft, ChevronRight, HandCoins, Loader2, CalendarDays } from 'lucide-react';
 import { useMonthlyDebts } from '@/hooks/use-monthly-debts';
+import { useTxDetailStore } from '@/stores';
 import type { SettlementDraft } from '@/components/debts/SettlementDialog';
 
 interface MemberLike {
@@ -34,6 +35,7 @@ function shiftMonth(month: string, delta: number) {
 export function MonthlyDebtsSection({ members, currentUserId, canWrite, onSettle }: MonthlyDebtsSectionProps) {
   const [month, setMonth] = React.useState(() => new Date().toISOString().slice(0, 7));
   const { ledger, isLoading } = useMonthlyDebts(month);
+  const openDetail = useTxDetailStore((s) => s.open);
 
   const memberName = (id: number) =>
     members.find((m) => m.user_id === id)?.user_name ?? `Membro #${id}`;
@@ -80,15 +82,15 @@ export function MonthlyDebtsSection({ members, currentUserId, canWrite, onSettle
         {ledger && (
           <div className="grid grid-cols-3 gap-2 text-center">
             <div className="rounded-lg bg-accent/20 p-2">
-              <p className="text-[10px] font-black uppercase text-muted-foreground">Total do mês</p>
+              <p className="text-[10px] font-semibold uppercase text-muted-foreground">Total do mês</p>
               <p className="text-sm font-black text-foreground">{formatBRL(ledger.totals.total)}</p>
             </div>
             <div className="rounded-lg bg-emerald-500/10 p-2">
-              <p className="text-[10px] font-black uppercase text-muted-foreground">Pago</p>
+              <p className="text-[10px] font-semibold uppercase text-muted-foreground">Pago</p>
               <p className="text-sm font-black text-emerald-500">{formatBRL(ledger.totals.paid)}</p>
             </div>
             <div className="rounded-lg bg-amber-500/10 p-2">
-              <p className="text-[10px] font-black uppercase text-muted-foreground">Em aberto</p>
+              <p className="text-[10px] font-semibold uppercase text-muted-foreground">Em aberto</p>
               <p className="text-sm font-black text-amber-500">{formatBRL(ledger.totals.open)}</p>
             </div>
           </div>
@@ -109,9 +111,9 @@ export function MonthlyDebtsSection({ members, currentUserId, canWrite, onSettle
             {/* Quem deve quem NO MÊS */}
             <div className="space-y-2">
               <div className="flex items-center justify-between">
-                <p className="text-[11px] font-black uppercase tracking-wider text-muted-foreground">Acertos do mês</p>
+                <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Acertos do mês</p>
                 {ledger.settled_total > 0 && (
-                  <span className="rounded-full bg-emerald-500/10 px-2 py-0.5 text-[10px] font-black uppercase text-emerald-500">
+                  <span className="rounded-full bg-emerald-500/10 px-2 py-0.5 text-[10px] font-semibold uppercase text-emerald-500">
                     {formatBRL(ledger.settled_total)} pago
                   </span>
                 )}
@@ -161,25 +163,30 @@ export function MonthlyDebtsSection({ members, currentUserId, canWrite, onSettle
 
             {/* Detalhe das despesas do mês */}
             <div className="space-y-2">
-              <p className="text-[11px] font-black uppercase tracking-wider text-muted-foreground">Despesas do mês</p>
+              <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Despesas do mês</p>
               <Table>
                 <TableHeader>
                   <TableRow className="border-border hover:bg-transparent">
-                    <TableHead className="text-[10px] font-black uppercase tracking-wider text-muted-foreground">Despesa</TableHead>
-                    <TableHead className="text-[10px] font-black uppercase tracking-wider text-muted-foreground">Quem pagou</TableHead>
-                    <TableHead className="text-[10px] font-black uppercase tracking-wider text-muted-foreground">Divisão</TableHead>
-                    <TableHead className="text-center text-[10px] font-black uppercase tracking-wider text-muted-foreground">Status</TableHead>
-                    <TableHead className="text-right text-[10px] font-black uppercase tracking-wider text-muted-foreground">Valor</TableHead>
+                    <TableHead className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Despesa</TableHead>
+                    <TableHead className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Quem pagou</TableHead>
+                    <TableHead className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Divisão</TableHead>
+                    <TableHead className="text-center text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Status</TableHead>
+                    <TableHead className="text-right text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Valor</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
                   {ledger.expenses.map((exp) => (
-                    <TableRow key={exp.id} className="border-border hover:bg-accent/30">
+                    <TableRow
+                      key={exp.id}
+                      onClick={() => openDetail(exp.id)}
+                      title="Ver detalhes do lançamento"
+                      className="cursor-pointer border-border hover:bg-accent/30"
+                    >
                       <TableCell>
                         <div className="flex flex-col gap-1">
                           <span className="text-sm font-bold text-foreground">{exp.title}</span>
                           {exp.installments_of && exp.installments_of > 1 && (
-                            <span className="w-fit rounded-full bg-primary/10 px-1.5 py-0.5 text-[9px] font-black uppercase text-primary">
+                            <span className="w-fit rounded-full bg-primary/10 px-1.5 py-0.5 text-[9px] font-semibold uppercase text-primary">
                               Parcela {exp.installment_no}/{exp.installments_of}
                             </span>
                           )}
@@ -216,9 +223,9 @@ export function MonthlyDebtsSection({ members, currentUserId, canWrite, onSettle
                       </TableCell>
                       <TableCell className="text-center">
                         {exp.is_paid ? (
-                          <span className="rounded-full bg-emerald-500/10 px-2 py-0.5 text-[10px] font-black uppercase text-emerald-500">Paga</span>
+                          <span className="rounded-full bg-emerald-500/10 px-2 py-0.5 text-[10px] font-semibold uppercase text-emerald-500">Paga</span>
                         ) : (
-                          <span className="rounded-full bg-amber-500/10 px-2 py-0.5 text-[10px] font-black uppercase text-amber-500">Em aberto</span>
+                          <span className="rounded-full bg-amber-500/10 px-2 py-0.5 text-[10px] font-semibold uppercase text-amber-500">Em aberto</span>
                         )}
                       </TableCell>
                       <TableCell className="text-right font-black text-foreground">{formatBRL(exp.total_amount)}</TableCell>

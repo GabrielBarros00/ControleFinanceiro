@@ -28,5 +28,9 @@ class IncomeRead(IncomeBase):
     user_id: int
     recurring_income_id: Optional[int] = None
     billing_month: Optional[str] = None
+    original_amount: Optional[Decimal] = None
+    original_currency: Optional[str] = None
+    exchange_rate: Optional[Decimal] = None
+    rate_source: Optional[str] = None
     created_at: datetime
     updated_at: datetime

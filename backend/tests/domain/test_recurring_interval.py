@@ -84,6 +84,25 @@ def test_interval_one_is_unchanged_legacy():
     assert len(occ) == 28  # fev/2026
 
 
+def test_preset_monthly_respects_start_date_floor():
+    # preset mensal dia 10, começa em 20/07 → julho NÃO gera (10 < 20); agosto sim
+    t = _exp(frequency=RecurrenceFrequency.monthly, day_of_month=10, start_date=date(2026, 7, 20))
+    assert RecurringService.occurrences_in_month(t, 2026, 7) == []
+    assert RecurringService.occurrences_in_month(t, 2026, 8) == [date(2026, 8, 10)]
+
+
+def test_preset_monthly_start_date_includes_current_month():
+    # começa em 01/07, dia 10 → julho conta (10 >= 01), que é o default do editor
+    t = _exp(frequency=RecurrenceFrequency.monthly, day_of_month=10, start_date=date(2026, 7, 1))
+    assert RecurringService.occurrences_in_month(t, 2026, 7) == [date(2026, 7, 10)]
+
+
+def test_preset_no_start_date_is_unchanged():
+    # sem start_date (templates antigos) → filtro é no-op
+    t = _exp(frequency=RecurrenceFrequency.monthly, day_of_month=10)
+    assert RecurringService.occurrences_in_month(t, 2026, 7) == [date(2026, 7, 10)]
+
+
 def test_generate_income_respects_interval(db_session: Session):
     u = User(name="G", email="ri_int@t.com", password_hash="h")
     ws = Workspace(name="WS-int")

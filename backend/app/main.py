@@ -20,7 +20,7 @@ from app.ws.manager import manager as ws_manager
 from app.models import (  # noqa: F401
     user, workspace, transaction, recurring, credit_card, audit,
     income, estimate, financing, category, sync_event, payment_account,
-    import_batch, refresh_session,
+    import_batch, refresh_session, attachment, exchange_rate, settlement, tag,
 )
 
 from contextlib import asynccontextmanager

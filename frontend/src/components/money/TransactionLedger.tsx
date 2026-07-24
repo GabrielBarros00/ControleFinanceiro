@@ -31,6 +31,7 @@ interface TransactionLedgerProps {
   canWrite?: boolean;
   onEdit?: (tx: TransactionRead) => void;
   onDelete?: (id: number) => void;
+  onSelect?: (tx: TransactionRead) => void;
   showDayTotals?: boolean;
 }
 
@@ -39,6 +40,7 @@ export function TransactionLedger({
   canWrite,
   onEdit,
   onDelete,
+  onSelect,
   showDayTotals = true,
 }: TransactionLedgerProps) {
   const { categories } = useCategories();
@@ -95,6 +97,7 @@ export function TransactionLedger({
                 canWrite={canWrite}
                 onEdit={onEdit}
                 onDelete={onDelete}
+                onSelect={onSelect}
               />
             ))}
           </div>

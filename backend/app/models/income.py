@@ -21,6 +21,13 @@ class Income(IncomeBase, table=True):
     recurring_income_id: Optional[int] = Field(default=None, foreign_key="recurringincome.id", index=True)
     billing_month: Optional[str] = Field(default=None, index=True)  # YYYY-MM
 
+    # Conversão de moeda: renda estrangeira é convertida para BRL na entrada (sem
+    # IOF — IOF é de compra no cartão). None = renda nativa em BRL.
+    original_amount: Optional[Decimal] = Field(default=None, decimal_places=2, max_digits=20)
+    original_currency: Optional[str] = Field(default=None)
+    exchange_rate: Optional[Decimal] = Field(default=None, decimal_places=6, max_digits=20)
+    rate_source: Optional[str] = Field(default=None)
+
     created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
     updated_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
     deleted_at: Optional[datetime] = Field(default=None)

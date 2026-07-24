@@ -1,9 +1,8 @@
 import httpx
 from datetime import date, timedelta
-from decimal import Decimal, ROUND_HALF_UP
+from decimal import Decimal
 from typing import Dict, Optional
 import structlog
-from app.domain.money import Currency
 
 logger = structlog.get_logger()
 
@@ -26,80 +25,96 @@ class CurrencyService:
     
     # Official BCB Olinda PTAX API
     BASE_URL = "https://olinda.bcb.gov.br/olinda/servico/PTAX/versao/v1/odata"
-    
-    # Cache to store rates retrieved during the same request/lifecycle
-    _cache: Dict[str, Decimal] = {}
+
+    # Moedas cotadas oficialmente pelo PTAX (CotacaoMoedaDia). Fora dessas, cai
+    # numa fonte de MERCADO (referência, não oficial).
+    PTAX_CURRENCIES = {"AUD", "CAD", "CHF", "DKK", "EUR", "GBP", "JPY", "NOK", "SEK", "USD"}
+    _cache_sync: Dict[str, tuple] = {}
 
     @classmethod
-    async def get_rate(
-        cls, 
-        from_currency: Currency, 
-        to_currency: Currency = Currency.BRL, 
-        target_date: Optional[date] = None
-    ) -> Decimal:
-        """
-        Retrieves the exchange rate between two currencies.
-        Default target is BRL.
-        """
-        if from_currency == to_currency:
-            return Decimal("1.0")
-            
+    def get_rate_sync(
+        cls,
+        from_code,
+        to_code: str = "BRL",
+        target_date: Optional[date] = None,
+    ) -> tuple:
+        """SÍNCRONA (fluxo de criação/edição). Devolve **(taxa, fonte)**: fonte é
+        `'ptax'` (oficial, majores→BRL, bate com o cartão), `'market'`
+        (referência fawazahmed0, 200+ moedas) ou `'base'` (mesma moeda)."""
+        from_code = str(from_code).upper()
+        to_code = str(to_code).upper()
+        if from_code == to_code:
+            return Decimal("1.0"), "base"
         if target_date is None:
             target_date = date.today()
-            
-        # PTAX rates are usually not available on weekends or early morning.
-        # We might need to look back for the latest available rate.
+
+        cache_key = f"{from_code}_{to_code}_{target_date.isoformat()}"
+        if cache_key in cls._cache_sync:
+            return cls._cache_sync[cache_key]
+
+        if to_code == "BRL" and from_code in cls.PTAX_CURRENCIES:
+            result = (cls._fetch_ptax_sync(from_code, target_date), "ptax")
+        else:
+            result = (cls._fetch_market_sync(from_code, to_code, target_date), "market")
+        cls._cache_sync[cache_key] = result
+        return result
+
+    @classmethod
+    def _fetch_ptax_sync(cls, from_code: str, target_date: date) -> Decimal:
+        """PTAX oficial (BCB) para as majores → BRL, com look-back de 5 dias
+        (fins de semana/feriados). `cotacaoVenda` = taxa usada em compras."""
         search_date = target_date
-        
-        # Simple cache key
-        cache_key = f"{from_currency}_{to_currency}_{search_date.isoformat()}"
-        if cache_key in cls._cache:
-            return cls._cache[cache_key]
-
-        # Currently we only support BRL as base or target
-        if to_currency != Currency.BRL and from_currency != Currency.BRL:
-            # Indirect conversion via BRL
-            rate_from_to_brl = await cls.get_rate(from_currency, Currency.BRL, search_date)
-            rate_brl_to_to = Decimal("1.0") / await cls.get_rate(to_currency, Currency.BRL, search_date)
-            return (rate_from_to_brl * rate_brl_to_to).quantize(Decimal("0.0001"), rounding=ROUND_HALF_UP)
-
-        # Logic for BRL target
-        # API requires MM-DD-YYYY
-        date_str = search_date.strftime("%m-%d-%Y")
-        
-        # BCB API expects USD/EUR to BRL rate
-        # CotacaoMoedaDia(moeda=@moeda,dataCotacao=@dataCotacao)
         url = f"{cls.BASE_URL}/CotacaoMoedaDia(moeda=@moeda,dataCotacao=@dataCotacao)"
         params = {
-            "@moeda": f"'{from_currency.value}'",
-            "@dataCotacao": f"'{date_str}'",
+            "@moeda": f"'{from_code}'",
+            "@dataCotacao": f"'{search_date.strftime('%m-%d-%Y')}'",
             "$format": "json",
-            "$select": "cotacaoVenda"
+            "$select": "cotacaoVenda",
         }
-
         try:
-            async with httpx.AsyncClient() as client:
-                # We try up to 5 days back for weekend/holiday coverage
+            with httpx.Client() as client:
                 for _ in range(5):
-                    response = await client.get(url, params=params, timeout=10.0)
+                    response = client.get(url, params=params, timeout=10.0)
                     response.raise_for_status()
                     data = response.json()
-                    
-                    if data.get("value") and len(data["value"]) > 0:
-                        rate = Decimal(str(data["value"][0]["cotacaoVenda"]))
-                        cls._cache[cache_key] = rate
-                        return rate
-                    
-                    # Look back one day
+                    if data.get("value"):
+                        return Decimal(str(data["value"][0]["cotacaoVenda"]))
                     search_date -= timedelta(days=1)
-                    date_str = search_date.strftime("%m-%d-%Y")
-                    params["@dataCotacao"] = f"'{date_str}'"
-                    
-            # Sem taxa nos últimos 5 dias: erro tipado (o caller responde 422, nunca 500)
-            raise ExchangeRateUnavailable(from_currency, target_date)
-
+                    params["@dataCotacao"] = f"'{search_date.strftime('%m-%d-%Y')}'"
+            raise ExchangeRateUnavailable(from_code, target_date)
         except ExchangeRateUnavailable:
             raise
         except Exception as e:
-            logger.error("currency_api_error", error=str(e), currency=from_currency, date=target_date)
-            raise ExchangeRateUnavailable(from_currency, target_date) from e
+            logger.error("currency_api_error", error=str(e), currency=from_code, date=target_date)
+            raise ExchangeRateUnavailable(from_code, target_date) from e
+
+    @classmethod
+    def _fetch_market_sync(cls, from_code: str, to_code: str, target_date: date) -> Decimal:
+        """Fonte de MERCADO (fawazahmed0/exchange-api): 200+ moedas, histórico,
+        sem chave, via CDN. Referência — NÃO é a taxa oficial PTAX. Tenta a data
+        pedida e depois a última, em dois hosts."""
+        fl, tl = from_code.lower(), to_code.lower()
+        # "latest" só faz sentido para hoje/futuro (taxa mais recente). Para datas
+        # passadas NÃO cai no "latest" — senão gravaria a taxa de hoje num dia antigo.
+        labels = [target_date.isoformat()]
+        if target_date >= date.today():
+            labels.append("latest")
+        candidates = []
+        for d in labels:
+            candidates.append(f"https://cdn.jsdelivr.net/npm/@fawazahmed0/currency-api@{d}/v1/currencies/{fl}.json")
+            candidates.append(f"https://{d}.currency-api.pages.dev/v1/currencies/{fl}.json")
+        try:
+            with httpx.Client(follow_redirects=True) as client:
+                for url in candidates:
+                    try:
+                        r = client.get(url, timeout=10.0)
+                    except Exception:
+                        continue
+                    if r.status_code != 200:
+                        continue
+                    rate = (r.json().get(fl) or {}).get(tl)
+                    if rate is not None:
+                        return Decimal(str(rate))
+        except Exception as e:
+            logger.error("market_api_error", error=str(e), currency=from_code, date=target_date)
+        raise ExchangeRateUnavailable(from_code, target_date)

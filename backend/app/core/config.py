@@ -1,3 +1,4 @@
+from decimal import Decimal
 from typing import List, Optional
 from pydantic import model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -45,6 +46,11 @@ class Settings(BaseSettings):
 
     RATE_LIMIT_ENABLED: bool = True
     UPLOAD_MAX_BYTES: int = 5242880  # 5MB
+
+    # IOF sobre compras internacionais no cartão (crédito/débito). 3,5% desde
+    # jul/2025 (Decreto 12.499/2025). É valor regulatório (muda por decreto),
+    # por isso fica configurável e é congelado por lançamento.
+    IOF_INTERNATIONAL_CARD_RATE: Decimal = Decimal("0.035")
 
     @property
     def cors_origins_list(self) -> List[str]:
