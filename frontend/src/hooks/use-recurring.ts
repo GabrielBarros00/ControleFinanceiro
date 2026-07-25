@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { apiClient } from '@/api/client';
 import { useUIStore } from '@/stores';
+import type { MaterializeScope } from '@/lib/recurrence';
 
 export function useRecurring() {
   const queryClient = useQueryClient();
@@ -27,9 +28,16 @@ export function useRecurring() {
     queryClient.invalidateQueries({ queryKey: ['analytics'] });
   };
 
+  // materialize decide o alcance quando a start_date é retroativa:
+  // 'current' (só o mês corrente, padrão), 'past' (lança o histórico),
+  // 'future' (nada agora; empurra a start_date para a próxima ocorrência)
   const createMutation = useMutation({
-    mutationFn: async (data: Record<string, unknown>) => {
-      const response = await apiClient.post(`/workspaces/${currentWorkspaceId}/recurring`, data);
+    mutationFn: async ({ data, materialize }: { data: Record<string, unknown>; materialize?: MaterializeScope }) => {
+      const response = await apiClient.post(
+        `/workspaces/${currentWorkspaceId}/recurring`,
+        data,
+        { params: materialize ? { materialize } : undefined },
+      );
       return response.data;
     },
     onSuccess: invalidateAll,
@@ -38,11 +46,16 @@ export function useRecurring() {
   // scope decide o alcance sobre as instâncias já geradas (não pagas):
   // 'future' (mês corrente em diante, padrão), 'all' (todas), 'none' (só o modelo)
   const updateMutation = useMutation({
-    mutationFn: async ({ id, data, scope }: { id: number; data: Record<string, unknown>; scope?: 'none' | 'future' | 'all' }) => {
+    mutationFn: async ({ id, data, scope, materialize }: {
+      id: number;
+      data: Record<string, unknown>;
+      scope?: 'none' | 'future' | 'all';
+      materialize?: MaterializeScope;
+    }) => {
       const response = await apiClient.put(
         `/workspaces/${currentWorkspaceId}/recurring/${id}`,
         data,
-        { params: scope ? { scope } : undefined },
+        { params: { ...(scope ? { scope } : {}), ...(materialize ? { materialize } : {}) } },
       );
       return response.data;
     },

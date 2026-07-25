@@ -62,6 +62,20 @@ export function defaultRecurrenceValue(): RecurrenceValue {
   };
 }
 
+/** Alcance da materialização quando a data de início é retroativa. */
+export type MaterializeScope = 'past' | 'current' | 'future';
+
+/**
+ * `true` quando start_date cai ANTES do mês corrente.
+ *
+ * Só nesse caso a pergunta faz sentido: com data no mês atual (ou à frente) não
+ * existe histórico a decidir — o backend materializa o mês corrente e pronto.
+ */
+export function isRetroactiveStart(startDate?: string | null): boolean {
+  if (!startDate) return false;
+  return startDate.slice(0, 7) < firstOfCurrentMonth().slice(0, 7);
+}
+
 export function recurrenceFromItem(item: RecurrenceItemLike): RecurrenceValue {
   const interval = item.interval ?? 1;
   return {

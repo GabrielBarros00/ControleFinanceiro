@@ -102,6 +102,56 @@ def test_get_last_6_months(db_session: Session):
         assert "my_expenses" in item
 
 
+def test_get_last_6_months_ancorado_no_mes_pedido(db_session: Session, seed_ws):
+    """A série termina no mês pedido — sem isso os Relatórios ficavam presos no
+    mês corrente e não dava para olhar o passado."""
+    workspace_id = seed_ws["ws"].id
+    user = seed_ws["user"]
+    db_session.add(Transaction(
+        title="Antiga", total_amount=Decimal("80.00"),
+        transaction_date=datetime(2026, 3, 10),
+        workspace_id=workspace_id, created_by_user_id=user.id,
+    ))
+    db_session.commit()
+
+    results = ReportService.get_last_6_months(db_session, workspace_id, ref_month=date(2026, 5, 1))
+
+    assert len(results) == 6
+    assert [r["name"] for r in results] == ["Dec", "Jan", "Feb", "Mar", "Apr", "May"]
+    assert results[3]["expenses"] == Decimal("80.00")  # março
+    assert results[-1]["expenses"] == Decimal("0.00")  # maio
+
+
+def test_summary_leva_o_id_da_categoria(db_session: Session, seed_ws):
+    """O orçamento casa meta × gasto por id: renomear a categoria não pode zerar
+    o consumo (BUD-001)."""
+    workspace_id = seed_ws["ws"].id
+    user = seed_ws["user"]
+    cat = Category(workspace_id=workspace_id, name="Mercado")
+    db_session.add(cat)
+    db_session.commit()
+    db_session.refresh(cat)
+
+    tx = Transaction(
+        title="Compra", total_amount=Decimal("100.00"),
+        transaction_date=datetime(2026, 5, 4),
+        workspace_id=workspace_id, created_by_user_id=user.id,
+    )
+    db_session.add(tx)
+    db_session.flush()
+    db_session.add(TransactionItem(
+        transaction_id=tx.id, category_id=cat.id, amount=Decimal("70.00"),
+        title="Item", description="Item",
+    ))
+    db_session.commit()
+
+    cats = ReportService.get_summary(db_session, workspace_id, date(2026, 5, 1))["categories"]
+    por_nome = {c["name"]: c for c in cats}
+    assert por_nome["Mercado"]["category_id"] == cat.id
+    # O resto (100 − 70) vira "Sem categoria", que por definição não tem id
+    assert por_nome["Sem categoria"]["category_id"] is None
+
+
 def test_get_summary_my_share(db_session: Session, seed_ws):
     """A 'minha parte' vem dos splits do usuário, não do valor cheio (issue 2)."""
     workspace_id = seed_ws["ws"].id

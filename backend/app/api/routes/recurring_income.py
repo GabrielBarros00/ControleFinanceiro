@@ -2,7 +2,7 @@ from datetime import date, datetime, UTC
 from decimal import Decimal
 from typing import List, Optional
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 from sqlmodel import Session, select
 
@@ -12,7 +12,11 @@ from app.models.recurring import RecurringIncome, RecurrenceFrequency
 from app.models.income import Income
 from app.api.deps import get_workspace_membership, require_role
 from app.services.event_service import publish_event
-from app.services.recurring_service import RecurringIncomeService
+from app.services.recurring_service import (
+    MATERIALIZE_SCOPES,
+    RecurringIncomeService,
+    RecurringMaterializationService,
+)
 
 router = APIRouter(prefix="/workspaces/{workspace_id}/recurring-income", tags=["recurring-income"])
 
@@ -86,7 +90,13 @@ def create_recurring_income(
     recurring_in: RecurringIncomeCreate,
     session: Session = Depends(get_session),
     membership: WorkspaceMembership = Depends(require_role(WorkspaceRole.member)),
+    materialize: str = Query(
+        "current",
+        description="Escopo da materialização com start_date retroativa: past | current | future",
+    ),
 ):
+    if materialize not in MATERIALIZE_SCOPES:
+        raise HTTPException(status_code=400, detail=f"materialize deve ser um de {list(MATERIALIZE_SCOPES)}")
     _validate_frequency_fields(
         recurring_in.frequency, recurring_in.day_of_week, recurring_in.month_of_year,
         recurring_in.interval, recurring_in.start_date,
@@ -99,6 +109,9 @@ def create_recurring_income(
     )
     session.add(db_rec)
     session.flush()
+    RecurringMaterializationService.apply_scope(
+        session, workspace_id, db_rec, materialize, is_income=True
+    )
     publish_event(session, workspace_id, "recurring_income.created", "recurring_income", db_rec.id, membership.user_id)
     session.commit()
     session.refresh(db_rec)
@@ -137,7 +150,13 @@ def update_recurring_income(
     recurring_in: RecurringIncomeUpdate,
     session: Session = Depends(get_session),
     membership: WorkspaceMembership = Depends(require_role(WorkspaceRole.member)),
+    materialize: str = Query(
+        "current",
+        description="Escopo da materialização com start_date retroativa: past | current | future",
+    ),
 ):
+    if materialize not in MATERIALIZE_SCOPES:
+        raise HTTPException(status_code=400, detail=f"materialize deve ser um de {list(MATERIALIZE_SCOPES)}")
     db_rec = _get_or_404(session, workspace_id, recurring_id)
     _check_ownership(membership, db_rec)
 
@@ -150,9 +169,15 @@ def update_recurring_income(
     db_rec.updated_at = datetime.now(UTC)
 
     session.add(db_rec)
+    session.flush()
     # A edição vale do mês visualizado pra frente: reaplica ao lançamento do mês
     # corrente; meses anteriores (fechados) ficam congelados.
     RecurringIncomeService.sync_current_month_income(session, db_rec, date.today())
+    # ...e materializa o que ainda falta conforme o escopo escolhido (a data pode
+    # ter mudado para trás/para frente, criando ou dispensando ocorrências).
+    RecurringMaterializationService.apply_scope(
+        session, workspace_id, db_rec, materialize, is_income=True
+    )
     publish_event(session, workspace_id, "recurring_income.updated", "recurring_income", db_rec.id, membership.user_id)
     session.commit()
     session.refresh(db_rec)

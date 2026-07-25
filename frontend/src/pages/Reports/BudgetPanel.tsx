@@ -4,7 +4,7 @@ import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
 import { MoneyInput } from '@/components/ui/MoneyInput';
 import { Target, Trash2, Plus } from 'lucide-react';
-import { useEstimates } from '@/hooks/use-estimates';
+import { useEstimates, type Estimate } from '@/hooks/use-estimates';
 import { useCategories } from '@/hooks/use-categories';
 import { getApiErrorMessage } from '@/lib/api-error';
 
@@ -15,28 +15,51 @@ const formatBRL = (value: number) =>
   `R$ ${value.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`;
 
 interface BudgetPanelProps {
-  spentByCategory: { name: string; value: number }[];
+  spentByCategory: { category_id?: number | null; name: string; value: number }[];
   totalExpenses: number;
+  /** Mês exibido (YYYY-MM) — o mesmo do resto da tela de relatórios. */
+  month: string;
 }
 
-// Orçamento por categoria do mês corrente: meta vs. gasto real com progresso
-export function BudgetPanel({ spentByCategory, totalExpenses }: BudgetPanelProps) {
-  const now = new Date();
-  const month = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+const monthLabel = (month: string) => {
+  const [y, m] = month.split('-').map(Number);
+  return new Date(y, m - 1, 1).toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' });
+};
+
+// Orçamento por categoria do mês exibido: meta vs. gasto real com progresso
+export function BudgetPanel({ spentByCategory, totalExpenses, month }: BudgetPanelProps) {
   const { estimates, setCategoryBudget, removeEstimate } = useEstimates(month);
   const { categories } = useCategories();
-  const [newCategory, setNewCategory] = React.useState('');
+  // Chave do <select>: 'geral' ou o id da categoria (nunca o nome — ver spentFor)
+  const [newCategoryKey, setNewCategoryKey] = React.useState('');
   const [newAmount, setNewAmount] = React.useState(0);
   const [error, setError] = React.useState<string | null>(null);
 
-  const spentFor = (category: string): number => {
-    if (category === 'Geral') return totalExpenses;
-    return spentByCategory.find((c) => c.name === category)?.value ?? 0;
+  const spentFor = (estimate: Estimate): number => {
+    if (estimate.category === 'Geral') return totalExpenses;
+    // Casa por id: renomear a categoria costumava zerar o consumo calado, porque
+    // a meta guardava o nome antigo e o gasto vinha com o novo (BUD-001).
+    if (estimate.category_id != null) {
+      return spentByCategory.find((c) => c.category_id === estimate.category_id)?.value ?? 0;
+    }
+    // Metas antigas (sem id): resta o nome
+    return spentByCategory.find((c) => c.name === estimate.category)?.value ?? 0;
   };
+
+  // "Geral" é a meta agregada do mês, não uma categoria de verdade → id nulo
+  const availableCategories = [
+    { key: 'geral', id: null as number | null, name: 'Geral' },
+    ...categories.map((c) => ({ key: String(c.id), id: c.id as number | null, name: c.name })),
+  ].filter((opt) =>
+    !estimates.some((e) =>
+      opt.id != null && e.category_id != null ? e.category_id === opt.id : e.category === opt.name,
+    ),
+  );
 
   const addBudget = async () => {
     setError(null);
-    if (!newCategory) {
+    const option = availableCategories.find((c) => c.key === newCategoryKey);
+    if (!option) {
       setError('Escolha uma categoria.');
       return;
     }
@@ -45,8 +68,8 @@ export function BudgetPanel({ spentByCategory, totalExpenses }: BudgetPanelProps
       return;
     }
     try {
-      await setCategoryBudget({ category: newCategory, amount: newAmount });
-      setNewCategory('');
+      await setCategoryBudget({ category: option.name, categoryId: option.id, amount: newAmount });
+      setNewCategoryKey('');
       setNewAmount(0);
     } catch (err) {
       setError(getApiErrorMessage(err, 'Erro ao salvar o orçamento.'));
@@ -62,17 +85,12 @@ export function BudgetPanel({ spentByCategory, totalExpenses }: BudgetPanelProps
     }
   };
 
-  const availableCategories = [
-    'Geral',
-    ...categories.map((c) => c.name),
-  ].filter((name) => !estimates.some((e) => e.category === name));
-
   return (
     <Card className="bg-card border-border shadow-xl">
       <CardHeader>
         <CardTitle className="flex items-center gap-2 text-lg">
           <Target className="h-5 w-5 text-primary" />
-          Orçamento por Categoria — {now.toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' })}
+          Orçamento por Categoria — {monthLabel(month)}
         </CardTitle>
         <CardDescription>
           Defina uma meta de gasto por categoria e acompanhe o consumo do mês.
@@ -88,7 +106,7 @@ export function BudgetPanel({ spentByCategory, totalExpenses }: BudgetPanelProps
           <div className="space-y-4">
             {estimates.map((estimate) => {
               const budget = parseFloat(estimate.amount);
-              const spent = spentFor(estimate.category);
+              const spent = spentFor(estimate);
               const pct = budget > 0 ? Math.min(150, (spent / budget) * 100) : 0;
               const over = spent > budget;
               const near = !over && budget > 0 && spent / budget >= 0.75;
@@ -131,12 +149,12 @@ export function BudgetPanel({ spentByCategory, totalExpenses }: BudgetPanelProps
             <select
               id="budget-category"
               className={selectClass}
-              value={newCategory}
-              onChange={(e) => setNewCategory(e.target.value)}
+              value={newCategoryKey}
+              onChange={(e) => setNewCategoryKey(e.target.value)}
             >
               <option value="">Selecione...</option>
-              {availableCategories.map((name) => (
-                <option key={name} value={name}>{name}</option>
+              {availableCategories.map((opt) => (
+                <option key={opt.key} value={opt.key}>{opt.name}</option>
               ))}
             </select>
           </div>

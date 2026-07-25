@@ -5,7 +5,7 @@ from decimal import Decimal
 from sqlmodel import select
 
 from app.models.recurring import RecurringExpense, RecurrenceFrequency
-from app.models.transaction import Transaction
+from app.models.transaction import Transaction, TransactionStatus
 from app.services.recurring_service import RecurringService
 
 
@@ -58,19 +58,49 @@ def test_generate_creates_due_and_is_idempotent(db_session, seed_ws):
 
     created = RecurringService.generate_due_instances(db_session, ws.id, today)
     db_session.commit()
-    assert created == 3  # aluguel dia 10 + feira 06/07 e 13/07
+    # Mês INTEIRO: aluguel 10/07 + feira 06, 13, 20 e 27/07
+    assert created == 5
 
     txs = db_session.exec(
         select(Transaction).where(Transaction.workspace_id == ws.id)
     ).all()
-    assert len(txs) == 3
+    assert len(txs) == 5
     titles = sorted(tx.title for tx in txs)
-    assert titles == ["Aluguel", "Feira", "Feira"]
+    assert titles == ["Aluguel", "Feira", "Feira", "Feira", "Feira"]
+
+    # O que já venceu nasce confirmado (entra nos totais); o que ainda vem no mês
+    # nasce pendente (aparece como "a pagar" sem mexer em nenhum total realizado).
+    confirmed = {tx.occurrence_date for tx in txs if tx.status == TransactionStatus.confirmed}
+    pending = {tx.occurrence_date for tx in txs if tx.status == TransactionStatus.pending}
+    assert confirmed == {date(2026, 7, 10), date(2026, 7, 6), date(2026, 7, 13)}
+    assert pending == {date(2026, 7, 20), date(2026, 7, 27)}
 
     # Idempotente
     created = RecurringService.generate_due_instances(db_session, ws.id, today)
     db_session.commit()
     assert created == 0
+
+
+def test_pendente_vira_confirmada_quando_a_data_chega(db_session, seed_ws):
+    """A parcela futura nasce `pending` e é promovida a `confirmed` no dia — sem
+    isso a conta do fim do mês ficaria fora dos totais realizados para sempre."""
+    ws = seed_ws["ws"]
+    db_session.add(_template(ws.id, title="Aluguel", day_of_month=25))
+    db_session.commit()
+
+    RecurringService.generate_due_instances(db_session, ws.id, date(2026, 7, 10))
+    db_session.commit()
+    tx = db_session.exec(select(Transaction).where(Transaction.workspace_id == ws.id)).one()
+    assert tx.status == TransactionStatus.pending
+
+    # Nada a promover antes da data
+    assert RecurringService.promote_due_instances(db_session, ws.id, date(2026, 7, 24)) == 0
+    db_session.commit()
+
+    assert RecurringService.promote_due_instances(db_session, ws.id, date(2026, 7, 25)) == 1
+    db_session.commit()
+    db_session.refresh(tx)
+    assert tx.status == TransactionStatus.confirmed
 
 
 def test_generate_respects_tombstone(db_session, seed_ws):

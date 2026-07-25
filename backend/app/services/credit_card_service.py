@@ -94,6 +94,19 @@ class CreditCardService:
             # Fechada/paga é imutável: tenta o próximo mês
             year, month = _advance_month(year, month)
 
+    @staticmethod
+    def ensure_current_statement(db: Session, card: CreditCard, today: Optional[date] = None) -> CardStatement:
+        """Garante que a fatura do ciclo CORRENTE exista (materialização preguiçosa).
+
+        Sem isso a fatura só nascia quando chegava uma compra, então um mês sem
+        gastos deixava a tela do cartão mostrando a fatura do mês passado como se
+        fosse a atual. É a mesma fatura para onde uma compra de hoje iria.
+        """
+        ref = today or datetime.now(UTC).date()
+        return CreditCardService.get_or_create_statement(
+            db, card, datetime.combine(ref, datetime.min.time())
+        )
+
     # ---- Totais e limite ----------------------------------------------------
 
     @staticmethod

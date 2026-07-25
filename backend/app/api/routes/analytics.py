@@ -17,6 +17,17 @@ from app.services.event_service import publish_event
 router = APIRouter(prefix="/workspaces/{workspace_id}/analytics", tags=["analytics"])
 
 
+def _parse_month(month: Optional[str]) -> date:
+    """`YYYY-MM` → primeiro dia do mês; vazio → hoje."""
+    if not month:
+        return date.today()
+    try:
+        year_str, month_str = month.split("-")
+        return date(int(year_str), int(month_str), 1)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Formato de mês inválido. Use YYYY-MM")
+
+
 @router.get("/summary", response_model=Dict[str, Any])
 def get_summary(
     workspace_id: int,
@@ -24,14 +35,7 @@ def get_summary(
     session: Session = Depends(get_session),
     membership: WorkspaceMembership = Depends(get_workspace_membership)
 ):
-    if month:
-        try:
-            year_str, month_str = month.split("-")
-            target_date = date(int(year_str), int(month_str), 1)
-        except ValueError:
-            raise HTTPException(status_code=400, detail="Formato de mês inválido. Use YYYY-MM")
-    else:
-        target_date = date.today()
+    target_date = _parse_month(month)
 
     # Recorrências vencidas do mês corrente entram sozinhas (lazy accrual),
     # sempre no mês real — visualizar outro mês não materializa retroativo.
@@ -42,13 +46,21 @@ def get_summary(
 @router.get("/reports", response_model=Dict[str, Any])
 def get_reports(
     workspace_id: int,
+    month: Optional[str] = None,  # YYYY-MM
     session: Session = Depends(get_session),
     membership: WorkspaceMembership = Depends(get_workspace_membership)
 ):
+    """Relatórios ancorados no mês pedido: as 6 barras terminam nele e o resumo
+    é o dele. Sem o parâmetro, o mês corrente (comportamento antigo)."""
+    target_date = _parse_month(month)
     RecurringMaterializationService.ensure_and_commit(session, workspace_id)
     return {
-        "monthly_history": ReportService.get_last_6_months(session, workspace_id, user_id=membership.user_id),
-        "current_summary": ReportService.get_summary(session, workspace_id, date.today(), user_id=membership.user_id)
+        "monthly_history": ReportService.get_last_6_months(
+            session, workspace_id, user_id=membership.user_id, ref_month=target_date
+        ),
+        "current_summary": ReportService.get_summary(
+            session, workspace_id, target_date, user_id=membership.user_id
+        )
     }
 
 

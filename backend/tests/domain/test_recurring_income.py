@@ -66,14 +66,25 @@ def test_generate_due_income_idempotent(db_session: Session):
     assert len(incomes) == 1
 
 
-def test_generate_due_income_not_yet_due(db_session: Session):
+def test_generate_income_conta_mes_inteiro_mesmo_com_data_futura(db_session: Session):
+    """Renda é de COMPETÊNCIA: o salário do dia 25 é renda de julho já no dia 10.
+
+    Antes só materializava a partir da data, então a receita do mês aparecia
+    zerada até o dia chegar (e sumia ao mover a data para frente).
+    """
     u, ws = _setup(db_session, "ri3")
     db_session.add(_template(ws.id, u.id, day_of_month=25))
     db_session.commit()
 
-    # Hoje é dia 10, vencimento dia 25 → ainda não materializa
-    assert RecurringIncomeService.generate_due_income(db_session, ws.id, date(2026, 7, 10)) == 0
-    assert db_session.exec(select(Income).where(Income.workspace_id == ws.id)).all() == []
+    assert RecurringIncomeService.generate_due_income(db_session, ws.id, date(2026, 7, 10)) == 1
+    db_session.commit()
+
+    incomes = db_session.exec(select(Income).where(Income.workspace_id == ws.id)).all()
+    assert len(incomes) == 1
+    assert incomes[0].billing_month == "2026-07"
+    # A data de recebimento continua sendo a real (futura) — é ela que se explica
+    # na lista; o mês de competência é que passa a contar.
+    assert incomes[0].received_at.date() == date(2026, 7, 25)
 
 
 def test_generate_due_income_inactive_skipped(db_session: Session):

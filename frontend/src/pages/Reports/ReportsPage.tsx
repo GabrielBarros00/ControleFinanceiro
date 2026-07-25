@@ -16,22 +16,39 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { BarChart3, TrendingUp, PieChart as PieChartIcon } from 'lucide-react';
 
+import * as React from 'react';
 import { useReports } from '@/hooks/use-reports';
 import { Skeleton } from "@/components/ui/skeleton";
 import { BudgetPanel } from './BudgetPanel';
 import { useChartTheme } from '@/hooks/use-chart-theme';
 import { StatTile } from '@/components/ui/stat-tile';
 import { formatMoney } from '@/lib/money';
+import { PageHeader } from '@/components/layout/PageHeader';
+import { PeriodPicker } from '@/components/layout/PeriodPicker';
+
+const currentMonth = () => new Date().toISOString().slice(0, 7);
 
 export function ReportsPage() {
-  const { data, isLoading, isError } = useReports();
+  // Relatórios seguem o mesmo período das outras telas — antes ficavam presos
+  // no mês corrente, sem como olhar o passado.
+  const [month, setMonth] = React.useState(currentMonth());
+  const { data, isLoading, isError } = useReports(month);
   // Cores lidas do tema atual (claro/escuro) — nunca hardcoded (corrige B3)
   const chart = useChartTheme();
   const COLORS = chart.series;
 
+  const header = (
+    <PageHeader
+      title="Relatórios"
+      subtitle="Para onde o dinheiro foi."
+      period={<PeriodPicker value={month} max={currentMonth()} onChange={setMonth} />}
+    />
+  );
+
   if (isLoading) {
     return (
       <div className="space-y-8">
+        {header}
         <div className="grid gap-4 md:grid-cols-4">
           {[1, 2, 3, 4].map(i => <Skeleton key={i} className="h-24 bg-card border-border" />)}
         </div>
@@ -43,9 +60,12 @@ export function ReportsPage() {
   // Estado de erro explícito (ERR-001): falha não pode virar "tudo zero"
   if (isError || !data) {
     return (
-      <div className="p-12 text-center rounded-xl bg-destructive/10 border border-destructive/20">
-        <p className="text-sm font-bold text-destructive">Não foi possível carregar os relatórios.</p>
-        <p className="text-xs text-muted-foreground mt-1">Verifique a conexão e tente novamente.</p>
+      <div className="space-y-8">
+        {header}
+        <div className="p-12 text-center rounded-xl bg-destructive/10 border border-destructive/20">
+          <p className="text-sm font-bold text-destructive">Não foi possível carregar os relatórios.</p>
+          <p className="text-xs text-muted-foreground mt-1">Verifique a conexão e tente novamente.</p>
+        </div>
       </div>
     );
   }
@@ -66,6 +86,7 @@ export function ReportsPage() {
 
   return (
     <div className="space-y-8 animate-in fade-in duration-700">
+      {header}
       <div className="grid gap-4 md:grid-cols-4">
         <StatTile
           label="Seu gasto (mês)"
@@ -104,7 +125,11 @@ export function ReportsPage() {
         </TabsList>
 
         <TabsContent value="budget" className="animate-in slide-in-from-bottom-4 duration-500">
-          <BudgetPanel spentByCategory={categoryData} totalExpenses={currentSummary.total_expenses} />
+          <BudgetPanel
+            spentByCategory={categoryData}
+            totalExpenses={currentSummary.total_expenses}
+            month={month}
+          />
         </TabsContent>
         
         <TabsContent value="overview" className="space-y-4 animate-in slide-in-from-bottom-4 duration-500">

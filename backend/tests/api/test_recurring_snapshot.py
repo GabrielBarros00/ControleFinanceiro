@@ -6,7 +6,7 @@ from decimal import Decimal
 from sqlmodel import select
 
 from app.models.recurring import RecurringExpense, RecurrenceFrequency
-from app.models.transaction import Transaction
+from app.models.transaction import Transaction, TransactionStatus
 from app.models.workspace import WorkspaceMembership, WorkspaceRole
 from app.services.recurring_service import RecurringService
 from app.services.debt_service import DebtService
@@ -73,11 +73,16 @@ def test_frequencia_diaria(db_session, setup_data):
     _template(db_session, ws.id, u1.id, frequency=RecurrenceFrequency.daily)
     created = RecurringService.generate_due_instances(db_session, ws.id, date(2026, 3, 4))
     db_session.commit()
-    assert created == 4  # dias 1..4 (<= hoje)
+    assert created == 31  # março inteiro
     # Re-rodar é idempotente (dedup por occurrence_date)
     again = RecurringService.generate_due_instances(db_session, ws.id, date(2026, 3, 4))
     db_session.commit()
     assert again == 0
+
+    # Só os dias 1..4 já venceram; o resto do mês fica pendente (fora dos totais)
+    txs = db_session.exec(select(Transaction).where(Transaction.workspace_id == ws.id)).all()
+    assert sum(1 for t in txs if t.status == TransactionStatus.confirmed) == 4
+    assert sum(1 for t in txs if t.status == TransactionStatus.pending) == 27
 
 
 def test_escopo_all_reaplica_valor_e_divisao(db_session, setup_data):

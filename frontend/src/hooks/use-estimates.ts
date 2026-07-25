@@ -8,6 +8,8 @@ export interface Estimate {
   amount: string;
   month: string; // YYYY-MM
   description?: string | null;
+  /** Referência real da categoria (BUD-001); nulo em "Geral" e em metas antigas. */
+  category_id?: number | null;
 }
 
 /** Orçamento mensal (estimates). O forecast usa a soma do mês como total_budget. */
@@ -52,11 +54,21 @@ export function useEstimates(month: string) {
     onSuccess: invalidate,
   });
 
-  // Orçamento POR CATEGORIA (a soma do mês continua sendo o total_budget)
+  // Orçamento POR CATEGORIA (a soma do mês continua sendo o total_budget).
+  // `categoryId` é o que casa a meta com o gasto — o nome vai junto só como
+  // rótulo, porque renomear a categoria não pode zerar o consumo (BUD-001).
   const upsertCategoryMutation = useMutation({
-    mutationFn: async ({ category, amount }: { category: string; amount: number }) => {
+    mutationFn: async ({
+      category,
+      categoryId,
+      amount,
+    }: {
+      category: string;
+      categoryId?: number | null;
+      amount: number;
+    }) => {
       const existing = (listQuery.data ?? []).find((e) => e.category === category);
-      const payload = { category, amount: String(amount), month };
+      const payload = { category, category_id: categoryId ?? null, amount: String(amount), month };
       if (existing) {
         const response = await apiClient.put(
           `/workspaces/${currentWorkspaceId}/analytics/estimates/${existing.id}`,

@@ -93,14 +93,20 @@ class ReportService:
             c.id: c.name
             for c in db.exec(select(Category).where(Category.workspace_id == workspace_id)).all()
         }
+        # O id acompanha o nome: o orçamento casa gasto × meta por category_id
+        # (BUD-001) — casar por nome quebrava calado ao renomear a categoria.
         category_data = [
-            {"name": category_names.get(cid, "Categoria"), "value": amount or Decimal("0.00")}
+            {
+                "category_id": cid,
+                "name": category_names.get(cid, "Categoria"),
+                "value": amount or Decimal("0.00"),
+            }
             for cid, amount in categorized
         ]
         categorized_total = sum((amount or Decimal("0.00") for _, amount in categorized), Decimal("0.00"))
         uncategorized = expenses - categorized_total
         if uncategorized > 0:
-            category_data.append({"name": "Sem categoria", "value": uncategorized})
+            category_data.append({"category_id": None, "name": "Sem categoria", "value": uncategorized})
 
         # Lançamentos em moeda diferente da base ficam FORA dos totais (ADR 0006).
         # Expor a contagem deixa o usuário saber que "sumiram" de propósito (E5/F-04).
@@ -129,10 +135,14 @@ class ReportService:
 
     @staticmethod
     def get_last_6_months(
-        db: Session, workspace_id: int, user_id: Optional[int] = None
+        db: Session,
+        workspace_id: int,
+        user_id: Optional[int] = None,
+        ref_month: Optional[date] = None,
     ) -> List[Dict[str, Any]]:
+        """6 meses terminando em `ref_month` (padrão: mês corrente)."""
         results = []
-        first_of_month = date.today().replace(day=1)
+        first_of_month = (ref_month or date.today()).replace(day=1)
         for i in range(5, -1, -1):
             d = add_months(first_of_month, -i)  # mês de calendário, não days=30
             summary = ReportService.get_summary(db, workspace_id, d, user_id=user_id)

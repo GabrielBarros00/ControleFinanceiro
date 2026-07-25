@@ -8,6 +8,7 @@ from sqlmodel import Session, select
 from app.core.config import settings
 from app.domain.query_policy import workspace_base_currency
 from app.models.category import Category
+from app.models.credit_card import CreditCard
 from app.models.income import Income
 from app.models.recurring import RecurringExpense, RecurringIncome, RecurrenceFrequency
 from app.models.transaction import (
@@ -19,6 +20,7 @@ from app.models.transaction import (
     PaymentMethod,
 )
 from app.schemas.transaction import TransactionPayerBase, TransactionSplitBase
+from app.services.credit_card_service import CreditCardService
 from app.services.transaction_service import (
     persist_transaction_children,
     delete_transaction_children,
@@ -28,6 +30,58 @@ from app.services.exchange_rate_store import ExchangeRateStore
 
 # Escopo da edição de um template sobre as instâncias já materializadas
 EDIT_SCOPES = ("none", "future", "all")
+
+# Escopo da MATERIALIZAÇÃO quando o template começa numa data retroativa:
+# past = gera desde o mês da start_date; current = só o mês corrente (padrão);
+# future = nem o mês corrente (empurra start_date para a próxima ocorrência).
+MATERIALIZE_SCOPES = ("past", "current", "future")
+
+# Teto de meses que um backfill retroativo pode criar de uma vez
+BACKFILL_MAX_MONTHS = 24
+
+
+def _iter_months(start: date, end: date, limit: int = BACKFILL_MAX_MONTHS):
+    """(ano, mês) de `start` até `end` inclusive, do mais antigo ao mais novo."""
+    out: List[Tuple[int, int]] = []
+    y, m = start.year, start.month
+    while (y, m) <= (end.year, end.month) and len(out) < limit:
+        out.append((y, m))
+        y, m = (y + 1, 1) if m == 12 else (y, m + 1)
+    return out
+
+
+def _first_occurrence_after(template, ref: date, horizon: int = 36) -> Optional[date]:
+    """1ª ocorrência depois do mês de `ref`.
+
+    Usada por scope='future': vira a nova start_date. Como a data devolvida É uma
+    ocorrência da série antiga, a fase de "a cada N" (ancorada em start_date)
+    fica preservada — não basta usar "dia 1 do mês que vem".
+    """
+    y, m = (ref.year + 1, 1) if ref.month == 12 else (ref.year, ref.month + 1)
+    for _ in range(horizon):
+        for occ in RecurringService.occurrences_in_month(template, y, m):
+            if occ > ref:
+                return occ
+        y, m = (y + 1, 1) if m == 12 else (y, m + 1)
+    return None
+
+
+def _statement_for(db: Session, template: RecurringExpense, occ: date) -> Optional[int]:
+    """Fatura da ocorrência quando o template está preso a um cartão.
+
+    Sem isto a assinatura no cartão nascia fora de qualquer fatura: aparecia no
+    extrato mas não no statement nem no limite comprometido. Cada ocorrência é
+    roteada pela SUA data — dezembro cai na fatura de dezembro (ADR 0002).
+    """
+    if template.credit_card_id is None:
+        return None
+    card = db.get(CreditCard, template.credit_card_id)
+    if not card or card.workspace_id != template.workspace_id or card.deleted_at:
+        return None
+    statement = CreditCardService.get_or_create_statement(
+        db, card, datetime(occ.year, occ.month, occ.day, tzinfo=UTC)
+    )
+    return statement.id
 
 
 def _recurring_conversion(db, workspace_id, base_amount, currency, occ_date, payment_method):
@@ -169,7 +223,11 @@ class RecurringService:
 
     @staticmethod
     def _create_instance(
-        db: Session, template: RecurringExpense, occ: date, billing_month: str
+        db: Session,
+        template: RecurringExpense,
+        occ: date,
+        billing_month: str,
+        status: TransactionStatus = TransactionStatus.confirmed,
     ) -> Optional[Transaction]:
         """Cria a transação da ocorrência COMPLETA (pagador+divisão+categoria).
 
@@ -189,13 +247,15 @@ class RecurringService:
             total_amount=brl,
             currency=base_currency if is_foreign else template.currency,
             payment_method=template.payment_method,
+            credit_card_id=template.credit_card_id,
+            statement_id=_statement_for(db, template, occ),
             transaction_date=datetime(occ.year, occ.month, occ.day, tzinfo=UTC),
             billing_month=billing_month,
             occurrence_date=occ,
             workspace_id=template.workspace_id,
             created_by_user_id=template.created_by_user_id,
             recurring_expense_id=template.id,
-            status=TransactionStatus.confirmed,
+            status=status,
             original_amount=template.base_amount if is_foreign else None,
             original_currency=template.currency if is_foreign else None,
             exchange_rate=rate if is_foreign else None,
@@ -251,8 +311,37 @@ class RecurringService:
         ))
 
     @staticmethod
+    def promote_due_instances(db: Session, workspace_id: int, today: date) -> int:
+        """Vira para `confirmed` as instâncias recorrentes que nasceram `pending`
+        (data futura) e cuja data já chegou.
+
+        `pending` é estado de SISTEMA — a UI nunca o define, só o exibe — então
+        promover é seguro: só reencontra o que esta própria materialização criou.
+        Sem isso a conta do dia 30 ficaria fora dos totais realizados para sempre.
+        """
+        rows = db.exec(
+            select(Transaction)
+            .where(Transaction.workspace_id == workspace_id)
+            .where(Transaction.recurring_expense_id.is_not(None))
+            .where(Transaction.status == TransactionStatus.pending)
+            .where(Transaction.deleted_at.is_(None))
+            .where(Transaction.occurrence_date.is_not(None))
+            .where(Transaction.occurrence_date <= today)
+        ).all()
+        for tx in rows:
+            tx.status = TransactionStatus.confirmed
+            db.add(tx)
+        return len(rows)
+
+    @staticmethod
     def generate_due_instances(db: Session, workspace_id: int, today: date) -> int:
-        """Materializa as instâncias VENCIDAS (data <= hoje) do mês corrente.
+        """Materializa as instâncias do MÊS CORRENTE INTEIRO.
+
+        Ocorrência já vencida (<= hoje) nasce `confirmed`; ocorrência ainda por
+        vir no mês nasce `pending` — assim a conta do dia 30 já aparece como "a
+        pagar" no dia 1, sem entrar em nenhum total realizado (`pending` está
+        fora de REALIZED_STATUSES, então dívidas, relatórios e fatura não mudam).
+        `promote_due_instances` vira para `confirmed` quando a data chega.
 
         Dedup por (recurring, occurrence_date) — a instância excluída deixa
         tombstone e não ressuscita. Não faz commit (ADR 0010).
@@ -282,16 +371,50 @@ class RecurringService:
         created = 0
         for template in templates:
             for occ in RecurringService.occurrences_in_month(template, today.year, today.month):
-                if occ > today:
-                    continue
                 if template.frequency in per_occurrence:
                     if (template.id, occ) in existing_dates:
                         continue
                 elif template.id in existing_templates:
                     continue
 
-                if RecurringService._create_instance(db, template, occ, billing_month):
+                status = (
+                    TransactionStatus.confirmed if occ <= today else TransactionStatus.pending
+                )
+                if RecurringService._create_instance(db, template, occ, billing_month, status):
                     created += 1
+        return created
+
+    @staticmethod
+    def backfill_month(db: Session, template_id: int, year: int, month: int) -> int:
+        """Materializa um mês PASSADO de um template (start_date retroativo).
+
+        Mesmo dedup/tombstone da geração normal; mês passado nasce sempre
+        `confirmed` (todas as ocorrências já venceram). Não faz commit.
+        """
+        template = db.get(RecurringExpense, template_id)
+        if not template or not template.is_active:
+            return 0
+        billing_month = f"{year:04d}-{month:02d}"
+
+        existing = db.exec(
+            select(Transaction.transaction_date)
+            .where(Transaction.recurring_expense_id == template_id)
+            .where(Transaction.billing_month == billing_month)
+        ).all()
+        if existing and template.frequency not in (
+            RecurrenceFrequency.daily, RecurrenceFrequency.weekly
+        ):
+            return 0
+        existing_dates = {dt.date() for dt in existing}
+
+        created = 0
+        for occ in RecurringService.occurrences_in_month(template, year, month):
+            if occ in existing_dates:
+                continue
+            if RecurringService._create_instance(
+                db, template, occ, billing_month, TransactionStatus.confirmed
+            ):
+                created += 1
         return created
 
     @staticmethod
@@ -362,6 +485,10 @@ class RecurringService:
             tx.total_amount = brl
             tx.currency = base_currency if is_foreign else template.currency
             tx.payment_method = template.payment_method
+            # Trocar o cartão do template re-roteia a fatura das instâncias não
+            # pagas; tirar o cartão as solta do statement.
+            tx.credit_card_id = template.credit_card_id
+            tx.statement_id = _statement_for(db, template, occ)
             tx.original_amount = template.base_amount if is_foreign else None
             tx.original_currency = template.currency if is_foreign else None
             tx.exchange_rate = rate if is_foreign else None
@@ -399,19 +526,40 @@ class RecurringIncomeService:
     reusa RecurringService.occurrences_in_month para o calendário."""
 
     @staticmethod
-    def generate_due_income(db: Session, workspace_id: int, today: date) -> int:
-        """Cria as rendas recorrentes VENCIDAS (data <= hoje) do mês corrente.
+    def generate_due_income(
+        db: Session,
+        workspace_id: int,
+        today: date,
+        *,
+        year: Optional[int] = None,
+        month: Optional[int] = None,
+        template_id: Optional[int] = None,
+    ) -> int:
+        """Cria as rendas recorrentes do MÊS INTEIRO (não só as já vencidas).
 
-        Dedup por (recurring_income, occurrence) — instância excluída deixa
-        tombstone (deleted_at) e não ressuscita. Não faz commit (ADR 0010).
+        A renda de julho é renda de julho mesmo que o salário caia no dia 30:
+        o app é de competência (billing_month), então esperar a data chegar fazia
+        a receita do mês aparecer zerada até o fim do mês. Diferente da despesa,
+        Income não tem status — a data futura em `received_at` já se explica
+        sozinha na lista ("recebe 30/07").
+
+        year/month materializam um mês específico (backfill retroativo);
+        template_id restringe a um template. Dedup por (recurring_income,
+        occurrence) — instância excluída deixa tombstone e não ressuscita.
+        Não faz commit (ADR 0010).
         """
-        billing_month = f"{today.year:04d}-{today.month:02d}"
+        year = year or today.year
+        month = month or today.month
+        billing_month = f"{year:04d}-{month:02d}"
 
-        templates = db.exec(
+        stmt = (
             select(RecurringIncome)
             .where(RecurringIncome.workspace_id == workspace_id)
             .where(RecurringIncome.is_active.is_(True))
-        ).all()
+        )
+        if template_id is not None:
+            stmt = stmt.where(RecurringIncome.id == template_id)
+        templates = db.exec(stmt).all()
         if not templates:
             return 0
 
@@ -430,9 +578,7 @@ class RecurringIncomeService:
 
         created = 0
         for template in templates:
-            for occ in RecurringService.occurrences_in_month(template, today.year, today.month):
-                if occ > today:
-                    continue
+            for occ in RecurringService.occurrences_in_month(template, year, month):
                 if template.frequency in per_occurrence:
                     if (template.id, occ) in existing_dates:
                         continue
@@ -504,8 +650,59 @@ class RecurringMaterializationService:
     @staticmethod
     def ensure_current_month(db: Session, workspace_id: int, today: date) -> dict:
         exp = RecurringService.generate_due_instances(db, workspace_id, today)
+        RecurringService.promote_due_instances(db, workspace_id, today)
         inc = RecurringIncomeService.generate_due_income(db, workspace_id, today)
         return {"expenses": exp, "income": inc}
+
+    # ---- Escopo retroativo (start_date no passado) ---------------------------
+
+    @staticmethod
+    def apply_scope(
+        db: Session,
+        workspace_id: int,
+        template,
+        scope: str,
+        *,
+        is_income: bool,
+        today: Optional[date] = None,
+    ) -> int:
+        """Materializa o template conforme o escopo escolhido para start_date
+        retroativa. Devolve quantas instâncias criou. Não faz commit (ADR 0010).
+
+        past    → desde o mês da start_date até o corrente (teto de 24 meses)
+        current → só o mês corrente (padrão; é o que a leitura preguiçosa faria)
+        future  → nada agora, e empurra start_date para a próxima ocorrência,
+                  senão a materialização preguiçosa recriaria o mês corrente
+                  na primeira tela aberta.
+        """
+        today = today or date.today()
+        if scope not in MATERIALIZE_SCOPES:
+            raise ValueError(f"scope deve ser um de {list(MATERIALIZE_SCOPES)}")
+
+        if scope == "future":
+            nxt = _first_occurrence_after(template, date(today.year, today.month, 1))
+            if nxt is not None:
+                template.start_date = nxt
+                db.add(template)
+            return 0
+
+        if scope == "current":
+            months = [(today.year, today.month)]
+        else:
+            start = template.start_date or date(today.year, today.month, 1)
+            months = _iter_months(start, today)
+
+        created = 0
+        for year, month in months:
+            if is_income:
+                created += RecurringIncomeService.generate_due_income(
+                    db, workspace_id, today, year=year, month=month, template_id=template.id
+                )
+            elif (year, month) == (today.year, today.month):
+                created += RecurringService.generate_due_instances(db, workspace_id, today)
+            else:
+                created += RecurringService.backfill_month(db, template.id, year, month)
+        return created
 
     @staticmethod
     def ensure_and_commit(db: Session, workspace_id: int, today: Optional[date] = None) -> dict:

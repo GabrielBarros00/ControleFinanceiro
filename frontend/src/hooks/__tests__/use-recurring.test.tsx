@@ -62,7 +62,7 @@ describe('useRecurring', () => {
 
     const { result } = renderHook(() => useRecurring(), { wrapper });
 
-    await result.current.create({ title: 'Spotify', base_amount: 21.9, day_of_month: 1 });
+    await result.current.create({ data: { title: 'Spotify', base_amount: 21.9, day_of_month: 1 } });
     
     expect(created).toBe(true);
     await waitFor(() => expect(result.current.recurring).toHaveLength(1));

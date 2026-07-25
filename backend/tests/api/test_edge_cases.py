@@ -149,9 +149,11 @@ def test_statement_closing_day_31_in_february(solo):
         f"/api/v1/workspaces/{solo['ws'].id}/credit-cards/{card_id}/statements",
         headers=_headers(solo["user"]),
     )
-    stmt = res.json()[0]
-    assert stmt["month"] == "2026-02"
+    # A listagem também materializa a fatura do ciclo corrente, então a de
+    # fevereiro não é mais necessariamente a primeira — busca pelo mês.
+    stmt = next(s for s in res.json() if s["month"] == "2026-02")
     assert stmt["closing_date"].startswith("2026-02-28")  # dia 31 limitado ao fim de fev
+    assert stmt["is_current"] is False
 
 
 def test_card_day_out_of_bounds_rejected(solo):

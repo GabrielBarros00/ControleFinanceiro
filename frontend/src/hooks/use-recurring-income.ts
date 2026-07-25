@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { apiClient } from '@/api/client';
 import { useUIStore } from '@/stores';
+import type { MaterializeScope } from '@/lib/recurrence';
 
 export interface RecurringIncome {
   id: number;
@@ -51,17 +52,28 @@ export function useRecurringIncome() {
     invalidateIncome();
   };
 
+  // materialize decide o alcance quando a start_date é retroativa:
+  // 'current' (só o mês corrente, padrão), 'past' (lança o histórico),
+  // 'future' (nada agora; empurra a start_date para a próxima ocorrência)
   const createMutation = useMutation({
-    mutationFn: async (data: Record<string, unknown>) => {
-      const response = await apiClient.post(`/workspaces/${currentWorkspaceId}/recurring-income`, data);
+    mutationFn: async ({ data, materialize }: { data: Record<string, unknown>; materialize?: MaterializeScope }) => {
+      const response = await apiClient.post(
+        `/workspaces/${currentWorkspaceId}/recurring-income`,
+        data,
+        { params: materialize ? { materialize } : undefined },
+      );
       return response.data as RecurringIncome;
     },
     onSuccess: invalidateAll,
   });
 
   const updateMutation = useMutation({
-    mutationFn: async ({ id, data }: { id: number; data: Record<string, unknown> }) => {
-      const response = await apiClient.put(`/workspaces/${currentWorkspaceId}/recurring-income/${id}`, data);
+    mutationFn: async ({ id, data, materialize }: { id: number; data: Record<string, unknown>; materialize?: MaterializeScope }) => {
+      const response = await apiClient.put(
+        `/workspaces/${currentWorkspaceId}/recurring-income/${id}`,
+        data,
+        { params: materialize ? { materialize } : undefined },
+      );
       return response.data as RecurringIncome;
     },
     onSuccess: invalidateAll,

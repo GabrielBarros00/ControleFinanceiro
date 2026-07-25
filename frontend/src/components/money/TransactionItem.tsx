@@ -3,6 +3,7 @@ import type { TransactionRead } from '@/types/transaction';
 import { MoneyText } from './MoneyText';
 import { CategoryGlyph, type CategoryLike } from './CategoryGlyph';
 import { paymentMethodLabel } from '@/lib/payment-methods';
+import { StatusPill, txStatusPill } from '@/components/ui/status-pill';
 import { formatCurrency } from '@/lib/money';
 import { cn } from '@/lib/utils';
 
@@ -35,6 +36,11 @@ export function TransactionItem({
   const kind = amount < 0 ? 'income' : 'expense';
   const splits = tx.splits ?? [];
   const isSplit = splits.length > 1;
+
+  // Pendente/paga/cancelada precisam se explicar na linha: a recorrência do fim
+  // do mês nasce `pending` e fica FORA dos totais — sem a pílula o extrato
+  // pareceria não bater com o saldo do topo.
+  const status = txStatusPill(tx.status);
 
   const meta: string[] = [];
   if (category?.name) meta.push(category.name);
@@ -70,7 +76,10 @@ export function TransactionItem({
       <CategoryGlyph category={category} />
 
       <div className="min-w-0 flex-1">
-        <p className="truncate text-sm font-medium text-foreground">{tx.title}</p>
+        <div className="flex items-center gap-1.5">
+          <p className="truncate text-sm font-medium text-foreground">{tx.title}</p>
+          {status && <StatusPill tone={status.tone}>{status.label}</StatusPill>}
+        </div>
         <p className="truncate text-xs text-muted-foreground">{meta.join(' · ')}</p>
       </div>
 

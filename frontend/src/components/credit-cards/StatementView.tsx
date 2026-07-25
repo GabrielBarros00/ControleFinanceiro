@@ -51,11 +51,13 @@ export function StatementView({ cardId }: { cardId: number | null }) {
   const openDetail = useTxDetailStore((s) => s.open);
   const [selectedStatementId, setSelectedStatementId] = React.useState<number | null>(null);
 
-  // Seleciona a fatura mais recente por padrão
+  // Abre na fatura ATUAL (o ciclo aberto de hoje), não na mais recente da lista:
+  // uma compra com data futura cria uma fatura à frente e roubava a seleção.
   React.useEffect(() => {
     if (statements.length > 0) {
+      const fallback = statements.find((s) => s.is_current) ?? statements[0];
       setSelectedStatementId((current) =>
-        statements.some((s) => s.id === current) ? current : statements[0].id
+        statements.some((s) => s.id === current) ? current : fallback.id
       );
     } else {
       setSelectedStatementId(null);
@@ -136,7 +138,7 @@ export function StatementView({ cardId }: { cardId: number | null }) {
         <div className="flex justify-between items-center flex-wrap gap-3">
           <div>
             <CardTitle className="text-xl">
-              {statement ? `Fatura de ${statement.month}` : 'Fatura'}
+              {statement ? `Fatura de ${statementMonthLabel(statement.month)}` : 'Fatura'}
             </CardTitle>
             {statement && (
               <p className="text-sm text-muted-foreground mt-1">

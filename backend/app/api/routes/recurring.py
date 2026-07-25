@@ -4,12 +4,18 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlmodel import Session, select
 from app.db.session import get_session
 from app.models.category import Category
+from app.models.credit_card import CreditCard
 from app.models.workspace import WorkspaceMembership, WorkspaceRole
 from app.models.recurring import RecurringExpense, RecurrenceFrequency
 from app.models.transaction import Transaction, PaymentMethod, SplitMethod
 from app.api.deps import get_workspace_membership, require_role
 from app.services.event_service import publish_event
-from app.services.recurring_service import RecurringService, EDIT_SCOPES
+from app.services.recurring_service import (
+    EDIT_SCOPES,
+    MATERIALIZE_SCOPES,
+    RecurringMaterializationService,
+    RecurringService,
+)
 from pydantic import BaseModel, Field
 from decimal import Decimal
 
@@ -35,6 +41,7 @@ class RecurringCreate(BaseModel):
     # Snapshot (ADR 0012): materializa despesa completa em vez de nua
     currency: str = "BRL"
     payment_method: Optional[PaymentMethod] = None
+    credit_card_id: Optional[int] = None
     category_id: Optional[int] = None
     payer_user_id: Optional[int] = None
     split_snapshot: Optional[List[RecurringSplitEntry]] = None
@@ -53,6 +60,7 @@ class RecurringUpdate(BaseModel):
     is_active: Optional[bool] = None
     currency: Optional[str] = None
     payment_method: Optional[PaymentMethod] = None
+    credit_card_id: Optional[int] = None
     category_id: Optional[int] = None
     payer_user_id: Optional[int] = None
     split_snapshot: Optional[List[RecurringSplitEntry]] = None
@@ -89,11 +97,24 @@ def _validate_snapshot(
     category_id: Optional[int],
     payer_user_id: Optional[int],
     split_snapshot: Optional[List[RecurringSplitEntry]],
+    credit_card_id: Optional[int] = None,
+    payment_method: Optional[PaymentMethod] = None,
 ) -> None:
     if category_id is not None:
         category = session.get(Category, category_id)
         if not category or category.workspace_id != workspace_id or category.deleted_at:
             raise HTTPException(status_code=400, detail="Categoria inválida para este workspace")
+    if credit_card_id is not None:
+        card = session.get(CreditCard, credit_card_id)
+        if not card or card.workspace_id != workspace_id or card.deleted_at:
+            raise HTTPException(status_code=400, detail="Cartão de crédito inválido para este workspace")
+        # Mesma regra da despesa avulsa: cartão só faz sentido no crédito, senão
+        # a instância cairia numa fatura sem ter sido comprada no cartão
+        if payment_method != PaymentMethod.credit_card:
+            raise HTTPException(
+                status_code=400,
+                detail="Cartão de crédito só se aplica à forma de pagamento 'credit_card'",
+            )
     member_ids = set(session.exec(
         select(WorkspaceMembership.user_id).where(WorkspaceMembership.workspace_id == workspace_id)
     ).all())
@@ -121,8 +142,14 @@ def create_recurring(
     workspace_id: int,
     recurring_in: RecurringCreate,
     session: Session = Depends(get_session),
-    membership: WorkspaceMembership = Depends(require_role(WorkspaceRole.member))
+    membership: WorkspaceMembership = Depends(require_role(WorkspaceRole.member)),
+    materialize: str = Query(
+        "current",
+        description="Escopo da materialização com start_date retroativa: past | current | future",
+    ),
 ):
+    if materialize not in MATERIALIZE_SCOPES:
+        raise HTTPException(status_code=400, detail=f"materialize deve ser um de {list(MATERIALIZE_SCOPES)}")
     _validate_frequency_fields(
         recurring_in.frequency, recurring_in.day_of_week, recurring_in.month_of_year,
         recurring_in.interval, recurring_in.start_date,
@@ -130,6 +157,7 @@ def create_recurring(
     _validate_snapshot(
         session, workspace_id,
         recurring_in.category_id, recurring_in.payer_user_id, recurring_in.split_snapshot,
+        recurring_in.credit_card_id, recurring_in.payment_method,
     )
     data = recurring_in.model_dump(exclude={"split_snapshot"})
     db_recurring = RecurringExpense(
@@ -140,6 +168,9 @@ def create_recurring(
     )
     session.add(db_recurring)
     session.flush()
+    RecurringMaterializationService.apply_scope(
+        session, workspace_id, db_recurring, materialize, is_income=False
+    )
     publish_event(session, workspace_id, "recurring.created", "recurring", db_recurring.id, membership.user_id)
     session.commit()
     session.refresh(db_recurring)
@@ -192,9 +223,15 @@ def update_recurring(
         "future",
         description="Escopo da edição sobre instâncias não pagas: none | future | all",
     ),
+    materialize: str = Query(
+        "current",
+        description="Escopo da materialização com start_date retroativa: past | current | future",
+    ),
 ):
     if scope not in EDIT_SCOPES:
         raise HTTPException(status_code=400, detail=f"scope deve ser um de {list(EDIT_SCOPES)}")
+    if materialize not in MATERIALIZE_SCOPES:
+        raise HTTPException(status_code=400, detail=f"materialize deve ser um de {list(MATERIALIZE_SCOPES)}")
     db_recurring = _get_recurring_or_404(session, workspace_id, recurring_id)
 
     update_data = recurring_in.model_dump(exclude_unset=True)
@@ -213,12 +250,17 @@ def update_recurring(
     _validate_snapshot(
         session, workspace_id,
         db_recurring.category_id, db_recurring.payer_user_id, recurring_in.split_snapshot,
+        db_recurring.credit_card_id, db_recurring.payment_method,
     )
 
     session.add(db_recurring)
     session.flush()
     # Propaga a mudança às instâncias não pagas conforme o escopo (ADR 0012)
     RecurringService.sync_unpaid_instances(session, db_recurring.id, scope)
+    # ...e materializa o que ainda falta conforme o escopo de datas escolhido
+    RecurringMaterializationService.apply_scope(
+        session, workspace_id, db_recurring, materialize, is_income=False
+    )
     publish_event(session, workspace_id, "recurring.updated", "recurring", db_recurring.id, membership.user_id)
     # Instâncias podem ter mudado → invalida caixa/relatórios também
     publish_event(session, workspace_id, "transaction.bulk_updated", "transaction", None, membership.user_id)

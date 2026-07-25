@@ -18,11 +18,14 @@ import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { MoneyInput } from "@/components/ui/MoneyInput";
 import { RecurrenceEditor } from "@/components/recurrence/RecurrenceEditor";
+import { MaterializeScopeField } from "@/components/recurrence/MaterializeScopeField";
 import {
   recurrenceLabel,
   defaultRecurrenceValue,
   recurrenceFromItem,
   toRecurrencePayload,
+  isRetroactiveStart,
+  type MaterializeScope,
   type RecurrenceValue,
 } from "@/lib/recurrence";
 import { formatCurrency, currencySymbol } from '@/lib/money';
@@ -60,8 +63,12 @@ export function IncomePage() {
   const [receivedAt, setReceivedAt] = React.useState(() => new Date().toISOString().slice(0, 10));
   const [currency, setCurrency] = React.useState('BRL');
   const [recurrence, setRecurrence] = React.useState<RecurrenceValue>(defaultRecurrenceValue);
+  // Só usado quando a data de início é retroativa (ver MaterializeScopeField)
+  const [materialize, setMaterialize] = React.useState<MaterializeScope>('current');
   const [saving, setSaving] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
+
+  const retroactive = isRecurring && isRetroactiveStart(recurrence.start_date);
 
   const patchRecurrence = (patch: Partial<RecurrenceValue>) =>
     setRecurrence((r) => ({ ...r, ...patch }));
@@ -73,6 +80,7 @@ export function IncomePage() {
     setCurrency('BRL');
     setRecurrence(defaultRecurrenceValue());
     setIsActive(true);
+    setMaterialize('current');
     setError(null);
   };
 
@@ -127,10 +135,13 @@ export function IncomePage() {
           is_active: isActive,
           ...toRecurrencePayload(recurrence),
         };
+        // `materialize` só viaja quando a pergunta foi feita; senão o backend
+        // usa o padrão 'current' (mês corrente) e nada muda no histórico.
+        const scope = retroactive ? materialize : undefined;
         if (editing?.type === 'recurring') {
-          await updateRecurring({ id: editing.id, data: payload });
+          await updateRecurring({ id: editing.id, data: payload, materialize: scope });
         } else {
-          await createRecurring(payload);
+          await createRecurring({ data: payload, materialize: scope });
         }
       } else {
         const payload = {
@@ -440,6 +451,15 @@ export function IncomePage() {
 
             {isRecurring && (
               <RecurrenceEditor value={recurrence} onChange={patchRecurrence} idPrefix="income" />
+            )}
+
+            {retroactive && (
+              <MaterializeScopeField
+                value={materialize}
+                onChange={setMaterialize}
+                kind="income"
+                idPrefix="income"
+              />
             )}
 
             {isRecurring && editing?.type === 'recurring' && (

@@ -48,6 +48,20 @@ def test_get_reports(analytics_setup, override_get_session):
     assert response.status_code == 200
     assert "monthly_history" in response.json()
 
+
+def test_get_reports_com_mes(analytics_setup, override_get_session):
+    """Relatórios seguem o período escolhido, como as outras telas."""
+    ws_id = analytics_setup["ws"].id
+    headers = analytics_setup["headers"]
+
+    response = client.get(f"/api/v1/workspaces/{ws_id}/analytics/reports?month=2026-05", headers=headers)
+    assert response.status_code == 200
+    # A série de 6 meses termina no mês pedido
+    assert [m["name"] for m in response.json()["monthly_history"]][-1] == "May"
+
+    response = client.get(f"/api/v1/workspaces/{ws_id}/analytics/reports?month=xx", headers=headers)
+    assert response.status_code == 400
+
 def test_get_forecast_variants(analytics_setup, override_get_session):
     ws_id = analytics_setup["ws"].id
     headers = analytics_setup["headers"]

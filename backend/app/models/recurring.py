@@ -41,6 +41,10 @@ class RecurringExpense(RecurringExpenseBase, table=True):
     # transação nua (REC-001).
     currency: str = Field(default="BRL")
     payment_method: Optional[PaymentMethod] = Field(default=None)
+    # Cartão da despesa fixa: sem ele, "assinatura no cartão" nascia solta e nunca
+    # entrava numa fatura — a materialização roteia a instância para o statement
+    # do ciclo da ocorrência (CreditCardService.get_or_create_statement).
+    credit_card_id: Optional[int] = Field(default=None, foreign_key="creditcard.id")
     category_id: Optional[int] = Field(default=None, foreign_key="category.id")
     payer_user_id: Optional[int] = Field(default=None, foreign_key="user.id")
     # Lista de {user_id, split_method, input_value}; None → divisão 100% ao pagador

@@ -153,12 +153,27 @@ def list_statements(
     membership: WorkspaceMembership = Depends(get_workspace_membership)
 ):
     card = _get_card_or_404(session, workspace_id, card_id)
+    # Materializa a fatura do ciclo corrente antes de listar: um mês sem compras
+    # não gerava fatura e a tela abria no mês anterior como se fosse o atual.
+    # Best-effort — nunca derruba o GET (a criação é acessória à leitura).
+    current_month = None
+    try:
+        current_month = CreditCardService.ensure_current_statement(session, card).month
+        session.commit()
+    except Exception:
+        session.rollback()
     statements = session.exec(
         select(CardStatement)
         .where(CardStatement.card_id == card.id)
         .order_by(CardStatement.month.desc())
     ).all()
-    return [_serialize_statement(session, s) for s in statements]
+    # is_current marca o ciclo aberto de hoje. A tela não pode deduzir isso de
+    # "a mais recente": uma compra lançada com data futura cria uma fatura à
+    # frente, e ela não é a fatura atual.
+    return [
+        {**_serialize_statement(session, s), "is_current": s.month == current_month}
+        for s in statements
+    ]
 
 
 @router.get("/{card_id}/statements/{statement_id}")

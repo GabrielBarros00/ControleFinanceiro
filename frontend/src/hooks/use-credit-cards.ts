@@ -12,6 +12,9 @@ export interface CardStatement {
   closed_at: string | null;
   paid_at: string | null;
   is_overdue: boolean;
+  // Ciclo aberto de hoje (calculado no backend a partir do dia de fechamento).
+  // Não é o mesmo que "a mais recente": compra com data futura cria fatura à frente.
+  is_current: boolean;
 }
 
 export interface CreditCardSummary {
