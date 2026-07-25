@@ -37,6 +37,7 @@ import { PAYMENT_METHOD_OPTIONS, paymentMethodLabel } from '@/lib/payment-method
 import { getApiErrorMessage } from '@/lib/api-error';
 import { toast } from '@/stores/toast';
 import { useConfirm } from '@/components/ui/confirm';
+import { todayLocalISO } from '@/lib/date';
 
 // Base UI Select foge do focus-trap do Dialog (Radix) — dentro de modal usamos
 // <select> nativo, mesmo padrão de AmortizationTable/PaymentMethodField.
@@ -83,7 +84,7 @@ interface RecurringItem {
   is_active: boolean;
 }
 
-const todayStr = () => new Date().toISOString().slice(0, 10);
+const todayStr = todayLocalISO;
 
 const DEFAULTS: RecurringValues = {
   title: '',

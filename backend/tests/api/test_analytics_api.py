@@ -77,7 +77,7 @@ def test_get_forecast_variants(analytics_setup, override_get_session):
     # 3. With invalid month format (ValueError trigger)
     response = client.get(f"/api/v1/workspaces/{ws_id}/analytics/forecast?month=invalid", headers=headers)
     assert response.status_code == 400
-    assert "Invalid month format" in response.json()["error"]["message"]
+    assert "Formato de mês inválido" in response.json()["error"]["message"]
 
 def test_estimates_crud_and_variants(analytics_setup, override_get_session):
     ws_id = analytics_setup["ws"].id

@@ -58,7 +58,7 @@ def test_money_split_percentage_rounding():
     total = Money("100.00")
     # 33.33%, 33.33%, 33.34% -> Deve somar 100%
     # No caso de porcentagens que não somam 100, deve falhar
-    with pytest.raises(MoneyError, match="Percentages must sum to 100"):
+    with pytest.raises(MoneyError, match="Os percentuais devem somar 100"):
         total.split_by_percentages([Decimal("33.3"), Decimal("33.3")])
 
 def test_money_negative_not_allowed_by_default():

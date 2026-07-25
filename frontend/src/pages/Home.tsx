@@ -13,8 +13,8 @@ import { StatTile } from '@/components/ui/stat-tile';
 import { HeroBalance } from '@/components/dashboard/HeroBalance';
 import { TransactionLedger } from '@/components/money/TransactionLedger';
 import { formatMoney } from '@/lib/money';
+import { currentMonthLocal } from '@/lib/date';
 
-const currentMonth = () => new Date().toISOString().slice(0, 7);
 
 function daysLeftInMonth(): number {
   const now = new Date();
@@ -26,7 +26,7 @@ export function Home() {
   const { user } = useAuth();
   const { data: reports, isLoading: reportsLoading } = useReports();
   const { forecast, isLoading: forecastLoading } = useAnalytics();
-  const { transactions, isLoading: txLoading } = useTransactions({ page: 1, limit: 6, month: currentMonth() });
+  const { transactions, isLoading: txLoading } = useTransactions({ page: 1, limit: 6, month: currentMonthLocal() });
   const setNewTxOpen = useNewTxStore((s) => s.setOpen);
   const openDetail = useTxDetailStore((s) => s.open);
 

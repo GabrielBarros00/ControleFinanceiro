@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { apiClient } from '@/api/client';
+import { invalidateForEvent } from '@/lib/ws-events';
 import { useUIStore } from '@/stores';
 
 export interface CardStatement {
@@ -143,7 +144,8 @@ export function useStatementActions(cardId: number | null) {
 
   const invalidate = () => {
     queryClient.invalidateQueries({ queryKey: ['statements', currentWorkspaceId, cardId] });
-    queryClient.invalidateQueries({ queryKey: ['credit-cards', currentWorkspaceId] });
+    // Fechar/pagar fatura muda limite comprometido e Endividamento
+    invalidateForEvent(queryClient, 'credit_card.statement_paid', currentWorkspaceId);
   };
 
   const close = useMutation({

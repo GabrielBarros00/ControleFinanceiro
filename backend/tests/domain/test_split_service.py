@@ -62,7 +62,7 @@ def test_calculate_splits_invalid_total_fails():
         {"user_id": 2, "value": Decimal("50.00")}
     ]
     
-    with pytest.raises(ValueError, match="Sum of splits must equal total amount"):
+    with pytest.raises(ValueError, match="A soma da divisão"):
         SplitService.calculate_splits(
             total_amount=total,
             method=SplitMethod.fixed,
@@ -71,15 +71,15 @@ def test_calculate_splits_invalid_total_fails():
 
 def test_calculate_splits_missing_user_ids_equal():
     total = Money("100.00")
-    with pytest.raises(ValueError, match="user_ids is required for equal split"):
+    with pytest.raises(ValueError, match="Divisão igual exige a lista de participantes"):
         SplitService.calculate_splits(total, SplitMethod.equal)
 
 def test_calculate_splits_missing_input_data_percentage():
     total = Money("100.00")
-    with pytest.raises(ValueError, match="input_data is required for percentage split"):
+    with pytest.raises(ValueError, match="Divisão por porcentagem exige"):
         SplitService.calculate_splits(total, SplitMethod.percentage)
 
 def test_calculate_splits_missing_input_data_fixed():
     total = Money("100.00")
-    with pytest.raises(ValueError, match="input_data is required for fixed split"):
+    with pytest.raises(ValueError, match="Divisão por valor fixo exige"):
         SplitService.calculate_splits(total, SplitMethod.fixed)

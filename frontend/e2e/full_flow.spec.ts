@@ -17,7 +17,7 @@ test.describe('Full User Flow', () => {
     await expect(page).toHaveURL('http://localhost:5173/');
 
     // 2. Onboarding (modal de boas-vindas em 3 passos)
-    await expect(page.getByRole('heading', { name: /Bem-vindo,/ })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Início' })).toBeVisible();
     await page.getByRole('button', { name: /Começar Setup/ }).click();
     await page.getByLabel('Salário / Renda Líquida').fill('5000,00');
     await page.getByRole('button', { name: 'Próximo Passo' }).click();
@@ -26,10 +26,10 @@ test.describe('Full User Flow', () => {
       page.waitForNavigation({ waitUntil: 'load' }),
       page.getByRole('button', { name: 'Pular esta etapa' }).click(),
     ]);
-    await expect(page.getByRole('heading', { name: 'Dashboard' })).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByRole('heading', { name: 'Início' })).toBeVisible({ timeout: 15_000 });
 
     // 3. Cria transação pelo modal Nova Despesa
-    await page.getByRole('button', { name: 'Nova Despesa' }).click();
+    await page.locator('header').getByRole('button', { name: 'Nova despesa' }).click();
     const dialog = page.getByRole('dialog');
     await expect(dialog).toBeVisible();
 

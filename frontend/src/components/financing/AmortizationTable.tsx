@@ -15,6 +15,7 @@ import { useFinancing, useFinancingSchedule, type Financing } from '@/hooks/use-
 import { formatCurrency } from '@/lib/money';
 import { toast } from '@/stores/toast';
 import { useConfirm } from '@/components/ui/confirm';
+import { parseApiDate, todayLocalISO } from '@/lib/date';
 
 // Base UI Select abre num portal fora do focus-trap do Dialog (Radix) e fecha
 // na hora — dentro de diálogos usamos <select> nativo (mesmo padrão de
@@ -29,7 +30,7 @@ function CreateFinancingDialog({ open, onOpenChange }: { open: boolean; onOpenCh
   const [interestRate, setInterestRate] = React.useState('1.00'); // % ao mês
   const [installments, setInstallments] = React.useState(12);
   const [method, setMethod] = React.useState<'SAC' | 'PRICE'>('SAC');
-  const [startDate, setStartDate] = React.useState(() => new Date().toISOString().slice(0, 10));
+  const [startDate, setStartDate] = React.useState(todayLocalISO);
   const [saving, setSaving] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
 
@@ -149,7 +150,7 @@ function FinancingDetail({ financing }: { financing: Financing }) {
             </div>
             {nextInstallment && (
               <p className="text-xs text-muted-foreground mt-1">
-                Vence em {new Date(nextInstallment.due_date).toLocaleDateString('pt-BR')}
+                Vence em {parseApiDate(nextInstallment.due_date).toLocaleDateString('pt-BR')}
               </p>
             )}
           </CardContent>
@@ -193,7 +194,7 @@ function FinancingDetail({ financing }: { financing: Financing }) {
               {schedule.map((row) => (
                 <TableRow key={row.id} className="border-border">
                   <TableCell className="text-muted-foreground">{row.installment_number}</TableCell>
-                  <TableCell>{new Date(row.due_date).toLocaleDateString('pt-BR')}</TableCell>
+                  <TableCell>{parseApiDate(row.due_date).toLocaleDateString('pt-BR')}</TableCell>
                   <TableCell>{formatCurrency(parseFloat(row.principal_amount))}</TableCell>
                   <TableCell>{formatCurrency(parseFloat(row.interest_amount))}</TableCell>
                   <TableCell className="font-medium">{formatCurrency(parseFloat(row.total_amount))}</TableCell>

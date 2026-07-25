@@ -36,6 +36,10 @@ async def workspace_events(
             payload = decode_token(token)
             if payload.get("token_type") == "access":
                 user = session.get(User, int(payload.get("sub")))
+                # Conta desativada/excluída não abre socket (mesma regra do
+                # get_current_user e do login)
+                if user and (user.deleted_at is not None or not user.is_active):
+                    user = None
         except Exception:
             user = None
     if not user:

@@ -1,3 +1,9 @@
+// Fuso fixo ANTES de qualquer uso de Date: as regressões de data (mês/dia
+// virando o seguinte após as 21h) só se manifestam em offset negativo, e o CI
+// roda em UTC. `test.env` do vite.config define o mesmo valor; reforçamos aqui
+// porque o Node lê TZ na primeira construção de Date.
+process.env.TZ = 'America/Sao_Paulo';
+
 import '@testing-library/jest-dom';
 import { beforeAll, afterEach, afterAll, vi } from 'vitest';
 import { setupServer } from 'msw/node';

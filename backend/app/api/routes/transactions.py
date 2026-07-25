@@ -522,13 +522,20 @@ def list_transactions(
     if month:
         statement = statement.where(Transaction.billing_month == month)
 
-    # Filtering by search
+    # Filtering by search — '%' e '_' são curingas do LIKE e precisam de escape,
+    # senão buscar "%" casa com TODOS os lançamentos
     if search:
-        statement = statement.where(Transaction.title.contains(search))
+        statement = statement.where(
+            Transaction.title.contains(search, autoescape=True)
+        )
 
-    # Filtering by category (via items)
+    # Filtering by category (via items). DISTINCT: uma despesa com dois itens da
+    # MESMA categoria casava duas vezes no join e aparecia duplicada na lista
+    # (e contava 2 no total).
     if category_id:
-        statement = statement.join(TransactionItem).where(TransactionItem.category_id == category_id)
+        statement = statement.join(TransactionItem).where(
+            TransactionItem.category_id == category_id
+        ).distinct()
 
     # Filtering by payment method
     if payment_method:
@@ -536,11 +543,21 @@ def list_transactions(
 
     # Filtering by tag
     if tag_id:
-        statement = statement.join(TransactionTagLink).where(TransactionTagLink.tag_id == tag_id)
+        statement = statement.join(TransactionTagLink).where(
+            TransactionTagLink.tag_id == tag_id
+        ).distinct()
 
-    # Count total
-    count_statement = select(func.count()).select_from(statement.subquery())
-    total = session.exec(count_statement).one()
+    # Count + soma sobre a MESMA subquery filtrada. A soma referencia
+    # subq.c.total_amount (não Transaction.total_amount): usar a coluna da
+    # tabela aqui produziria um produto cartesiano com a subquery.
+    subq = statement.subquery()
+    total = session.exec(select(func.count()).select_from(subq)).one()
+
+    # Soma do FILTRO INTEIRO (não só da página): a tela mostra "N lançamentos"
+    # global, então o total de saídas ao lado precisa ser da mesma amostra
+    total_amount = session.exec(
+        select(func.coalesce(func.sum(subq.c.total_amount), 0))
+    ).one()
 
     # Final statement with ordering and pagination
     statement = statement.order_by(Transaction.transaction_date.desc()).offset(offset).limit(limit)
@@ -549,6 +566,7 @@ def list_transactions(
     return {
         "items": transactions,
         "total": total,
+        "total_amount": total_amount,
         "page": page,
         "limit": limit,
         "total_pages": math.ceil(total / limit) if total > 0 else 1
@@ -563,7 +581,7 @@ def get_transaction(
 ):
     transaction = session.get(Transaction, transaction_id)
     if not transaction or transaction.workspace_id != workspace_id or transaction.deleted_at:
-        raise HTTPException(status_code=404, detail="Transaction not found")
+        raise HTTPException(status_code=404, detail="Lançamento não encontrado")
 
     return transaction
 
@@ -578,7 +596,7 @@ def update_transaction(
 ):
     db_transaction = session.get(Transaction, transaction_id)
     if not db_transaction or db_transaction.workspace_id != workspace_id or db_transaction.deleted_at:
-        raise HTTPException(status_code=404, detail="Transaction not found")
+        raise HTTPException(status_code=404, detail="Lançamento não encontrado")
 
     # Member edita apenas os próprios lançamentos; admin+ edita qualquer um
     if (
@@ -815,7 +833,7 @@ def delete_transaction(
 ):
     db_transaction = session.get(Transaction, transaction_id)
     if not db_transaction or db_transaction.workspace_id != workspace_id or db_transaction.deleted_at:
-        raise HTTPException(status_code=404, detail="Transaction not found")
+        raise HTTPException(status_code=404, detail="Lançamento não encontrado")
 
     # Member exclui apenas os próprios lançamentos; admin+ exclui qualquer um
     if (
@@ -853,7 +871,7 @@ def _get_group_anchor(
 ) -> Transaction:
     anchor = session.get(Transaction, transaction_id)
     if not anchor or anchor.workspace_id != workspace_id or anchor.deleted_at:
-        raise HTTPException(status_code=404, detail="Transaction not found")
+        raise HTTPException(status_code=404, detail="Lançamento não encontrado")
     # Grupo é coeso: as irmãs compartilham o mesmo criador, então o gate de
     # propriedade vale pela âncora (member só mexe no que é seu; admin+ em tudo)
     if (
@@ -1194,7 +1212,7 @@ def get_installment_group(
     o título base (sem o sufixo i/N)."""
     anchor = session.get(Transaction, transaction_id)
     if not anchor or anchor.workspace_id != workspace_id or anchor.deleted_at:
-        raise HTTPException(status_code=404, detail="Transaction not found")
+        raise HTTPException(status_code=404, detail="Lançamento não encontrado")
     if not anchor.installment_group_id:
         raise HTTPException(status_code=400, detail="Lançamento não é uma compra parcelada")
 

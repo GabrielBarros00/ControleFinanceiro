@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { apiClient } from '@/api/client';
+import { invalidateForEvent } from '@/lib/ws-events';
 import { useUIStore } from '@/stores';
 
 export interface Financing {
@@ -38,8 +39,9 @@ export function useFinancing() {
     enabled: !!currentWorkspaceId,
   });
 
+  // Pagar parcela muda o saldo devedor mostrado em Endividamento também
   const invalidate = () =>
-    queryClient.invalidateQueries({ queryKey: ['financing', currentWorkspaceId] });
+    invalidateForEvent(queryClient, 'financing.updated', currentWorkspaceId);
 
   const createMutation = useMutation({
     mutationFn: async (data: Record<string, unknown>) => {

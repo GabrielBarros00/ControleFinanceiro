@@ -4,6 +4,7 @@ import { useCategories } from '@/hooks/use-categories';
 import { useMembers } from '@/hooks/use-members';
 import { formatMoney } from '@/lib/money';
 import { TransactionItem } from './TransactionItem';
+import { parseApiDate } from '@/lib/date';
 
 /*
  * TransactionLedger — extrato agrupado por dia (docs/frontend-redesign/06 §2).
@@ -11,12 +12,12 @@ import { TransactionItem } from './TransactionItem';
  * por linha. Resolve categoria e nomes de membro uma vez (não por linha).
  */
 function dayKey(iso: string): string {
-  const d = new Date(iso);
+  const d = parseApiDate(iso);
   return `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
 }
 
 function dayLabel(iso: string): string {
-  const d = new Date(iso);
+  const d = parseApiDate(iso);
   const today = new Date();
   const yesterday = new Date();
   yesterday.setDate(today.getDate() - 1);

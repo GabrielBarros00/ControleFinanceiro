@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { apiClient } from '@/api/client';
+import { invalidateForEvent } from '@/lib/ws-events';
 import { useUIStore } from '@/stores';
 
 export interface Settlement {
@@ -33,13 +34,9 @@ export function useSettlements() {
     enabled: !!currentWorkspaceId,
   });
 
-  const invalidate = () => {
-    queryClient.invalidateQueries({ queryKey: ['settlements', currentWorkspaceId] });
-    queryClient.invalidateQueries({ queryKey: ['debts', currentWorkspaceId] });
-    // O ledger mensal agora é ciente de acertos — sem isso a "Dívidas do mês"
-    // não refazia o fetch e parecia que ninguém tinha pago (causa secundária).
-    queryClient.invalidateQueries({ queryKey: ['debts-monthly', currentWorkspaceId] });
-  };
+  // Acerto muda o saldo global E o ledger do mês (que é ciente de acertos)
+  const invalidate = () =>
+    invalidateForEvent(queryClient, 'settlement.created', currentWorkspaceId);
 
   const createMutation = useMutation({
     mutationFn: async (data: SettlementCreate) => {

@@ -73,9 +73,23 @@ def create_settlement(
             detail="Você só pode registrar acertos em que você é o pagador",
         )
 
-    # Direção e teto (ADR 0009): o acerto segue a dívida líquida atual e não
-    # pode excedê-la — sobrepagamento inverteria a relação (crédito artificial)
-    debts = DebtService.get_workspace_debts(session, workspace_id)
+    # Direção e teto (ADR 0009): o acerto segue a dívida líquida e não pode
+    # excedê-la — sobrepagamento inverteria a relação (crédito artificial).
+    #
+    # A referência é a MESMA que o usuário está vendo: com billing_month, o
+    # ledger daquele mês; sem ele, o balanço global. Antes o teto era sempre o
+    # global, então quitar julho era recusado ("não há dívida nessa direção")
+    # sempre que agosto invertia o saldo líquido.
+    if settlement_in.billing_month:
+        ledger = DebtService.get_monthly_ledger(
+            session, workspace_id, settlement_in.billing_month
+        )
+        debts = ledger["net_debts"]
+        escopo = f"do mês {settlement_in.billing_month}"
+    else:
+        debts = DebtService.get_workspace_debts(session, workspace_id)
+        escopo = "atual"
+
     debt = next(
         (
             d for d in debts
@@ -87,12 +101,12 @@ def create_settlement(
     if debt is None:
         raise HTTPException(
             status_code=400,
-            detail="Não há dívida nessa direção para acertar",
+            detail=f"Não há dívida nessa direção para acertar ({escopo})",
         )
     if settlement_in.amount > debt["amount"]:
         raise HTTPException(
             status_code=400,
-            detail=f"Valor excede a dívida atual (R$ {debt['amount']})",
+            detail=f"Valor excede a dívida {escopo} (R$ {debt['amount']})",
         )
 
     db_settlement = Settlement(
@@ -136,7 +150,7 @@ def delete_settlement(
 ):
     db_settlement = session.get(Settlement, settlement_id)
     if not db_settlement or db_settlement.workspace_id != workspace_id or db_settlement.deleted_at:
-        raise HTTPException(status_code=404, detail="Settlement not found")
+        raise HTTPException(status_code=404, detail="Acerto não encontrado")
 
     # Member desfaz apenas os próprios registros; admin+ desfaz qualquer um
     if (

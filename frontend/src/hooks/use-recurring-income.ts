@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { apiClient } from '@/api/client';
+import { invalidateForEvent } from '@/lib/ws-events';
 import { useUIStore } from '@/stores';
 import type { MaterializeScope } from '@/lib/recurrence';
 
@@ -39,11 +40,8 @@ export function useRecurringIncome() {
   const invalidateList = () => queryClient.invalidateQueries({ queryKey });
 
   // Rendas geradas alimentam lista de rendas, relatórios e previsão
-  const invalidateIncome = () => {
-    queryClient.invalidateQueries({ queryKey: ['income', currentWorkspaceId] });
-    queryClient.invalidateQueries({ queryKey: ['reports', currentWorkspaceId] });
-    queryClient.invalidateQueries({ queryKey: ['analytics-forecast', currentWorkspaceId] });
-  };
+  const invalidateIncome = () =>
+    invalidateForEvent(queryClient, 'recurring_income.updated', currentWorkspaceId);
 
   // Criar/editar/excluir template pode materializar (ou re-sincronizar) a renda
   // do mês corrente no backend — refaz a lista de rendas e os relatórios também.

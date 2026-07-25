@@ -5,7 +5,7 @@ from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Response
 from pydantic import BaseModel
-from sqlmodel import Session, select
+from sqlmodel import Session, select, func
 
 from app.core.config import settings
 from app.db.session import get_session
@@ -72,8 +72,32 @@ class AttachmentRead(BaseModel):
 def _get_transaction_or_404(session: Session, workspace_id: int, transaction_id: int) -> Transaction:
     tx = session.get(Transaction, transaction_id)
     if not tx or tx.workspace_id != workspace_id or tx.deleted_at:
-        raise HTTPException(status_code=404, detail="Transaction not found")
+        raise HTTPException(status_code=404, detail="Lançamento não encontrado")
     return tx
+
+
+def _ensure_quota(session: Session, workspace_id: int, incoming_bytes: int) -> None:
+    """Teto de armazenamento por workspace (ADR 0007).
+
+    O conteúdo dos anexos vive no próprio banco, então sem quota qualquer
+    membro enche o Postgres subindo arquivos de 5MB em sequência.
+    """
+    used = session.exec(
+        select(func.coalesce(func.sum(Attachment.size_bytes), 0)).where(
+            Attachment.workspace_id == workspace_id
+        )
+    ).one()
+    limit = settings.ATTACHMENT_QUOTA_BYTES
+    if used + incoming_bytes > limit:
+        limit_mb = limit // (1024 * 1024)
+        used_mb = used // (1024 * 1024)
+        raise HTTPException(
+            status_code=413,
+            detail=(
+                f"Cota de anexos do workspace esgotada ({used_mb} MB de {limit_mb} MB). "
+                "Remova anexos antigos para liberar espaço."
+            ),
+        )
 
 
 @router.post("/transactions/{transaction_id}/attachments", response_model=AttachmentRead)
@@ -101,6 +125,7 @@ async def upload_attachment(
             status_code=400,
             detail="Conteúdo do arquivo não corresponde ao tipo declarado",
         )
+    _ensure_quota(session, workspace_id, len(data))
 
     attachment = Attachment(
         workspace_id=workspace_id,
@@ -144,7 +169,7 @@ def download_attachment(
 ):
     attachment = session.get(Attachment, attachment_id)
     if not attachment or attachment.workspace_id != workspace_id:
-        raise HTTPException(status_code=404, detail="Attachment not found")
+        raise HTTPException(status_code=404, detail="Anexo não encontrado")
 
     filename = quote(attachment.filename)
     return Response(
@@ -167,7 +192,7 @@ def delete_attachment(
 ):
     attachment = session.get(Attachment, attachment_id)
     if not attachment or attachment.workspace_id != workspace_id:
-        raise HTTPException(status_code=404, detail="Attachment not found")
+        raise HTTPException(status_code=404, detail="Anexo não encontrado")
 
     # Member remove apenas os próprios anexos; admin+ remove qualquer um
     if (

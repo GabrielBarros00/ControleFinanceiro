@@ -435,7 +435,7 @@ class RecurringService:
 
         template = db.get(RecurringExpense, template_id)
         if not template or not template.is_active:
-            raise ValueError("Template not found or inactive")
+            raise ValueError("Despesa recorrente não encontrada ou inativa")
 
         last_day = calendar.monthrange(year, month)[1]
         occ = date(year, month, min(template.day_of_month, last_day))

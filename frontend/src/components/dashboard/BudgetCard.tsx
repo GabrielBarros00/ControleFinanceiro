@@ -10,6 +10,7 @@ import { PiggyBank, Loader2 } from 'lucide-react';
 import { useEstimates } from '@/hooks/use-estimates';
 import { formatCurrency } from '@/lib/money';
 import { toast } from '@/stores/toast';
+import { currentMonthLocal } from '@/lib/date';
 
 interface BudgetCardProps {
   totalBudget: number;
@@ -17,7 +18,7 @@ interface BudgetCardProps {
 }
 
 export function BudgetCard({ totalBudget, isOverBudget }: BudgetCardProps) {
-  const currentMonth = new Date().toISOString().slice(0, 7);
+  const currentMonth = currentMonthLocal();
   const { setBudget, isSaving } = useEstimates(currentMonth);
   const [dialogOpen, setDialogOpen] = React.useState(false);
   const [amount, setAmount] = React.useState(totalBudget);

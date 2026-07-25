@@ -15,6 +15,7 @@ import { toast } from '@/stores/toast';
 import { useConfirm } from '@/components/ui/confirm';
 import { PageHeader } from '@/components/layout/PageHeader';
 import { StatTile } from '@/components/ui/stat-tile';
+import { parseApiDate } from '@/lib/date';
 
 interface Debt {
   debtor_id: number;
@@ -279,7 +280,7 @@ export function DebtsPage() {
               <TableBody>
                 {settlements.map((s) => (
                   <TableRow key={s.id} className="border-border hover:bg-accent/30">
-                    <TableCell className="text-xs">{new Date(s.settled_at).toLocaleDateString('pt-BR')}</TableCell>
+                    <TableCell className="text-xs">{parseApiDate(s.settled_at).toLocaleDateString('pt-BR')}</TableCell>
                     <TableCell className="font-bold">{memberName(s.from_user_id)}</TableCell>
                     <TableCell className="font-bold">{memberName(s.to_user_id)}</TableCell>
                     <TableCell className="text-xs text-muted-foreground">{s.note || '—'}</TableCell>

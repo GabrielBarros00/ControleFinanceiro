@@ -46,6 +46,12 @@ class Settings(BaseSettings):
 
     RATE_LIMIT_ENABLED: bool = True
     UPLOAD_MAX_BYTES: int = 5242880  # 5MB
+    # Teto de anexos por workspace (ADR 0007). O conteúdo mora no banco, então
+    # sem quota um único membro enche o Postgres com blobs de 5MB.
+    ATTACHMENT_QUOTA_BYTES: int = 209715200  # 200MB
+    # Teto de linhas por commit de importação: o corpo é JSON livre, então sem
+    # limite um cliente pede a criação de milhões de transações numa transação só
+    IMPORT_MAX_ROWS: int = 5000
 
     # IOF sobre compras internacionais no cartão (crédito/débito). 3,5% desde
     # jul/2025 (Decreto 12.499/2025). É valor regulatório (muda por decreto),

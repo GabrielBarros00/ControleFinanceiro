@@ -30,9 +30,9 @@ test.describe('Stack de produção: tempo real e convite por link', () => {
     const pageA = await contextA.newPage();
     const pageB = await contextB.newPage();
     await pageA.goto('/');
-    await expect(pageA.getByRole('heading', { name: 'Dashboard' })).toBeVisible({ timeout: 15_000 });
+    await expect(pageA.getByRole('heading', { name: 'Início' })).toBeVisible({ timeout: 15_000 });
     await pageB.goto('/');
-    await expect(pageB.getByRole('heading', { name: 'Dashboard' })).toBeVisible({ timeout: 15_000 });
+    await expect(pageB.getByRole('heading', { name: 'Início' })).toBeVisible({ timeout: 15_000 });
 
     await pageB.getByRole('button', { name: /Workspace/i }).click();
     await pageB.getByRole('button', { name: sharedWsName }).click();
@@ -93,7 +93,7 @@ test.describe('Stack de produção: tempo real e convite por link', () => {
 
     // Depois de aceitar, o workspace convidado aparece para Carla
     await pageC.goto('/');
-    await expect(pageC.getByRole('heading', { name: 'Dashboard' })).toBeVisible({ timeout: 15_000 });
+    await expect(pageC.getByRole('heading', { name: 'Início' })).toBeVisible({ timeout: 15_000 });
     const wsListC = await (await contextC.request.get(`${API}/workspaces/`)).json();
     expect(wsListC.some((w: { name: string }) => w.name === linkWsName)).toBeTruthy();
 

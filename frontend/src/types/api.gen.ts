@@ -566,7 +566,11 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Get Reports */
+        /**
+         * Get Reports
+         * @description Relatórios ancorados no mês pedido: as 6 barras terminam nele e o resumo
+         *     é o dele. Sem o parâmetro, o mês corrente (comportamento antigo).
+         */
         get: operations["get_reports_api_v1_workspaces__workspace_id__analytics_reports_get"];
         put?: never;
         post?: never;
@@ -1980,6 +1984,8 @@ export interface components {
              */
             currency: string;
             payment_method?: components["schemas"]["PaymentMethod"] | null;
+            /** Credit Card Id */
+            credit_card_id?: number | null;
             /** Category Id */
             category_id?: number | null;
             /** Payer User Id */
@@ -2027,6 +2033,8 @@ export interface components {
              */
             currency: string;
             payment_method?: components["schemas"]["PaymentMethod"] | null;
+            /** Credit Card Id */
+            credit_card_id?: number | null;
             /** Category Id */
             category_id?: number | null;
             /** Payer User Id */
@@ -2207,6 +2215,8 @@ export interface components {
             /** Currency */
             currency?: string | null;
             payment_method?: components["schemas"]["PaymentMethod"] | null;
+            /** Credit Card Id */
+            credit_card_id?: number | null;
             /** Category Id */
             category_id?: number | null;
             /** Payer User Id */
@@ -2466,6 +2476,11 @@ export interface components {
             items: components["schemas"]["TransactionRead"][];
             /** Total */
             total: number;
+            /**
+             * Total Amount
+             * @default 0
+             */
+            total_amount: string;
             /** Page */
             page: number;
             /** Limit */
@@ -2690,6 +2705,11 @@ export interface components {
             /** Id */
             id: number;
             /**
+             * Base Currency
+             * @default BRL
+             */
+            base_currency: string;
+            /**
              * Created At
              * Format: date-time
              */
@@ -2720,6 +2740,8 @@ export interface components {
             name?: string | null;
             /** Description */
             description?: string | null;
+            /** Base Currency */
+            base_currency?: string | null;
         };
     };
     responses: never;
@@ -3090,7 +3112,9 @@ export interface operations {
             };
             header?: never;
             path?: never;
-            cookie?: never;
+            cookie?: {
+                oauth_state?: string | null;
+            };
         };
         requestBody?: never;
         responses: {
@@ -4211,7 +4235,9 @@ export interface operations {
     };
     get_reports_api_v1_workspaces__workspace_id__analytics_reports_get: {
         parameters: {
-            query?: never;
+            query?: {
+                month?: string | null;
+            };
             header?: never;
             path: {
                 workspace_id: number;
@@ -4818,7 +4844,10 @@ export interface operations {
     };
     create_recurring_api_v1_workspaces__workspace_id__recurring_post: {
         parameters: {
-            query?: never;
+            query?: {
+                /** @description Escopo da materialização com start_date retroativa: past | current | future */
+                materialize?: string;
+            };
             header?: never;
             path: {
                 workspace_id: number;
@@ -4925,6 +4954,8 @@ export interface operations {
             query?: {
                 /** @description Escopo da edição sobre instâncias não pagas: none | future | all */
                 scope?: string;
+                /** @description Escopo da materialização com start_date retroativa: past | current | future */
+                materialize?: string;
             };
             header?: never;
             path: {
@@ -5030,7 +5061,10 @@ export interface operations {
     };
     create_recurring_income_api_v1_workspaces__workspace_id__recurring_income_post: {
         parameters: {
-            query?: never;
+            query?: {
+                /** @description Escopo da materialização com start_date retroativa: past | current | future */
+                materialize?: string;
+            };
             header?: never;
             path: {
                 workspace_id: number;
@@ -5100,7 +5134,10 @@ export interface operations {
     };
     update_recurring_income_api_v1_workspaces__workspace_id__recurring_income__recurring_id__put: {
         parameters: {
-            query?: never;
+            query?: {
+                /** @description Escopo da materialização com start_date retroativa: past | current | future */
+                materialize?: string;
+            };
             header?: never;
             path: {
                 workspace_id: number;

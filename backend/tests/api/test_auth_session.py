@@ -141,7 +141,18 @@ def google_configured(monkeypatch):
 
 
 def _oauth_state() -> str:
-    return create_purpose_token({}, purpose="oauth_state", expires_delta=timedelta(minutes=10))
+    """State válido + o cookie de nonce, como um navegador real faria.
+
+    O callback só aceita o state se o nonce casar com o cookie `oauth_state`
+    posto em /google/login — é o que impede login CSRF.
+    """
+    import secrets
+
+    nonce = secrets.token_urlsafe(24)
+    client.cookies.set("oauth_state", nonce)
+    return create_purpose_token(
+        {"nonce": nonce}, purpose="oauth_state", expires_delta=timedelta(minutes=10)
+    )
 
 
 def test_google_login_unconfigured(override_get_session, monkeypatch):
@@ -155,6 +166,49 @@ def test_google_login_redirects_to_google(google_configured, override_get_sessio
     assert res.status_code == 307
     assert res.headers["location"].startswith("https://accounts.google.com/o/oauth2/v2/auth")
     assert "state=" in res.headers["location"]
+    # O nonce vai num cookie HttpOnly: é ele que amarra o callback a ESTE navegador
+    assert "oauth_state" in res.cookies
+
+
+def test_google_callback_sem_cookie_de_nonce_e_recusado(
+    override_get_session, google_configured, monkeypatch
+):
+    """Login CSRF: state gerado pelo atacante não vale no navegador da vítima."""
+    monkeypatch.setattr(
+        auth_module, "_fetch_google_user",
+        lambda code: {"email": "vitima@example.com", "name": "V", "email_verified": True}
+    )
+    state = create_purpose_token(
+        {"nonce": "nonce-do-atacante"}, purpose="oauth_state", expires_delta=timedelta(minutes=10)
+    )
+    client.cookies.clear()  # navegador da vítima nunca passou por /google/login
+    res = client.get(
+        f"/api/v1/auth/google/callback?code=x&state={state}", follow_redirects=False
+    )
+    assert res.status_code == 307
+    assert "error=google_state_invalido" in res.headers["location"]
+    assert "access_token" not in res.cookies
+
+
+def test_google_callback_conta_desativada_nao_loga(
+    db_session: Session, override_get_session, google_configured, monkeypatch
+):
+    user = _make_user(db_session, email="off_google@example.com")
+    user.is_active = False
+    db_session.add(user)
+    db_session.commit()
+
+    monkeypatch.setattr(
+        auth_module, "_fetch_google_user",
+        lambda code: {"email": "off_google@example.com", "name": "X", "email_verified": True}
+    )
+    client.cookies.clear()
+    res = client.get(
+        f"/api/v1/auth/google/callback?code=x&state={_oauth_state()}", follow_redirects=False
+    )
+    assert res.status_code == 307
+    assert "error=conta_desativada" in res.headers["location"]
+    assert "access_token" not in res.cookies
 
 
 def test_google_callback_creates_user_and_workspace(

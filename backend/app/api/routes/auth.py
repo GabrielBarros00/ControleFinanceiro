@@ -1,6 +1,7 @@
 import hashlib
+import secrets
 from datetime import timedelta
-from typing import Optional
+from typing import List, Optional
 from urllib.parse import urlencode
 
 import httpx
@@ -19,10 +20,21 @@ from app.models.workspace import (
     InviteStatus,
 )
 from app.schemas.user import UserResponse
-from app.core.security import verify_password, get_password_hash
+from app.core.security import verify_password, get_password_hash, spend_dummy_verification
 from app.core.jwt import create_access_token, create_purpose_token, decode_token
-from app.core.cookies import set_auth_cookies, clear_auth_cookies
-from app.services.session_service import start_session, rotate_session, revoke_session, SessionError
+from app.core.cookies import (
+    set_auth_cookies,
+    clear_auth_cookies,
+    set_oauth_state_cookie,
+    clear_oauth_state_cookie,
+)
+from app.services.session_service import (
+    start_session,
+    rotate_session,
+    revoke_session,
+    revoke_all_user_sessions,
+    SessionError,
+)
 from app.core.context import set_current_user_id
 from app.core.rate_limit import rate_limit_auth
 from app.models.audit import ActionType
@@ -49,6 +61,28 @@ GOOGLE_USERINFO_URL = "https://openidconnect.googleapis.com/v1/userinfo"
 def _password_fingerprint(password_hash: str) -> str:
     """Fingerprint do hash atual — invalida tokens de reset após a troca de senha."""
     return hashlib.sha256(password_hash.encode()).hexdigest()[:16]
+
+
+ACCOUNT_DISABLED_DETAIL = "Conta desativada"
+
+
+def _ensure_account_enabled(user: User) -> None:
+    """Recusa emitir sessão para conta desativada/excluída (mesma regra do
+    get_current_user, aplicada também na PORTA DE ENTRADA)."""
+    if user.deleted_at is not None or not user.is_active:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail=ACCOUNT_DISABLED_DETAIL,
+        )
+
+
+def _user_workspace_ids(db: Session, user_id: int) -> List[int]:
+    """Workspaces em que o usuário é membro — alvo dos eventos de perfil."""
+    return list(db.exec(
+        select(WorkspaceMembership.workspace_id).where(
+            WorkspaceMembership.user_id == user_id
+        )
+    ).all())
 
 
 def _setup_default_workspace(db: Session, user: User) -> Workspace:
@@ -251,6 +285,9 @@ async def login(
 ):
     user = db.exec(select(User).where(User.email == login_data.email)).first()
     if not user:
+        # Gasta o mesmo tempo de um verify() real: email inexistente respondia
+        # na hora e email cadastrado demorava, o que enumerava as contas
+        spend_dummy_verification()
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Email ou senha incorretos"
@@ -265,6 +302,9 @@ async def login(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Email ou senha incorretos"
         )
+    # Conta desativada/excluída não emite sessão: antes o login devolvia 200 com
+    # cookies e só as requisições SEGUINTES é que davam 401 (get_current_user)
+    _ensure_account_enabled(user)
 
     access_token = create_access_token(data={"sub": str(user.id)})
     refresh_token = start_session(db, user.id)  # sessão persistida (SEC-004)
@@ -290,10 +330,19 @@ async def update_me(
     db: Session = Depends(get_session),
     current_user: User = Depends(get_current_user)
 ):
+    renamed = data.name is not None and data.name != current_user.name
     if data.name is not None:
         current_user.name = data.name
     current_user.updated_at = datetime.now(UTC)
     db.add(current_user)
+    # O nome aparece na lista de membros, no extrato e no acerto de dívidas de
+    # TODOS os workspaces do usuário — quem estiver com a tela aberta precisa
+    # ver a troca na hora (inclusive as outras abas de quem renomeou).
+    if renamed:
+        for workspace_id in _user_workspace_ids(db, current_user.id):
+            publish_event(
+                db, workspace_id, "member.updated", "member", current_user.id, current_user.id
+            )
     db.commit()
     db.refresh(current_user)
     return current_user
@@ -365,6 +414,7 @@ class ChangePasswordRequest(BaseModel):
 
 @router.post("/change-password")
 async def change_password(
+    response: Response,
     data: ChangePasswordRequest,
     db: Session = Depends(get_session),
     current_user: User = Depends(get_current_user)
@@ -381,6 +431,15 @@ async def change_password(
         )
     current_user.password_hash = get_password_hash(data.new_password)
     db.add(current_user)
+
+    # Trocar a senha derruba TODAS as sessões (SEC-004/ADR 0013): um refresh
+    # token copiado valia os 7 dias inteiros mesmo depois da troca. Em seguida
+    # emitimos uma sessão nova para quem trocou — quem age não é deslogado.
+    revoke_all_user_sessions(db, current_user.id)
+    new_access = create_access_token(data={"sub": str(current_user.id)})
+    new_refresh = start_session(db, current_user.id)
+    set_auth_cookies(response, new_access, new_refresh)
+
     db.commit()
     return {"message": "Senha alterada com sucesso"}
 
@@ -413,8 +472,9 @@ def forgot_password(
     return {"message": "Se o email estiver cadastrado, enviaremos as instruções de recuperação."}
 
 
-@router.post("/reset-password")
+@router.post("/reset-password", dependencies=[Depends(rate_limit_auth)])
 def reset_password(
+    response: Response,
     data: ResetPasswordRequest,
     db: Session = Depends(get_session)
 ):
@@ -437,6 +497,12 @@ def reset_password(
 
     user.password_hash = get_password_hash(data.new_password)
     db.add(user)
+
+    # Recuperação de conta é o caso em que a sessão do atacante PRECISA cair:
+    # revoga tudo e limpa os cookies deste navegador (o fluxo termina no login).
+    revoke_all_user_sessions(db, user.id)
+    clear_auth_cookies(response)
+
     db.commit()
     return {"message": "Senha redefinida com sucesso"}
 
@@ -475,13 +541,19 @@ def _fetch_google_user(code: str) -> dict:
 
 
 @router.get("/google/login")
-def google_login():
+def google_login(response: Response):
     if not _google_configured():
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="Login com Google não está configurado"
         )
-    state = create_purpose_token({}, purpose="oauth_state", expires_delta=timedelta(minutes=10))
+    # Nonce no state E num cookie HttpOnly: o callback só é aceito no navegador
+    # que começou o login (senão o atacante inicia o fluxo na conta dele e
+    # induz a vítima a completar o callback — login CSRF)
+    nonce = secrets.token_urlsafe(24)
+    state = create_purpose_token(
+        {"nonce": nonce}, purpose="oauth_state", expires_delta=timedelta(minutes=10)
+    )
     params = urlencode({
         "client_id": settings.GOOGLE_CLIENT_ID,
         "redirect_uri": settings.GOOGLE_REDIRECT_URI,
@@ -491,7 +563,11 @@ def google_login():
         "access_type": "online",
         "prompt": "select_account",
     })
-    return RedirectResponse(f"{GOOGLE_AUTH_URL}?{params}")
+    redirect = RedirectResponse(f"{GOOGLE_AUTH_URL}?{params}")
+    # RedirectResponse próprio: o cookie precisa ir NELE, não no `response` da
+    # dependency (que não é o objeto devolvido)
+    set_oauth_state_cookie(redirect, nonce)
+    return redirect
 
 
 @router.get("/google/callback")
@@ -499,10 +575,13 @@ def google_callback(
     code: Optional[str] = None,
     state: Optional[str] = None,
     error: Optional[str] = None,
+    oauth_state: Optional[str] = Cookie(None),
     db: Session = Depends(get_session)
 ):
     def fail(reason: str) -> RedirectResponse:
-        return RedirectResponse(f"{settings.FRONTEND_URL}/login?error={reason}")
+        res = RedirectResponse(f"{settings.FRONTEND_URL}/login?error={reason}")
+        clear_oauth_state_cookie(res)
+        return res
 
     if not _google_configured():
         return fail("google_nao_configurado")
@@ -513,6 +592,10 @@ def google_callback(
         payload = decode_token(state)
         if payload.get("token_type") != "oauth_state":
             raise ValueError("State inválido")
+        # O nonce do state tem que casar com o cookie deste navegador
+        nonce = payload.get("nonce")
+        if not nonce or not oauth_state or not secrets.compare_digest(nonce, oauth_state):
+            raise ValueError("Nonce do state não confere com o navegador")
     except Exception:
         return fail("google_state_invalido")
 
@@ -537,10 +620,14 @@ def google_callback(
         db.refresh(user)
         _setup_default_workspace(db, user)
         _accept_pending_invites(db, user)
+    elif user.deleted_at is not None or not user.is_active:
+        # Mesma regra do login local: conta desativada não recebe sessão
+        return fail("conta_desativada")
 
     redirect = RedirectResponse(settings.FRONTEND_URL)
     access_token = create_access_token(data={"sub": str(user.id)})
     refresh_token = start_session(db, user.id)  # sessão persistida (SEC-004)
     set_auth_cookies(redirect, access_token, refresh_token)
+    clear_oauth_state_cookie(redirect)  # nonce é de uso único
     AuditService.log_action(db, ActionType.login, user_id=user.id, resource_type="User", resource_id=user.id)
     return redirect

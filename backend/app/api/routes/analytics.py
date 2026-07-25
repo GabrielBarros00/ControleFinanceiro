@@ -76,7 +76,7 @@ def get_forecast(
             year_str, month_str = month.split("-")
             target_date = date(int(year_str), int(month_str), 1)
         except ValueError:
-            raise HTTPException(status_code=400, detail="Invalid month format. Use YYYY-MM")
+            raise HTTPException(status_code=400, detail="Formato de mês inválido. Use YYYY-MM")
     else:
         target_date = date.today()
 

@@ -14,6 +14,7 @@ import { usePaymentAccounts } from '@/hooks/use-payment-accounts';
 import { getApiErrorMessage } from '@/lib/api-error';
 import { formatCurrency } from '@/lib/money';
 import { useTxDetailStore } from '@/stores';
+import { parseApiDate } from '@/lib/date';
 
 const STATUS_LABELS: Record<string, { label: string; tone: PillTone }> = {
   open: { label: 'Aberta', tone: 'success' },
@@ -142,7 +143,7 @@ export function StatementView({ cardId }: { cardId: number | null }) {
             </CardTitle>
             {statement && (
               <p className="text-sm text-muted-foreground mt-1">
-                Fechamento em {new Date(statement.closing_date).toLocaleDateString('pt-BR')} • Vencimento em {new Date(statement.due_date).toLocaleDateString('pt-BR')}
+                Fechamento em {parseApiDate(statement.closing_date).toLocaleDateString('pt-BR')} • Vencimento em {parseApiDate(statement.due_date).toLocaleDateString('pt-BR')}
               </p>
             )}
           </div>
@@ -206,7 +207,7 @@ export function StatementView({ cardId }: { cardId: number | null }) {
                     className="cursor-pointer border-border hover:bg-accent/30 transition-colors"
                   >
                     <TableCell className="font-medium">
-                      {new Date(tx.transaction_date).toLocaleDateString('pt-BR')}
+                      {parseApiDate(tx.transaction_date).toLocaleDateString('pt-BR')}
                     </TableCell>
                     <TableCell>
                       <div className="flex flex-col">

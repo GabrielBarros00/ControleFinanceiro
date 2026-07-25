@@ -1,6 +1,7 @@
 import * as z from 'zod';
 import { formatCurrency } from '@/lib/money';
 import type { TransactionRead } from '@/types/transaction';
+import { apiDateToInput, todayLocalISO } from '@/lib/date';
 
 const formatPercent = (value: number) =>
   value.toLocaleString('pt-BR', { maximumFractionDigits: 2 });
@@ -253,10 +254,8 @@ function isToday(dateStr: string): boolean {
   return dateStr === todayLocalISO();
 }
 
-export function todayLocalISO(): string {
-  const now = new Date();
-  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
-}
+// Reexportado de @/lib/date: uma única definição de "hoje" no app inteiro
+export { todayLocalISO };
 
 export function toApiPayload(v: TransactionFormValues) {
   // Data de hoje mantém o horário real; retroativa fixa 12:00 local (padrão do
@@ -335,7 +334,7 @@ export function fromApiTransaction(tx: TransactionRead): TransactionFormValues {
     // Estrangeiro: edita o valor/moeda ORIGINAIS (o backend re-converte no save)
     total_amount: tx.original_currency && tx.original_amount ? parseFloat(tx.original_amount) : parseFloat(tx.total_amount),
     currency: tx.original_currency ?? tx.currency ?? 'BRL',
-    transaction_date: tx.transaction_date?.split('T')[0] || todayLocalISO(),
+    transaction_date: tx.transaction_date ? apiDateToInput(tx.transaction_date) : todayLocalISO(),
     payers: (tx.payers ?? []).map((p) => ({
       user_id: String(p.user_id),
       amount: parseFloat(p.amount),

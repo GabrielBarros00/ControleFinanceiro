@@ -6,6 +6,7 @@ import { ChevronLeft, ChevronRight, HandCoins, Loader2, CalendarDays } from 'luc
 import { useMonthlyDebts } from '@/hooks/use-monthly-debts';
 import { useTxDetailStore } from '@/stores';
 import type { SettlementDraft } from '@/components/debts/SettlementDialog';
+import { currentMonthLocal, shiftMonth } from '@/lib/date';
 
 interface MemberLike {
   user_id: number;
@@ -27,13 +28,8 @@ function monthLabel(month: string) {
   return new Date(y, m - 1, 1).toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' });
 }
 
-function shiftMonth(month: string, delta: number) {
-  const [y, m] = month.split('-').map(Number);
-  return new Date(y, m - 1 + delta, 1).toISOString().slice(0, 7);
-}
-
 export function MonthlyDebtsSection({ members, currentUserId, canWrite, onSettle }: MonthlyDebtsSectionProps) {
-  const [month, setMonth] = React.useState(() => new Date().toISOString().slice(0, 7));
+  const [month, setMonth] = React.useState(currentMonthLocal);
   const { ledger, isLoading } = useMonthlyDebts(month);
   const openDetail = useTxDetailStore((s) => s.open);
 
@@ -41,7 +37,7 @@ export function MonthlyDebtsSection({ members, currentUserId, canWrite, onSettle
     members.find((m) => m.user_id === id)?.user_name ?? `Membro #${id}`;
   const memberInitials = (id: number) => memberName(id).slice(0, 2).toUpperCase();
 
-  const isCurrentMonth = month === new Date().toISOString().slice(0, 7);
+  const isCurrentMonth = month === currentMonthLocal();
 
   return (
     <Card className="bg-card border-border shadow-xl">
@@ -66,7 +62,7 @@ export function MonthlyDebtsSection({ members, currentUserId, canWrite, onSettle
             {!isCurrentMonth && (
               <button
                 type="button"
-                onClick={() => setMonth(new Date().toISOString().slice(0, 7))}
+                onClick={() => setMonth(currentMonthLocal())}
                 className="text-[10px] font-bold text-primary hover:underline"
               >
                 voltar para o mês atual

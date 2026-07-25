@@ -13,6 +13,7 @@ import { useLiabilities } from '@/hooks/use-liabilities';
 import { useMembers } from '@/hooks/use-members';
 import { useAuth } from '@/hooks/use-auth';
 import { formatMoney } from '@/lib/money';
+import { currentMonthLocal, shiftMonth } from '@/lib/date';
 import {
   ChevronLeft, ChevronRight, RefreshCcw, Loader2, CalendarDays,
   Landmark, CreditCard, Users, ArrowRight,
@@ -23,11 +24,6 @@ function monthLabel(month: string) {
   return new Date(y, m - 1, 1).toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' });
 }
 
-function shiftMonth(month: string, delta: number) {
-  const [y, m] = month.split('-').map(Number);
-  return new Date(y, m - 1 + delta, 1).toISOString().slice(0, 7);
-}
-
 // Data só-dia (YYYY-MM-DD): monta local para não escorregar um dia no fuso -3.
 function formatDay(iso: string | null) {
   if (!iso) return '—';
@@ -36,7 +32,7 @@ function formatDay(iso: string | null) {
 }
 
 export function EndividamentoPage() {
-  const [month, setMonth] = React.useState(() => new Date().toISOString().slice(0, 7));
+  const [month, setMonth] = React.useState(currentMonthLocal);
   const { overview, isLoading, isError, refetch } = useLiabilities(month);
   const { members } = useMembers();
   const { user } = useAuth();
@@ -45,7 +41,7 @@ export function EndividamentoPage() {
     members.find((m) => m.user_id === id)?.user_name ?? `Membro #${id}`;
   const memberInitials = (id: number) => memberName(id).slice(0, 2).toUpperCase();
 
-  const isCurrentMonth = month === new Date().toISOString().slice(0, 7);
+  const isCurrentMonth = month === currentMonthLocal();
 
   if (isLoading) {
     return (
@@ -136,7 +132,7 @@ export function EndividamentoPage() {
                   {!isCurrentMonth && (
                     <button
                       type="button"
-                      onClick={() => setMonth(new Date().toISOString().slice(0, 7))}
+                      onClick={() => setMonth(currentMonthLocal())}
                       className="text-[10px] font-bold text-primary hover:underline"
                     >
                       voltar para o mês atual

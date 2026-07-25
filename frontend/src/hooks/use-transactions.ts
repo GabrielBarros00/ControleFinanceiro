@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { apiClient } from '@/api/client';
+import { invalidateForEvent } from '@/lib/ws-events';
 import { useUIStore } from '@/stores';
 import type { TransactionRead } from '@/types/transaction';
 
@@ -16,6 +17,8 @@ export interface TransactionFilters {
 export interface TransactionListResponse {
   items: TransactionRead[];
   total: number;
+  /** Soma do filtro inteiro, não só da página que veio. */
+  total_amount: string | number;
   page: number;
   limit: number;
   total_pages: number;
@@ -30,7 +33,7 @@ export function useTransactions(filters: TransactionFilters = { page: 1, limit: 
   const listQuery = useQuery({
     queryKey: ['transactions', currentWorkspaceId, page, limit, month, search, category_id, payment_method, tag_id],
     queryFn: async (): Promise<Pick<TransactionListResponse, 'items' | 'total' | 'total_pages'> & Partial<TransactionListResponse>> => {
-      if (!currentWorkspaceId) return { items: [], total: 0, total_pages: 1 };
+      if (!currentWorkspaceId) return { items: [], total: 0, total_amount: 0, total_pages: 1 };
       const response = await apiClient.get(`/workspaces/${currentWorkspaceId}/transactions/`, {
         params: {
           limit,
@@ -47,15 +50,11 @@ export function useTransactions(filters: TransactionFilters = { page: 1, limit: 
     enabled: !!currentWorkspaceId
   });
 
-  // Lançamento mexe no extrato, nos analytics e no saldo do Início (reports)
-  const invalidateTransactionData = () => {
-    queryClient.invalidateQueries({ queryKey: ['transactions', currentWorkspaceId] });
-    queryClient.invalidateQueries({ queryKey: ['transaction', currentWorkspaceId] });
-    queryClient.invalidateQueries({ queryKey: ['installment-group', currentWorkspaceId] });
-    queryClient.invalidateQueries({ queryKey: ['debts-monthly', currentWorkspaceId] });
-    queryClient.invalidateQueries({ queryKey: ['analytics'] });
-    queryClient.invalidateQueries({ queryKey: ['reports', currentWorkspaceId] });
-  };
+  // Mesma tabela que o WebSocket usa: quem lança vê o mesmo que os outros
+  // membros veem (extrato, detalhe, parcelas, relatórios, previsão, dívidas,
+  // endividamento e fatura do cartão).
+  const invalidateTransactionData = () =>
+    invalidateForEvent(queryClient, 'transaction.updated', currentWorkspaceId);
 
   // Create transaction
   const createMutation = useMutation({
@@ -110,6 +109,8 @@ export function useTransactions(filters: TransactionFilters = { page: 1, limit: 
   return {
     transactions: listQuery.data?.items || [],
     total: listQuery.data?.total || 0,
+    // Soma do filtro inteiro (o backend agrega); Number() por vir como Decimal
+    totalAmount: Number(listQuery.data?.total_amount ?? 0),
     totalPages: listQuery.data?.total_pages || 1,
     currentPage: listQuery.data?.page || 1,
     isLoading: listQuery.isLoading,

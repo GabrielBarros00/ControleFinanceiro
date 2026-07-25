@@ -150,7 +150,9 @@ function AppContent() {
 
           <Route path="/reports" element={
             <ProtectedRoute>
-              <Layout title="Relatórios" subtitle="Análise detalhada de gastos e tendências.">
+              {/* Sem title: a ReportsPage tem PageHeader próprio (carrega o
+                  seletor de período), senão o cabeçalho sai duplicado */}
+              <Layout>
                 <ReportsPage />
               </Layout>
             </ProtectedRoute>

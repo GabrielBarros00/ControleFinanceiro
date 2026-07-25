@@ -66,7 +66,7 @@ class Money:
         0..N-1 centavos para total >= 0) vai 1 centavo por vez aos PRIMEIROS
         participantes (ADR 0001). Soma exata por construção."""
         if sum(percentages) != Decimal("100"):
-            raise MoneyError("Percentages must sum to 100.")
+            raise MoneyError("Os percentuais devem somar 100.")
 
         total_cents = self._total_cents()
         floors = [

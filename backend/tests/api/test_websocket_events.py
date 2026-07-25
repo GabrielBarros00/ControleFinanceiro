@@ -201,3 +201,119 @@ def test_client_ping_gets_pong(rt):
             sock.receive_json()  # hello
             sock.send_text("ping")
             assert sock.receive_json()["type"] == "pong"
+
+
+# --- Cobertura de tempo real das mutações que antes ficavam mudas -----------
+
+
+def test_autor_da_acao_tambem_recebe_o_evento(rt):
+    """Quem faz a mutação recebe o mesmo envelope que os demais membros.
+
+    O broadcast vai para TODOS os sockets da sala, inclusive o do autor — é o
+    que permite a outra aba do mesmo usuário atualizar sozinha.
+    """
+    ws, users = rt["ws"], rt["users"]
+    with TestClient(app) as client:
+        with client.websocket_connect(
+            f"/api/v1/ws/workspaces/{ws.id}", headers=_headers(users["member"])
+        ) as sock_autor, client.websocket_connect(
+            f"/api/v1/ws/workspaces/{ws.id}", headers=_headers(users["owner"])
+        ) as sock_outro:
+            sock_autor.receive_json()
+            sock_outro.receive_json()
+
+            res = client.post(
+                f"/api/v1/workspaces/{ws.id}/categories",
+                json={"name": "Lazer"},
+                headers=_headers(users["member"]),
+            )
+            assert res.status_code in (200, 201)
+
+            evt_autor = sock_autor.receive_json()
+            evt_outro = sock_outro.receive_json()
+            assert evt_autor["type"] == "category.created"
+            assert evt_autor["actor_user_id"] == users["member"].id
+            # Mesmo envelope, mesmo seq: nenhum tratamento especial para o autor
+            assert evt_autor == evt_outro
+
+
+def test_convite_por_email_emite_evento(rt):
+    ws, users = rt["ws"], rt["users"]
+    with TestClient(app) as client:
+        with client.websocket_connect(
+            f"/api/v1/ws/workspaces/{ws.id}", headers=_headers(users["owner"])
+        ) as sock:
+            sock.receive_json()
+            res = client.post(
+                f"/api/v1/workspaces/{ws.id}/invites",
+                json={"email": "novo@convidado.com", "role": "member"},
+                headers=_headers(users["owner"]),
+            )
+            assert res.status_code == 200
+            assert sock.receive_json()["type"] == "invite.created"
+
+
+def test_link_de_convite_e_revogacao_emitem_evento(rt):
+    ws, users = rt["ws"], rt["users"]
+    with TestClient(app) as client:
+        with client.websocket_connect(
+            f"/api/v1/ws/workspaces/{ws.id}", headers=_headers(users["owner"])
+        ) as sock:
+            sock.receive_json()
+
+            res = client.post(
+                f"/api/v1/workspaces/{ws.id}/invites/link",
+                json={"role": "member", "expires_days": 7},
+                headers=_headers(users["owner"]),
+            )
+            assert res.status_code == 200
+            assert sock.receive_json()["type"] == "invite.created"
+            invite_id = res.json()["id"]
+
+            res = client.delete(
+                f"/api/v1/workspaces/{ws.id}/invites/{invite_id}",
+                headers=_headers(users["owner"]),
+            )
+            assert res.status_code == 200
+            assert sock.receive_json()["type"] == "invite.revoked"
+
+
+def test_renomear_perfil_avisa_os_workspaces_do_usuario(rt):
+    """O nome aparece no extrato e nas dívidas — a troca precisa chegar aos outros."""
+    ws, users = rt["ws"], rt["users"]
+    with TestClient(app) as client:
+        with client.websocket_connect(
+            f"/api/v1/ws/workspaces/{ws.id}", headers=_headers(users["owner"])
+        ) as sock:
+            sock.receive_json()
+
+            res = client.patch(
+                "/api/v1/auth/me",
+                json={"name": "Nome Novo"},
+                headers=_headers(users["member"]),
+            )
+            assert res.status_code == 200
+
+            evt = sock.receive_json()
+            assert evt["type"] == "member.updated"
+            assert evt["resource"]["id"] == users["member"].id
+
+
+def test_troca_de_moeda_base_emite_evento_de_resync(rt):
+    ws, users = rt["ws"], rt["users"]
+    with TestClient(app) as client:
+        with client.websocket_connect(
+            f"/api/v1/ws/workspaces/{ws.id}", headers=_headers(users["member"])
+        ) as sock:
+            sock.receive_json()
+
+            res = client.put(
+                f"/api/v1/workspaces/{ws.id}",
+                json={"base_currency": "usd"},
+                headers=_headers(users["owner"]),
+            )
+            assert res.status_code == 200
+            assert res.json()["base_currency"] == "USD"  # normalizado para maiúsculas
+
+            assert sock.receive_json()["type"] == "workspace.updated"
+            assert sock.receive_json()["type"] == "workspace.currency_changed"

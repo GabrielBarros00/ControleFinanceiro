@@ -36,11 +36,11 @@ import { useConfirm } from '@/components/ui/confirm';
 import { PageHeader } from '@/components/layout/PageHeader';
 import { PeriodPicker } from '@/components/layout/PeriodPicker';
 import { MoneyText } from '@/components/money/MoneyText';
+import { currentMonthLocal, parseApiDate, todayLocalISO } from '@/lib/date';
 
-const currentMonth = () => new Date().toISOString().slice(0, 7);
 
 export function IncomePage() {
-  const [month, setMonth] = React.useState(currentMonth);
+  const [month, setMonth] = React.useState(currentMonthLocal);
   const { incomes, isLoading, create, update, remove } = useIncome(month);
   const {
     recurringIncomes,
@@ -60,7 +60,7 @@ export function IncomePage() {
 
   const [title, setTitle] = React.useState('');
   const [amount, setAmount] = React.useState(0);
-  const [receivedAt, setReceivedAt] = React.useState(() => new Date().toISOString().slice(0, 10));
+  const [receivedAt, setReceivedAt] = React.useState(todayLocalISO);
   const [currency, setCurrency] = React.useState('BRL');
   const [recurrence, setRecurrence] = React.useState<RecurrenceValue>(defaultRecurrenceValue);
   // Só usado quando a data de início é retroativa (ver MaterializeScopeField)
@@ -76,7 +76,7 @@ export function IncomePage() {
   const resetForm = () => {
     setTitle('');
     setAmount(0);
-    setReceivedAt(new Date().toISOString().slice(0, 10));
+    setReceivedAt(todayLocalISO());
     setCurrency('BRL');
     setRecurrence(defaultRecurrenceValue());
     setIsActive(true);
@@ -222,7 +222,7 @@ export function IncomePage() {
       <PageHeader
         title="Rendas"
         subtitle={`Salários e entradas do mês — total ${formatCurrency(total)}`}
-        period={<PeriodPicker value={month} max={currentMonth()} onChange={setMonth} />}
+        period={<PeriodPicker value={month} max={currentMonthLocal()} onChange={setMonth} />}
         action={
           <div className="flex items-center gap-2">
             <Button variant="outline" onClick={handleGenerate} disabled={isGenerating} className="gap-2">
@@ -270,7 +270,7 @@ export function IncomePage() {
                   <TableCell>
                     <div className="flex items-center gap-1.5 text-sm font-medium">
                       <Calendar className="h-3.5 w-3.5 text-primary" />
-                      {new Date(income.received_at).toLocaleDateString('pt-BR')}
+                      {parseApiDate(income.received_at).toLocaleDateString('pt-BR')}
                     </div>
                   </TableCell>
                   <TableCell className="text-right">

@@ -1,7 +1,7 @@
 from decimal import Decimal
 from datetime import datetime
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlmodel import Session, select
 from typing import List, Dict, Any, Optional
 import io
@@ -108,7 +108,9 @@ class CommitRow(BaseModel):
 
 class CommitRequest(BaseModel):
     filename: Optional[str] = None
-    rows: List[CommitRow]
+    # Teto de linhas: o corpo é JSON livre, então sem limite um cliente pede a
+    # criação de milhões de transações numa única transação de banco
+    rows: List[CommitRow] = Field(max_length=settings.IMPORT_MAX_ROWS)
 
 
 @router.post("/commit", response_model=Dict[str, Any])

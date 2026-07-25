@@ -83,6 +83,28 @@ def rotate_session(db: Session, refresh_token: str) -> Tuple[int, str]:
     return user_id, _new_refresh(db, user_id, session.family_id)
 
 
+def revoke_all_user_sessions(db: Session, user_id: int) -> int:
+    """Derruba TODAS as sessões vivas do usuário. Devolve quantas revogou.
+
+    Usado na troca e na redefinição de senha: sem isso um refresh token roubado
+    continuava valendo os 7 dias inteiros mesmo depois da vítima trocar a senha
+    — o cenário que o ADR 0013 endereça só cobria o logout. Não faz commit
+    (ADR 0010): quem chama comanda a transação.
+    """
+    now = datetime.now(UTC)
+    revoked = 0
+    for s in db.exec(
+        select(RefreshSession).where(
+            RefreshSession.user_id == user_id,
+            RefreshSession.revoked_at.is_(None),
+        )
+    ).all():
+        s.revoked_at = now
+        db.add(s)
+        revoked += 1
+    return revoked
+
+
 def revoke_session(db: Session, refresh_token: Optional[str]) -> None:
     """Logout: revoga a sessão do token (best-effort — cookie pode estar velho)."""
     if not refresh_token:

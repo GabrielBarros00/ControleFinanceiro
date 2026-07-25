@@ -55,6 +55,9 @@ export function TransactionItem({
 
   return (
     <div
+      // Âncora estável para o E2E: o extrato deixou de ser <table> no redesign,
+      // então não há mais role="row" para localizar a linha
+      data-testid="ledger-row"
       className={cn(
         'group flex items-center gap-3 rounded-lg px-2 py-2.5 transition-colors hover:bg-muted',
         onSelect && 'cursor-pointer',

@@ -101,7 +101,7 @@ export function InviteAcceptPage() {
             </>
           )}
           <Button variant="ghost" className="w-full" onClick={() => navigate('/')}>
-            Voltar ao Dashboard
+            Voltar ao Início
           </Button>
         </CardContent>
       </Card>

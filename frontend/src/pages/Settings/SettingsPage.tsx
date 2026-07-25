@@ -22,8 +22,16 @@ import { getApiErrorMessage } from '@/lib/api-error';
 import { toast } from '@/stores/toast';
 import { useConfirm } from '@/components/ui/confirm';
 import { CategoryGlyph } from '@/components/money/CategoryGlyph';
+import { parseApiDate } from '@/lib/date';
+import { CURRENCIES } from '@/lib/currencies';
 
 type Tab = 'profile' | 'security' | 'members' | 'categories' | 'accounts' | 'appearance' | 'audit';
+
+// Moeda-base do workspace: a lista curada de moedas do app, com o código à mostra
+const BASE_CURRENCY_OPTIONS = CURRENCIES.map((c) => ({
+  value: c.code,
+  label: `${c.code} — ${c.name}`,
+}));
 
 const ROLE_LABELS: Record<WorkspaceRole, string> = {
   owner: 'Dono',
@@ -225,6 +233,11 @@ function MembersTab() {
     setWsName(currentWorkspace?.name ?? '');
   }, [currentWorkspace?.name]);
 
+  const [baseCurrency, setBaseCurrency] = React.useState('BRL');
+  React.useEffect(() => {
+    setBaseCurrency(currentWorkspace?.base_currency ?? 'BRL');
+  }, [currentWorkspace?.base_currency]);
+
   const showError = (err: unknown, fallback: string) => {
     setFeedback({ ok: false, text: getApiErrorMessage(err, fallback) });
   };
@@ -272,20 +285,69 @@ function MembersTab() {
             <CardTitle>Workspace</CardTitle>
             <CardDescription>Nome e configurações de "{currentWorkspace?.name}".</CardDescription>
           </CardHeader>
-          <CardContent className="flex gap-3">
-            <Input value={wsName} onChange={(e) => setWsName(e.target.value)} className="bg-background/50 border-border" />
-            <Button
-              onClick={async () => {
-                try {
-                  await updateWorkspace({ id: currentWorkspace!.id, data: { name: wsName } });
-                  setFeedback({ ok: true, text: 'Workspace renomeado!' });
-                } catch (err) { showError(err, 'Erro ao renomear.'); }
-              }}
-              disabled={!wsName.trim() || wsName === currentWorkspace?.name}
-              className="bg-primary font-bold"
-            >
-              Renomear
-            </Button>
+          <CardContent className="space-y-6">
+            <div className="flex gap-3">
+              <Input value={wsName} onChange={(e) => setWsName(e.target.value)} className="bg-background/50 border-border" />
+              <Button
+                onClick={async () => {
+                  try {
+                    await updateWorkspace({ id: currentWorkspace!.id, data: { name: wsName } });
+                    setFeedback({ ok: true, text: 'Workspace renomeado!' });
+                  } catch (err) { showError(err, 'Erro ao renomear.'); }
+                }}
+                disabled={!wsName.trim() || wsName === currentWorkspace?.name}
+                className="bg-primary font-bold"
+              >
+                Renomear
+              </Button>
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="base-currency">Moeda-base</Label>
+              <p className="text-xs text-muted-foreground">
+                Moeda em que todos os totais são somados. Lançamentos em outra moeda
+                são convertidos na entrada. Trocar recalcula relatórios, dívidas e faturas.
+              </p>
+              <div className="flex gap-3">
+                <Select
+                  items={BASE_CURRENCY_OPTIONS}
+                  value={baseCurrency}
+                  onValueChange={(value) => setBaseCurrency(value as string)}
+                >
+                  <SelectTrigger id="base-currency" className="w-full sm:w-[220px]">
+                    <SelectValue placeholder="Moeda-base" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {BASE_CURRENCY_OPTIONS.map((o) => (
+                      <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <Button
+                  variant="outline"
+                  disabled={!baseCurrency || baseCurrency === currentWorkspace?.base_currency}
+                  onClick={async () => {
+                    const ok = await confirm({
+                      title: 'Trocar a moeda-base',
+                      description:
+                        `Todos os totais passarão a ser somados em ${baseCurrency}. ` +
+                        'Lançamentos já gravados não são reconvertidos.',
+                      confirmLabel: 'Trocar',
+                    });
+                    if (!ok) return;
+                    try {
+                      await updateWorkspace({
+                        id: currentWorkspace!.id,
+                        data: { base_currency: baseCurrency },
+                      });
+                      setFeedback({ ok: true, text: 'Moeda-base atualizada!' });
+                    } catch (err) { showError(err, 'Erro ao trocar a moeda-base.'); }
+                  }}
+                >
+                  Salvar moeda
+                </Button>
+              </div>
+            </div>
           </CardContent>
         </Card>
       )}
@@ -787,7 +849,7 @@ function AuditTab() {
               {entries.map((e) => (
                 <TableRow key={e.id} className="border-border hover:bg-accent/30">
                   <TableCell className="text-sm text-muted-foreground">
-                    {new Date(e.created_at).toLocaleString('pt-BR')}
+                    {parseApiDate(e.created_at).toLocaleString('pt-BR')}
                   </TableCell>
                   <TableCell className="text-sm font-medium text-foreground">{who(e.user_id)}</TableCell>
                   <TableCell className="text-sm">{AUDIT_ACTION_LABELS[e.action] ?? e.action}</TableCell>

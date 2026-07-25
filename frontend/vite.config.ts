@@ -33,6 +33,9 @@ export default defineConfig({
     globals: true,
     environment: 'jsdom',
     setupFiles: './src/test/setup.ts',
+    // Fuso fixo: os bugs de data só aparecem em offset negativo, e o CI roda em
+    // UTC. Sem fixar, o teste passaria na máquina do dev e não pegaria nada lá.
+    env: { TZ: 'America/Sao_Paulo' },
     exclude: ['**/node_modules/**', '**/dist/**', '**/e2e/**', '**/e2e-prod/**', '**/e2e-shots/**'],
     coverage: {
       provider: 'v8',

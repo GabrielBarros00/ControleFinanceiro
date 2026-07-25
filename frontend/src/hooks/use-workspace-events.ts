@@ -2,6 +2,9 @@ import * as React from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { apiClient, baseURL } from '@/api/client';
 import { useAuthStore, useUIStore } from '@/stores';
+import { FULL_RESYNC, keysForEvent } from '@/lib/ws-events';
+
+export { keysForEvent } from '@/lib/ws-events';
 
 const DEBOUNCE_MS = 250;
 const STALE_CONNECTION_MS = 45_000; // servidor manda ping a cada 30s
@@ -12,48 +15,6 @@ export function wsUrl(workspaceId: number): string {
     ? baseURL
     : `${window.location.origin}${baseURL}`;
   return `${base.replace(/^http/, 'ws')}/ws/workspaces/${workspaceId}`;
-}
-
-// Mapa tipo-de-evento → query keys a invalidar (chaves seguem os hooks existentes)
-export function keysForEvent(type: string, wsId: number): unknown[][] {
-  const prefix = type.split('.')[0];
-  switch (prefix) {
-    case 'transaction':
-      return [
-        ['transactions', wsId],
-        ['analytics-forecast', wsId],
-        ['reports', wsId],
-        ['debts', wsId],
-        ['statements', wsId],
-        ['credit-cards', wsId],
-      ];
-    case 'income':
-      return [['income', wsId], ['reports', wsId], ['analytics-forecast', wsId]];
-    case 'credit_card':
-      return [['credit-cards', wsId], ['statements', wsId]];
-    case 'recurring':
-      return [['recurring', wsId], ['analytics-forecast', wsId]];
-    case 'category':
-      return [['categories', wsId], ['reports', wsId]];
-    case 'financing':
-      return [['financing', wsId]];
-    case 'estimate':
-      return [['estimates', wsId], ['analytics-forecast', wsId]];
-    case 'member':
-      return [['members', wsId], ['invites', wsId], ['debts', wsId]];
-    case 'settlement':
-      // Acerto muda o saldo líquido de dívidas (RT-001)
-      return [['settlements', wsId], ['debts', wsId]];
-    case 'attachment':
-      // Anexo pertence a uma transação; invalida a lista de anexos do ws (RT-001)
-      return [['attachments', wsId], ['transactions', wsId]];
-    case 'payment_account':
-      return [['payment-accounts', wsId]];
-    case 'workspace':
-      return [['workspaces']];
-    default:
-      return [];
-  }
 }
 
 /**
@@ -145,7 +106,13 @@ export function useWorkspaceEvents() {
             requestFullResync();
             return;
           }
-          for (const key of keysForEvent(msg.type ?? '', wsId)) {
+          const keys = keysForEvent(msg.type ?? '', wsId);
+          if (keys === FULL_RESYNC) {
+            // Evento que reescreve toda agregação (ex.: troca de moeda-base)
+            requestFullResync();
+            return;
+          }
+          for (const key of keys) {
             pendingKeys.add(JSON.stringify(key));
           }
           scheduleFlush();

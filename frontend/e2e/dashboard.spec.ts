@@ -23,10 +23,10 @@ test.describe('Dashboard and Split Entry Form', () => {
     await page.goto('/');
 
     // Dashboard renderizado
-    await expect(page.getByRole('heading', { name: 'Dashboard' })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Início' })).toBeVisible();
 
     // Abre o modal de Nova Despesa
-    await page.getByRole('button', { name: 'Nova Despesa' }).click();
+    await page.locator('header').getByRole('button', { name: 'Nova despesa' }).click();
     const dialog = page.getByRole('dialog');
     await expect(dialog).toBeVisible();
 

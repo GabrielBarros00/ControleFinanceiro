@@ -5,12 +5,14 @@ import { test, expect, Page } from '@playwright/test';
 // (307 de barra final com Location sem porta → clearStore no use-auth).
 
 const PAGES: Array<[string, string]> = [
+  ['/transactions', 'Lançamentos'],
   ['/income', 'Rendas'],
   ['/cards', 'Cartões de Crédito'],
   ['/financing', 'Financiamentos'],
   ['/reports', 'Relatórios'],
   ['/recurring', 'Recorrência'],
-  ['/debts', 'Dívidas'],
+  ['/debts', 'Dívidas & acertos'],
+  ['/liabilities', 'Endividamento'],
   ['/import', 'Importar'],
   ['/settings', 'Configurações'],
 ];
@@ -37,7 +39,7 @@ test.describe('Sessão atrás do nginx (stack de produção)', () => {
     await page.getByRole('button', { name: 'Cadastrar', exact: true }).click();
 
     await expect(page).toHaveURL(/\/$/, { timeout: 15_000 });
-    await expect(page.getByRole('heading', { name: /Bem-vindo,/ })).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByRole('heading', { name: 'Início' })).toBeVisible({ timeout: 15_000 });
 
     // 2. Onboarding mínimo (salário + pular cartão; "Pular" recarrega a página)
     await page.getByRole('button', { name: /Começar Setup/ }).click();
@@ -47,11 +49,11 @@ test.describe('Sessão atrás do nginx (stack de produção)', () => {
       page.waitForNavigation({ waitUntil: 'load' }),
       page.getByRole('button', { name: 'Pular esta etapa' }).click(),
     ]);
-    await expect(page.getByRole('heading', { name: 'Dashboard' })).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByRole('heading', { name: 'Início' })).toBeVisible({ timeout: 15_000 });
 
     // 3. F5 mantém a sessão (era o sintoma: reload devolvia ao /login)
     await page.reload();
-    await expect(page.getByRole('heading', { name: 'Dashboard' })).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByRole('heading', { name: 'Início' })).toBeVisible({ timeout: 15_000 });
     await expect(page).not.toHaveURL(/\/login/);
 
     // 4. Todas as rotas protegidas abrem sem bounce
@@ -84,6 +86,6 @@ test.describe('Sessão atrás do nginx (stack de produção)', () => {
     await page.getByRole('button', { name: /Acessar Conta/ }).click();
 
     await expect(page).toHaveURL(/\/$/, { timeout: 15_000 });
-    await expect(page.getByRole('heading', { name: 'Dashboard' })).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByRole('heading', { name: 'Início' })).toBeVisible({ timeout: 15_000 });
   });
 });

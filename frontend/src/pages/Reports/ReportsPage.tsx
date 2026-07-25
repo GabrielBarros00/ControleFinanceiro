@@ -25,13 +25,13 @@ import { StatTile } from '@/components/ui/stat-tile';
 import { formatMoney } from '@/lib/money';
 import { PageHeader } from '@/components/layout/PageHeader';
 import { PeriodPicker } from '@/components/layout/PeriodPicker';
+import { currentMonthLocal } from '@/lib/date';
 
-const currentMonth = () => new Date().toISOString().slice(0, 7);
 
 export function ReportsPage() {
   // Relatórios seguem o mesmo período das outras telas — antes ficavam presos
   // no mês corrente, sem como olhar o passado.
-  const [month, setMonth] = React.useState(currentMonth());
+  const [month, setMonth] = React.useState(currentMonthLocal());
   const { data, isLoading, isError } = useReports(month);
   // Cores lidas do tema atual (claro/escuro) — nunca hardcoded (corrige B3)
   const chart = useChartTheme();
@@ -41,7 +41,7 @@ export function ReportsPage() {
     <PageHeader
       title="Relatórios"
       subtitle="Para onde o dinheiro foi."
-      period={<PeriodPicker value={month} max={currentMonth()} onChange={setMonth} />}
+      period={<PeriodPicker value={month} max={currentMonthLocal()} onChange={setMonth} />}
     />
   );
 

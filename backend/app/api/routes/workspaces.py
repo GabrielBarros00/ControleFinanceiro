@@ -1,5 +1,5 @@
 from datetime import datetime, UTC
-from typing import List
+from typing import List, Optional
 
 from fastapi import APIRouter, Depends
 from sqlmodel import Session, select, func
@@ -16,6 +16,22 @@ from app.services.event_service import publish_event
 router = APIRouter(prefix="/workspaces", tags=["workspaces"])
 
 
+def _build_read(
+    workspace: Workspace, owner_name: Optional[str], member_count: int
+) -> WorkspaceRead:
+    return WorkspaceRead(
+        id=workspace.id,
+        name=workspace.name,
+        description=workspace.description,
+        base_currency=workspace.base_currency,
+        created_at=workspace.created_at,
+        updated_at=workspace.updated_at,
+        owner_user_id=workspace.created_by_user_id,
+        owner_name=owner_name,
+        member_count=member_count,
+    )
+
+
 def _to_read(session: Session, workspace: Workspace) -> WorkspaceRead:
     """Enriquece o workspace com o dono (created_by) e o total de membros, para
     o switcher mostrar de quem é o workspace quando compartilhado."""
@@ -28,16 +44,32 @@ def _to_read(session: Session, workspace: Workspace) -> WorkspaceRead:
             WorkspaceMembership.workspace_id == workspace.id
         )
     ).one()
-    return WorkspaceRead(
-        id=workspace.id,
-        name=workspace.name,
-        description=workspace.description,
-        created_at=workspace.created_at,
-        updated_at=workspace.updated_at,
-        owner_user_id=workspace.created_by_user_id,
-        owner_name=owner_name,
-        member_count=member_count,
-    )
+    return _build_read(workspace, owner_name, member_count)
+
+
+def _to_read_many(session: Session, workspaces: List[Workspace]) -> List[WorkspaceRead]:
+    """Versão em lote: 2 queries no total em vez de 2 POR workspace (N+1)."""
+    if not workspaces:
+        return []
+    ws_ids = [w.id for w in workspaces]
+    owner_ids = {w.created_by_user_id for w in workspaces if w.created_by_user_id}
+
+    owner_names = {}
+    if owner_ids:
+        owner_names = {
+            u.id: u.name
+            for u in session.exec(select(User).where(User.id.in_(owner_ids))).all()
+        }
+    counts = dict(session.exec(
+        select(WorkspaceMembership.workspace_id, func.count(WorkspaceMembership.id))
+        .where(WorkspaceMembership.workspace_id.in_(ws_ids))
+        .group_by(WorkspaceMembership.workspace_id)
+    ).all())
+
+    return [
+        _build_read(w, owner_names.get(w.created_by_user_id), counts.get(w.id, 0))
+        for w in workspaces
+    ]
 
 
 @router.post("/", response_model=WorkspaceRead)
@@ -82,7 +114,7 @@ def list_workspaces(
         )
     )
     workspaces = session.exec(statement).all()
-    return [_to_read(session, ws) for ws in workspaces]
+    return _to_read_many(session, list(workspaces))
 
 
 @router.get("/{workspace_id}", response_model=WorkspaceRead)
@@ -102,11 +134,23 @@ def update_workspace(
     membership: WorkspaceMembership = Depends(require_role(WorkspaceRole.admin)),
 ):
     workspace = session.get(Workspace, workspace_id)
-    for key, value in workspace_in.model_dump(exclude_unset=True).items():
+    update_data = workspace_in.model_dump(exclude_unset=True)
+    currency_changed = (
+        "base_currency" in update_data
+        and update_data["base_currency"] != workspace.base_currency
+    )
+    for key, value in update_data.items():
         setattr(workspace, key, value)
     workspace.updated_at = datetime.now(UTC)
     session.add(workspace)
     publish_event(session, workspace_id, "workspace.updated", "workspace", workspace_id, membership.user_id)
+    # Trocar a moeda-base muda TODA agregação (dívidas, relatórios, faturas,
+    # endividamento): sem um evento próprio as telas abertas seguiriam com os
+    # números da moeda antiga até um refetch manual.
+    if currency_changed:
+        publish_event(
+            session, workspace_id, "workspace.currency_changed", "workspace", workspace_id, membership.user_id
+        )
     session.commit()
     session.refresh(workspace)
     return _to_read(session, workspace)

@@ -61,10 +61,10 @@ test.describe('Tempo real entre dois usuários', () => {
     const pageB = await contextB.newPage();
 
     await pageA.goto('/');
-    await expect(pageA.getByRole('heading', { name: 'Dashboard' })).toBeVisible();
+    await expect(pageA.getByRole('heading', { name: 'Início' })).toBeVisible();
 
     await pageB.goto('/');
-    await expect(pageB.getByRole('heading', { name: 'Dashboard' })).toBeVisible();
+    await expect(pageB.getByRole('heading', { name: 'Início' })).toBeVisible();
 
     // B troca para o workspace compartilhado pelo switcher do sidebar
     await pageB.getByRole('button', { name: /Workspace/i }).click();

@@ -17,18 +17,30 @@ import { ErrorState } from '@/components/ui/error-state';
 import { Skeleton } from '@/components/ui/skeleton';
 import { formatMoney } from '@/lib/money';
 import { PAYMENT_METHOD_OPTIONS } from '@/lib/payment-methods';
-import type { TransactionRead } from '@/types/transaction';
+import { currentMonthLocal } from '@/lib/date';
 
-const currentMonth = () => new Date().toISOString().slice(0, 7);
+
+const SEARCH_DEBOUNCE_MS = 300;
 
 export function TransactionsPage() {
   const [filters, setFilters] = React.useState<TransactionFilters>({
     page: 1,
     limit: 15,
-    month: currentMonth(),
+    month: currentMonthLocal(),
     search: '',
   });
-  const { transactions, total, totalPages, currentPage, isLoading, isError, remove } =
+  // O campo responde a cada tecla, mas a query só sai quando o usuário para de
+  // digitar — antes "supermercado" disparava 12 requisições.
+  const [searchInput, setSearchInput] = React.useState('');
+  React.useEffect(() => {
+    const id = setTimeout(
+      () => setFilters((f) => (f.search === searchInput ? f : { ...f, search: searchInput, page: 1 })),
+      SEARCH_DEBOUNCE_MS,
+    );
+    return () => clearTimeout(id);
+  }, [searchInput]);
+
+  const { transactions, total, totalAmount, totalPages, currentPage, isLoading, isError, remove } =
     useTransactions(filters);
   const { canWrite } = useWorkspaceRole();
   const setNewTxOpen = useNewTxStore((s) => s.setOpen);
@@ -53,11 +65,10 @@ export function TransactionsPage() {
     }
   };
 
-  const totalSpent = transactions.reduce(
-    (a: number, t: TransactionRead) => a + Math.max(parseFloat(t.total_amount), 0),
-    0,
-  );
-  const hasFilters = !!filters.search || !!filters.payment_method;
+  // Soma do FILTRO inteiro (vem do backend) — antes era só a página atual,
+  // exibida ao lado de uma contagem global, o que não fechava
+  const totalSpent = totalAmount;
+  const hasFilters = !!searchInput || !!filters.payment_method;
 
   return (
     <div className="space-y-6">
@@ -65,7 +76,7 @@ export function TransactionsPage() {
         title="Lançamentos"
         subtitle="Tudo que entrou e saiu."
         period={
-          <PeriodPicker value={filters.month!} max={currentMonth()} onChange={(m) => patch({ month: m })} />
+          <PeriodPicker value={filters.month!} max={currentMonthLocal()} onChange={(m) => patch({ month: m })} />
         }
         action={
           <Button onClick={() => setNewTxOpen(true)} className="gap-2">
@@ -79,8 +90,8 @@ export function TransactionsPage() {
           <Search className="pointer-events-none absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" />
           <Input
             placeholder="Buscar por descrição..."
-            value={filters.search}
-            onChange={(e) => patch({ search: e.target.value })}
+            value={searchInput}
+            onChange={(e) => setSearchInput(e.target.value)}
             className="pl-9"
           />
         </div>
@@ -106,7 +117,10 @@ export function TransactionsPage() {
             variant="ghost"
             size="icon"
             aria-label="Limpar filtros"
-            onClick={() => patch({ search: '', payment_method: undefined })}
+            onClick={() => {
+              setSearchInput('');
+              patch({ search: '', payment_method: undefined });
+            }}
           >
             <FilterX className="h-4 w-4" />
           </Button>

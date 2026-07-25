@@ -33,7 +33,7 @@ class TagRead(BaseModel):
 def _get_tag_or_404(session: Session, workspace_id: int, tag_id: int) -> Tag:
     tag = session.get(Tag, tag_id)
     if not tag or tag.workspace_id != workspace_id or tag.deleted_at:
-        raise HTTPException(status_code=404, detail="Tag not found")
+        raise HTTPException(status_code=404, detail="Tag não encontrada")
     return tag
 
 

@@ -208,6 +208,8 @@ def create_invite(
         expires_at=datetime.now(UTC) + timedelta(days=7),
     )
     session.add(invite)
+    session.flush()
+    publish_event(session, workspace_id, "invite.created", "invite", invite.id, actor.user_id)
     session.commit()
     session.refresh(invite)
     EmailService.send_workspace_invite(
@@ -238,6 +240,8 @@ def create_invite_link(
         max_uses=data.max_uses,
     )
     session.add(invite)
+    session.flush()
+    publish_event(session, workspace_id, "invite.created", "invite", invite.id, actor.user_id)
     session.commit()
     session.refresh(invite)
 
@@ -274,6 +278,7 @@ def revoke_invite(
         raise HTTPException(status_code=404, detail="Convite não encontrado")
     invite.status = InviteStatus.revoked
     session.add(invite)
+    publish_event(session, workspace_id, "invite.revoked", "invite", invite.id, actor.user_id)
     session.commit()
     return {"status": "ok"}
 
@@ -364,6 +369,11 @@ def accept_invite(
         if invite.max_uses is not None and invite.uses >= invite.max_uses:
             invite.status = InviteStatus.accepted
     session.add(invite)
+    # O convite mudou de estado (aceito / usos consumidos): a tela de convites
+    # do admin precisa refletir isso na hora, não só a lista de membros
+    publish_event(
+        session, invite.workspace_id, "invite.accepted", "invite", invite.id, current_user.id
+    )
     session.commit()
 
     return {"status": "ok", "workspace_id": invite.workspace_id}

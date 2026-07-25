@@ -140,16 +140,75 @@ class ReportService:
         user_id: Optional[int] = None,
         ref_month: Optional[date] = None,
     ) -> List[Dict[str, Any]]:
-        """6 meses terminando em `ref_month` (padrão: mês corrente)."""
-        results = []
+        """6 meses terminando em `ref_month` (padrão: mês corrente).
+
+        Uma query por MÉTRICA agrupando os 6 meses de uma vez, em vez de um
+        get_summary completo por mês (que fazia ~5 queries × 6 = 30 idas ao
+        banco só para desenhar as barras).
+        """
+        base_currency = workspace_base_currency(db, workspace_id)
         first_of_month = (ref_month or date.today()).replace(day=1)
-        for i in range(5, -1, -1):
-            d = add_months(first_of_month, -i)  # mês de calendário, não days=30
-            summary = ReportService.get_summary(db, workspace_id, d, user_id=user_id)
-            results.append({
+        months = [add_months(first_of_month, -i) for i in range(5, -1, -1)]
+
+        window_start = datetime.combine(months[0], datetime.min.time())
+        last = months[-1]
+        last_day_num = calendar.monthrange(last.year, last.month)[1]
+        window_end = datetime.combine(
+            date(last.year, last.month, last_day_num), datetime.max.time()
+        )
+
+        # func.strftime não existe no Postgres e to_char não existe no SQLite:
+        # agrupamos em Python a partir das linhas já filtradas pela janela, que
+        # é curta (6 meses) e continua sendo UMA ida ao banco por métrica.
+        expense_rows = db.exec(
+            select(Transaction.transaction_date, Transaction.total_amount)
+            .where(Transaction.workspace_id == workspace_id)
+            .where(Transaction.transaction_date >= window_start)
+            .where(Transaction.transaction_date <= window_end)
+            .where(Transaction.deleted_at.is_(None))
+            .where(Transaction.status.in_(REALIZED_STATUSES))
+            .where(Transaction.currency == base_currency)
+        ).all()
+        expenses_by_month: Dict[str, Decimal] = {}
+        for dt, amount in expense_rows:
+            key = dt.strftime("%Y-%m")
+            expenses_by_month[key] = expenses_by_month.get(key, Decimal("0.00")) + amount
+
+        income_rows = db.exec(
+            select(Income.received_at, Income.amount)
+            .where(Income.workspace_id == workspace_id)
+            .where(Income.received_at >= window_start)
+            .where(Income.received_at <= window_end)
+            .where(Income.deleted_at.is_(None))
+        ).all()
+        income_by_month: Dict[str, Decimal] = {}
+        for dt, amount in income_rows:
+            key = dt.strftime("%Y-%m")
+            income_by_month[key] = income_by_month.get(key, Decimal("0.00")) + amount
+
+        my_by_month: Dict[str, Decimal] = {}
+        if user_id is not None:
+            my_rows = db.exec(
+                select(Transaction.transaction_date, TransactionSplit.computed_amount)
+                .join(Transaction, Transaction.id == TransactionSplit.transaction_id)
+                .where(Transaction.workspace_id == workspace_id)
+                .where(Transaction.transaction_date >= window_start)
+                .where(Transaction.transaction_date <= window_end)
+                .where(Transaction.deleted_at.is_(None))
+                .where(Transaction.status.in_(REALIZED_STATUSES))
+                .where(Transaction.currency == base_currency)
+                .where(TransactionSplit.user_id == user_id)
+            ).all()
+            for dt, amount in my_rows:
+                key = dt.strftime("%Y-%m")
+                my_by_month[key] = my_by_month.get(key, Decimal("0.00")) + amount
+
+        return [
+            {
                 "name": d.strftime("%b"),
-                "expenses": summary["total_expenses"],
-                "income": summary["total_income"],
-                "my_expenses": summary["my_expenses"],
-            })
-        return results
+                "expenses": expenses_by_month.get(d.strftime("%Y-%m"), Decimal("0.00")),
+                "income": income_by_month.get(d.strftime("%Y-%m"), Decimal("0.00")),
+                "my_expenses": my_by_month.get(d.strftime("%Y-%m"), Decimal("0.00")),
+            }
+            for d in months
+        ]

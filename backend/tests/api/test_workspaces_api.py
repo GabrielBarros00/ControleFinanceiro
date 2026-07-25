@@ -91,7 +91,7 @@ def test_get_workspace_access_control(db_session: Session, test_users, auth_head
     # User 2 CANNOT access WS1 (403 Forbidden)
     response = client.get(f"/api/v1/workspaces/{ws1.id}", headers=auth_headers["u2"])
     assert response.status_code == 403
-    assert response.json()["error"]["message"] == "Not a member of this workspace"
+    assert response.json()["error"]["message"] == "Você não é membro deste workspace"
 
 def test_get_workspace_deleted_but_member(db_session: Session, test_users, auth_headers, override_get_session):
     from datetime import datetime, UTC

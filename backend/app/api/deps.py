@@ -24,7 +24,7 @@ def get_workspace_membership(
         )
     ).first()
     if not membership:
-        raise HTTPException(status_code=403, detail="Not a member of this workspace")
+        raise HTTPException(status_code=403, detail="Você não é membro deste workspace")
     return membership
 
 

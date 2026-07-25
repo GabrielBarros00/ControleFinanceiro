@@ -9,6 +9,7 @@ import { FileUp, Check, Loader2, Settings2, CopyX } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { getApiErrorMessage } from '@/lib/api-error';
 import { toast } from '@/stores/toast';
+import { parseApiDate } from '@/lib/date';
 
 interface ParsedRow {
   line?: number;
@@ -209,7 +210,7 @@ export function ImportPage() {
                   {preview.map((tx, idx) => (
                     <TableRow key={idx} className={`border-border ${tx.duplicate && skipDuplicates ? 'opacity-40' : ''}`}>
                       <TableCell className="text-xs font-medium">
-                        {new Date(tx.transaction_date).toLocaleDateString('pt-BR')}
+                        {parseApiDate(tx.transaction_date).toLocaleDateString('pt-BR')}
                       </TableCell>
                       <TableCell className="text-sm font-bold">
                         <span className="flex items-center gap-2">

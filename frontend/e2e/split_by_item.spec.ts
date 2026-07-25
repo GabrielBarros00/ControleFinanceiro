@@ -10,7 +10,7 @@ async function registerAndOnboard(page: Page, name: string, email: string) {
   await page.getByRole('button', { name: 'Cadastrar', exact: true }).click();
 
   await expect(page).toHaveURL('http://localhost:5173/');
-  await expect(page.getByRole('heading', { name: /Bem-vindo,/ })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Início' })).toBeVisible();
   await page.getByRole('button', { name: /Começar Setup/ }).click();
   await page.getByLabel('Salário / Renda Líquida').fill('5000,00');
   await page.getByRole('button', { name: 'Próximo Passo' }).click();
@@ -18,7 +18,7 @@ async function registerAndOnboard(page: Page, name: string, email: string) {
     page.waitForNavigation({ waitUntil: 'load' }),
     page.getByRole('button', { name: 'Pular esta etapa' }).click(),
   ]);
-  await expect(page.getByRole('heading', { name: 'Dashboard' })).toBeVisible({ timeout: 15_000 });
+  await expect(page.getByRole('heading', { name: 'Início' })).toBeVisible({ timeout: 15_000 });
 }
 
 test.describe('Divisão por item e edição completa', () => {
@@ -27,7 +27,7 @@ test.describe('Divisão por item e edição completa', () => {
     await registerAndOnboard(page, 'Item Tester', email);
 
     // Abre o modal de Nova Despesa
-    await page.getByRole('button', { name: 'Nova Despesa' }).click();
+    await page.locator('header').getByRole('button', { name: 'Nova despesa' }).click();
     const createDialog = page.getByRole('dialog');
     await expect(createDialog).toBeVisible();
 
@@ -56,10 +56,12 @@ test.describe('Divisão por item e edição completa', () => {
     await createDialog.getByRole('button', { name: 'Salvar Despesa' }).click();
     await expect(createDialog).not.toBeVisible({ timeout: 10_000 });
 
-    // Histórico: transação com forma de pagamento Pix
-    const row = page.getByRole('row', { name: /Churrasco E2E/ });
+    // Extrato: transação com forma de pagamento Pix. Editar/excluir só existem
+    // em Lançamentos — no Início a linha abre o detalhe.
+    await page.goto('/transactions');
+    const row = page.getByTestId('ledger-row').filter({ hasText: 'Churrasco E2E' });
     await expect(row).toBeVisible({ timeout: 10_000 });
-    await expect(row.getByText('Pix')).toBeVisible();
+    await expect(row).toContainText('Pix');
 
     // Edição mostra os itens persistidos (tela de detalhe da divisão)
     await row.getByRole('button', { name: 'Editar transação' }).click();
@@ -73,7 +75,7 @@ test.describe('Divisão por item e edição completa', () => {
     const email = `edit_e2e_${Date.now()}@example.com`;
     await registerAndOnboard(page, 'Edit Tester', email);
 
-    await page.getByRole('button', { name: 'Nova Despesa' }).click();
+    await page.locator('header').getByRole('button', { name: 'Nova despesa' }).click();
     const createDialog = page.getByRole('dialog');
     await expect(createDialog).toBeVisible();
     await createDialog.getByLabel('Título / Descrição').fill('Edicao Full E2E');
@@ -81,7 +83,8 @@ test.describe('Divisão por item e edição completa', () => {
     await createDialog.getByRole('button', { name: 'Salvar Despesa' }).click();
     await expect(createDialog).not.toBeVisible({ timeout: 10_000 });
 
-    const row = page.getByRole('row', { name: /Edicao Full E2E/ });
+    await page.goto('/transactions');
+    const row = page.getByTestId('ledger-row').filter({ hasText: 'Edicao Full E2E' });
     await expect(row).toBeVisible({ timeout: 10_000 });
     await row.getByRole('button', { name: 'Editar transação' }).click();
 

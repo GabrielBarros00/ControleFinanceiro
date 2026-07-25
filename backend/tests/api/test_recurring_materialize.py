@@ -16,7 +16,6 @@ from app.models.user import User
 from app.models.workspace import Workspace, WorkspaceMembership
 from app.models.credit_card import CardStatement
 from app.models.income import Income
-from app.models.recurring import RecurringIncome
 from app.models.transaction import Transaction, TransactionItem
 
 client = TestClient(app)

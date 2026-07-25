@@ -5,7 +5,7 @@ from sqlmodel import Session, select
 from app.db.session import get_session
 from app.models.category import Category
 from app.models.credit_card import CreditCard
-from app.models.workspace import WorkspaceMembership, WorkspaceRole
+from app.models.workspace import WorkspaceMembership, WorkspaceRole, role_level
 from app.models.recurring import RecurringExpense, RecurrenceFrequency
 from app.models.transaction import Transaction, PaymentMethod, SplitMethod
 from app.api.deps import get_workspace_membership, require_role
@@ -87,8 +87,23 @@ def _validate_frequency_fields(
 def _get_recurring_or_404(session: Session, workspace_id: int, recurring_id: int) -> RecurringExpense:
     db_recurring = session.get(RecurringExpense, recurring_id)
     if not db_recurring or db_recurring.workspace_id != workspace_id:
-        raise HTTPException(status_code=404, detail="Recurring expense not found")
+        raise HTTPException(status_code=404, detail="Despesa recorrente não encontrada")
     return db_recurring
+
+
+def _check_ownership(membership: WorkspaceMembership, template: RecurringExpense) -> None:
+    """Member mexe só no que é dele; admin+ mexe em tudo.
+
+    Mesmo gate de transações, rendas, acertos e anexos — a recorrência era a
+    única entidade em que qualquer member editava ou apagava template alheio.
+    """
+    if (
+        role_level(membership.role) < role_level(WorkspaceRole.admin)
+        and template.created_by_user_id not in (None, membership.user_id)
+    ):
+        raise HTTPException(
+            status_code=403, detail="Você só pode alterar as próprias despesas recorrentes"
+        )
 
 
 def _validate_snapshot(
@@ -233,6 +248,7 @@ def update_recurring(
     if materialize not in MATERIALIZE_SCOPES:
         raise HTTPException(status_code=400, detail=f"materialize deve ser um de {list(MATERIALIZE_SCOPES)}")
     db_recurring = _get_recurring_or_404(session, workspace_id, recurring_id)
+    _check_ownership(membership, db_recurring)
 
     update_data = recurring_in.model_dump(exclude_unset=True)
     snapshot_provided = "split_snapshot" in update_data
@@ -277,6 +293,7 @@ def delete_recurring(
     membership: WorkspaceMembership = Depends(require_role(WorkspaceRole.member))
 ):
     db_recurring = _get_recurring_or_404(session, workspace_id, recurring_id)
+    _check_ownership(membership, db_recurring)
 
     # Desvincula instâncias já geradas antes de excluir o template — sem isso
     # a FK transaction.recurring_expense_id viola no Postgres (500)

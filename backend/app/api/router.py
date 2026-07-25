@@ -1,4 +1,5 @@
 from fastapi import APIRouter
+from app.core.config import settings
 from app.api.routes import (
     auth, workspaces, members, transactions, income, analytics, credit_cards,
     recurring, recurring_income, debts, imports, categories, financing, settlements, tags, attachments,
@@ -32,4 +33,5 @@ router.include_router(ws_routes.router)
 
 @router.get("/health")
 async def health_check():
-    return {"status": "ok", "version": "4.0.0"}
+    # Versão vem das settings (a constante embutida ia divergir no primeiro bump)
+    return {"status": "ok", "version": settings.APP_VERSION}

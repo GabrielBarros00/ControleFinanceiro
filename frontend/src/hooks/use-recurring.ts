@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { apiClient } from '@/api/client';
+import { invalidateForEvent } from '@/lib/ws-events';
 import { useUIStore } from '@/stores';
 import type { MaterializeScope } from '@/lib/recurrence';
 
@@ -21,12 +22,8 @@ export function useRecurring() {
 
   // Criar/editar/excluir template pode materializar (ou re-sincronizar) a despesa
   // do mês corrente no backend — refaz o extrato e os relatórios também.
-  const invalidateAll = () => {
-    queryClient.invalidateQueries({ queryKey });
-    queryClient.invalidateQueries({ queryKey: ['transactions', currentWorkspaceId] });
-    queryClient.invalidateQueries({ queryKey: ['reports', currentWorkspaceId] });
-    queryClient.invalidateQueries({ queryKey: ['analytics'] });
-  };
+  const invalidateAll = () =>
+    invalidateForEvent(queryClient, 'recurring.updated', currentWorkspaceId);
 
   // materialize decide o alcance quando a start_date é retroativa:
   // 'current' (só o mês corrente, padrão), 'past' (lança o histórico),
@@ -77,9 +74,9 @@ export function useRecurring() {
     },
     onSuccess: (result) => {
       if (result.created > 0) {
-        queryClient.invalidateQueries({ queryKey: ['transactions', currentWorkspaceId] });
-        queryClient.invalidateQueries({ queryKey: ['analytics'] });
-        queryClient.invalidateQueries({ queryKey: ['reports', currentWorkspaceId] });
+        // Materializar cria lançamentos de verdade: mesmo alcance de um
+        // transaction.bulk_created vindo pelo WebSocket
+        invalidateForEvent(queryClient, 'transaction.bulk_created', currentWorkspaceId);
       }
     },
   });

@@ -14,6 +14,7 @@ import { TransactionSummary } from './TransactionSummary';
 import { useCategories } from '@/hooks/use-categories';
 import { paymentMethodLabel } from '@/lib/payment-methods';
 import { formatCurrency } from '@/lib/money';
+import { parseApiDate } from '@/lib/date';
 
 const STATUS_STYLES: Record<TransactionStatus, { label: string; className: string }> = {
   draft: { label: 'Rascunho', className: 'bg-muted text-muted-foreground border-border' },
@@ -53,7 +54,7 @@ export function TransactionDetailDialog({
   const categoryName = categoryId != null ? categories.find((c) => c.id === categoryId)?.name : undefined;
   const isPaid = transaction.status === 'paid';
   const status = STATUS_STYLES[transaction.status];
-  const dateLabel = new Date(transaction.transaction_date).toLocaleDateString('pt-BR', {
+  const dateLabel = parseApiDate(transaction.transaction_date).toLocaleDateString('pt-BR', {
     day: '2-digit',
     month: 'long',
     year: 'numeric',

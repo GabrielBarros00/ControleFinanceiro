@@ -10,6 +10,13 @@ from app.models.transaction import (
     PaymentMethod,
 )
 
+# Tetos de texto livre. O import e o /bulk já truncavam em 200; a criação
+# manual não validava nada e aceitava um título de 5000 caracteres, que depois
+# estourava o layout de toda lista onde o lançamento aparece.
+TITLE_MAX = 200
+DESCRIPTION_MAX = 2000
+
+
 class TransactionPayerBase(BaseModel):
     user_id: int
     amount: Decimal = Field(ge=0)
@@ -33,8 +40,8 @@ class TransactionItemShareRead(TransactionItemShareBase):
     computed_amount: Decimal
 
 class TransactionItemBase(BaseModel):
-    title: str
-    description: Optional[str] = None
+    title: str = Field(min_length=1, max_length=TITLE_MAX)
+    description: Optional[str] = Field(default=None, max_length=DESCRIPTION_MAX)
     amount: Decimal  # total da linha (fonte de verdade para somas)
     quantity: Decimal = Field(default=Decimal("1"), gt=0)
     unit_amount: Optional[Decimal] = Field(default=None, ge=0)
@@ -56,7 +63,7 @@ class TransactionTagRead(BaseModel):
 
 class TransactionAdjustmentBase(BaseModel):
     type: AdjustmentType = AdjustmentType.other
-    description: Optional[str] = None
+    description: Optional[str] = Field(default=None, max_length=DESCRIPTION_MAX)
     amount: Decimal  # sinal explícito conforme o tipo
 
 
@@ -82,8 +89,8 @@ class TransactionAdjustmentRead(TransactionAdjustmentBase):
     id: int
 
 class TransactionBase(BaseModel):
-    title: str
-    description: Optional[str] = None
+    title: str = Field(min_length=1, max_length=TITLE_MAX)
+    description: Optional[str] = Field(default=None, max_length=DESCRIPTION_MAX)
     currency: str = "BRL"
     total_amount: Decimal
     transaction_date: datetime
@@ -285,8 +292,8 @@ class TransactionRead(TransactionBase):
     tags: List[TransactionTagRead] = []
 
 class TransactionUpdate(BaseModel):
-    title: Optional[str] = None
-    description: Optional[str] = None
+    title: Optional[str] = Field(default=None, min_length=1, max_length=TITLE_MAX)
+    description: Optional[str] = Field(default=None, max_length=DESCRIPTION_MAX)
     total_amount: Optional[Decimal] = Field(default=None, gt=0)
     # Moeda do lançamento na edição: estrangeira dispara reconversão para BRL
     currency: Optional[str] = None
@@ -317,6 +324,9 @@ class TransactionUpdate(BaseModel):
 class TransactionListResponse(BaseModel):
     items: List[TransactionRead]
     total: int
+    # Soma do filtro inteiro (não só da página que veio) — a tela exibe esse
+    # total ao lado da contagem, e as duas precisam falar da mesma amostra
+    total_amount: Decimal = Decimal("0")
     page: int
     limit: int
     total_pages: int

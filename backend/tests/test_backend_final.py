@@ -76,7 +76,7 @@ def test_recurring_service_branch_inactive(db_session: Session, seed_ws):
     db_session.commit()
     db_session.refresh(template)
     
-    with pytest.raises(ValueError, match="Template not found or inactive"):
+    with pytest.raises(ValueError, match="Despesa recorrente não encontrada ou inativa"):
         RecurringService.get_or_create_monthly_instance(db_session, template.id, 2026, 1)
 
 def test_recurring_service_sync_no_txs(db_session: Session, seed_ws):
