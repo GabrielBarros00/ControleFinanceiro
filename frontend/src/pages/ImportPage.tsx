@@ -24,6 +24,9 @@ interface SkippedRow {
   reason: string;
 }
 
+// Espelha settings.IMPORT_MAX_ROWS do backend (que devolve 422 acima disso).
+const IMPORT_MAX_ROWS = 5000;
+
 export function ImportPage() {
   const navigate = useNavigate();
   const { parse, isParsing, commit, isCommitting } = useImports();
@@ -53,6 +56,19 @@ export function ImportPage() {
     if (!file) return;
     try {
       const data = await parse({ file, mapping });
+      // O backend recusa o commit acima de IMPORT_MAX_ROWS. Avisar AQUI evita
+      // dois problemas: a tela renderizava uma linha por registro sem
+      // virtualização (dezenas de milhares travavam o navegador) e o usuário só
+      // descobria o limite depois de revisar o arquivo inteiro, num 422 seco.
+      if (data.rows.length > IMPORT_MAX_ROWS) {
+        toast.error(
+          `O arquivo tem ${data.rows.length.toLocaleString('pt-BR')} linhas e o limite por ` +
+          `importação é ${IMPORT_MAX_ROWS.toLocaleString('pt-BR')}. Divida o arquivo e importe em partes.`
+        );
+        setPreview(null);
+        setSkippedRows([]);
+        return;
+      }
       setPreview(data.rows);
       setSkippedRows(data.skipped);
     } catch (err) {

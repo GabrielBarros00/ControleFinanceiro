@@ -32,10 +32,17 @@ def _mark_duplicates(session: Session, workspace_id: int, rows: List[Dict[str, A
     de uma transação já existente no workspace."""
     if not rows:
         return
+    # Só a JANELA de datas do arquivo. Antes carregava TODAS as transações vivas
+    # do workspace em memória a cada parse: com anos de histórico e um CSV de
+    # 5 MB, o pico crescia sem teto e a resposta ia junto.
+    datas = [row["transaction_date"] for row in rows]
+    inicio, fim = min(datas), max(datas)
     existing = session.exec(
         select(Transaction.transaction_date, Transaction.total_amount, Transaction.title)
         .where(Transaction.workspace_id == workspace_id)
         .where(Transaction.deleted_at.is_(None))
+        .where(Transaction.transaction_date >= inicio)
+        .where(Transaction.transaction_date <= fim)
     ).all()
     existing_keys = {
         (tx_date.date(), int(amount * 100), title.strip().lower())

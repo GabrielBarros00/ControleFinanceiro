@@ -1,6 +1,7 @@
+import * as React from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { apiClient } from '@/api/client';
-import { useUIStore } from '@/stores';
+import { useAuthStore, useUIStore } from '@/stores';
 
 export type WorkspaceRole = 'owner' | 'admin' | 'member' | 'viewer';
 
@@ -25,6 +26,7 @@ export interface Invite {
 export function useMembers() {
   const queryClient = useQueryClient();
   const { currentWorkspaceId } = useUIStore();
+  const currentUserId = useAuthStore((s) => s.user?.id);
 
   const membersQuery = useQuery({
     queryKey: ['members', currentWorkspaceId],
@@ -35,14 +37,24 @@ export function useMembers() {
     enabled: !!currentWorkspaceId,
   });
 
+  // A lista de convites é restrita a admin/owner no backend. Sem este gate, TODO
+  // usuário disparava a requisição e levava 403 em cada carga de página — ruído
+  // no log e uma ida à rede garantidamente inútil. O papel é derivado dos
+  // membros já carregados (não dá para usar useWorkspaceRole aqui: ele depende
+  // deste mesmo hook).
+  const isAdmin = React.useMemo(() => {
+    const eu = membersQuery.data?.find((m) => m.user_id === currentUserId);
+    return eu?.role === 'admin' || eu?.role === 'owner';
+  }, [membersQuery.data, currentUserId]);
+
   const invitesQuery = useQuery({
     queryKey: ['invites', currentWorkspaceId],
     queryFn: async (): Promise<Invite[]> => {
       const response = await apiClient.get(`/workspaces/${currentWorkspaceId}/invites`);
       return response.data;
     },
-    enabled: !!currentWorkspaceId,
-    retry: false, // 403 para não-admins é esperado
+    enabled: !!currentWorkspaceId && isAdmin,
+    retry: false,
   });
 
   const invalidate = () => {

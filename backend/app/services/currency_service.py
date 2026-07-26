@@ -31,6 +31,10 @@ class CurrencyService:
     # Moedas cotadas oficialmente pelo PTAX (CotacaoMoedaDia). Fora dessas, cai
     # numa fonte de MERCADO (referência, não oficial).
     PTAX_CURRENCIES = {"AUD", "CAD", "CHF", "DKK", "EUR", "GBP", "JPY", "NOK", "SEK", "USD"}
+    # Cache em memória com TETO. Era um dict de classe sem eviction: uma chave
+    # por (moeda, data), crescendo para sempre no processo. O cache REAL é a
+    # tabela `exchangerate`; este aqui só evita repetir a busca no mesmo request.
+    _CACHE_MAX = 512
     _cache_sync: Dict[str, tuple] = {}
 
     @classmethod
@@ -58,6 +62,8 @@ class CurrencyService:
             result = (cls._fetch_ptax_sync(from_code, target_date), "ptax")
         else:
             result = (cls._fetch_market_sync(from_code, to_code, target_date), "market")
+        if len(cls._cache_sync) >= cls._CACHE_MAX:
+            cls._cache_sync.clear()
         cls._cache_sync[cache_key] = result
         return result
 

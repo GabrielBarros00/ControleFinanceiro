@@ -52,6 +52,41 @@ services:
       timeout: 5s
       retries: 10
 
+  # Tarefas periódicas do backend. Reusa a MESMA imagem (mesmo código, mesmas
+  # dependências) e roda um laço simples em vez de cron — assim não há um
+  # segundo Dockerfile nem crontab para manter em sincronia.
+  #
+  # Sem este serviço, o store de câmbio só era preenchido pelo caminho
+  # preguiçoso, que agora é offline: uma recorrência estrangeira simplesmente
+  # não materializava até alguém salvar algo. O backfill mantém o store quente.
+  cron:
+    build: ./backend
+    restart: unless-stopped
+    environment:
+      TZ: ${TZ:-America/Sao_Paulo}
+      APP_ENV: ${APP_ENV:-production}
+      DATABASE_URL: postgresql://${POSTGRES_USER:-cf4}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-controle_financeiro}
+      SECRET_KEY: ${SECRET_KEY:?defina SECRET_KEY no .env}
+      COOKIE_SECURE: ${COOKIE_SECURE:-True}
+      ALLOWED_HOSTS: ${ALLOWED_HOSTS:-}
+      FRONTEND_URL: ${FRONTEND_URL:-http://localhost}
+    depends_on:
+      backend:
+        condition: service_healthy
+    # Câmbio de hora em hora (barato e idempotente: pula o que já existe);
+    # expurgo de auditoria/eventos/sessões uma vez por dia.
+    command: >
+      sh -c 'horas=0;
+      while true; do
+        python scripts/backfill_rates.py 7 || true;
+        horas=$$((horas + 1));
+        if [ $$horas -ge 24 ]; then
+          python scripts/purge_old_records.py 180 || true;
+          horas=0;
+        fi;
+        sleep 3600;
+      done'
+
   frontend:
     build: ./frontend
     restart: unless-stopped

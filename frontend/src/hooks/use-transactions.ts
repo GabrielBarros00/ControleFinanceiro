@@ -24,7 +24,14 @@ export interface TransactionListResponse {
   total_pages: number;
 }
 
-export function useTransactions(filters: TransactionFilters = { page: 1, limit: 10 }) {
+export function useTransactions(
+  filters: TransactionFilters = { page: 1, limit: 10 },
+  // `false` desliga a listagem e deixa só as mutations. Existe porque o
+  // TransactionDetailHost (montado no AppShell, ou seja, em TODAS as telas)
+  // chamava este hook só para pegar create/update/delete — e disparava uma
+  // requisição de extrato a mais em cada página, duas na Home.
+  enableList = true,
+) {
   const queryClient = useQueryClient();
   const { currentWorkspaceId } = useUIStore();
   const { page = 1, limit = 10, month, search, category_id, payment_method, tag_id } = filters;
@@ -47,7 +54,7 @@ export function useTransactions(filters: TransactionFilters = { page: 1, limit: 
       });
       return response.data; // { items, total, page, limit, total_pages }
     },
-    enabled: !!currentWorkspaceId
+    enabled: !!currentWorkspaceId && enableList
   });
 
   // Mesma tabela que o WebSocket usa: quem lança vê o mesmo que os outros

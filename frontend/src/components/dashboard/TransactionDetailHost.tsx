@@ -13,7 +13,9 @@ import { TransactionDialog } from './TransactionDialog';
 export function TransactionDetailHost() {
   const { txId, mode, setMode, close } = useTxDetailStore();
   const { transaction } = useTransaction(txId);
-  const { update, updateGroup, remove, removeGroup } = useTransactions();
+  // Só as mutations: sem `false`, este host (montado no AppShell) disparava uma
+  // listagem de extrato em toda tela autenticada — duas na Home.
+  const { update, updateGroup, remove, removeGroup } = useTransactions(undefined, false);
   const { canWrite } = useWorkspaceRole();
   const confirm = useConfirm();
 

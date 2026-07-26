@@ -362,7 +362,8 @@ class RecurringService:
 
     @staticmethod
     def generate_due_instances(
-        db: Session, workspace_id: int, today: date, *, allow_fetch: bool = True
+        db: Session, workspace_id: int, today: date, *,
+        allow_fetch: bool = True, template_id: Optional[int] = None,
     ) -> int:
         """Materializa as instâncias do MÊS CORRENTE INTEIRO.
 
@@ -377,11 +378,16 @@ class RecurringService:
         """
         billing_month = f"{today.year:04d}-{today.month:02d}"
 
-        templates = db.exec(
+        stmt = (
             select(RecurringExpense)
             .where(RecurringExpense.workspace_id == workspace_id)
             .where(RecurringExpense.is_active.is_(True))
-        ).all()
+        )
+        # template_id restringe ao template editado: sem isso, salvar UMA
+        # recorrência varria e materializava TODAS as do workspace.
+        if template_id is not None:
+            stmt = stmt.where(RecurringExpense.id == template_id)
+        templates = db.exec(stmt).all()
         if not templates:
             return 0
 
@@ -783,7 +789,9 @@ class RecurringMaterializationService:
                     db, workspace_id, today, year=year, month=month, template_id=template.id
                 )
             elif (year, month) == (today.year, today.month):
-                created += RecurringService.generate_due_instances(db, workspace_id, today)
+                created += RecurringService.generate_due_instances(
+                    db, workspace_id, today, template_id=template.id
+                )
             else:
                 created += RecurringService.backfill_month(db, template.id, year, month)
         return created
@@ -802,4 +810,8 @@ class RecurringMaterializationService:
             return result
         except Exception:
             db.rollback()
+            # Best-effort NÃO pode ser silencioso: sem este log, qualquer falha
+            # (snapshot inválido, taxa ausente, IntegrityError) desaparecia sem
+            # rastro e o usuário só via "a recorrência não apareceu".
+            logger.exception("materializacao_falhou", workspace_id=workspace_id)
             return {"expenses": 0, "income": 0}
