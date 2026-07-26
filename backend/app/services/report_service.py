@@ -8,6 +8,7 @@ from app.domain.query_policy import REALIZED_STATUSES, workspace_base_currency
 from app.models.transaction import Transaction, TransactionItem, TransactionSplit
 from app.models.income import Income
 from app.models.category import Category
+from app.services.transaction_service import _allocate_proportional, _cents
 
 
 class ReportService:
@@ -43,6 +44,10 @@ class ReportService:
             .where(Income.received_at >= start)
             .where(Income.received_at <= end)
             .where(Income.deleted_at.is_(None))
+            # Mesma política de moeda da despesa (ADR 0006). Sem este filtro a
+            # renda era o ÚNICO somatório que ignorava a moeda-base: uma renda
+            # legada em USD entrava somada a despesas em BRL.
+            .where(Income.currency == base_currency)
         ).one() or Decimal("0.00")
 
         # "Minha parte": recorte por usuário reusando a MESMA política do total.
@@ -70,6 +75,7 @@ class ReportService:
                 .where(Income.received_at >= start)
                 .where(Income.received_at <= end)
                 .where(Income.deleted_at.is_(None))
+                .where(Income.currency == base_currency)
                 .where(Income.user_id == user_id)
             ).one() or Decimal("0.00")
 
@@ -107,6 +113,22 @@ class ReportService:
         uncategorized = expenses - categorized_total
         if uncategorized > 0:
             category_data.append({"category_id": None, "name": "Sem categoria", "value": uncategorized})
+        elif uncategorized < 0:
+            # Itens somam MAIS que o total: acontece com ajuste negativo
+            # (desconto/cashback), em que total = itens + ajustes com ajustes < 0.
+            # Antes o valor negativo era só descartado e a pizza passava a somar
+            # mais que o `total_expenses` exibido ao lado dela. Rateamos a
+            # diferença entre as categorias, em centavos exatos, para o gráfico
+            # fechar com o total — que é o número que o usuário confere.
+            weights = {
+                i: _cents(item["value"])
+                for i, item in enumerate(category_data)
+                if item["value"] > 0
+            }
+            if weights and sum(weights.values()) > 0:
+                alloc = _allocate_proportional(_cents(uncategorized), weights)
+                for i, delta in alloc.items():
+                    category_data[i]["value"] += Decimal(delta) / Decimal("100")
 
         # Lançamentos em moeda diferente da base ficam FORA dos totais (ADR 0006).
         # Expor a contagem deixa o usuário saber que "sumiram" de propósito (E5/F-04).

@@ -3,6 +3,8 @@ from datetime import date, datetime, timedelta, UTC
 from decimal import Decimal, ROUND_HALF_UP
 from typing import List, Optional, Tuple
 
+import structlog
+from sqlalchemy.exc import IntegrityError
 from sqlmodel import Session, select
 
 from app.core.config import settings
@@ -26,7 +28,10 @@ from app.services.transaction_service import (
     delete_transaction_children,
     convert_division_to_base,
 )
+from app.services.currency_service import ExchangeRateUnavailable
 from app.services.exchange_rate_store import ExchangeRateStore
+
+logger = structlog.get_logger("app.recurring")
 
 # Escopo da edição de um template sobre as instâncias já materializadas
 EDIT_SCOPES = ("none", "future", "all")
@@ -84,15 +89,22 @@ def _statement_for(db: Session, template: RecurringExpense, occ: date) -> Option
     return statement.id
 
 
-def _recurring_conversion(db, workspace_id, base_amount, currency, occ_date, payment_method):
+def _recurring_conversion(
+    db, workspace_id, base_amount, currency, occ_date, payment_method, *, allow_fetch=True
+):
     """Converte o valor de um template recorrente para a moeda-base (BRL) na data
     da OCORRÊNCIA — cada materialização usa a taxa daquele dia (recorrência
     estrangeira re-converte todo mês). IOF só em despesa no cartão (renda não tem).
-    Devolve (brl, rate, iof, source, factor); rate=None se já for base."""
+    Devolve (brl, rate, iof, source, factor); rate=None se já for base.
+
+    `allow_fetch=False` proíbe ir à rede: é o modo do caminho de LEITURA, onde
+    uma busca de cotação bloquearia o GET (ver ExchangeRateStore.get_or_fetch)."""
     base = workspace_base_currency(db, workspace_id)
     if not currency or currency == base:
         return base_amount, None, Decimal("0"), None, Decimal("1")
-    rate, source = ExchangeRateStore.get_or_fetch(db, currency, occ_date)
+    rate, source = ExchangeRateStore.get_or_fetch(
+        db, currency, occ_date, allow_fetch=allow_fetch
+    )
     iof = (
         settings.IOF_INTERNATIONAL_CARD_RATE
         if payment_method in (PaymentMethod.credit_card, PaymentMethod.debit_card)
@@ -228,16 +240,31 @@ class RecurringService:
         occ: date,
         billing_month: str,
         status: TransactionStatus = TransactionStatus.confirmed,
+        *,
+        allow_fetch: bool = True,
     ) -> Optional[Transaction]:
         """Cria a transação da ocorrência COMPLETA (pagador+divisão+categoria).
 
         Retorna None se não há pagador válido (template sem criador/pagador —
-        cai no caminho legado nu, evitado na prática) ou se a divisão do
-        snapshot for inválida (membro que saiu do workspace)."""
+        cai no caminho legado nu, evitado na prática), se a divisão do snapshot
+        for inválida (membro que saiu do workspace), ou se não houver taxa de
+        câmbio disponível para a data (a ocorrência espera o backfill em vez de
+        nascer com um valor inventado)."""
         # Moeda estrangeira: converte na data da ocorrência (re-converte todo mês)
-        brl, rate, iof, source, factor = _recurring_conversion(
-            db, template.workspace_id, template.base_amount, template.currency, occ, template.payment_method
-        )
+        try:
+            brl, rate, iof, source, factor = _recurring_conversion(
+                db, template.workspace_id, template.base_amount, template.currency, occ,
+                template.payment_method, allow_fetch=allow_fetch,
+            )
+        except ExchangeRateUnavailable:
+            logger.warning(
+                "recurring_skip_sem_taxa",
+                template_id=template.id,
+                workspace_id=template.workspace_id,
+                currency=template.currency,
+                occurrence=occ.isoformat(),
+            )
+            return None
         is_foreign = rate is not None
         base_currency = workspace_base_currency(db, template.workspace_id)
 
@@ -334,7 +361,9 @@ class RecurringService:
         return len(rows)
 
     @staticmethod
-    def generate_due_instances(db: Session, workspace_id: int, today: date) -> int:
+    def generate_due_instances(
+        db: Session, workspace_id: int, today: date, *, allow_fetch: bool = True
+    ) -> int:
         """Materializa as instâncias do MÊS CORRENTE INTEIRO.
 
         Ocorrência já vencida (<= hoje) nasce `confirmed`; ocorrência ainda por
@@ -380,9 +409,37 @@ class RecurringService:
                 status = (
                     TransactionStatus.confirmed if occ <= today else TransactionStatus.pending
                 )
-                if RecurringService._create_instance(db, template, occ, billing_month, status):
+                if RecurringService._create_instance_safe(
+                    db, template, occ, billing_month, status, allow_fetch=allow_fetch
+                ):
                     created += 1
         return created
+
+    @staticmethod
+    def _create_instance_safe(
+        db: Session,
+        template: RecurringExpense,
+        occ: date,
+        billing_month: str,
+        status: TransactionStatus = TransactionStatus.confirmed,
+        *,
+        allow_fetch: bool = True,
+    ) -> Optional[Transaction]:
+        """`_create_instance` num savepoint, absorvendo a colisão de concorrência.
+
+        O dedup dos chamadores é lê-depois-escreve e não sobrevive a duas
+        requisições simultâneas — e a materialização roda a partir de ROTAS DE
+        LEITURA. A unique `uq_recurring_occurrence` é a barreira real; aqui quem
+        perde a corrida apenas desiste desta ocorrência, sem derrubar o lote nem
+        virar 500.
+        """
+        try:
+            with db.begin_nested():
+                return RecurringService._create_instance(
+                    db, template, occ, billing_month, status, allow_fetch=allow_fetch
+                )
+        except IntegrityError:
+            return None
 
     @staticmethod
     def backfill_month(db: Session, template_id: int, year: int, month: int) -> int:
@@ -411,7 +468,7 @@ class RecurringService:
         for occ in RecurringService.occurrences_in_month(template, year, month):
             if occ in existing_dates:
                 continue
-            if RecurringService._create_instance(
+            if RecurringService._create_instance_safe(
                 db, template, occ, billing_month, TransactionStatus.confirmed
             ):
                 created += 1
@@ -534,6 +591,7 @@ class RecurringIncomeService:
         year: Optional[int] = None,
         month: Optional[int] = None,
         template_id: Optional[int] = None,
+        allow_fetch: bool = True,
     ) -> int:
         """Cria as rendas recorrentes do MÊS INTEIRO (não só as já vencidas).
 
@@ -586,26 +644,46 @@ class RecurringIncomeService:
                     continue
 
                 # Renda estrangeira: converte na data da ocorrência (sem IOF)
-                brl, rate, _iof, source, _factor = _recurring_conversion(
-                    db, template.workspace_id, template.base_amount, template.currency, occ, None
-                )
+                try:
+                    brl, rate, _iof, source, _factor = _recurring_conversion(
+                        db, template.workspace_id, template.base_amount,
+                        template.currency, occ, None, allow_fetch=allow_fetch,
+                    )
+                except ExchangeRateUnavailable:
+                    # Sem taxa para a data: espera o backfill em vez de inventar valor
+                    logger.warning(
+                        "recurring_income_skip_sem_taxa",
+                        template_id=template.id, workspace_id=workspace_id,
+                        currency=template.currency, occurrence=occ.isoformat(),
+                    )
+                    continue
                 is_foreign = rate is not None
-                db.add(Income(
-                    title=template.title,
-                    description=template.description,
-                    amount=brl,
-                    currency=base_currency if is_foreign else template.currency,
-                    category=template.category,
-                    received_at=datetime(occ.year, occ.month, occ.day, tzinfo=UTC),
-                    workspace_id=template.workspace_id,
-                    user_id=template.user_id,
-                    recurring_income_id=template.id,
-                    billing_month=billing_month,
-                    original_amount=template.base_amount if is_foreign else None,
-                    original_currency=template.currency if is_foreign else None,
-                    exchange_rate=rate if is_foreign else None,
-                    rate_source=source if is_foreign else None,
-                ))
+                # Savepoint por ocorrência: o dedup acima é lê-depois-escreve e não
+                # sobrevive a duas requisições simultâneas (a materialização roda em
+                # ROTAS DE LEITURA). A unique uq_recurring_income_occurrence é a
+                # barreira real; aqui só absorvemos a colisão de quem perdeu a corrida,
+                # sem derrubar as demais ocorrências do lote.
+                try:
+                    with db.begin_nested():
+                        db.add(Income(
+                            title=template.title,
+                            description=template.description,
+                            amount=brl,
+                            currency=base_currency if is_foreign else template.currency,
+                            category=template.category,
+                            received_at=datetime(occ.year, occ.month, occ.day, tzinfo=UTC),
+                            workspace_id=template.workspace_id,
+                            user_id=template.user_id,
+                            recurring_income_id=template.id,
+                            billing_month=billing_month,
+                            original_amount=template.base_amount if is_foreign else None,
+                            original_currency=template.currency if is_foreign else None,
+                            exchange_rate=rate if is_foreign else None,
+                            rate_source=source if is_foreign else None,
+                        ))
+                except IntegrityError:
+                    # Outra requisição materializou esta mesma ocorrência primeiro
+                    continue
                 created += 1
         return created
 
@@ -649,9 +727,15 @@ class RecurringMaterializationService:
 
     @staticmethod
     def ensure_current_month(db: Session, workspace_id: int, today: date) -> dict:
-        exp = RecurringService.generate_due_instances(db, workspace_id, today)
+        # allow_fetch=False: este é o caminho de LEITURA (GET). Buscar cotação
+        # aqui bloqueava a resposta por até ~50s contra uma fonte externa.
+        exp = RecurringService.generate_due_instances(
+            db, workspace_id, today, allow_fetch=False
+        )
         RecurringService.promote_due_instances(db, workspace_id, today)
-        inc = RecurringIncomeService.generate_due_income(db, workspace_id, today)
+        inc = RecurringIncomeService.generate_due_income(
+            db, workspace_id, today, allow_fetch=False
+        )
         return {"expenses": exp, "income": inc}
 
     # ---- Escopo retroativo (start_date no passado) ---------------------------

@@ -45,7 +45,7 @@ def rotate_session(db: Session, refresh_token: str) -> Tuple[int, str]:
     - jti desconhecido → inválido;
     - jti já revogado → REUSO: revoga a família inteira;
     - expirado → inválido;
-    - token legado (sem jti) → aceita e migra para uma sessão gerenciada.
+    - token sem jti/family → inválido (formato legado, pré-SEC-004).
     """
     try:
         payload = decode_token(refresh_token)
@@ -60,8 +60,13 @@ def rotate_session(db: Session, refresh_token: str) -> Tuple[int, str]:
     jti = payload.get("jti")
     family = payload.get("family")
     if not jti or not family:
-        # Legado (pré-SEC-004): sem sessão persistida — inicia uma gerenciada
-        return user_id, start_session(db, user_id)
+        # Formato legado (pré-SEC-004) NÃO é mais aceito. Ele não tinha linha em
+        # RefreshSession, logo `revoke_all_user_sessions` — usada na troca e na
+        # REDEFINIÇÃO de senha — não o alcançava: um token roubado seguia válido
+        # pelos 7 dias mesmo depois da vítima recuperar a conta, que é justamente
+        # o cenário que o ADR 0013 existe para fechar. O custo de recusar é um
+        # relogin; o de aceitar é a recuperação de conta não funcionar.
+        raise SessionError("formato de sessão legado")
 
     session = db.exec(select(RefreshSession).where(RefreshSession.jti == jti)).first()
     if session is None:
@@ -105,12 +110,30 @@ def revoke_all_user_sessions(db: Session, user_id: int) -> int:
     return revoked
 
 
+def purge_expired_sessions(db: Session, older_than_days: int = 30) -> int:
+    """Remove sessões expiradas/revogadas antigas. Devolve quantas apagou.
+
+    A tabela ganha uma linha a cada refresh (a cada ~30 min por usuário ativo) e
+    nada as removia: em um ano são milhares de linhas mortas por usuário.
+    Guarda uma folga depois do vencimento para não atrapalhar investigação de
+    incidente. Não faz commit (ADR 0010).
+    """
+    cutoff = datetime.now(UTC) - timedelta(days=older_than_days)
+    rows = db.exec(select(RefreshSession).where(RefreshSession.expires_at < cutoff)).all()
+    for row in rows:
+        db.delete(row)
+    return len(rows)
+
+
 def revoke_session(db: Session, refresh_token: Optional[str]) -> None:
     """Logout: revoga a sessão do token (best-effort — cookie pode estar velho)."""
     if not refresh_token:
         return
     try:
         payload = decode_token(refresh_token)
+        # Confere o tipo: um access token apresentado aqui não deve revogar nada
+        if payload.get("token_type") != "refresh":
+            return
         jti = payload.get("jti")
     except Exception:
         return

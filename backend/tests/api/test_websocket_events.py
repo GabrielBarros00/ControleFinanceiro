@@ -317,3 +317,38 @@ def test_troca_de_moeda_base_emite_evento_de_resync(rt):
 
             assert sock.receive_json()["type"] == "workspace.updated"
             assert sock.receive_json()["type"] == "workspace.currency_changed"
+
+
+def test_socket_nao_segura_sessao_de_banco(rt, monkeypatch):
+    """A sessão do WS tem de ser CURTA (A3).
+
+    Antes a sessão vinha de `Depends(get_session)` e só era liberada quando o
+    socket caía — uma conexão do pool presa por aba aberta. Com o pool padrão
+    (5 + 10) bastavam ~15 abas para esgotar o pool e travar a API inteira.
+    Aqui contamos entradas/saídas do `session_scope`: com o socket ABERTO e já
+    autenticado, a sessão precisa estar fechada.
+    """
+    import app.ws.routes as ws_routes
+    from contextlib import contextmanager
+
+    stats = {"enter": 0, "exit": 0}
+    real_scope = ws_routes.session_scope
+
+    @contextmanager
+    def counting_scope():
+        stats["enter"] += 1
+        with real_scope() as session:
+            yield session
+        stats["exit"] += 1
+
+    monkeypatch.setattr(ws_routes, "session_scope", counting_scope)
+
+    ws, users = rt["ws"], rt["users"]
+    with TestClient(app) as client:
+        with client.websocket_connect(
+            f"/api/v1/ws/workspaces/{ws.id}", headers=_headers(users["member"])
+        ) as sock:
+            assert sock.receive_json()["type"] == "hello"
+            # Socket vivo, sessão já devolvida ao pool
+            assert stats["enter"] == 1
+            assert stats["exit"] == 1

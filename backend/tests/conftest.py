@@ -4,11 +4,13 @@ import os
 # metadata) — o auto-upgrade Alembic do lifespan é só para dev real (ADR 0005)
 os.environ.setdefault("APP_ENV", "test")
 
+from contextlib import contextmanager
+
 import pytest
 from sqlmodel import Session, SQLModel, create_engine
 from app.db.session import get_session
 from app.main import app
-from app.core.rate_limit import auth_limiter
+from app.core.rate_limit import account_limiter, auth_limiter
 
 # Import all models to ensure metadata is complete before create_all
 from app.models.user import User  # noqa: F401
@@ -64,10 +66,12 @@ def session_fixture():
 
 @pytest.fixture(autouse=True)
 def reset_rate_limiter():
-    """Evita que o rate limit de auth acumule entre testes."""
+    """Evita que os rate limits de auth acumulem entre testes (IP e conta)."""
     auth_limiter.reset()
+    account_limiter.reset()
     yield
     auth_limiter.reset()
+    account_limiter.reset()
 
 
 @pytest.fixture(autouse=True)
@@ -128,9 +132,19 @@ def seed_ws_fixture(db_session):
 
 
 @pytest.fixture(name="override_get_session")
-def override_get_session_fixture(db_session: Session):
+def override_get_session_fixture(db_session: Session, monkeypatch):
     def get_session_override():
         yield db_session
     app.dependency_overrides[get_session] = get_session_override
+
+    # O WebSocket NÃO usa Depends: a sessão dele precisa ser curta, senão prende
+    # uma conexão do pool enquanto o socket estiver aberto (uma por aba). O seam
+    # de teste dele é o session_scope — substituído aqui pela mesma sessão do
+    # fixture, para o socket enxergar o banco do teste.
+    @contextmanager
+    def scope_override():
+        yield db_session
+    monkeypatch.setattr("app.ws.routes.session_scope", scope_override)
+
     yield
     app.dependency_overrides.clear()

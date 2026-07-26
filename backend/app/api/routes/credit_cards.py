@@ -4,6 +4,8 @@ from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
+
+from app.schemas.common import DESCRIPTION_MAX, MAX_MONEY, NAME_MAX
 from sqlmodel import Session, select
 
 from app.db.session import get_session
@@ -20,25 +22,25 @@ router = APIRouter(prefix="/workspaces/{workspace_id}/credit-cards", tags=["cred
 
 class CreditCardCreate(BaseModel):
     """Schema explícito de criação — evita mass assignment de id/deleted_at."""
-    name: str
-    limit: Decimal = Field(gt=0)
+    name: str = Field(min_length=1, max_length=NAME_MAX)
+    limit: Decimal = Field(gt=0, le=MAX_MONEY)
     closing_day: int = Field(ge=1, le=31)
     due_day: int = Field(ge=1, le=31)
     currency: str = "BRL"
 
 
 class CreditCardUpdate(BaseModel):
-    name: Optional[str] = None
-    limit: Optional[Decimal] = Field(default=None, gt=0)
+    name: Optional[str] = Field(default=None, min_length=1, max_length=NAME_MAX)
+    limit: Optional[Decimal] = Field(default=None, gt=0, le=MAX_MONEY)
     closing_day: Optional[int] = Field(default=None, ge=1, le=31)
     due_day: Optional[int] = Field(default=None, ge=1, le=31)
 
 
 class StatementPayRequest(BaseModel):
     account_id: Optional[int] = None
-    amount: Optional[Decimal] = Field(default=None, gt=0)
+    amount: Optional[Decimal] = Field(default=None, gt=0, le=MAX_MONEY)
     paid_at: Optional[datetime] = None
-    note: Optional[str] = None
+    note: Optional[str] = Field(default=None, max_length=DESCRIPTION_MAX)
 
 
 def _get_card_or_404(session: Session, workspace_id: int, card_id: int) -> CreditCard:

@@ -3,21 +3,23 @@ from datetime import datetime
 from decimal import Decimal
 from pydantic import BaseModel, Field
 
+from app.schemas.common import DESCRIPTION_MAX, MAX_MONEY, TITLE_MAX
+
 class IncomeBase(BaseModel):
-    title: str
-    description: Optional[str] = None
+    title: str = Field(min_length=1, max_length=TITLE_MAX)
+    description: Optional[str] = Field(default=None, max_length=DESCRIPTION_MAX)
     amount: Decimal
     currency: str = "BRL"
     received_at: datetime
     category: Optional[str] = None
 
 class IncomeCreate(IncomeBase):
-    amount: Decimal = Field(gt=0)
+    amount: Decimal = Field(gt=0, le=MAX_MONEY)
 
 class IncomeUpdate(BaseModel):
-    title: Optional[str] = None
-    description: Optional[str] = None
-    amount: Optional[Decimal] = Field(default=None, gt=0)
+    title: Optional[str] = Field(default=None, min_length=1, max_length=TITLE_MAX)
+    description: Optional[str] = Field(default=None, max_length=DESCRIPTION_MAX)
+    amount: Optional[Decimal] = Field(default=None, gt=0, le=MAX_MONEY)
     currency: Optional[str] = None
     received_at: Optional[datetime] = None
     category: Optional[str] = None

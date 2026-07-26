@@ -18,6 +18,11 @@ services:
     build: ./backend
     restart: unless-stopped
     environment:
+      # Fuso do processo. O backend usa date.today() para decidir "mês corrente"
+      # e o frontend usa o mês LOCAL do navegador: num container UTC, entre 21h e
+      # meia-noite do último dia do mês em Brasília, o resumo já apontava o mês
+      # seguinte (zerado) enquanto o extrato mostrava o corrente, na mesma tela.
+      TZ: ${TZ:-America/Sao_Paulo}
       APP_ENV: ${APP_ENV:-production}
       DATABASE_URL: postgresql://${POSTGRES_USER:-cf4}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-controle_financeiro}
       SECRET_KEY: ${SECRET_KEY:?defina SECRET_KEY no .env}

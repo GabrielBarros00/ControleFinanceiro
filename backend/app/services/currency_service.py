@@ -4,6 +4,8 @@ from decimal import Decimal
 from typing import Dict, Optional
 import structlog
 
+from app.core.config import settings
+
 logger = structlog.get_logger()
 
 
@@ -74,7 +76,7 @@ class CurrencyService:
         try:
             with httpx.Client() as client:
                 for _ in range(5):
-                    response = client.get(url, params=params, timeout=10.0)
+                    response = client.get(url, params=params, timeout=settings.EXCHANGE_RATE_TIMEOUT_SECONDS)
                     response.raise_for_status()
                     data = response.json()
                     if data.get("value"):
@@ -107,7 +109,7 @@ class CurrencyService:
             with httpx.Client(follow_redirects=True) as client:
                 for url in candidates:
                     try:
-                        r = client.get(url, timeout=10.0)
+                        r = client.get(url, timeout=settings.EXCHANGE_RATE_TIMEOUT_SECONDS)
                     except Exception:
                         continue
                     if r.status_code != 200:

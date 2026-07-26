@@ -33,6 +33,18 @@ const BASE_CURRENCY_OPTIONS = CURRENCIES.map((c) => ({
   label: `${c.code} — ${c.name}`,
 }));
 
+// Dry-run da troca de moeda-base: o backend devolve o tamanho da reconversão e
+// as datas sem cotação, para a UI avisar ANTES de reescrever o histórico.
+interface BaseCurrencyPreview {
+  from_currency: string;
+  to_currency: string;
+  transactions: number;
+  incomes: number;
+  statements: number;
+  financings: number;
+  missing_rates: string[];
+}
+
 const ROLE_LABELS: Record<WorkspaceRole, string> = {
   owner: 'Dono',
   admin: 'Admin',
@@ -306,7 +318,8 @@ function MembersTab() {
               <Label htmlFor="base-currency">Moeda-base</Label>
               <p className="text-xs text-muted-foreground">
                 Moeda em que todos os totais são somados. Lançamentos em outra moeda
-                são convertidos na entrada. Trocar recalcula relatórios, dívidas e faturas.
+                são convertidos na entrada. Trocar <strong>reconverte todo o histórico</strong>{' '}
+                pela cotação da data de cada lançamento.
               </p>
               <div className="flex gap-3">
                 <Select
@@ -327,12 +340,42 @@ function MembersTab() {
                   variant="outline"
                   disabled={!baseCurrency || baseCurrency === currentWorkspace?.base_currency}
                   onClick={async () => {
+                    // Dry-run primeiro: a troca REESCREVE todo o histórico
+                    // financeiro do workspace, então o usuário precisa ver o
+                    // tamanho da operação (e as cotações que faltam) antes.
+                    let preview: BaseCurrencyPreview;
+                    try {
+                      const res = await apiClient.get(
+                        `/workspaces/${currentWorkspace!.id}/base-currency/preview`,
+                        { params: { to: baseCurrency } },
+                      );
+                      preview = res.data;
+                    } catch (err) {
+                      showError(err, 'Não foi possível simular a troca de moeda.');
+                      return;
+                    }
+
+                    if (preview.missing_rates.length > 0) {
+                      showError(
+                        null,
+                        `Faltam cotações para ${preview.missing_rates.length} data(s) do ` +
+                        `histórico (${preview.missing_rates.slice(0, 3).join(', ')}` +
+                        `${preview.missing_rates.length > 3 ? '…' : ''}). ` +
+                        'Rode o backfill de câmbio antes de trocar a moeda.',
+                      );
+                      return;
+                    }
+
                     const ok = await confirm({
                       title: 'Trocar a moeda-base',
                       description:
-                        `Todos os totais passarão a ser somados em ${baseCurrency}. ` +
-                        'Lançamentos já gravados não são reconvertidos.',
-                      confirmLabel: 'Trocar',
+                        `Isto reconverte o histórico de ${preview.from_currency} para ` +
+                        `${preview.to_currency} pela cotação da data de cada registro: ` +
+                        `${preview.transactions} lançamento(s), ${preview.incomes} renda(s), ` +
+                        `${preview.statements} fatura(s) e ${preview.financings} financiamento(s). ` +
+                        'Faça backup do banco antes — não há desfazer automático.',
+                      confirmLabel: 'Reconverter e trocar',
+                      destructive: true,
                     });
                     if (!ok) return;
                     try {
@@ -340,7 +383,7 @@ function MembersTab() {
                         id: currentWorkspace!.id,
                         data: { base_currency: baseCurrency },
                       });
-                      setFeedback({ ok: true, text: 'Moeda-base atualizada!' });
+                      setFeedback({ ok: true, text: 'Moeda-base trocada e histórico reconvertido!' });
                     } catch (err) { showError(err, 'Erro ao trocar a moeda-base.'); }
                   }}
                 >

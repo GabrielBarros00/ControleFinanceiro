@@ -32,7 +32,7 @@ structlog.configure(
         structlog.processors.TimeStamper(fmt="iso"),
         (
             structlog.processors.JSONRenderer()
-            if settings.APP_ENV == "production"
+            if settings.is_deployed
             else structlog.dev.ConsoleRenderer()
         ),
     ],
@@ -68,17 +68,19 @@ async def lifespan(app: FastAPI):
     yield
     await ws_manager.shutdown()
 
-_is_prod = settings.APP_ENV == "production"
+# Docs, CSP e log JSON valem em produção E staging: staging é deploy real
+# servindo gente, não ambiente de desenvolvimento (ver Settings.is_deployed).
+_is_deployed = settings.is_deployed
 
 app = FastAPI(
     title="Controle Financeiro V4",
     version=settings.APP_VERSION,
     lifespan=lifespan,
-    # Docs/OpenAPI ficam FORA do ar em produção (SEC-006): não expõem o mapa
+    # Docs/OpenAPI ficam FORA do ar em produção/staging (SEC-006): não expõem o mapa
     # da API nem carregam scripts de CDN
-    docs_url=None if _is_prod else "/docs",
-    redoc_url=None if _is_prod else "/redoc",
-    openapi_url=None if _is_prod else "/openapi.json",
+    docs_url=None if _is_deployed else "/docs",
+    redoc_url=None if _is_deployed else "/redoc",
+    openapi_url=None if _is_deployed else "/openapi.json",
 )
 
 # TrustedHost em produção: recusa requisições com Host forjado (SEC-006).
@@ -114,9 +116,9 @@ async def security_headers_middleware(request: Request, call_next):
     response.headers.setdefault(
         "Permissions-Policy", "geolocation=(), microphone=(), camera=()"
     )
-    # CSP restritiva só em produção (a API só serve JSON; em dev o /docs precisa
+    # CSP restritiva em produção/staging (a API só serve JSON; em dev o /docs precisa
     # de scripts de CDN e ficaria quebrado com default-src 'none')
-    if _is_prod:
+    if _is_deployed:
         response.headers.setdefault(
             "Content-Security-Policy", "default-src 'none'; frame-ancestors 'none'"
         )

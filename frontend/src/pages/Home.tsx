@@ -24,9 +24,12 @@ function daysLeftInMonth(): number {
 
 export function Home() {
   const { user } = useAuth();
-  const { data: reports, isLoading: reportsLoading } = useReports();
-  const { forecast, isLoading: forecastLoading } = useAnalytics();
-  const { transactions, isLoading: txLoading } = useTransactions({ page: 1, limit: 6, month: currentMonthLocal() });
+  // Mês LOCAL explícito nas três consultas: sem ele, resumo e previsão usavam
+  // o date.today() do servidor e divergiam do extrato na virada do mês.
+  const month = currentMonthLocal();
+  const { data: reports, isLoading: reportsLoading } = useReports(month);
+  const { forecast, isLoading: forecastLoading } = useAnalytics(month);
+  const { transactions, isLoading: txLoading } = useTransactions({ page: 1, limit: 6, month });
   const setNewTxOpen = useNewTxStore((s) => s.setOpen);
   const openDetail = useTxDetailStore((s) => s.open);
 

@@ -2,6 +2,7 @@ from datetime import datetime, timedelta, UTC
 from typing import List
 
 from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy import update
 from sqlmodel import Session, select
 
 from app.api.deps import get_workspace_membership, require_role
@@ -26,8 +27,10 @@ from app.schemas.workspace import (
     InviteLinkRead,
     InviteInfoRead,
 )
+from app.services.debt_service import DebtService
 from app.services.email_service import EmailService
 from app.services.event_service import publish_event
+from app.services.membership_service import ensure_membership
 
 router = APIRouter(prefix="/workspaces/{workspace_id}", tags=["members"])
 invites_router = APIRouter(prefix="/invites", tags=["invites"])
@@ -39,6 +42,34 @@ def _as_aware(dt: datetime) -> datetime:
 
 def _is_expired(invite: WorkspaceInvite) -> bool:
     return _as_aware(invite.expires_at) < datetime.now(UTC)
+
+
+def _ensure_no_open_balance(session: Session, workspace_id: int, user_id: int) -> None:
+    """Recusa a saída de quem ainda tem dívida/crédito em aberto.
+
+    Antes a membership era simplesmente apagada e os splits/pagadores da pessoa
+    ficavam órfãos: o nome sumia do extrato e das dívidas (vira um id sem
+    rótulo) e QUALQUER edição completa daquelas despesas passava a falhar em
+    `_ensure_members` com "usuário não pertence a este workspace" — sem caminho
+    de saída pela UI. Acertar antes de sair é a condição para o histórico
+    continuar interpretável.
+    """
+    saldos = DebtService.get_workspace_debts(session, workspace_id)
+    pendente = next(
+        (d for d in saldos if user_id in (d["debtor_id"], d["creditor_id"])), None
+    )
+    if pendente is None:
+        return
+    devedor = pendente["debtor_id"] == user_id
+    raise HTTPException(
+        status_code=409,
+        detail=(
+            f"Ainda há acerto pendente de R$ {pendente['amount']} "
+            + ("a pagar" if devedor else "a receber")
+            + ". Registre o acerto antes de sair/remover — senão o histórico "
+            "fica com lançamentos de alguém que não é mais membro."
+        ),
+    )
 
 
 def _member_read(membership: WorkspaceMembership, user: User) -> MemberRead:
@@ -126,6 +157,7 @@ def remove_member(
         raise HTTPException(status_code=403, detail="O owner não pode ser removido")
     if role_level(target.role) >= role_level(actor.role):
         raise HTTPException(status_code=403, detail="Permissão insuficiente para esta ação")
+    _ensure_no_open_balance(session, workspace_id, user_id)
 
     session.delete(target)
     publish_event(session, workspace_id, "member.removed", "member", user_id, actor.user_id)
@@ -144,6 +176,7 @@ def leave_workspace(
             status_code=400,
             detail="O owner não pode sair do próprio workspace. Exclua o workspace."
         )
+    _ensure_no_open_balance(session, workspace_id, membership.user_id)
     session.delete(membership)
     publish_event(session, workspace_id, "member.removed", "member", membership.user_id, membership.user_id)
     session.commit()
@@ -167,21 +200,9 @@ def create_invite(
 
     existing_user = session.exec(select(User).where(User.email == data.email)).first()
     if existing_user:
-        already = session.exec(
-            select(WorkspaceMembership).where(
-                WorkspaceMembership.workspace_id == workspace_id,
-                WorkspaceMembership.user_id == existing_user.id,
-            )
-        ).first()
-        if already:
+        if not ensure_membership(session, workspace_id, existing_user.id, data.role):
             raise HTTPException(status_code=400, detail="Este usuário já é membro do workspace")
 
-        new_membership = WorkspaceMembership(
-            workspace_id=workspace_id,
-            user_id=existing_user.id,
-            role=data.role,
-        )
-        session.add(new_membership)
         publish_event(session, workspace_id, "member.added", "member", existing_user.id, actor.user_id)
         session.commit()
         EmailService.send_workspace_invite(
@@ -228,8 +249,6 @@ def create_invite_link(
 ):
     if role_level(data.role) >= role_level(actor.role):
         raise HTTPException(status_code=403, detail="Você só pode convidar com papel inferior ao seu")
-    if data.expires_days < 1 or data.expires_days > 30:
-        raise HTTPException(status_code=400, detail="Expiração deve ser entre 1 e 30 dias")
 
     invite = WorkspaceInvite(
         workspace_id=workspace_id,
@@ -346,29 +365,28 @@ def accept_invite(
     if invite.email and invite.email != current_user.email:
         raise HTTPException(status_code=403, detail="Este convite foi enviado para outro email")
 
-    already = session.exec(
-        select(WorkspaceMembership).where(
-            WorkspaceMembership.workspace_id == invite.workspace_id,
-            WorkspaceMembership.user_id == current_user.id,
-        )
-    ).first()
-    if already:
+    if not ensure_membership(session, invite.workspace_id, current_user.id, invite.role):
         raise HTTPException(status_code=400, detail="Você já é membro deste workspace")
 
-    session.add(WorkspaceMembership(
-        workspace_id=invite.workspace_id,
-        user_id=current_user.id,
-        role=invite.role,
-    ))
     publish_event(session, invite.workspace_id, "member.added", "member", current_user.id, current_user.id)
 
     if invite.email is not None:
         invite.status = InviteStatus.accepted
+        session.add(invite)
     else:
-        invite.uses += 1
-        if invite.max_uses is not None and invite.uses >= invite.max_uses:
+        # Incremento ATÔMICO no banco (mesmo padrão do seq em publish_event).
+        # Com `invite.uses += 1` em Python, dois aceites simultâneos liam o mesmo
+        # valor e o link estourava o max_uses.
+        novo_uso = session.execute(
+            update(WorkspaceInvite)
+            .where(WorkspaceInvite.id == invite.id)
+            .values(uses=WorkspaceInvite.uses + 1)
+            .returning(WorkspaceInvite.uses)
+        ).scalar_one()
+        session.refresh(invite)
+        if invite.max_uses is not None and novo_uso >= invite.max_uses:
             invite.status = InviteStatus.accepted
-    session.add(invite)
+            session.add(invite)
     # O convite mudou de estado (aceito / usos consumidos): a tela de convites
     # do admin precisa refletir isso na hora, não só a lista de membros
     publish_event(

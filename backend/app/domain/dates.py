@@ -5,9 +5,39 @@ Parcelamento, financiamento e recorrência avançam por mês real — somar
 """
 import calendar
 from datetime import date, datetime
-from typing import TypeVar
+from typing import Optional, TypeVar
 
 D = TypeVar("D", date, datetime)
+
+
+class InvalidMonth(ValueError):
+    """Mês fora do formato YYYY-MM (o chamador traduz para 400)."""
+
+
+def parse_month(month: Optional[str], *, default: Optional[date] = None) -> date:
+    """`YYYY-MM` → 1º dia do mês. Vazio → `default` (ou hoje).
+
+    Ponto ÚNICO de interpretação de mês. Antes havia quatro implementações com
+    comportamentos diferentes para entrada inválida: três devolviam 400 e a de
+    `/income` engolia o erro e IGNORAVA o filtro — devolvendo o histórico
+    inteiro como se fosse o mês pedido, com o total do cabeçalho errado e nenhum
+    sinal para o usuário.
+    """
+    if not month:
+        return default or date.today()
+    try:
+        year_str, month_str = month.split("-")
+        return date(int(year_str), int(month_str), 1)
+    except (ValueError, TypeError):
+        raise InvalidMonth("Formato de mês inválido. Use YYYY-MM")
+
+
+def month_bounds(reference: date) -> tuple[datetime, datetime]:
+    """Primeiro instante e último instante do mês de `reference`."""
+    last_day = calendar.monthrange(reference.year, reference.month)[1]
+    start = datetime.combine(date(reference.year, reference.month, 1), datetime.min.time())
+    end = datetime.combine(date(reference.year, reference.month, last_day), datetime.max.time())
+    return start, end
 
 
 def add_months(when: D, months: int) -> D:

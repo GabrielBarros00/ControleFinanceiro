@@ -5,6 +5,11 @@ filterwarnings = [
     # Deprecação INTERNA do Starlette ao acessar o status 422 no seu próprio
     # exception handler — fora do nosso controle (nosso código já usa o novo nome).
     "ignore:'HTTP_422_UNPROCESSABLE_ENTITY' is deprecated:DeprecationWarning",
+    # passlib 1.7.4 (sem release desde 2020) lê argon2.__version__, que o
+    # argon2-cffi já deprecou. Funciona hoje e vai quebrar quando o atributo for
+    # removido — é o motivo de o passlib estar marcado para sair assim que não
+    # houver mais hash legado (pbkdf2/bcrypt) no banco. Ver app/core/security.py.
+    "ignore:Accessing argon2.__version__ is deprecated:DeprecationWarning",
 ]
 
 [tool.ruff.lint.per-file-ignores]

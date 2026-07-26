@@ -1,5 +1,10 @@
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
+from fastapi.responses import JSONResponse
+from sqlalchemy import text
+from sqlmodel import Session
+
 from app.core.config import settings
+from app.db.session import get_session
 from app.api.routes import (
     auth, workspaces, members, transactions, income, analytics, credit_cards,
     recurring, recurring_income, debts, imports, categories, financing, settlements, tags, attachments,
@@ -32,6 +37,18 @@ router.include_router(audit.router)
 router.include_router(ws_routes.router)
 
 @router.get("/health")
-async def health_check():
-    # Versão vem das settings (a constante embutida ia divergir no primeiro bump)
-    return {"status": "ok", "version": settings.APP_VERSION}
+def health_check(session: Session = Depends(get_session)):
+    """Saúde REAL: inclui um toque no banco.
+
+    Antes respondia `ok` sem consultar nada — com o Postgres fora do ar o
+    healthcheck do container continuava verde e o orquestrador nunca reiniciava
+    nada. Versão vem das settings (a constante embutida ia divergir no 1º bump).
+    """
+    body = {"status": "ok", "version": settings.APP_VERSION, "database": "ok"}
+    try:
+        session.exec(text("SELECT 1")).one()
+    except Exception:
+        body["status"] = "degraded"
+        body["database"] = "unavailable"
+        return JSONResponse(status_code=503, content=body)
+    return body

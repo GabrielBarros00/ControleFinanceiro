@@ -4,6 +4,8 @@ from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
+
+from app.schemas.common import DESCRIPTION_MAX, MAX_MONEY
 from sqlmodel import Session, select
 
 from app.db.session import get_session
@@ -19,8 +21,8 @@ router = APIRouter(prefix="/workspaces/{workspace_id}/settlements", tags=["settl
 class SettlementCreate(BaseModel):
     from_user_id: int
     to_user_id: int
-    amount: Decimal = Field(gt=0)
-    note: Optional[str] = None
+    amount: Decimal = Field(gt=0, le=MAX_MONEY)
+    note: Optional[str] = Field(default=None, max_length=DESCRIPTION_MAX)
     # YYYY-MM: quando vem do ledger mensal, quita a dívida daquele mês
     billing_month: Optional[str] = None
     settled_at: Optional[datetime] = None

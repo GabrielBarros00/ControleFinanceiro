@@ -17,6 +17,8 @@ from app.services.recurring_service import (
     RecurringService,
 )
 from pydantic import BaseModel, Field
+
+from app.schemas.common import DESCRIPTION_MAX, MAX_MONEY, TITLE_MAX
 from decimal import Decimal
 
 router = APIRouter(prefix="/workspaces/{workspace_id}/recurring", tags=["recurring"])
@@ -25,13 +27,13 @@ router = APIRouter(prefix="/workspaces/{workspace_id}/recurring", tags=["recurri
 class RecurringSplitEntry(BaseModel):
     user_id: int
     split_method: SplitMethod = SplitMethod.equal
-    input_value: Decimal = Field(default=Decimal("0"), ge=0)
+    input_value: Decimal = Field(default=Decimal("0"), ge=0, le=MAX_MONEY)
 
 
 class RecurringCreate(BaseModel):
-    title: str
-    description: Optional[str] = None
-    base_amount: Decimal = Field(gt=0)
+    title: str = Field(min_length=1, max_length=TITLE_MAX)
+    description: Optional[str] = Field(default=None, max_length=DESCRIPTION_MAX)
+    base_amount: Decimal = Field(gt=0, le=MAX_MONEY)
     frequency: RecurrenceFrequency = RecurrenceFrequency.monthly
     interval: int = Field(default=1, ge=1)
     start_date: Optional[date] = None
@@ -48,9 +50,9 @@ class RecurringCreate(BaseModel):
 
 
 class RecurringUpdate(BaseModel):
-    title: Optional[str] = None
-    description: Optional[str] = None
-    base_amount: Optional[Decimal] = Field(default=None, gt=0)
+    title: Optional[str] = Field(default=None, min_length=1, max_length=TITLE_MAX)
+    description: Optional[str] = Field(default=None, max_length=DESCRIPTION_MAX)
+    base_amount: Optional[Decimal] = Field(default=None, gt=0, le=MAX_MONEY)
     frequency: Optional[RecurrenceFrequency] = None
     interval: Optional[int] = Field(default=None, ge=1)
     start_date: Optional[date] = None

@@ -3,7 +3,7 @@ from datetime import datetime, UTC
 from enum import Enum
 from typing import Optional, List
 
-from sqlalchemy import Column, Integer, String
+from sqlalchemy import Column, Index, Integer, String
 from sqlmodel import SQLModel, Field, Relationship
 
 
@@ -54,6 +54,16 @@ class Workspace(SQLModel, table=True):
 
 
 class WorkspaceMembership(SQLModel, table=True):
+    # uq(workspace, user): um usuário tem UM papel por workspace. Três caminhos
+    # inserem membership (registro com convite pendente, convite a usuário
+    # existente e aceite de link) e todos faziam select-then-insert: sob
+    # concorrência nascia linha duplicada, que inflava member_count e — pior —
+    # fazia get_workspace_membership resolver o PAPEL com .first(), de forma
+    # não-determinística.
+    __table_args__ = (
+        Index("uq_membership_workspace_user", "workspace_id", "user_id", unique=True),
+    )
+
     id: Optional[int] = Field(default=None, primary_key=True)
     workspace_id: int = Field(foreign_key="workspace.id")
     user_id: int = Field(foreign_key="user.id")

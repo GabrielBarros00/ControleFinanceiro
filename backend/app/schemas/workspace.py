@@ -1,6 +1,8 @@
 from typing import Optional
 from datetime import datetime
-from pydantic import BaseModel, EmailStr, Field, field_validator
+from pydantic import BaseModel, Field, field_validator
+
+from app.schemas.common import NormalizedEmail
 
 from app.models.workspace import WorkspaceRole, InviteStatus
 
@@ -57,14 +59,17 @@ class MemberUpdate(BaseModel):
 
 
 class InviteCreate(BaseModel):
-    email: EmailStr
+    email: NormalizedEmail
     role: WorkspaceRole = WorkspaceRole.member
 
 
 class InviteLinkCreate(BaseModel):
     role: WorkspaceRole = WorkspaceRole.member
-    expires_days: int = 7
-    max_uses: Optional[int] = None
+    # Validação no SCHEMA (antes `expires_days` era conferido na rota e
+    # `max_uses` não era conferido em lugar nenhum: `max_uses=0` criava um link
+    # JÁ esgotado, porque o gate é `uses >= max_uses` → 0 >= 0).
+    expires_days: int = Field(default=7, ge=1, le=30)
+    max_uses: Optional[int] = Field(default=None, ge=1)
 
 
 class InviteRead(BaseModel):

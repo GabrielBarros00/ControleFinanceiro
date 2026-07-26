@@ -2,7 +2,9 @@ from datetime import datetime, UTC
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
+
+from app.schemas.common import NAME_MAX
 from sqlmodel import Session, select
 
 from app.api.deps import get_workspace_membership, require_role
@@ -15,13 +17,13 @@ router = APIRouter(prefix="/workspaces/{workspace_id}/categories", tags=["catego
 
 
 class CategoryCreate(BaseModel):
-    name: str
+    name: str = Field(min_length=1, max_length=NAME_MAX)
     color: Optional[str] = None
     icon: Optional[str] = None
 
 
 class CategoryUpdate(BaseModel):
-    name: Optional[str] = None
+    name: Optional[str] = Field(default=None, min_length=1, max_length=NAME_MAX)
     color: Optional[str] = None
     icon: Optional[str] = None
 

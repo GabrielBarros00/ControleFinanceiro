@@ -106,7 +106,7 @@ Qualquer provedor SMTP serve (Resend, Brevo, Mailgun...) — mesmos campos.
 # Backend (porta 8000, SQLite, sem depender de Docker)
 cd backend
 cp .env.example .env        # os valores default já funcionam sem editar
-pip install -r requirements.txt
+pip install -r requirements.txt   # produção; para desenvolver: -r requirements-dev.txt
 python -m uvicorn app.main:app --reload
 
 # Frontend (porta 5173)

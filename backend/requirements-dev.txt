@@ -1,0 +1,13 @@
+# Ferramentas de desenvolvimento e teste.
+#
+# Separadas de requirements.txt de propósito: antes `pytest` e `pytest-asyncio`
+# estavam nas dependências de produção e iam para a imagem Docker.
+#
+# Uso:  pip install -r requirements.txt -r requirements-dev.txt
+
+-r requirements.txt
+
+pytest==9.0.3
+pytest-asyncio==1.4.0
+pytest-cov==7.0.0
+ruff==0.15.12

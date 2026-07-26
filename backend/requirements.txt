@@ -1,16 +1,44 @@
-fastapi
-uvicorn[standard]
-pydantic[email]
-pytest
-pytest-asyncio
-httpx
-sqlmodel
-alembic
-passlib[bcrypt]
-python-jose[cryptography]
-python-multipart
-python-dotenv
-structlog
-anyio
-pydantic-settings
-psycopg2-binary
+# Dependências de PRODUÇÃO, com versão fixada.
+#
+# Sem pin, cada `docker build` podia trazer uma minor diferente de FastAPI,
+# SQLModel ou Pydantic e quebrar produção sem nenhuma mudança de código — e o
+# Dependabot configurado para /backend não tinha o que atualizar, dando falsa
+# sensação de cobertura. Ferramentas de teste/lint moram em requirements-dev.txt
+# e NÃO vão para a imagem.
+#
+# Para atualizar: suba a versão aqui, rode a suíte contra SQLite E Postgres, e
+# só então faça o merge.
+
+# --- Web ---
+fastapi==0.136.1
+uvicorn[standard]==0.46.0
+starlette==1.3.1
+python-multipart==0.0.31
+
+# --- Modelos e validação ---
+pydantic[email]==2.13.3
+pydantic-settings==2.14.2
+sqlmodel==0.0.38
+SQLAlchemy==2.0.49
+alembic==1.18.4
+
+# --- Banco ---
+psycopg2-binary==2.9.12
+
+# --- Segurança ---
+# PyJWT no lugar de python-jose: o jose está praticamente sem manutenção e
+# acumula CVEs (confusão de algoritmo, "JWT bomb"). PyJWT é mantido e exige
+# `algorithms=` explícito na verificação.
+PyJWT[crypto]==2.13.0
+# argon2 é o algoritmo primário de senha (ver app/core/security.py). passlib
+# segue apenas para VERIFICAR hashes antigos (pbkdf2_sha256/bcrypt) e permitir o
+# rehash transparente no login; sai daqui quando não houver mais hash legado.
+argon2-cffi==25.1.0
+passlib==1.7.4
+bcrypt==5.0.0
+
+# --- Infra ---
+httpx==0.28.1
+structlog==25.5.0
+anyio==4.13.0
+python-dotenv==1.2.2

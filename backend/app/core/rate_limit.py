@@ -1,5 +1,6 @@
 import time
 from collections import defaultdict, deque
+from typing import Optional
 
 from fastapi import HTTPException, Request
 
@@ -56,6 +57,10 @@ class RateLimiter:
 auth_limiter = RateLimiter(max_requests=5, window_seconds=60)
 
 
+# 10 tentativas por minuto POR CONTA, somando todas as origens
+account_limiter = RateLimiter(max_requests=10, window_seconds=60)
+
+
 def rate_limit_auth(request: Request) -> None:
     """Dependency de rate limiting para endpoints sensíveis de auth.
 
@@ -66,3 +71,20 @@ def rate_limit_auth(request: Request) -> None:
         return
     client_ip = request.client.host if request.client else "unknown"
     auth_limiter.check(f"{client_ip}:{request.url.path}")
+
+
+def rate_limit_account(email: Optional[str], path: str) -> None:
+    """Segundo balde, chaveado pela CONTA alvo.
+
+    O balde por IP sozinho é contornável: o uvicorn roda com
+    `--forwarded-allow-ips`, então quem alcançar o backend diretamente pode
+    forjar `X-Forwarded-For` e ganhar um balde novo a cada valor inventado —
+    força bruta sem teto. Amarrado à conta, o custo do ataque não depende de
+    quantos IPs o atacante consegue simular.
+
+    Chamado DEPOIS de validar o corpo (precisa do e-mail), então complementa —
+    não substitui — o balde por IP.
+    """
+    if not settings.RATE_LIMIT_ENABLED or not email:
+        return
+    account_limiter.check(f"acct:{email.strip().lower()}:{path}")

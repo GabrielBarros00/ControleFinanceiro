@@ -1,7 +1,7 @@
 from datetime import datetime, UTC
-from typing import List, Optional
+from typing import Any, Dict, List, Optional
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 from sqlmodel import Session, select, func
 
 from app.db.session import get_session
@@ -10,6 +10,7 @@ from app.models.workspace import Workspace, WorkspaceMembership, WorkspaceRole
 from app.schemas.workspace import WorkspaceCreate, WorkspaceRead, WorkspaceUpdate
 from app.api.routes.auth import get_current_user
 from app.api.deps import get_workspace_membership, require_role
+from app.services.base_currency_service import BaseCurrencyService, MissingRates
 from app.services.category_service import seed_default_categories
 from app.services.event_service import publish_event
 
@@ -139,6 +140,30 @@ def update_workspace(
         "base_currency" in update_data
         and update_data["base_currency"] != workspace.base_currency
     )
+
+    # Trocar a moeda-base RECONVERTE o histórico (A6). Sem isto os valores
+    # continuavam gravados na moeda antiga e, como toda agregação filtra por
+    # `currency == base_currency`, dívidas/relatórios/faturas/previsão iam a
+    # ZERO de uma vez — o workspace parecia vazio. A conversão roda ANTES de
+    # gravar a moeda nova e é tudo-ou-nada: falta de taxa aborta com 422 e o
+    # `session.rollback()` garante que nada ficou pela metade.
+    if currency_changed:
+        try:
+            BaseCurrencyService.convert_workspace(
+                session, workspace_id, update_data["base_currency"]
+            )
+        except MissingRates as exc:
+            session.rollback()
+            raise HTTPException(
+                status_code=422,
+                detail=(
+                    "Não foi possível trocar a moeda-base: falta cotação para "
+                    f"{len(exc.missing)} data(s) do histórico ({', '.join(exc.missing[:5])}"
+                    f"{'…' if len(exc.missing) > 5 else ''}). "
+                    "Rode o backfill de câmbio e tente de novo."
+                ),
+            )
+
     for key, value in update_data.items():
         setattr(workspace, key, value)
     workspace.updated_at = datetime.now(UTC)
@@ -154,6 +179,23 @@ def update_workspace(
     session.commit()
     session.refresh(workspace)
     return _to_read(session, workspace)
+
+
+@router.get("/{workspace_id}/base-currency/preview", response_model=Dict[str, Any])
+def preview_base_currency_change(
+    workspace_id: int,
+    to: str,
+    session: Session = Depends(get_session),
+    membership: WorkspaceMembership = Depends(require_role(WorkspaceRole.admin)),
+):
+    """Dry-run da troca de moeda-base: quantas linhas seriam reconvertidas e que
+    cotações faltam. A UI usa isto para avisar ANTES de confirmar — a troca é
+    uma reescrita de todo o histórico financeiro do workspace."""
+    to = to.strip().upper()
+    if len(to) != 3 or not to.isalpha():
+        raise HTTPException(status_code=400, detail="Moeda inválida: use um código ISO de 3 letras")
+    report = BaseCurrencyService.plan_conversion(session, workspace_id, to)
+    return report.as_dict()
 
 
 @router.delete("/{workspace_id}")

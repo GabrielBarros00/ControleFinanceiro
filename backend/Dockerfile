@@ -5,6 +5,8 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 
 WORKDIR /app
 
+# Só as dependências de PRODUÇÃO: pytest e afins moram em requirements-dev.txt
+# e não entram na imagem.
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 

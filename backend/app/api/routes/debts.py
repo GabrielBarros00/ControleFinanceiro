@@ -1,9 +1,9 @@
-from datetime import date
 from fastapi import APIRouter, Depends, HTTPException
 from sqlmodel import Session
 from typing import List, Dict, Any, Optional
 
 from app.db.session import get_session
+from app.domain.dates import InvalidMonth, parse_month
 from app.models.workspace import WorkspaceMembership
 from app.services.debt_service import DebtService
 from app.api.deps import get_workspace_membership
@@ -29,12 +29,8 @@ def get_monthly_debts(
 ):
     """Dívidas do mês selecionado (por billing_month): quem pagou, quanto cada
     um deve e se a despesa está paga. Parcelas aparecem só no mês delas."""
-    if month is None:
-        month = date.today().strftime("%Y-%m")
-    else:
-        try:
-            year_str, month_str = month.split("-")
-            date(int(year_str), int(month_str), 1)
-        except ValueError:
-            raise HTTPException(status_code=400, detail="Formato de mês inválido. Use YYYY-MM")
-    return DebtService.get_monthly_ledger(session, workspace_id, month)
+    try:
+        ref = parse_month(month)
+    except InvalidMonth as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    return DebtService.get_monthly_ledger(session, workspace_id, ref.strftime("%Y-%m"))

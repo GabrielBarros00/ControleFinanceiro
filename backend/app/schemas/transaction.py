@@ -10,16 +10,12 @@ from app.models.transaction import (
     PaymentMethod,
 )
 
-# Tetos de texto livre. O import e o /bulk já truncavam em 200; a criação
-# manual não validava nada e aceitava um título de 5000 caracteres, que depois
-# estourava o layout de toda lista onde o lançamento aparece.
-TITLE_MAX = 200
-DESCRIPTION_MAX = 2000
+from app.schemas.common import DESCRIPTION_MAX, MAX_MONEY, TITLE_MAX  # noqa: F401
 
 
 class TransactionPayerBase(BaseModel):
     user_id: int
-    amount: Decimal = Field(ge=0)
+    amount: Decimal = Field(ge=0, le=MAX_MONEY)
     # Origem por pagador (ADR 0004): cada um pode usar método/conta próprios;
     # sem método, herda o da transação (que segue como resumo/filtro)
     payment_method: Optional[PaymentMethod] = None
@@ -28,7 +24,7 @@ class TransactionPayerBase(BaseModel):
 class TransactionSplitBase(BaseModel):
     user_id: int
     split_method: SplitMethod
-    input_value: Decimal = Field(ge=0)
+    input_value: Decimal = Field(ge=0, le=MAX_MONEY)
 
 class TransactionItemShareBase(BaseModel):
     user_id: int
@@ -42,9 +38,9 @@ class TransactionItemShareRead(TransactionItemShareBase):
 class TransactionItemBase(BaseModel):
     title: str = Field(min_length=1, max_length=TITLE_MAX)
     description: Optional[str] = Field(default=None, max_length=DESCRIPTION_MAX)
-    amount: Decimal  # total da linha (fonte de verdade para somas)
+    amount: Decimal = Field(le=MAX_MONEY)  # total da linha (fonte de verdade p/ somas)
     quantity: Decimal = Field(default=Decimal("1"), gt=0)
-    unit_amount: Optional[Decimal] = Field(default=None, ge=0)
+    unit_amount: Optional[Decimal] = Field(default=None, ge=0, le=MAX_MONEY)
     position: int = 0
     category_id: Optional[int] = None
 
@@ -219,7 +215,7 @@ def validate_payer_origins(
 
 class TransactionCreate(TransactionBase):
     # Entrada validada: valor sempre positivo (leituras herdam a Base sem gt)
-    total_amount: Decimal = Field(gt=0)
+    total_amount: Decimal = Field(gt=0, le=MAX_MONEY)
     payers: List[TransactionPayerBase]
     splits: List[TransactionSplitBase] = []
     items: Optional[List[TransactionItemCreate]] = None
@@ -294,7 +290,7 @@ class TransactionRead(TransactionBase):
 class TransactionUpdate(BaseModel):
     title: Optional[str] = Field(default=None, min_length=1, max_length=TITLE_MAX)
     description: Optional[str] = Field(default=None, max_length=DESCRIPTION_MAX)
-    total_amount: Optional[Decimal] = Field(default=None, gt=0)
+    total_amount: Optional[Decimal] = Field(default=None, gt=0, le=MAX_MONEY)
     # Moeda do lançamento na edição: estrangeira dispara reconversão para BRL
     currency: Optional[str] = None
     transaction_date: Optional[datetime] = None

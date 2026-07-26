@@ -20,7 +20,12 @@ from app.models.workspace import (
     InviteStatus,
 )
 from app.schemas.user import UserResponse
-from app.core.security import verify_password, get_password_hash, spend_dummy_verification
+from app.core.security import (
+    verify_password,
+    verify_and_upgrade_password,
+    get_password_hash,
+    spend_dummy_verification,
+)
 from app.core.jwt import create_access_token, create_purpose_token, decode_token
 from app.core.cookies import (
     set_auth_cookies,
@@ -36,13 +41,16 @@ from app.services.session_service import (
     SessionError,
 )
 from app.core.context import set_current_user_id
-from app.core.rate_limit import rate_limit_auth
+from app.core.rate_limit import rate_limit_account, rate_limit_auth
 from app.models.audit import ActionType
 from app.services.audit_service import AuditService
 from app.services.email_service import EmailService
 from app.services.category_service import seed_default_categories
 from app.services.event_service import publish_event
-from pydantic import BaseModel, EmailStr, Field
+from app.services.membership_service import ensure_membership
+from pydantic import BaseModel, Field
+
+from app.schemas.common import NormalizedEmail, NormalizedEmailStr, normalize_email
 
 from app.models.income import Income
 from app.models.credit_card import CreditCard
@@ -122,18 +130,7 @@ def _accept_pending_invites(db: Session, user: User) -> None:
             expires_at = expires_at.replace(tzinfo=UTC)
         if expires_at < now:
             continue
-        already_member = db.exec(
-            select(WorkspaceMembership).where(
-                WorkspaceMembership.workspace_id == invite.workspace_id,
-                WorkspaceMembership.user_id == user.id,
-            )
-        ).first()
-        if not already_member:
-            db.add(WorkspaceMembership(
-                workspace_id=invite.workspace_id,
-                user_id=user.id,
-                role=invite.role,
-            ))
+        if ensure_membership(db, invite.workspace_id, user.id, invite.role):
             publish_event(db, invite.workspace_id, "member.added", "member", user.id, user.id)
         invite.status = InviteStatus.accepted
         db.add(invite)
@@ -182,12 +179,12 @@ async def get_current_user(
     return user
 
 class LoginRequest(BaseModel):
-    email: str
+    email: NormalizedEmailStr
     password: str = Field(..., max_length=72)
 
 class RegisterRequest(BaseModel):
     name: str = Field(..., min_length=1, max_length=100)
-    email: EmailStr
+    email: NormalizedEmail
     password: str = Field(..., min_length=6, max_length=72)
 
 class OnboardingRequest(BaseModel):
@@ -283,6 +280,9 @@ async def login(
     login_data: LoginRequest,
     db: Session = Depends(get_session)
 ):
+    # Segundo balde, por CONTA: o balde por IP é contornável com
+    # X-Forwarded-For forjado (ver rate_limit_account).
+    rate_limit_account(login_data.email, "/auth/login")
     user = db.exec(select(User).where(User.email == login_data.email)).first()
     if not user:
         # Gasta o mesmo tempo de um verify() real: email inexistente respondia
@@ -297,7 +297,8 @@ async def login(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Esta conta usa login com Google. Use o botão 'Entrar com Google'."
         )
-    if not verify_password(login_data.password, user.password_hash):
+    ok, upgraded_hash = verify_and_upgrade_password(login_data.password, user.password_hash)
+    if not ok:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Email ou senha incorretos"
@@ -305,6 +306,12 @@ async def login(
     # Conta desativada/excluída não emite sessão: antes o login devolvia 200 com
     # cookies e só as requisições SEGUINTES é que davam 401 (get_current_user)
     _ensure_account_enabled(user)
+
+    # Migração transparente do hash legado (pbkdf2/bcrypt → argon2id): acontece
+    # no login, sem pedir nada ao usuário. O commit vem do log_action abaixo.
+    if upgraded_hash:
+        user.password_hash = upgraded_hash
+        db.add(user)
 
     access_token = create_access_token(data={"sub": str(user.id)})
     refresh_token = start_session(db, user.id)  # sessão persistida (SEC-004)
@@ -445,7 +452,7 @@ async def change_password(
 
 
 class ForgotPasswordRequest(BaseModel):
-    email: EmailStr
+    email: NormalizedEmail
 
 
 class ResetPasswordRequest(BaseModel):
@@ -459,6 +466,7 @@ def forgot_password(
     db: Session = Depends(get_session)
 ):
     """Sempre retorna 200 para não revelar quais emails estão cadastrados."""
+    rate_limit_account(data.email, "/auth/forgot-password")
     user = db.exec(select(User).where(User.email == data.email)).first()
     if user and user.deleted_at is None and not user.password_hash.startswith("!"):
         token = create_purpose_token(
@@ -604,7 +612,9 @@ def google_callback(
     except Exception:
         return fail("google_falha_autenticacao")
 
-    email = info.get("email")
+    # O Google pode devolver o e-mail com a caixa que o usuário digitou no
+    # cadastro dele — normaliza para casar com a conta local.
+    email = normalize_email(info.get("email"))
     if not email or info.get("email_verified") is False:
         return fail("google_email_nao_verificado")
 

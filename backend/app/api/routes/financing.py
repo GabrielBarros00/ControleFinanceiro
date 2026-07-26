@@ -4,6 +4,8 @@ from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
+
+from app.schemas.common import DESCRIPTION_MAX, MAX_MONEY, TITLE_MAX
 from sqlmodel import Session, select
 
 from app.api.deps import get_workspace_membership, require_role
@@ -21,7 +23,7 @@ from app.models.transaction import (
     TransactionStatus,
     SplitMethod,
 )
-from app.models.workspace import WorkspaceMembership, WorkspaceRole
+from app.models.workspace import WorkspaceMembership, WorkspaceRole, role_level
 from app.services.event_service import publish_event
 from app.services.financing_service import FinancingService
 
@@ -29,9 +31,9 @@ router = APIRouter(prefix="/workspaces/{workspace_id}/financing", tags=["financi
 
 
 class FinancingCreate(BaseModel):
-    title: str
-    description: Optional[str] = None
-    total_amount: Decimal
+    title: str = Field(min_length=1, max_length=TITLE_MAX)
+    description: Optional[str] = Field(default=None, max_length=DESCRIPTION_MAX)
+    total_amount: Decimal = Field(gt=0, le=MAX_MONEY)
     interest_rate: Decimal = Field(ge=0)  # taxa MENSAL, ex: 0.01 = 1% a.m.
     start_date: date
     installments_count: int
@@ -42,11 +44,43 @@ class EarlySettlementRequest(BaseModel):
     settlement_date: Optional[date] = None
 
 
+class FinancingUpdate(BaseModel):
+    """Edição do financiamento. Mexer em valor/taxa/prazo/método regenera o
+    cronograma — por isso só é permitido enquanto nenhuma parcela foi paga."""
+    title: Optional[str] = Field(default=None, min_length=1, max_length=TITLE_MAX)
+    description: Optional[str] = Field(default=None, max_length=DESCRIPTION_MAX)
+    total_amount: Optional[Decimal] = Field(default=None, gt=0, le=MAX_MONEY)
+    interest_rate: Optional[Decimal] = Field(default=None, ge=0)
+    start_date: Optional[date] = None
+    installments_count: Optional[int] = Field(default=None, ge=1, le=600)
+    method: Optional[AmortizationMethod] = None
+
+
+# Campos cuja mudança obriga a recalcular o cronograma inteiro
+_SCHEDULE_KEYS = {"total_amount", "interest_rate", "start_date", "installments_count", "method"}
+
+
 def _get_financing_or_404(session: Session, workspace_id: int, financing_id: int) -> Financing:
     financing = session.get(Financing, financing_id)
     if not financing or financing.workspace_id != workspace_id or financing.deleted_at:
         raise HTTPException(status_code=404, detail="Financiamento não encontrado")
     return financing
+
+
+def _check_ownership(membership: WorkspaceMembership, financing: Financing) -> None:
+    """Member mexe só no que é dele; admin+ mexe em tudo.
+
+    Mesmo gate de transações, rendas, acertos, anexos e recorrências — o
+    financiamento era a única entidade em que qualquer member pagava (e gerava
+    despesa no nome de) o financiamento de outro.
+    """
+    if (
+        role_level(membership.role) < role_level(WorkspaceRole.admin)
+        and financing.created_by_user_id not in (None, membership.user_id)
+    ):
+        raise HTTPException(
+            status_code=403, detail="Você só pode alterar os próprios financiamentos"
+        )
 
 
 @router.post("", response_model=Financing)
@@ -164,6 +198,7 @@ def pay_installment(
     membership: WorkspaceMembership = Depends(require_role(WorkspaceRole.member)),
 ):
     financing = _get_financing_or_404(session, workspace_id, financing_id)
+    _check_ownership(membership, financing)
     installment = session.exec(
         select(AmortizationInstallment).where(
             AmortizationInstallment.financing_id == financing.id,
@@ -224,6 +259,127 @@ def pay_installment(
     return {"status": "ok", "transaction_id": payment_tx.id}
 
 
+@router.put("/{financing_id}", response_model=Financing)
+def update_financing(
+    workspace_id: int,
+    financing_id: int,
+    data: FinancingUpdate,
+    session: Session = Depends(get_session),
+    membership: WorkspaceMembership = Depends(require_role(WorkspaceRole.member)),
+):
+    """Edita o financiamento. Antes NÃO existia: um financiamento cadastrado
+    errado só podia ser excluído e recriado, perdendo o histórico.
+
+    Alterar valor/taxa/prazo/método regenera o cronograma, então é recusado se
+    já houver parcela paga (o pagamento virou despesa real e o plano não pode
+    mudar debaixo dela)."""
+    financing = _get_financing_or_404(session, workspace_id, financing_id)
+    _check_ownership(membership, financing)
+
+    update_data = data.model_dump(exclude_unset=True)
+    if not update_data:
+        return financing
+
+    regenerar = bool(_SCHEDULE_KEYS & update_data.keys())
+    if regenerar:
+        paga = session.exec(
+            select(AmortizationInstallment).where(
+                AmortizationInstallment.financing_id == financing.id,
+                AmortizationInstallment.is_paid.is_(True),
+            )
+        ).first()
+        if paga:
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    "Há parcelas pagas: estorne-as antes de alterar valor, taxa, "
+                    "prazo ou método de amortização."
+                ),
+            )
+
+    for key, value in update_data.items():
+        setattr(financing, key, value)
+    financing.updated_at = datetime.now(UTC)
+    session.add(financing)
+
+    if regenerar:
+        for antiga in session.exec(
+            select(AmortizationInstallment).where(
+                AmortizationInstallment.financing_id == financing.id
+            )
+        ).all():
+            session.delete(antiga)
+        session.flush()
+        for parcela in FinancingService.calculate_amortization_schedule(
+            total_amount=financing.total_amount,
+            interest_rate=financing.interest_rate,
+            installments_count=financing.installments_count,
+            start_date=financing.start_date,
+            method=financing.method,
+        ):
+            parcela.financing_id = financing.id
+            session.add(parcela)
+
+    publish_event(session, workspace_id, "financing.updated", "financing", financing.id, membership.user_id)
+    session.commit()
+    session.refresh(financing)
+    return financing
+
+
+@router.post("/{financing_id}/installments/{installment_number}/unpay")
+def unpay_installment(
+    workspace_id: int,
+    financing_id: int,
+    installment_number: int,
+    session: Session = Depends(get_session),
+    membership: WorkspaceMembership = Depends(require_role(WorkspaceRole.member)),
+):
+    """Estorna o pagamento de uma parcela.
+
+    `is_paid` era irreversível: um clique errado não tinha desfazer, e a despesa
+    gerada ficava para sempre no caixa. Aqui a parcela volta a aberta, a despesa
+    correspondente é soft-deletada e o financiamento sai de `settled`."""
+    financing = _get_financing_or_404(session, workspace_id, financing_id)
+    _check_ownership(membership, financing)
+
+    installment = session.exec(
+        select(AmortizationInstallment).where(
+            AmortizationInstallment.financing_id == financing.id,
+            AmortizationInstallment.installment_number == installment_number,
+        )
+    ).first()
+    if not installment:
+        raise HTTPException(status_code=404, detail="Parcela não encontrada")
+    if not installment.is_paid:
+        raise HTTPException(status_code=400, detail="Parcela não está paga")
+
+    installment.is_paid = False
+    installment.paid_at = None
+    session.add(installment)
+
+    # A despesa gerada no pagamento sai do caixa junto (o vínculo é pelo título,
+    # que o pagamento monta de forma determinística)
+    titulo = f"{financing.title} — Parcela {installment_number}/{financing.installments_count}"
+    for tx in session.exec(
+        select(Transaction).where(
+            Transaction.workspace_id == workspace_id,
+            Transaction.title == titulo,
+            Transaction.deleted_at.is_(None),
+        )
+    ).all():
+        tx.deleted_at = datetime.now(UTC)
+        session.add(tx)
+
+    if financing.status == FinancingStatus.settled:
+        financing.status = FinancingStatus.active
+        session.add(financing)
+
+    publish_event(session, workspace_id, "financing.updated", "financing", financing.id, membership.user_id)
+    publish_event(session, workspace_id, "transaction.bulk_updated", "transaction", None, membership.user_id)
+    session.commit()
+    return {"status": "ok"}
+
+
 @router.delete("/{financing_id}")
 def delete_financing(
     workspace_id: int,
@@ -232,6 +388,7 @@ def delete_financing(
     membership: WorkspaceMembership = Depends(require_role(WorkspaceRole.member)),
 ):
     financing = _get_financing_or_404(session, workspace_id, financing_id)
+    _check_ownership(membership, financing)
     financing.deleted_at = datetime.now(UTC)
     session.add(financing)
     publish_event(session, workspace_id, "financing.deleted", "financing", financing.id, membership.user_id)

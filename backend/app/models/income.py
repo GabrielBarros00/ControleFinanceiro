@@ -1,6 +1,7 @@
 from datetime import datetime, UTC
 from typing import Optional
 from decimal import Decimal
+from sqlalchemy import Index
 from sqlmodel import SQLModel, Field
 
 class IncomeBase(SQLModel):
@@ -12,6 +13,17 @@ class IncomeBase(SQLModel):
     category: Optional[str] = Field(default=None, index=True) # e.g., "Salary", "Freelance"
 
 class Income(IncomeBase, table=True):
+    # uq(recurring_income, received_at): uma entrada por ocorrência da renda
+    # recorrente — espelha uq_recurring_occurrence do lado da despesa. Sem isto o
+    # dedup era só lê-depois-escreve em Python, e a materialização preguiçosa
+    # (que roda em ROTAS DE LEITURA) duplicava o salário sob concorrência.
+    # A entrada excluída mantém a linha (tombstone) e ocupa a vaga → a unique
+    # bloqueia recriação por natureza. Renda avulsa tem recurring_income_id NULL
+    # e não colide (NULLs são distintos na unique).
+    __table_args__ = (
+        Index("uq_recurring_income_occurrence", "recurring_income_id", "received_at", unique=True),
+    )
+
     id: Optional[int] = Field(default=None, primary_key=True)
     workspace_id: int = Field(foreign_key="workspace.id", index=True)
     user_id: int = Field(foreign_key="user.id", index=True)

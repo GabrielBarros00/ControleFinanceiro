@@ -10,7 +10,7 @@ Pré-requisitos: **Python 3.12+**, **Node 20+**, e (opcional) **Docker** para ro
 # Backend
 cd backend
 python -m venv .venv && source .venv/bin/activate   # Windows: .venv\Scripts\activate
-pip install -r requirements.txt
+pip install -r requirements-dev.txt   # inclui produção + pytest/ruff
 cp .env.example .env
 python -m uvicorn app.main:app --reload             # http://localhost:8000
 

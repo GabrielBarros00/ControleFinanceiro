@@ -10,6 +10,7 @@ from app.core.config import settings
 from app.models.user import User
 from app.models.workspace import Workspace
 from app.services.email_service import EmailService
+from app.services.session_service import start_session
 import app.api.routes.auth as auth_module
 
 client = TestClient(app)
@@ -27,8 +28,11 @@ def _make_user(db: Session, email: str = "sess@example.com", password: str = "se
 
 def test_refresh_success(db_session: Session, override_get_session):
     user = _make_user(db_session)
+    # Sessão GERENCIADA (com jti/family), que é o único formato aceito
+    refresh = start_session(db_session, user.id)
+    db_session.commit()
     client.cookies.clear()
-    client.cookies.set("refresh_token", create_refresh_token({"sub": str(user.id)}))
+    client.cookies.set("refresh_token", refresh)
 
     res = client.post("/api/v1/auth/refresh")
     assert res.status_code == 200
@@ -38,6 +42,19 @@ def test_refresh_success(db_session: Session, override_get_session):
     # O novo access token funciona
     res = client.get("/api/v1/auth/me")
     assert res.status_code == 200
+
+
+def test_refresh_recusa_formato_legado(db_session: Session, override_get_session):
+    """Token sem jti/family (pré-SEC-004) não é mais aceito.
+
+    Ele não tinha linha em RefreshSession, então `revoke_all_user_sessions` — a
+    revogação usada na troca e na REDEFINIÇÃO de senha — não o alcançava: um
+    token roubado continuava valendo depois de a vítima recuperar a conta.
+    """
+    user = _make_user(db_session, email="legado-refresh@example.com")
+    client.cookies.clear()
+    client.cookies.set("refresh_token", create_refresh_token({"sub": str(user.id)}))
+    assert client.post("/api/v1/auth/refresh").status_code == 401
 
 
 def test_refresh_requires_cookie(override_get_session):

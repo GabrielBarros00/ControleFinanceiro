@@ -1,5 +1,6 @@
 from datetime import datetime, UTC
 from typing import Optional
+from sqlalchemy import Index
 from sqlmodel import SQLModel, Field
 
 
@@ -10,6 +11,12 @@ class CategoryBase(SQLModel):
 
 
 class Category(CategoryBase, table=True):
+    # Nome único por workspace, como Tag e PaymentAccount já eram. A checagem
+    # em Python sozinha não sobrevive a duas requisições simultâneas.
+    __table_args__ = (
+        Index("uq_category_workspace_name", "workspace_id", "name", unique=True),
+    )
+
     id: Optional[int] = Field(default=None, primary_key=True)
     workspace_id: int = Field(foreign_key="workspace.id", index=True)
 

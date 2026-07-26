@@ -2,7 +2,9 @@ from datetime import datetime, UTC
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
+
+from app.schemas.common import NAME_MAX
 from sqlmodel import Session, select
 
 from app.db.session import get_session
@@ -15,14 +17,14 @@ router = APIRouter(prefix="/workspaces/{workspace_id}/payment-accounts", tags=["
 
 
 class PaymentAccountCreate(BaseModel):
-    name: str
+    name: str = Field(min_length=1, max_length=NAME_MAX)
     type: PaymentAccountType = PaymentAccountType.checking
     currency: str = "BRL"
     owner_user_id: Optional[int] = None
 
 
 class PaymentAccountUpdate(BaseModel):
-    name: Optional[str] = None
+    name: Optional[str] = Field(default=None, min_length=1, max_length=NAME_MAX)
     type: Optional[PaymentAccountType] = None
     active: Optional[bool] = None
     owner_user_id: Optional[int] = None

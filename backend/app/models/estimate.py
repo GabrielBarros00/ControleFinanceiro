@@ -1,6 +1,7 @@
 from datetime import datetime, UTC
 from typing import Optional
 from decimal import Decimal
+from sqlalchemy import Index
 from sqlmodel import SQLModel, Field
 
 class MonthlyEstimateBase(SQLModel):
@@ -12,6 +13,13 @@ class MonthlyEstimateBase(SQLModel):
     description: Optional[str] = None
 
 class MonthlyEstimate(MonthlyEstimateBase, table=True):
+    # Um orçamento por (workspace, categoria, mês). A idempotência da rota
+    # chaveava pelo RÓTULO de texto, não pela FK — com texto vazio/constante
+    # todos os orçamentos do mês viravam um só.
+    __table_args__ = (
+        Index("uq_estimate_workspace_category_month", "workspace_id", "category_id", "month", unique=True),
+    )
+
     id: Optional[int] = Field(default=None, primary_key=True)
     workspace_id: int = Field(foreign_key="workspace.id", index=True)
     user_id: int = Field(foreign_key="user.id", index=True)

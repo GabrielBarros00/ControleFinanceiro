@@ -1,5 +1,4 @@
-import calendar
-from datetime import date, datetime, UTC
+from datetime import datetime, UTC
 from decimal import Decimal, ROUND_HALF_UP
 from typing import List, Optional
 
@@ -7,6 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlmodel import Session, select
 
 from app.db.session import get_session
+from app.domain.dates import InvalidMonth, month_bounds, parse_month
 from app.domain.query_policy import workspace_base_currency
 from app.models.workspace import WorkspaceMembership, WorkspaceRole, role_level
 from app.models.income import Income
@@ -107,18 +107,18 @@ def list_income(
     # ReportService.get_summary (o "Sua receita" do Início). received_at é a fonte
     # de verdade da renda; a avulsa não tem billing_month.
     if month:
+        # Mês inválido é ERRO, não "sem filtro". Antes o except engolia e a rota
+        # devolvia o histórico INTEIRO como se fosse o mês pedido — com o total
+        # do cabeçalho errado e nenhum sinal para o usuário.
         try:
-            ref = datetime.strptime(month, "%Y-%m")
-        except ValueError:
-            ref = None
-        if ref is not None:
-            last_day_num = calendar.monthrange(ref.year, ref.month)[1]
-            start = datetime.combine(date(ref.year, ref.month, 1), datetime.min.time())
-            end = datetime.combine(date(ref.year, ref.month, last_day_num), datetime.max.time())
-            statement = statement.where(
-                Income.received_at >= start,
-                Income.received_at <= end,
-            )
+            ref = parse_month(month)
+        except InvalidMonth as exc:
+            raise HTTPException(status_code=400, detail=str(exc))
+        start, end = month_bounds(ref)
+        statement = statement.where(
+            Income.received_at >= start,
+            Income.received_at <= end,
+        )
 
     statement = statement.order_by(Income.received_at.desc())
     incomes = session.exec(statement).all()

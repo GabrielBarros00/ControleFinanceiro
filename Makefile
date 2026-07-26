@@ -30,18 +30,24 @@ help:
 # Install dependencies
 .PHONY: install
 install:
-	$(PIP) install -r backend/requirements.txt ruff pytest
-	cd frontend && npm install
+	$(PIP) install -r backend/requirements-dev.txt
+	cd frontend && npm ci
 
 # Backend targets
 .PHONY: backend-test
 backend-test:
 	$(PYTEST) backend
 
+# `lint` NÃO altera arquivos (antes rodava `ruff format`, que reescrevia código
+# num alvo chamado "lint"). Para formatar, use `make format`.
 .PHONY: backend-lint
 backend-lint:
 	$(RUFF) check backend
+
+.PHONY: format
+format:
 	$(RUFF) format backend
+	$(RUFF) check --fix backend
 
 # Frontend targets
 .PHONY: frontend-test

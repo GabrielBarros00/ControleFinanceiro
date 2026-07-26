@@ -4,6 +4,7 @@ from typing import List, Any, Dict, Optional
 from datetime import date
 
 from app.db.session import get_session
+from app.domain.dates import InvalidMonth, parse_month
 from app.models.workspace import WorkspaceMembership, WorkspaceRole
 from app.models.estimate import MonthlyEstimate
 from app.schemas.estimate import MonthlyEstimateCreate, MonthlyEstimateRead
@@ -18,14 +19,11 @@ router = APIRouter(prefix="/workspaces/{workspace_id}/analytics", tags=["analyti
 
 
 def _parse_month(month: Optional[str]) -> date:
-    """`YYYY-MM` → primeiro dia do mês; vazio → hoje."""
-    if not month:
-        return date.today()
+    """`YYYY-MM` → primeiro dia do mês; vazio → hoje. 400 no formato errado."""
     try:
-        year_str, month_str = month.split("-")
-        return date(int(year_str), int(month_str), 1)
-    except ValueError:
-        raise HTTPException(status_code=400, detail="Formato de mês inválido. Use YYYY-MM")
+        return parse_month(month)
+    except InvalidMonth as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
 
 
 @router.get("/summary", response_model=Dict[str, Any])
@@ -71,14 +69,7 @@ def get_forecast(
     session: Session = Depends(get_session),
     membership: WorkspaceMembership = Depends(get_workspace_membership)
 ):
-    if month:
-        try:
-            year_str, month_str = month.split("-")
-            target_date = date(int(year_str), int(month_str), 1)
-        except ValueError:
-            raise HTTPException(status_code=400, detail="Formato de mês inválido. Use YYYY-MM")
-    else:
-        target_date = date.today()
+    target_date = _parse_month(month)
 
     projection = ForecastService.get_monthly_projection(session, workspace_id, target_date)
     return projection
@@ -124,13 +115,15 @@ def create_estimate(
 ):
     _validate_estimate_category(session, workspace_id, estimate_in.category_id)
 
-    # Idempotente por (workspace, categoria, mês): sem unique no schema, esta é a
-    # única barreira contra orçamentos duplicados — reaproveita o existente em vez
-    # de criar um segundo (a UI já tenta deduplicar, mas não pode ser a única).
+    # Idempotente por (workspace, category_id, mês). A chave é o category_id (FK),
+    # não o rótulo de texto: com o texto, um `category` vazio/constante colapsava
+    # TODOS os orçamentos do mês num só, e dois textos diferentes para a mesma
+    # categoria criavam duplicatas. O próprio model diz que category_id é "a
+    # referência real desde a Onda 5" — a idempotência é que não tinha migrado.
     existing = session.exec(
         select(MonthlyEstimate)
         .where(MonthlyEstimate.workspace_id == workspace_id)
-        .where(MonthlyEstimate.category == estimate_in.category)
+        .where(MonthlyEstimate.category_id == estimate_in.category_id)
         .where(MonthlyEstimate.month == estimate_in.month)
         .where(MonthlyEstimate.deleted_at.is_(None))
     ).first()

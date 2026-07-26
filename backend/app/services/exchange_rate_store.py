@@ -19,7 +19,22 @@ class ExchangeRateStore:
     _FALLBACK_LOOKBACK_DAYS = 15
 
     @classmethod
-    def get_or_fetch(cls, db: Session, currency: str, target_date: date) -> Tuple[Decimal, str]:
+    def get_or_fetch(
+        cls,
+        db: Session,
+        currency: str,
+        target_date: date,
+        *,
+        allow_fetch: bool = True,
+    ) -> Tuple[Decimal, str]:
+        """Taxa moeda→BRL do dia. Com `allow_fetch=False` NUNCA vai à rede.
+
+        O modo offline existe para o caminho de LEITURA (materialização
+        preguiçosa nas rotas GET): buscar cotação ali podia bloquear um
+        `GET /transactions/` por até ~50s esperando uma fonte externa. Sem taxa
+        no store, o chamador do modo offline desiste da ocorrência — o backfill
+        agendado ou a próxima mutação preenchem a lacuna.
+        """
         currency = str(currency).upper()
         if currency == "BRL":
             return Decimal("1.0"), "base"
@@ -33,24 +48,33 @@ class ExchangeRateStore:
         if row:
             return row.rate, row.source
 
-        try:
-            rate, source = CurrencyService.get_rate_sync(currency, "BRL", target_date)
-        except ExchangeRateUnavailable:
-            fallback = db.exec(
-                select(ExchangeRate)
-                .where(
-                    ExchangeRate.currency == currency,
-                    ExchangeRate.rate_date <= target_date,
-                    ExchangeRate.rate_date >= target_date - timedelta(days=cls._FALLBACK_LOOKBACK_DAYS),
-                )
-                .order_by(ExchangeRate.rate_date.desc())
-            ).first()
-            if fallback:
-                return fallback.rate, fallback.source
-            raise
+        if allow_fetch:
+            try:
+                rate, source = CurrencyService.get_rate_sync(currency, "BRL", target_date)
+            except ExchangeRateUnavailable:
+                return cls._fallback_or_raise(db, currency, target_date)
+            cls._save(db, currency, target_date, rate, source)
+            return rate, source
 
-        cls._save(db, currency, target_date, rate, source)
-        return rate, source
+        return cls._fallback_or_raise(db, currency, target_date)
+
+    @classmethod
+    def _fallback_or_raise(
+        cls, db: Session, currency: str, target_date: date
+    ) -> Tuple[Decimal, str]:
+        """Taxa mais recente ANTERIOR dentro da janela de tolerância (resiliência)."""
+        fallback = db.exec(
+            select(ExchangeRate)
+            .where(
+                ExchangeRate.currency == currency,
+                ExchangeRate.rate_date <= target_date,
+                ExchangeRate.rate_date >= target_date - timedelta(days=cls._FALLBACK_LOOKBACK_DAYS),
+            )
+            .order_by(ExchangeRate.rate_date.desc())
+        ).first()
+        if fallback:
+            return fallback.rate, fallback.source
+        raise ExchangeRateUnavailable(currency, target_date)
 
     @staticmethod
     def _save(db: Session, currency: str, rate_date: date, rate: Decimal, source: str) -> ExchangeRate:

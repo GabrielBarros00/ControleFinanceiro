@@ -12,8 +12,35 @@ from app.models.estimate import MonthlyEstimate
 from app.models.income import Income
 from app.models.credit_card import CreditCard, CardStatement, StatementStatus
 from app.services.credit_card_service import CreditCardService
+from app.services.currency_service import ExchangeRateUnavailable
+from app.services.exchange_rate_store import ExchangeRateStore
 from app.services.recurring_service import RecurringService
 import calendar
+
+def _template_amount_in_base(db, template, occ: date, base_currency: str):
+    """Valor do template na MOEDA-BASE. Devolve (valor, conseguiu_converter).
+
+    Antes a projeção somava `template.base_amount` cru: uma assinatura de
+    `USD 100` entrava como `R$ 100` (≈5x menor). Como todo o resto do serviço
+    filtra por `currency == base_currency`, os fixos pendentes eram o único
+    ponto que ignorava a moeda — e erravam para MENOS, que é o lado perigoso num
+    app de orçamento.
+
+    Sem cotação no store, o template fica de fora e é contado como excluído (a
+    mesma política do ADR 0006 aplicada às transações). Nunca vai à rede: isto
+    roda num GET.
+    """
+    currency = getattr(template, "currency", None)
+    if not currency or currency == base_currency:
+        return template.base_amount, True
+    try:
+        rate, _ = ExchangeRateStore.get_or_fetch(db, currency, occ, allow_fetch=False)
+    except ExchangeRateUnavailable:
+        return Decimal("0.00"), False
+    return (template.base_amount * rate).quantize(
+        Decimal("0.01"), rounding=ROUND_HALF_UP
+    ), True
+
 
 class ForecastService:
     @staticmethod
@@ -108,6 +135,7 @@ class ForecastService:
             return template.id not in instanced_templates
 
         remaining_fixed = Decimal("0.00")
+        excluded_recurring = 0
         is_current = today.month == target_month.month and today.year == target_month.year
         if is_current or target_month > today:
             for r in recurring:
@@ -117,7 +145,11 @@ class ForecastService:
                     if is_current and occ <= today:
                         continue  # vencida: ou já virou instância, ou generate cobre
                     if _occurrence_pending(r, occ):
-                        remaining_fixed += r.base_amount
+                        valor, ok = _template_amount_in_base(db, r, occ, base_currency)
+                        if ok:
+                            remaining_fixed += valor
+                        else:
+                            excluded_recurring += 1
 
         # 4. Projected Total (caixa: gastos + tendência + fixos pendentes + faturas a vencer)
         projected_total = total_spent + (daily_avg * remaining_days) + remaining_fixed + statements_pending
@@ -140,6 +172,9 @@ class ForecastService:
             .where(Income.received_at >= datetime.combine(first_day, datetime.min.time()))
             .where(Income.received_at <= datetime.combine(last_day, datetime.max.time()))
             .where(Income.deleted_at.is_(None))
+            # Mesma política de moeda da despesa (ADR 0006). Sem este filtro, uma
+            # renda legada em USD era somada a despesas em BRL.
+            .where(Income.currency == base_currency)
         ).one() or Decimal("0.00")
 
         # 6b. Rendas recorrentes ainda NÃO materializadas no mês → projeção.
@@ -170,7 +205,11 @@ class ForecastService:
                     else:
                         already = ri.id in mat_income_templates
                     if not already:
-                        income_pending += ri.base_amount
+                        valor, ok = _template_amount_in_base(db, ri, occ, base_currency)
+                        if ok:
+                            income_pending += valor
+                        else:
+                            excluded_recurring += 1
 
         projected_income = income_actual + income_pending
 
@@ -189,7 +228,7 @@ class ForecastService:
         return {
             "month": target_month.strftime("%Y-%m"),
             "base_currency": base_currency,
-            "excluded_foreign_count": excluded_foreign_count,
+            "excluded_foreign_count": excluded_foreign_count + excluded_recurring,
             "actual_spent": total_spent,
             "projected_eom": projected_total.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP),
             "daily_average": daily_avg,

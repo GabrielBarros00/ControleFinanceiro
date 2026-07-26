@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Body, Depends, HTTPException, Query
 from sqlmodel import Session, select, func
 from typing import Dict, List, Optional
 from decimal import Decimal, ROUND_HALF_UP
@@ -1316,7 +1316,9 @@ def update_installment_group(
 @router.post("/bulk")
 def bulk_create_transactions(
     workspace_id: int,
-    transactions_in: List[dict],
+    # Mesmo teto do /imports/commit: sem ele um cliente autenticado pedia a
+    # criação de milhões de transações numa única transação de banco.
+    transactions_in: List[dict] = Body(..., max_length=settings.IMPORT_MAX_ROWS),
     session: Session = Depends(get_session),
     membership: WorkspaceMembership = Depends(require_role(WorkspaceRole.member))
 ):
