@@ -1,6 +1,9 @@
 [tool.pytest.ini_options]
 testpaths = ['tests']
 python_files = 'test_*.py'
+markers = [
+    "concurrency: exercita duas ou mais requisições ao mesmo tempo (banco em arquivo)",
+]
 filterwarnings = [
     # Deprecação INTERNA do Starlette ao acessar o status 422 no seu próprio
     # exception handler — fora do nosso controle (nosso código já usa o novo nome).

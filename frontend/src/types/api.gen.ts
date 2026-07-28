@@ -235,6 +235,28 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/workspaces/{workspace_id}/base-currency/preview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Preview Base Currency Change
+         * @description Dry-run da troca de moeda-base: quantas linhas seriam reconvertidas e que
+         *     cotações faltam. A UI usa isto para avisar ANTES de confirmar — a troca é
+         *     uma reescrita de todo o histórico financeiro do workspace.
+         */
+        get: operations["preview_base_currency_change_api_v1_workspaces__workspace_id__base_currency_preview_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/workspaces/{workspace_id}/members": {
         parameters: {
             query?: never;
@@ -367,6 +389,27 @@ export interface paths {
         put?: never;
         /** Accept Invite */
         post: operations["accept_invite_api_v1_invites_accept__token__post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/invites/decline/{token}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Decline Invite
+         * @description Recusa um convite. Existe porque o aviso precisa ter as DUAS saídas — sem
+         *     recusar, a única forma de se livrar do convite era aceitá-lo.
+         */
+        post: operations["decline_invite_api_v1_invites_decline__token__post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1083,7 +1126,16 @@ export interface paths {
         };
         /** Get Financing */
         get: operations["get_financing_api_v1_workspaces__workspace_id__financing__financing_id__get"];
-        put?: never;
+        /**
+         * Update Financing
+         * @description Edita o financiamento. Antes NÃO existia: um financiamento cadastrado
+         *     errado só podia ser excluído e recriado, perdendo o histórico.
+         *
+         *     Alterar valor/taxa/prazo/método regenera o cronograma, então é recusado se
+         *     já houver parcela paga (o pagamento virou despesa real e o plano não pode
+         *     mudar debaixo dela).
+         */
+        put: operations["update_financing_api_v1_workspaces__workspace_id__financing__financing_id__put"];
         post?: never;
         /** Delete Financing */
         delete: operations["delete_financing_api_v1_workspaces__workspace_id__financing__financing_id__delete"];
@@ -1137,6 +1189,30 @@ export interface paths {
         put?: never;
         /** Pay Installment */
         post: operations["pay_installment_api_v1_workspaces__workspace_id__financing__financing_id__installments__installment_number__pay_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/workspaces/{workspace_id}/financing/{financing_id}/installments/{installment_number}/unpay": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Unpay Installment
+         * @description Estorna o pagamento de uma parcela.
+         *
+         *     `is_paid` era irreversível: um clique errado não tinha desfazer, e a despesa
+         *     gerada ficava para sempre no caixa. Aqui a parcela volta a aberta, a despesa
+         *     correspondente é soft-deletada e o financiamento sai de `settled`.
+         */
+        post: operations["unpay_installment_api_v1_workspaces__workspace_id__financing__financing_id__installments__installment_number__unpay_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1272,6 +1348,57 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/notifications": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Notifications */
+        get: operations["list_notifications_api_v1_notifications_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/notifications/{notification_id}/read": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Mark Notification Read */
+        post: operations["mark_notification_read_api_v1_notifications__notification_id__read_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/notifications/read-all": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Mark All Notifications Read */
+        post: operations["mark_all_notifications_read_api_v1_notifications_read_all_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/health": {
         parameters: {
             query?: never;
@@ -1279,7 +1406,14 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Health Check */
+        /**
+         * Health Check
+         * @description Saúde REAL: inclui um toque no banco.
+         *
+         *     Antes respondia `ok` sem consultar nada — com o Postgres fora do ar o
+         *     healthcheck do container continuava verde e o orquestrador nunca reiniciava
+         *     nada. Versão vem das settings (a constante embutida ia divergir no 1º bump).
+         */
         get: operations["health_check_api_v1_health_get"];
         put?: never;
         post?: never;
@@ -1395,10 +1529,7 @@ export interface components {
         };
         /** Body_parse_csv_api_v1_workspaces__workspace_id__imports_parse_post */
         Body_parse_csv_api_v1_workspaces__workspace_id__imports_parse_post: {
-            /**
-             * File
-             * Format: binary
-             */
+            /** File */
             file: string;
             /** Date Column */
             date_column: string;
@@ -1429,10 +1560,7 @@ export interface components {
         };
         /** Body_upload_attachment_api_v1_workspaces__workspace_id__transactions__transaction_id__attachments_post */
         Body_upload_attachment_api_v1_workspaces__workspace_id__transactions__transaction_id__attachments_post: {
-            /**
-             * File
-             * Format: binary
-             */
+            /** File */
             file: string;
         };
         /** Category */
@@ -1619,6 +1747,26 @@ export interface components {
          * @enum {string}
          */
         FinancingStatus: "active" | "settled" | "simulated";
+        /**
+         * FinancingUpdate
+         * @description Edição do financiamento. Mexer em valor/taxa/prazo/método regenera o
+         *     cronograma — por isso só é permitido enquanto nenhuma parcela foi paga.
+         */
+        FinancingUpdate: {
+            /** Title */
+            title?: string | null;
+            /** Description */
+            description?: string | null;
+            /** Total Amount */
+            total_amount?: number | string | null;
+            /** Interest Rate */
+            interest_rate?: number | string | null;
+            /** Start Date */
+            start_date?: string | null;
+            /** Installments Count */
+            installments_count?: number | null;
+            method?: components["schemas"]["AmortizationMethod"] | null;
+        };
         /** ForgotPasswordRequest */
         ForgotPasswordRequest: {
             /**
@@ -1881,6 +2029,41 @@ export interface components {
              */
             updated_at: string;
         };
+        /** NotificationList */
+        NotificationList: {
+            /** Items */
+            items: components["schemas"]["NotificationRead"][];
+            /** Unread */
+            unread: number;
+        };
+        /** NotificationRead */
+        NotificationRead: {
+            /** Id */
+            id: number;
+            type: components["schemas"]["NotificationType"];
+            /** Title */
+            title: string;
+            /** Body */
+            body: string | null;
+            /** Workspace Id */
+            workspace_id: number | null;
+            /** Workspace Name */
+            workspace_name: string | null;
+            /** Invite Token */
+            invite_token: string | null;
+            /** Read At */
+            read_at: string | null;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+        };
+        /**
+         * NotificationType
+         * @enum {string}
+         */
+        NotificationType: "workspace_invite" | "member_added" | "invite_revoked";
         /** OnboardingRequest */
         OnboardingRequest: {
             /** Workspace Id */
@@ -2688,6 +2871,10 @@ export interface components {
             msg: string;
             /** Error Type */
             type: string;
+            /** Input */
+            input?: unknown;
+            /** Context */
+            ctx?: Record<string, never>;
         };
         /** WorkspaceCreate */
         WorkspaceCreate: {
@@ -3307,6 +3494,43 @@ export interface operations {
             };
         };
     };
+    preview_base_currency_change_api_v1_workspaces__workspace_id__base_currency_preview_get: {
+        parameters: {
+            query: {
+                to: string;
+            };
+            header?: never;
+            path: {
+                workspace_id: number;
+            };
+            cookie?: {
+                access_token?: string | null;
+            };
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     list_members_api_v1_workspaces__workspace_id__members_get: {
         parameters: {
             query?: never;
@@ -3620,6 +3844,39 @@ export interface operations {
         };
     };
     accept_invite_api_v1_invites_accept__token__post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                token: string;
+            };
+            cookie?: {
+                access_token?: string | null;
+            };
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    decline_invite_api_v1_invites_decline__token__post: {
         parameters: {
             query?: never;
             header?: never;
@@ -5744,6 +6001,44 @@ export interface operations {
             };
         };
     };
+    update_financing_api_v1_workspaces__workspace_id__financing__financing_id__put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                workspace_id: number;
+                financing_id: number;
+            };
+            cookie?: {
+                access_token?: string | null;
+            };
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["FinancingUpdate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Financing"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     delete_financing_api_v1_workspaces__workspace_id__financing__financing_id__delete: {
         parameters: {
             query?: never;
@@ -5851,6 +6146,41 @@ export interface operations {
         };
     };
     pay_installment_api_v1_workspaces__workspace_id__financing__financing_id__installments__installment_number__pay_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                workspace_id: number;
+                financing_id: number;
+                installment_number: number;
+            };
+            cookie?: {
+                access_token?: string | null;
+            };
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    unpay_installment_api_v1_workspaces__workspace_id__financing__financing_id__installments__installment_number__unpay_post: {
         parameters: {
             query?: never;
             header?: never;
@@ -6332,6 +6662,103 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["AuditLogRead"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_notifications_api_v1_notifications_get: {
+        parameters: {
+            query?: {
+                only_unread?: boolean;
+            };
+            header?: never;
+            path?: never;
+            cookie?: {
+                access_token?: string | null;
+            };
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NotificationList"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    mark_notification_read_api_v1_notifications__notification_id__read_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                notification_id: number;
+            };
+            cookie?: {
+                access_token?: string | null;
+            };
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NotificationRead"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    mark_all_notifications_read_api_v1_notifications_read_all_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: {
+                access_token?: string | null;
+            };
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
                 };
             };
             /** @description Validation Error */

@@ -9,7 +9,7 @@ import { useCategories } from '@/hooks/use-categories';
 import { useBaseCurrency } from '@/hooks/use-base-currency';
 import { ExcludedForeignNotice } from '@/components/money/ExcludedForeignNotice';
 import { getApiErrorMessage } from '@/lib/api-error';
-import { formatMoney } from '@/lib/money';
+import { currencySymbol, formatMoney } from '@/lib/money';
 
 const selectClass =
   'flex h-10 w-full rounded-md border border-border bg-background px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring';
@@ -166,7 +166,14 @@ export function BudgetPanel({ spentByCategory, totalExpenses, excludedForeignCou
           </div>
           <div className="w-40 space-y-1.5">
             <Label htmlFor="budget-amount" className="text-xs font-semibold">Meta do mês</Label>
-            <MoneyInput id="budget-amount" value={newAmount} onChange={setNewAmount} />
+            {/* Prefixo na moeda-base: o default do MoneyInput é "R$" e mentia
+                num workspace configurado em outra moeda. */}
+            <MoneyInput
+              id="budget-amount"
+              value={newAmount}
+              onChange={setNewAmount}
+              prefix={currencySymbol(baseCurrency)}
+            />
           </div>
           <Button onClick={addBudget} className="gap-1.5 font-bold bg-primary text-primary-foreground">
             <Plus className="h-4 w-4" /> Definir
