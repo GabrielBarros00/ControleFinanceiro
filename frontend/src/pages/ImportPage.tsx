@@ -224,7 +224,7 @@ export function ImportPage() {
                 </TableHeader>
                 <TableBody>
                   {preview.map((tx, idx) => (
-                    <TableRow key={idx} className={`border-border ${tx.duplicate && skipDuplicates ? 'opacity-40' : ''}`}>
+                    <TableRow key={tx.line ?? idx} className={`border-border ${tx.duplicate && skipDuplicates ? 'opacity-40' : ''}`}>
                       <TableCell className="text-xs font-medium">
                         {parseApiDate(tx.transaction_date).toLocaleDateString('pt-BR')}
                       </TableCell>

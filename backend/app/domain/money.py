@@ -95,3 +95,8 @@ class Money:
         if not isinstance(other, Money):
             return False
         return self.amount == other.amount and self.currency == other.currency
+
+    def __hash__(self):
+        # Definir __eq__ sem __hash__ torna a classe UNHASHABLE em Python:
+        # Money não podia entrar em set nem ser chave de dict.
+        return hash((self.amount, self.currency))

@@ -4,9 +4,11 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Button } from "@/components/ui/button";
 import { ChevronLeft, ChevronRight, HandCoins, Loader2, CalendarDays } from 'lucide-react';
 import { useMonthlyDebts } from '@/hooks/use-monthly-debts';
+import { useBaseCurrency } from '@/hooks/use-base-currency';
 import { useTxDetailStore } from '@/stores';
 import type { SettlementDraft } from '@/components/debts/SettlementDialog';
 import { currentMonthLocal, shiftMonth } from '@/lib/date';
+import { formatMoney } from '@/lib/money';
 
 interface MemberLike {
   user_id: number;
@@ -20,8 +22,6 @@ interface MonthlyDebtsSectionProps {
   onSettle: (draft: SettlementDraft) => void;
 }
 
-const formatBRL = (value: number | string) =>
-  `R$ ${Number(value).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`;
 
 function monthLabel(month: string) {
   const [y, m] = month.split('-').map(Number);
@@ -29,6 +29,10 @@ function monthLabel(month: string) {
 }
 
 export function MonthlyDebtsSection({ members, currentUserId, canWrite, onSettle }: MonthlyDebtsSectionProps) {
+  // Moeda-base do workspace: o backend soma nela e devolve `base_currency` em
+  // todo endpoint agregado — a tela formatava com "R$" fixo no código.
+  const baseCurrency = useBaseCurrency();
+  const formatBRL = (value: number | string) => formatMoney(value, { currency: baseCurrency });
   const [month, setMonth] = React.useState(currentMonthLocal);
   const { ledger, isLoading } = useMonthlyDebts(month);
   const openDetail = useTxDetailStore((s) => s.open);
@@ -120,8 +124,8 @@ export function MonthlyDebtsSection({ members, currentUserId, canWrite, onSettle
                 </p>
               ) : (
                 <div className="space-y-2">
-                  {ledger.net_debts.map((d, idx) => (
-                    <div key={idx} className="flex items-center justify-between rounded-xl bg-accent/30 border border-border p-3">
+                  {ledger.net_debts.map((d) => (
+                    <div key={`${d.debtor_id}-${d.creditor_id}`} className="flex items-center justify-between rounded-xl bg-accent/30 border border-border p-3">
                       <p className="text-sm">
                         <span className="font-bold">{memberName(d.debtor_id)}</span>
                         <span className="text-muted-foreground"> deve </span>

@@ -17,7 +17,8 @@ class FinancingBase(SQLModel):
     title: str = Field(index=True)
     description: Optional[str] = None
     total_amount: Decimal = Field(decimal_places=2, max_digits=20)
-    interest_rate: Decimal = Field(decimal_places=6, max_digits=10) # Yearly or Monthly? Let's clarify in service.
+    # Taxa MENSAL (ex.: 0.01 = 1% a.m.) — é como FinancingService a aplica.
+    interest_rate: Decimal = Field(decimal_places=6, max_digits=10)
     start_date: date
     installments_count: int = Field(ge=1)
     method: AmortizationMethod = Field(default=AmortizationMethod.SAC)

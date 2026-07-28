@@ -11,6 +11,8 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { EmptyState } from '@/components/ui/empty-state';
 import { StatTile } from '@/components/ui/stat-tile';
 import { HeroBalance } from '@/components/dashboard/HeroBalance';
+import { ExcludedForeignNotice } from '@/components/money/ExcludedForeignNotice';
+import { useBaseCurrency } from '@/hooks/use-base-currency';
 import { TransactionLedger } from '@/components/money/TransactionLedger';
 import { formatMoney } from '@/lib/money';
 import { currentMonthLocal } from '@/lib/date';
@@ -27,6 +29,7 @@ export function Home() {
   // Mês LOCAL explícito nas três consultas: sem ele, resumo e previsão usavam
   // o date.today() do servidor e divergiam do extrato na virada do mês.
   const month = currentMonthLocal();
+  const baseCurrency = useBaseCurrency();
   const { data: reports, isLoading: reportsLoading } = useReports(month);
   const { forecast, isLoading: forecastLoading } = useAnalytics(month);
   const { transactions, isLoading: txLoading } = useTransactions({ page: 1, limit: 6, month });
@@ -97,6 +100,10 @@ export function Home() {
                 value={myNet}
                 kind={myNet >= 0 ? 'income' : 'expense'}
                 icon={Wallet}
+              />
+              <ExcludedForeignNotice
+                count={summary?.excluded_foreign_count}
+                baseCurrency={baseCurrency}
               />
             </div>
           </div>

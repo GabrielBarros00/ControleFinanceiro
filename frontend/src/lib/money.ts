@@ -1,5 +1,14 @@
+/**
+ * @deprecated Prefira `formatMoney`, que interpreta string como decimal.
+ *
+ * String aqui era lida como CENTAVOS via `replace(/\D/g,'')`: isso descartava o
+ * sinal (`"-50.00"` virava R$ 50,00) e lia `"1234.5"` como R$ 123,45. Nenhum
+ * call-site passava string crua — todos usavam `parseFloat` antes — mas a
+ * armadilha estava armada para o próximo. Agora string é decimal, igual a
+ * `formatMoney`.
+ */
 export const formatCurrency = (value: number | string, currency: string = 'BRL'): string => {
-  const raw = typeof value === 'string' ? parseFloat(value.replace(/\D/g, '')) / 100 : value;
+  const raw = typeof value === 'string' ? parseFloat(value) : value;
   const amount = isNaN(raw) ? 0 : raw;
 
   try {
@@ -28,8 +37,13 @@ export const parseCurrency = (value: string): number => {
   return parseFloat(digits) / 100;
 };
 
+// Teto de dígitos do input de dinheiro. Acima de ~15 dígitos o `parseInt` perde
+// precisão silenciosamente (Number.MAX_SAFE_INTEGER) e o valor enviado deixa de
+// ser o digitado. O backend recusa acima de MAX_MONEY de qualquer forma.
+const MASK_MAX_DIGITS = 15;
+
 export const maskCurrency = (value: string): string => {
-  const digits = value.replace(/\D/g, '');
+  const digits = value.replace(/\D/g, '').slice(0, MASK_MAX_DIGITS);
   const amount = parseInt(digits) || 0;
 
   return new Intl.NumberFormat('pt-BR', {

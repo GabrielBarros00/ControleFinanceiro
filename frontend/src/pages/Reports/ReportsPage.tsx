@@ -128,6 +128,7 @@ export function ReportsPage() {
           <BudgetPanel
             spentByCategory={categoryData}
             totalExpenses={currentSummary.total_expenses}
+            excludedForeignCount={currentSummary.excluded_foreign_count}
             month={month}
           />
         </TabsContent>

@@ -17,6 +17,8 @@ import { ErrorState } from '@/components/ui/error-state';
 import { Skeleton } from '@/components/ui/skeleton';
 import { formatMoney } from '@/lib/money';
 import { PAYMENT_METHOD_OPTIONS } from '@/lib/payment-methods';
+import { useCategories } from '@/hooks/use-categories';
+import { useTags } from '@/hooks/use-tags';
 import { currentMonthLocal } from '@/lib/date';
 
 
@@ -43,6 +45,8 @@ export function TransactionsPage() {
   const { transactions, total, totalAmount, totalPages, currentPage, isLoading, isError, remove } =
     useTransactions(filters);
   const { canWrite } = useWorkspaceRole();
+  const { categories } = useCategories();
+  const { tags } = useTags();
   const setNewTxOpen = useNewTxStore((s) => s.setOpen);
   const openDetail = useTxDetailStore((s) => s.open);
   const confirm = useConfirm();
@@ -68,7 +72,17 @@ export function TransactionsPage() {
   // Soma do FILTRO inteiro (vem do backend) — antes era só a página atual,
   // exibida ao lado de uma contagem global, o que não fechava
   const totalSpent = totalAmount;
-  const hasFilters = !!searchInput || !!filters.payment_method;
+  const categoryOptions = React.useMemo(
+    () => categories.map((c) => ({ value: String(c.id), label: c.name })),
+    [categories],
+  );
+  const tagOptions = React.useMemo(
+    () => tags.map((t) => ({ value: String(t.id), label: t.name })),
+    [tags],
+  );
+
+  const hasFilters =
+    !!searchInput || !!filters.payment_method || !!filters.category_id || !!filters.tag_id;
 
   return (
     <div className="space-y-6">
@@ -112,6 +126,47 @@ export function TransactionsPage() {
             ))}
           </SelectContent>
         </Select>
+        {/* Categoria e tag: o backend implementa os dois filtros
+            (routes/transactions.py) e o hook já os enviava — faltava só o
+            controle na tela. */}
+        <Select
+          items={[{ value: 'all', label: 'Toda categoria' }, ...categoryOptions]}
+          value={filters.category_id ? String(filters.category_id) : 'all'}
+          onValueChange={(v: string | null) =>
+            patch({ category_id: v && v !== 'all' ? Number(v) : undefined })
+          }
+        >
+          <SelectTrigger className="w-full sm:w-[184px]">
+            <SelectValue placeholder="Categoria" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">Toda categoria</SelectItem>
+            {categoryOptions.map((o) => (
+              <SelectItem key={o.value} value={o.value}>
+                {o.label}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        <Select
+          items={[{ value: 'all', label: 'Toda tag' }, ...tagOptions]}
+          value={filters.tag_id ? String(filters.tag_id) : 'all'}
+          onValueChange={(v: string | null) =>
+            patch({ tag_id: v && v !== 'all' ? Number(v) : undefined })
+          }
+        >
+          <SelectTrigger className="w-full sm:w-[160px]">
+            <SelectValue placeholder="Tag" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">Toda tag</SelectItem>
+            {tagOptions.map((o) => (
+              <SelectItem key={o.value} value={o.value}>
+                {o.label}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
         {hasFilters && (
           <Button
             variant="ghost"
@@ -119,7 +174,12 @@ export function TransactionsPage() {
             aria-label="Limpar filtros"
             onClick={() => {
               setSearchInput('');
-              patch({ search: '', payment_method: undefined });
+              patch({
+                search: '',
+                payment_method: undefined,
+                category_id: undefined,
+                tag_id: undefined,
+              });
             }}
           >
             <FilterX className="h-4 w-4" />

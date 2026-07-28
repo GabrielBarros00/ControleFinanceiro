@@ -84,11 +84,6 @@ def _set_transaction_tags(
         session.add(TransactionTagLink(transaction_id=transaction_id, tag_id=tag.id))
 
 
-def _add_months(dt: datetime.datetime, months: int) -> datetime.datetime:
-    """Avança meses de calendário (util compartilhado — ADR 0012)."""
-    return add_months(dt, months)
-
-
 def _ensure_not_paid(db_transaction: Transaction, update_keys: Optional[set] = None):
     """Despesa paga é imutável até ser reaberta (PUT contendo apenas status)."""
     if db_transaction.status != TransactionStatus.paid:
@@ -398,7 +393,7 @@ def _create_installments(
             plan = plans[i]
             inst_amount = plan["total"]
             inst_title = f"{transaction_in.title} ({i + 1}/{count})"
-            inst_date = _add_months(transaction_in.transaction_date, i)
+            inst_date = add_months(transaction_in.transaction_date, i)
 
             statement_id = None
             if card:

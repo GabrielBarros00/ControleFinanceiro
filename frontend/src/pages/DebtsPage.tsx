@@ -3,7 +3,9 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Button } from "@/components/ui/button";
 import { useDebts } from '@/hooks/use-debts';
+import { useBaseCurrency } from '@/hooks/use-base-currency';
 import { useWorkspaceRole } from '@/hooks/use-workspace-role';
+import { formatMoney } from '@/lib/money';
 import { ArrowRight, Users, Loader2, RefreshCcw, Landmark, HandCoins, History, Trash2 } from 'lucide-react';
 import { useAuth } from '@/hooks/use-auth';
 import { useMembers } from '@/hooks/use-members';
@@ -23,10 +25,11 @@ interface Debt {
   amount: string;
 }
 
-const formatBRL = (value: string | number) =>
-  `R$ ${parseFloat(String(value)).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`;
 
 export function DebtsPage() {
+  // Moeda-base do workspace: o backend soma nela, a tela precisa dizer qual é.
+  const baseCurrency = useBaseCurrency();
+  const formatBRL = (value: string | number) => formatMoney(value, { currency: baseCurrency });
   const { debts, isLoading, isError, refetch } = useDebts();
   const { user } = useAuth();
   const { canWrite } = useWorkspaceRole();  // viewer não registra/desfaz acertos (RBAC-FE-001)
@@ -148,8 +151,8 @@ export function DebtsPage() {
               <p className="text-sm text-muted-foreground py-4 text-center">Você não deve nada a ninguém! 🎉</p>
             ) : (
               <div className="space-y-4">
-                {myDebts.map((debt, idx) => (
-                  <div key={idx} className="flex items-center justify-between p-3 rounded-xl bg-accent/30 border border-border">
+                {myDebts.map((debt) => (
+                  <div key={`${debt.debtor_id}-${debt.creditor_id}`} className="flex items-center justify-between p-3 rounded-xl bg-accent/30 border border-border">
                     <div className="flex items-center gap-3">
                       <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center font-bold text-primary">
                         {memberInitial(debt.creditor_id)}
@@ -187,8 +190,8 @@ export function DebtsPage() {
               <p className="text-sm text-muted-foreground py-4 text-center">Ninguém te deve nada no momento.</p>
             ) : (
               <div className="space-y-4">
-                {myCredits.map((debt, idx) => (
-                  <div key={idx} className="flex items-center justify-between p-3 rounded-xl bg-accent/30 border border-border">
+                {myCredits.map((debt) => (
+                  <div key={`${debt.debtor_id}-${debt.creditor_id}`} className="flex items-center justify-between p-3 rounded-xl bg-accent/30 border border-border">
                     <div className="flex items-center gap-3">
                       <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center font-bold text-primary">
                         {memberInitial(debt.debtor_id)}
@@ -233,8 +236,8 @@ export function DebtsPage() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {otherDebts.map((debt, idx) => (
-                  <TableRow key={idx} className="border-border hover:bg-accent/30">
+                {otherDebts.map((debt) => (
+                  <TableRow key={`${debt.debtor_id}-${debt.creditor_id}`} className="border-border hover:bg-accent/30">
                     <TableCell className="font-bold">{memberName(debt.debtor_id)}</TableCell>
                     <TableCell className="text-center">
                       <ArrowRight className="h-4 w-4 text-muted-foreground inline" />

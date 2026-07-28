@@ -14,14 +14,16 @@ const MoneyInput = React.forwardRef<HTMLInputElement, MoneyInputProps>(
 
     React.useEffect(() => {
       if (value !== undefined && !isNaN(value)) {
-        const masked = maskCurrency((value * 100).toFixed(0));
-        if (masked !== displayValue) {
-          setDisplayValue(masked);
-        }
-      } else if (value === undefined || isNaN(value)) {
+        // Math.round, não toFixed(0): `1.005 * 100` dá 100.49999999999999 em
+        // ponto flutuante e o toFixed truncava para 100 (R$ 1,00 em vez de 1,01).
+        const masked = maskCurrency(String(Math.round(value * 100)));
+        // Compara com o valor JÁ exibido lendo o DOM em vez de depender de
+        // `displayValue`: o efeito escrevia o mesmo state de que dependia.
+        setDisplayValue((atual) => (atual === masked ? atual : masked));
+      } else {
         setDisplayValue('');
       }
-    }, [value, displayValue]);
+    }, [value]);
 
     const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
       const rawValue = e.target.value;

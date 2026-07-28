@@ -6,17 +6,20 @@ import { MoneyInput } from '@/components/ui/MoneyInput';
 import { Target, Trash2, Plus } from 'lucide-react';
 import { useEstimates, type Estimate } from '@/hooks/use-estimates';
 import { useCategories } from '@/hooks/use-categories';
+import { useBaseCurrency } from '@/hooks/use-base-currency';
+import { ExcludedForeignNotice } from '@/components/money/ExcludedForeignNotice';
 import { getApiErrorMessage } from '@/lib/api-error';
+import { formatMoney } from '@/lib/money';
 
 const selectClass =
   'flex h-10 w-full rounded-md border border-border bg-background px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring';
 
-const formatBRL = (value: number) =>
-  `R$ ${value.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`;
 
 interface BudgetPanelProps {
   spentByCategory: { category_id?: number | null; name: string; value: number }[];
   totalExpenses: number;
+  /** Lançamentos fora da moeda-base que NÃO entraram nos totais (ADR 0006). */
+  excludedForeignCount?: number | null;
   /** Mês exibido (YYYY-MM) — o mesmo do resto da tela de relatórios. */
   month: string;
 }
@@ -27,7 +30,9 @@ const monthLabel = (month: string) => {
 };
 
 // Orçamento por categoria do mês exibido: meta vs. gasto real com progresso
-export function BudgetPanel({ spentByCategory, totalExpenses, month }: BudgetPanelProps) {
+export function BudgetPanel({ spentByCategory, totalExpenses, excludedForeignCount, month }: BudgetPanelProps) {
+  const baseCurrency = useBaseCurrency();
+  const formatBRL = (value: number) => formatMoney(value, { currency: baseCurrency });
   const { estimates, setCategoryBudget, removeEstimate } = useEstimates(month);
   const { categories } = useCategories();
   // Chave do <select>: 'geral' ou o id da categoria (nunca o nome — ver spentFor)
@@ -98,6 +103,7 @@ export function BudgetPanel({ spentByCategory, totalExpenses, month }: BudgetPan
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-6">
+        <ExcludedForeignNotice count={excludedForeignCount} baseCurrency={baseCurrency} />
         {estimates.length === 0 ? (
           <p className="text-sm text-muted-foreground text-center py-4">
             Nenhuma meta definida para este mês.

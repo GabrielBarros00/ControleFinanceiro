@@ -22,7 +22,7 @@ const payerSchema = z.object({
 });
 
 const itemSchema = z.object({
-  title: z.string().min(1, 'Informe o título do item'),
+  title: z.string().min(1, 'Informe o título do item').max(200, 'Título do item muito longo'),
   quantity: z.number({ error: 'Informe a quantidade' }).gt(0, 'Quantidade inválida'),
   // 0/null = sem preço unitário: o total da linha é digitado direto
   unit_amount: z.number().nullable(),
@@ -32,9 +32,19 @@ const itemSchema = z.object({
   shares: z.array(shareSchema).min(1, 'Adicione pelo menos um participante'),
 });
 
+// Espelham TITLE_MAX e MAX_MONEY do backend (app/schemas/common.py). Sem eles o
+// usuário só descobria o limite num 422 genérico depois de preencher tudo.
+//
+// O teto aqui é MENOR que o do backend de propósito: o MAX_MONEY de lá
+// (9999999999999999.99) está acima de Number.MAX_SAFE_INTEGER e não é
+// representável em JS sem perder precisão. 1e15 é seguro, folgadíssimo para
+// finanças pessoais, e garante que nada que passe daqui seja recusado lá.
+const TITLE_MAX = 200;
+const MAX_MONEY = 1e15;
+
 export const transactionFormSchema = z.object({
-  title: z.string().min(2, 'O título deve ter pelo menos 2 caracteres'),
-  total_amount: z.number().min(0.01, 'O valor deve ser maior que zero'),
+  title: z.string().min(2, 'O título deve ter pelo menos 2 caracteres').max(TITLE_MAX, `O título deve ter no máximo ${TITLE_MAX} caracteres`),
+  total_amount: z.number().min(0.01, 'O valor deve ser maior que zero').max(MAX_MONEY, 'Valor acima do limite permitido'),
   currency: z.string(),
   transaction_date: z.string().min(1, 'Informe a data'),
   payers: z.array(payerSchema).min(1, 'Adicione pelo menos um pagador'),

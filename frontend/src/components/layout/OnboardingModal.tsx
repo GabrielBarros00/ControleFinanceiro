@@ -101,7 +101,12 @@ export function OnboardingModal() {
               </div>
               <div className="flex gap-3 pt-4">
                 <Button variant="ghost" onClick={() => setStep(1)} className="h-12"><ArrowLeft className="h-4 w-4 mr-2" /> Voltar</Button>
-                <Button onClick={() => setStep(3)} className="flex-1 h-12 font-bold" disabled={!salary}>Próximo Passo</Button>
+                {/* Sem `disabled`: o backend suporta pular a etapa (salary <= 0
+                    não cria renda — auth.py), mas a UI travava o botão em 0 e
+                    obrigava a inventar um valor. */}
+                <Button onClick={() => setStep(3)} className="flex-1 h-12 font-bold">
+                  {salary ? 'Próximo Passo' : 'Pular por enquanto'}
+                </Button>
               </div>
             </div>
           )}

@@ -28,7 +28,23 @@ const ForgotPasswordPage = React.lazy(() => import('./pages/Auth/ForgotPasswordP
 const ResetPasswordPage = React.lazy(() => import('./pages/Auth/ResetPasswordPage').then(m => ({ default: m.ResetPasswordPage })));
 const InviteAcceptPage = React.lazy(() => import('./pages/InviteAcceptPage').then(m => ({ default: m.InviteAcceptPage })));
 
-const queryClient = new QueryClient();
+const queryClient = new QueryClient({
+  defaultOptions: {
+    queries: {
+      // Sem defaults, `staleTime: 0` fazia toda invalidação do WebSocket
+      // disparar refetch imediato de TODAS as famílias afetadas — e a tabela de
+      // ws-events chega a 12 famílias por evento de transação. 30s absorvem a
+      // rajada sem deixar dado velho na tela (o WS continua invalidando).
+      staleTime: 30_000,
+      // 4xx não melhora com repetição: só vale insistir em falha de rede/5xx.
+      retry: (failureCount, error) => {
+        const status = (error as { response?: { status?: number } })?.response?.status;
+        if (status && status >= 400 && status < 500) return false;
+        return failureCount < 2;
+      },
+    },
+  },
+});
 
 function RouteFallback() {
   return (
@@ -58,8 +74,10 @@ const ProtectedRoute = ({ children }: ProtectedRouteProps) => {
   }
 
   if (!isAuthenticated) {
-    // Guarda a rota original (ex: link de convite) para voltar após o login
-    return <Navigate to="/login" replace state={{ from: location.pathname }} />;
+    // Guarda a rota original COMPLETA (ex: /transactions?month=2026-05) para
+    // voltar após o login. Só o pathname perdia a query string e o hash.
+    const from = `${location.pathname}${location.search}${location.hash}`;
+    return <Navigate to="/login" replace state={{ from }} />;
   }
   return <>{children}</>;
 };
