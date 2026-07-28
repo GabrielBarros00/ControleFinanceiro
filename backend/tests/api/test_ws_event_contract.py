@@ -28,6 +28,12 @@ SEM_EVENTO_ESPERADO = {
     "parse_csv",                  # só interpreta o arquivo
     "simulate_early_settlement",  # simulação de quitação
     "create_workspace",           # ninguém está na sala do ws que acabou de nascer
+    # Notificações são de escopo PESSOAL, não de workspace: o canal de tempo
+    # real é por sala de workspace, e o destinatário de um convite ainda NÃO é
+    # membro. Marcar como lida também é um ato do próprio usuário, na aba dele —
+    # não há a quem transmitir.
+    "mark_notification_read",
+    "mark_all_notifications_read",
 }
 
 

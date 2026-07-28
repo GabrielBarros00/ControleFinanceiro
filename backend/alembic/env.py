@@ -31,6 +31,7 @@ from app.models.payment_account import PaymentAccount  # noqa: F401,E402
 from app.models.import_batch import ImportBatch, ImportRow  # noqa: F401,E402
 from app.models.refresh_session import RefreshSession  # noqa: F401,E402
 from app.models.exchange_rate import ExchangeRate  # noqa: F401,E402
+from app.models.notification import Notification  # noqa: F401,E402
 
 # this is the Alembic Config object, which provides
 # access to the values within the .ini file in use.

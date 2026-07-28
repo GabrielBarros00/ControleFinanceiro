@@ -50,11 +50,38 @@ def team(db_session: Session, override_get_session):
 
 def test_any_member_can_list_members(team):
     ws = team["ws"]
-    res = client.get(f"/api/v1/workspaces/{ws.id}/members", headers=_headers(team["users"]["viewer"]))
+    res = client.get(f"/api/v1/workspaces/{ws.id}/members", headers=_headers(team["users"]["member"]))
     assert res.status_code == 200
     assert len(res.json()) == 4
     roles = {m["user_email"]: m["role"] for m in res.json()}
     assert roles["owner@team.com"] == "owner"
+
+
+def test_viewer_ve_nome_mas_nao_email_dos_outros(team):
+    """Viewer é o papel de MENOR privilégio e é quem alcança um workspace
+    compartilhado com menos escrutínio — não precisa do endereço de todo mundo."""
+    ws, users = team["ws"], team["users"]
+    res = client.get(f"/api/v1/workspaces/{ws.id}/members", headers=_headers(users["viewer"]))
+    assert res.status_code == 200
+
+    por_nome = {m["user_name"]: m for m in res.json()}
+    assert len(por_nome) == 4, "os nomes continuam todos visíveis"
+
+    dono = next(m for m in res.json() if m["role"] == "owner")
+    assert dono["user_email"] != "owner@team.com"
+    assert "•" in dono["user_email"]
+    assert dono["user_email"].endswith("@team.com"), "o domínio continua legível"
+
+    # O próprio e-mail nunca é mascarado para o dono da conta
+    eu = next(m for m in res.json() if m["user_id"] == users["viewer"].id)
+    assert eu["user_email"] == users["viewer"].email
+
+
+def test_member_ve_email_completo(team):
+    ws = team["ws"]
+    res = client.get(f"/api/v1/workspaces/{ws.id}/members", headers=_headers(team["users"]["member"]))
+    emails = {m["user_email"] for m in res.json()}
+    assert "owner@team.com" in emails
 
 
 def test_outsider_cannot_list_members(team):
@@ -207,7 +234,14 @@ def test_member_cannot_invite(team):
     assert res.status_code == 403
 
 
-def test_invite_existing_user_adds_immediately(team):
+def test_invite_existing_user_aguarda_aceite(team):
+    """Usuário JÁ cadastrado não entra sem consentimento.
+
+    Antes, convidar por e-mail colocava a pessoa no workspace na hora: quem
+    soubesse um e-mail dava a si mesmo uma plateia para as finanças alheias, e o
+    convidado passava a ver as contas de outra família sem saber. Agora nasce um
+    convite pendente + uma notificação dentro do app.
+    """
     ws, users, db = team["ws"], team["users"], team["db"]
     res = client.post(
         f"/api/v1/workspaces/{ws.id}/invites",
@@ -215,14 +249,22 @@ def test_invite_existing_user_adds_immediately(team):
         headers=_headers(users["admin"]),
     )
     assert res.status_code == 200
-    assert res.json()["status"] == "member_added"
+    assert res.json()["status"] == "invite_sent"
 
     m = db.exec(select(WorkspaceMembership).where(
         WorkspaceMembership.workspace_id == ws.id,
         WorkspaceMembership.user_id == users["outsider"].id,
     )).first()
-    assert m is not None
-    assert m.role == WorkspaceRole.member
+    assert m is None, "ninguém entra no workspace sem aceitar"
+
+    from app.models.notification import Notification
+    avisos = db.exec(
+        select(Notification).where(Notification.user_id == users["outsider"].id)
+    ).all()
+    assert len(avisos) == 1
+    assert avisos[0].type.value == "workspace_invite"
+    assert avisos[0].invite_token is not None
+    assert avisos[0].read_at is None
 
     # Convidar de novo → já é membro
     res = client.post(

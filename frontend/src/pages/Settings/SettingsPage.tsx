@@ -257,13 +257,13 @@ function MembersTab() {
   const handleInvite = async () => {
     setFeedback(null);
     try {
-      const res = await inviteByEmail({ email: inviteEmail.trim(), role: inviteRole });
+      await inviteByEmail({ email: inviteEmail.trim(), role: inviteRole });
       setInviteEmail('');
+      // Ninguém mais entra sem aceitar — nem quem já tem conta. Quem já tem
+      // recebe o aviso dentro do app (sino) além do e-mail.
       setFeedback({
         ok: true,
-        text: res.status === 'member_added'
-          ? 'Usuário adicionado ao workspace!'
-          : 'Convite enviado! Será aceito quando a pessoa se registrar.',
+        text: 'Convite enviado! A pessoa entra assim que aceitar — por e-mail ou pelo aviso dentro do app.',
       });
     } catch (err) {
       showError(err, 'Erro ao convidar.');

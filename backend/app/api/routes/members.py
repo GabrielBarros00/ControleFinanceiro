@@ -30,7 +30,9 @@ from app.schemas.workspace import (
 from app.services.debt_service import DebtService
 from app.services.email_service import EmailService
 from app.services.event_service import publish_event
-from app.services.membership_service import ensure_membership
+from app.models.notification import NotificationType
+from app.services.membership_service import ensure_membership, find_membership
+from app.services.notification_service import notify, resolve_invite_notifications
 
 router = APIRouter(prefix="/workspaces/{workspace_id}", tags=["members"])
 invites_router = APIRouter(prefix="/invites", tags=["invites"])
@@ -72,12 +74,30 @@ def _ensure_no_open_balance(session: Session, workspace_id: int, user_id: int) -
     )
 
 
-def _member_read(membership: WorkspaceMembership, user: User) -> MemberRead:
+def _mask_email(email: str) -> str:
+    """`gabriel@exemplo.com` → `g••••@exemplo.com`.
+
+    Mantém a pista de qual conta é (útil para o dono reconhecer quem convidou)
+    sem entregar o endereço inteiro.
+    """
+    usuario, _, dominio = email.partition("@")
+    if not dominio:
+        return "•••"
+    visivel = usuario[:1] if usuario else ""
+    return f"{visivel}{'•' * max(len(usuario) - 1, 3)}@{dominio}"
+
+
+def _member_read(
+    membership: WorkspaceMembership, user: User, *, reveal_email: bool = True
+) -> MemberRead:
     return MemberRead(
         user_id=user.id,
         role=membership.role,
         user_name=user.name,
-        user_email=user.email,
+        # Viewer enxerga o NOME, não o endereço: o e-mail de todo mundo era
+        # exposto ao papel de menor privilégio, e é ele quem alcança um
+        # workspace compartilhado com menos escrutínio.
+        user_email=user.email if reveal_email else _mask_email(user.email),
         joined_at=membership.created_at,
     )
 
@@ -95,7 +115,12 @@ def list_members(
         .join(User, User.id == WorkspaceMembership.user_id)
         .where(WorkspaceMembership.workspace_id == workspace_id)
     ).all()
-    return [_member_read(m, u) for m, u in rows]
+    # Viewer vê nome; e-mail completo só de member para cima (e o próprio sempre)
+    pode_ver_email = role_level(membership.role) >= role_level(WorkspaceRole.member)
+    return [
+        _member_read(m, u, reveal_email=pode_ver_email or u.id == membership.user_id)
+        for m, u in rows
+    ]
 
 
 @router.patch("/members/{user_id}", response_model=MemberRead)
@@ -198,18 +223,14 @@ def create_invite(
     workspace = session.get(Workspace, workspace_id)
     inviter = session.get(User, actor.user_id)
 
+    # Usuário JÁ CADASTRADO não é mais adicionado direto. Antes, convidar por
+    # e-mail colocava a pessoa no workspace sem ela aceitar nada: quem soubesse
+    # um e-mail dava a si mesmo uma plateia para as finanças alheias, e o
+    # convidado passava a ver as de outra família sem saber. Agora o convite
+    # espera aceite — e chega por e-mail E dentro do app (notificação).
     existing_user = session.exec(select(User).where(User.email == data.email)).first()
-    if existing_user:
-        if not ensure_membership(session, workspace_id, existing_user.id, data.role):
-            raise HTTPException(status_code=400, detail="Este usuário já é membro do workspace")
-
-        publish_event(session, workspace_id, "member.added", "member", existing_user.id, actor.user_id)
-        session.commit()
-        EmailService.send_workspace_invite(
-            data.email, workspace.name, inviter.name,
-            f"{settings.FRONTEND_URL}/",
-        )
-        return {"status": "member_added", "user_id": existing_user.id}
+    if existing_user and find_membership(session, workspace_id, existing_user.id):
+        raise HTTPException(status_code=400, detail="Este usuário já é membro do workspace")
 
     pending = session.exec(
         select(WorkspaceInvite).where(
@@ -230,13 +251,34 @@ def create_invite(
     )
     session.add(invite)
     session.flush()
+
+    # Notificação DENTRO do app para quem já tem conta. E-mail sozinho não
+    # basta: muita gente não lê, e o convite ficava invisível.
+    if existing_user:
+        notify(
+            session,
+            user_id=existing_user.id,
+            type=NotificationType.workspace_invite,
+            title=f"{inviter.name} convidou você para \"{workspace.name}\"",
+            body=(
+                f"Você foi convidado como {data.role.value}. "
+                "Aceite para começar a ver e lançar as despesas compartilhadas."
+            ),
+            workspace_id=workspace_id,
+            workspace_name=workspace.name,
+            invite_token=invite.token,
+        )
+
     publish_event(session, workspace_id, "invite.created", "invite", invite.id, actor.user_id)
     session.commit()
     session.refresh(invite)
-    EmailService.send_workspace_invite(
-        data.email, workspace.name, inviter.name,
-        f"{settings.FRONTEND_URL}/register?invite={invite.token}",
+    # Quem já tem conta cai direto no aceite; quem não tem passa pelo registro
+    destino = (
+        f"{settings.FRONTEND_URL}/invite/{invite.token}"
+        if existing_user
+        else f"{settings.FRONTEND_URL}/register?invite={invite.token}"
     )
+    EmailService.send_workspace_invite(data.email, workspace.name, inviter.name, destino)
     return {"status": "invite_sent", "invite": InviteRead.model_validate(invite, from_attributes=True)}
 
 
@@ -392,6 +434,34 @@ def accept_invite(
     publish_event(
         session, invite.workspace_id, "invite.accepted", "invite", invite.id, current_user.id
     )
+    # O aviso cumpriu o papel: sem isto o contador de não lidas nunca zerava
+    resolve_invite_notifications(session, invite.token)
     session.commit()
 
     return {"status": "ok", "workspace_id": invite.workspace_id}
+
+
+@invites_router.post("/decline/{token}")
+def decline_invite(
+    token: str,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+):
+    """Recusa um convite. Existe porque o aviso precisa ter as DUAS saídas — sem
+    recusar, a única forma de se livrar do convite era aceitá-lo."""
+    invite = session.exec(
+        select(WorkspaceInvite).where(WorkspaceInvite.token == token)
+    ).first()
+    if not invite or invite.status != InviteStatus.pending:
+        raise HTTPException(status_code=404, detail="Convite não encontrado ou já utilizado")
+    if invite.email and invite.email != current_user.email:
+        raise HTTPException(status_code=403, detail="Este convite foi enviado para outro email")
+
+    invite.status = InviteStatus.revoked
+    session.add(invite)
+    publish_event(
+        session, invite.workspace_id, "invite.revoked", "invite", invite.id, current_user.id
+    )
+    resolve_invite_notifications(session, invite.token)
+    session.commit()
+    return {"status": "ok"}
