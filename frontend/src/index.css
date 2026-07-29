@@ -23,7 +23,11 @@
     --secondary: oklch(0.965 0.004 95);
     --secondary-foreground: oklch(0.30 0.012 275);
     --muted: oklch(0.965 0.004 95);            /* = surface-2 (zebra, hover, headers) */
-    --muted-foreground: oklch(0.55 0.012 75);
+    /* 0.55 dava 4,39:1 sobre --muted/--accent/--secondary (todos em 0.965) e
+       REPROVAVA no axe (WCAG 2 AA pede 4,5:1 para texto normal). Sobre o
+       --background quase branco passava, então só as superfícies secundárias
+       falhavam — aba inativa, cabeçalho de tabela, linha zebrada. 0.53 → 4,8:1. */
+    --muted-foreground: oklch(0.53 0.012 75);
     --accent: oklch(0.965 0.004 95);
     --accent-foreground: oklch(0.30 0.012 275);
     --border: oklch(0.912 0.005 90);

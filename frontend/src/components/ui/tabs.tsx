@@ -27,7 +27,12 @@ function TabsTrigger({ className, ...props }: React.ComponentProps<typeof TabsPr
   return (
     <TabsPrimitive.Trigger
       className={cn(
-        'inline-flex items-center justify-center gap-1.5 whitespace-nowrap rounded-md px-3 py-1 text-sm font-medium text-muted-foreground transition-all',
+        // A aba INATIVA foi o que o axe reprovou (4,39:1 sobre o `--muted` da
+        // lista). O conserto foi no token `--muted-foreground` (index.css), não
+        // aqui: `text-foreground/80` seria pior que inútil — em Tailwind v3 o
+        // modificador de opacidade não compila sobre cor em `var()` e a classe
+        // some em silêncio, como as variantes `data-*` bare.
+        'inline-flex items-center justify-center gap-1.5 whitespace-nowrap rounded-md px-3 py-1 text-sm font-medium text-muted-foreground transition-all hover:text-foreground',
         'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
         'disabled:pointer-events-none disabled:opacity-50',
         'data-[state=active]:bg-card data-[state=active]:text-foreground data-[state=active]:shadow-sm',

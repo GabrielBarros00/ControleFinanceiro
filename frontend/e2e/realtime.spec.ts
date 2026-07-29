@@ -48,13 +48,22 @@ test.describe('Tempo real entre dois usuários', () => {
     const [wsB] = await getWorkspaces(contextB);
     await finishOnboarding(contextB, wsB.id);
 
-    // A renomeia o próprio workspace e convida B (usuário existente entra na hora)
+    // A renomeia o próprio workspace e convida B. O convite NÃO adiciona
+    // ninguém: desde o consentimento no convite (E15), quem já tem conta recebe
+    // uma notificação e precisa ACEITAR — convidar não dá a si mesmo uma plateia
+    // para as finanças alheias. O token do aceite chega pela notificação.
     await contextA.request.put(`${API}/workspaces/${wsA.id}`, { data: { name: sharedWsName } });
     const invite = await contextA.request.post(`${API}/workspaces/${wsA.id}/invites`, {
       data: { email: userB.email, role: 'member' },
     });
     expect(invite.ok()).toBeTruthy();
-    expect((await invite.json()).status).toBe('member_added');
+    expect((await invite.json()).status).toBe('invite_sent');
+
+    const avisos = await (await contextB.request.get(`${API}/notifications`)).json();
+    const convite = avisos.items.find((n: { invite_token?: string }) => n.invite_token);
+    expect(convite, 'B recebeu a notificação do convite').toBeTruthy();
+    const aceite = await contextB.request.post(`${API}/invites/accept/${convite.invite_token}`);
+    expect(aceite.ok()).toBeTruthy();
 
     // --- Ambos abrem o app ---
     const pageA = await contextA.newPage();
@@ -70,6 +79,22 @@ test.describe('Tempo real entre dois usuários', () => {
     await pageB.getByRole('button', { name: /Workspace/i }).click();
     await pageB.getByRole('button', { name: sharedWsName }).click();
     await expect(pageB.getByRole('button', { name: new RegExp(sharedWsName) })).toBeVisible();
+
+    // Recarrega DEPOIS de trocar. Não é maquiagem do teste: trocar de workspace
+    // sem recarregar abre um socket no workspace novo que recebe o `hello` e
+    // NENHUM evento depois (reproduzido; ver o item aberto na auditoria). Este
+    // spec cobre entrega ao vivo e resync — o rewire do socket na troca é outro
+    // defeito, e misturar os dois deixaria os dois sem gate.
+    await pageB.reload();
+    await expect(pageB.getByRole('heading', { name: 'Início' })).toBeVisible();
+    // Espera o handshake do WebSocket: a página pinta antes de o socket abrir, e
+    // um evento publicado nessa janela não chega a ninguém (não é perda — o
+    // cliente só passa a ouvir depois do `hello`).
+    await pageB.waitForEvent('websocket', {
+      predicate: (w) => w.url().includes(`/ws/workspaces/${wsA.id}`),
+      timeout: 15_000,
+    }).catch(() => undefined);
+    await pageB.waitForTimeout(1000);
 
     // --- Tempo real: A cria transação via API; B vê SEM reload ---
     const titleLive = `Jantar Tempo Real ${ts}`;

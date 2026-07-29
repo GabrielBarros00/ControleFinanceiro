@@ -16,8 +16,10 @@ test.describe('Full User Flow', () => {
 
     await expect(page).toHaveURL('http://localhost:5173/');
 
-    // 2. Onboarding (modal de boas-vindas em 3 passos)
-    await expect(page.getByRole('heading', { name: 'Início' })).toBeVisible();
+    // 2. Onboarding (modal de boas-vindas em 3 passos). É um Dialog: enquanto
+    // aberto, o resto da página fica inerte e o "Início" atrás dele não é
+    // alcançável por role — comportamento correto, e o que esperamos aqui.
+    await expect(page.getByRole('dialog')).toBeVisible();
     await page.getByRole('button', { name: /Começar Setup/ }).click();
     await page.getByLabel('Salário / Renda Líquida').fill('5000,00');
     await page.getByRole('button', { name: 'Próximo Passo' }).click();

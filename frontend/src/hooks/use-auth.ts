@@ -25,12 +25,17 @@ export function useAuth() {
       // Falha ao listar workspaces não derruba a sessão (só a seleção fica como está)
       try {
         const wsResponse = await apiClient.get('/workspaces/');
-        const workspaces = wsResponse.data;
+        const workspaces: { id: number; owner_user_id?: number | null }[] = wsResponse.data;
         // Respeita seleção persistida; só troca se inválida/ausente
         const persistedId = useUIStore.getState().currentWorkspaceId;
-        const stillValid = workspaces.some((w: { id: number }) => w.id === persistedId);
+        const stillValid = workspaces.some((w) => w.id === persistedId);
         if (!stillValid) {
-          setCurrentWorkspaceId(workspaces.length > 0 ? workspaces[0].id : null);
+          // Default = o workspace PRÓPRIO. A lista vem ordenada por id, e quem
+          // entrou por convite tem o workspace da outra pessoa em primeiro
+          // (foi criado antes) — o app abria direto nas finanças da outra
+          // família. Só cai no primeiro da lista quem não é dono de nenhum.
+          const proprio = workspaces.find((w) => w.owner_user_id === user?.id);
+          setCurrentWorkspaceId((proprio ?? workspaces[0])?.id ?? null);
         }
       } catch {
         // mantém sessão; hooks de workspace refazem a busca depois

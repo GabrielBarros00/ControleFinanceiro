@@ -10,7 +10,10 @@ async function registerAndOnboard(page: Page, name: string, email: string) {
   await page.getByRole('button', { name: 'Cadastrar', exact: true }).click();
 
   await expect(page).toHaveURL('http://localhost:5173/');
-  await expect(page.getByRole('heading', { name: 'Início' })).toBeVisible();
+  // O onboarding virou um Dialog de verdade: enquanto ele está aberto, o resto
+  // da página fica inerte (aria-hidden) — o cabeçalho "Início" atrás dele deixa
+  // de ser alcançável por role, que é justamente o comportamento correto.
+  await expect(page.getByRole('dialog')).toBeVisible();
   await page.getByRole('button', { name: /Começar Setup/ }).click();
   await page.getByLabel('Salário / Renda Líquida').fill('5000,00');
   await page.getByRole('button', { name: 'Próximo Passo' }).click();
