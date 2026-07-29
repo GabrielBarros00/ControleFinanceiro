@@ -127,21 +127,21 @@ def _allocate_proportional(amount_cents: int, weights: Dict[int, int]) -> Dict[i
 def convert_division_to_base(
     *,
     factor: Decimal,
-    brl_total: Decimal,
+    base_total: Decimal,
     payers: List[TransactionPayerBase],
     splits: List[TransactionSplitBase],
     items: Optional[List[TransactionItemCreate]],
     adjustments: Optional[List[TransactionAdjustmentCreate]],
 ) -> Dict[str, Any]:
     """Re-expressa uma divisão em moeda estrangeira na moeda-base (BRL), com o
-    total já convertido (`brl_total`). Cada VALOR ABSOLUTO (pagadores, valores
+    total já convertido (`base_total`). Cada VALOR ABSOLUTO (pagadores, valores
     fixos, itens, shares fixas, ajustes) é rateado proporcionalmente em CENTAVOS
     exatos (reusa `_allocate_proportional`), então as somas continuam fechando o
     total. Igual/percentual são escala-invariantes e passam direto.
 
     Retorna {payers, splits, items, adjustments} prontos para o fluxo normal
     (`persist_transaction_children`, que revalida)."""
-    brl_cents = _cents(brl_total)
+    base_cents = _cents(base_total)
 
     def _reallocate(entries, value_of, target_cents):
         """Distribui target_cents entre `entries` na proporção de value_of(e)."""
@@ -153,13 +153,13 @@ def convert_division_to_base(
         return [Decimal(alloc[i]) / Decimal("100") for i in range(len(entries))]
 
     # Pagadores: somam o total
-    payer_amounts = _reallocate(payers, lambda p: p.amount, brl_cents)
+    payer_amounts = _reallocate(payers, lambda p: p.amount, base_cents)
     new_payers = [p.model_copy(update={"amount": payer_amounts[i]}) for i, p in enumerate(payers)]
 
     # Splits pela despesa: fixo rateia; igual/percentual passam
     new_splits = list(splits or [])
     if splits and splits[0].split_method == SplitMethod.fixed:
-        vals = _reallocate(splits, lambda s: s.input_value, brl_cents)
+        vals = _reallocate(splits, lambda s: s.input_value, base_cents)
         new_splits = [s.model_copy(update={"input_value": vals[i]}) for i, s in enumerate(splits)]
 
     # Ajustes: convertidos por fator (mantém o sinal); definem o alvo dos itens
@@ -175,7 +175,7 @@ def convert_division_to_base(
     # Itens: somam (total − ajustes); shares fixas rateiam o BRL do item
     new_items = None
     if items:
-        items_target = brl_cents - adj_total_cents
+        items_target = base_cents - adj_total_cents
         item_amounts = _reallocate(items, lambda it: it.amount, items_target)
         new_items = []
         for i, it in enumerate(items):

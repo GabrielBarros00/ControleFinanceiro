@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { useNavigate, Link } from 'react-router-dom';
+import { useNavigate, useSearchParams, Link } from 'react-router-dom';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import * as z from 'zod';
@@ -30,6 +30,13 @@ export function RegisterPage() {
   const { register: signup, login } = useAuth();
   const [loading, setLoading] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
+  // O convite por e-mail manda o novo usuário para /register?invite=<token>.
+  // O token era simplesmente IGNORADO aqui: o convite só funcionava porque o
+  // backend aceitava, no cadastro, todo convite pendente para aquele e-mail —
+  // ou seja, quem se cadastrasse por conta própria entrava sem consentir.
+  // Agora o token viaja no POST e é o consentimento explícito.
+  const [searchParams] = useSearchParams();
+  const inviteToken = searchParams.get('invite') ?? undefined;
 
   const { register, handleSubmit, formState: { errors } } = useForm<RegisterValues>({
     resolver: zodResolver(registerSchema),
@@ -43,7 +50,8 @@ export function RegisterPage() {
       await signup({
         name: data.name,
         email: data.email,
-        password: data.password
+        password: data.password,
+        invite_token: inviteToken,
       });
       
       // 2. Auto login

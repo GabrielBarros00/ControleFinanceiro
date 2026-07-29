@@ -16,6 +16,9 @@ htmlcov/
 *.sqlite3
 backups/
 
+# Conteúdo dos anexos em dev (ADR 0007) — em produção é um volume do Compose
+attachments_data/
+
 # Node / frontend build artifacts
 node_modules/
 dist/

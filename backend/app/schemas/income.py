@@ -9,12 +9,18 @@ class IncomeBase(BaseModel):
     title: str = Field(min_length=1, max_length=TITLE_MAX)
     description: Optional[str] = Field(default=None, max_length=DESCRIPTION_MAX)
     amount: Decimal
+    # Default de LEITURA apenas (IncomeRead herda daqui e a coluna é NOT NULL).
+    # Em qualquer schema de ENTRADA sobrescreva com `Optional[str] = None` e
+    # resolva na rota com `resolve_currency` — ver IncomeCreate. Um "BRL" fixo na
+    # entrada faz um workspace em outra moeda tratar toda renda como estrangeira.
     currency: str = "BRL"
     received_at: datetime
     category: Optional[str] = None
 
 class IncomeCreate(IncomeBase):
     amount: Decimal = Field(gt=0, le=MAX_MONEY)
+    # None = "não informada" → a rota resolve para a moeda-base do workspace
+    currency: Optional[str] = None
 
 class IncomeUpdate(BaseModel):
     title: Optional[str] = Field(default=None, min_length=1, max_length=TITLE_MAX)

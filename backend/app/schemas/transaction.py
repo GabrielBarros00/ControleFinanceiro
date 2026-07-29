@@ -87,12 +87,14 @@ class TransactionAdjustmentRead(TransactionAdjustmentBase):
 class TransactionBase(BaseModel):
     title: str = Field(min_length=1, max_length=TITLE_MAX)
     description: Optional[str] = Field(default=None, max_length=DESCRIPTION_MAX)
+    # Default de LEITURA apenas (TransactionRead herda daqui e a coluna é NOT
+    # NULL). Em qualquer schema de ENTRADA sobrescreva com `Optional[str] = None`
+    # e resolva na rota com `resolve_currency` — ver TransactionCreate.
     currency: str = "BRL"
     total_amount: Decimal
     transaction_date: datetime
     billing_month: Optional[str] = None
     status: TransactionStatus = TransactionStatus.confirmed
-    card_limit_holder_user_id: Optional[int] = None
     credit_card_id: Optional[int] = None
     split_mode: SplitMode = SplitMode.transaction
     payment_method: Optional[PaymentMethod] = None
@@ -216,6 +218,10 @@ def validate_payer_origins(
 class TransactionCreate(TransactionBase):
     # Entrada validada: valor sempre positivo (leituras herdam a Base sem gt)
     total_amount: Decimal = Field(gt=0, le=MAX_MONEY)
+    # None = "não informada" → a rota resolve para a moeda-base do workspace
+    # (`resolve_currency`). Um default "BRL" aqui fazia um workspace em outra
+    # moeda tratar toda despesa comum como estrangeira.
+    currency: Optional[str] = None
     payers: List[TransactionPayerBase]
     splits: List[TransactionSplitBase] = []
     items: Optional[List[TransactionItemCreate]] = None

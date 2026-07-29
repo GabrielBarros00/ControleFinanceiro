@@ -4,6 +4,8 @@ Toda agregação (dívidas, relatórios, forecast, total de fatura) usa ESTES
 conjuntos — nunca filtros locais divergentes. É o que garante uma única
 definição de "total do mês" no sistema inteiro.
 """
+from typing import Optional
+
 from app.models.transaction import TransactionStatus
 
 # Realizado: entra em dívidas, relatórios e faturas
@@ -32,3 +34,19 @@ def workspace_base_currency(session, workspace_id: int) -> str:
 
     ws = session.get(Workspace, workspace_id)
     return (ws.base_currency if ws and ws.base_currency else BASE_CURRENCY)
+
+
+def resolve_currency(session, workspace_id: int, currency: Optional[str]) -> str:
+    """Moeda de um registro NOVO: a informada, senão a moeda-base do workspace.
+
+    Os schemas de criação traziam `currency = "BRL"` fixo. Num workspace em outra
+    moeda isso era duas falhas de uma vez: o import/bulk gravava tudo como "BRL"
+    e as linhas sumiam de TODA agregação (que filtra `currency == base`); e o
+    formulário, que manda "BRL" por default, fazia o backend tratar a despesa
+    como estrangeira e "converter" com taxa 1.
+
+    Também normaliza a caixa: a comparação com a base é igualdade de string, e um
+    `"brl"` minúsculo cairia fora dos totais sem nenhum sinal.
+    """
+    informada = (currency or "").strip().upper()
+    return informada or workspace_base_currency(session, workspace_id)

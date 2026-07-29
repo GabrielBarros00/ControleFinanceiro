@@ -236,3 +236,76 @@ def test_attachment_isolated_by_workspace(setup_data, override_get_session):
     ws2 = setup_data["ws2"]
     resp = client.get(f"/api/v1/workspaces/{ws2.id}/attachments/{att_id}", headers=setup_data["headers2"])
     assert resp.status_code == 404
+
+
+def test_excluir_despesa_libera_a_cota_dos_anexos(db_session, setup_data, override_get_session):
+    """Anexo de despesa excluída não pode ficar ocupando a cota do workspace.
+
+    A exclusão de despesa é SOFT e o anexo não tinha soft delete nem cascade: o
+    recibo virava inalcançável pela UI (list/download passam por
+    `_get_transaction_or_404`, que dá 404 na despesa apagada) e MESMO ASSIM
+    continuava somando em `_ensure_quota` — espaço perdido para sempre, sem
+    nenhuma tela por onde liberá-lo.
+    """
+    from app.models.attachment import Attachment
+    from sqlmodel import select
+
+    ws1, u1 = setup_data["ws1"], setup_data["u1"]
+    headers = setup_data["headers1"]
+    tx = _create_tx(ws1.id, u1.id, headers)
+
+    resp = client.post(
+        f"/api/v1/workspaces/{ws1.id}/transactions/{tx['id']}/attachments",
+        files={"file": ("recibo.png", PNG_BYTES, "image/png")},
+        headers=headers,
+    )
+    assert resp.status_code == 200, resp.text
+
+    resp = client.delete(f"/api/v1/workspaces/{ws1.id}/transactions/{tx['id']}", headers=headers)
+    assert resp.status_code == 200, resp.text
+
+    db_session.expire_all()
+    restantes = db_session.exec(
+        select(Attachment).where(Attachment.workspace_id == ws1.id)
+    ).all()
+    assert restantes == [], "anexo órfão continuou ocupando a cota do workspace"
+
+
+def test_excluir_grupo_de_parcelas_libera_os_anexos(db_session, setup_data, override_get_session):
+    from app.models.attachment import Attachment
+    from app.models.credit_card import CreditCard
+    from sqlmodel import select
+
+    ws1, u1 = setup_data["ws1"], setup_data["u1"]
+    headers = setup_data["headers1"]
+
+    card = CreditCard(name="Cartão", limit=5000, closing_day=5, due_day=15, workspace_id=ws1.id)
+    db_session.add(card)
+    db_session.commit()
+    db_session.refresh(card)
+
+    tx = _create_tx(
+        ws1.id, u1.id, headers,
+        total_amount=300.0,
+        payers=[{"user_id": u1.id, "amount": 300.0, "payment_method": "credit_card"}],
+        credit_card_id=card.id,
+        payment_method="credit_card",
+        installments_count=3,
+    )
+    resp = client.post(
+        f"/api/v1/workspaces/{ws1.id}/transactions/{tx['id']}/attachments",
+        files={"file": ("nota.png", PNG_BYTES, "image/png")},
+        headers=headers,
+    )
+    assert resp.status_code == 200, resp.text
+
+    resp = client.delete(
+        f"/api/v1/workspaces/{ws1.id}/transactions/{tx['id']}/installment-group", headers=headers
+    )
+    assert resp.status_code == 200, resp.text
+
+    db_session.expire_all()
+    restantes = db_session.exec(
+        select(Attachment).where(Attachment.workspace_id == ws1.id)
+    ).all()
+    assert restantes == []

@@ -43,6 +43,13 @@ services:
       SMTP_USER: ${SMTP_USER:-}
       SMTP_PASSWORD: ${SMTP_PASSWORD:-}
       RATE_LIMIT_ENABLED: ${RATE_LIMIT_ENABLED:-True}
+      # Conteúdo dos anexos (ADR 0007): fora do banco, no volume abaixo.
+      ATTACHMENT_STORAGE_DIR: /data/attachments
+    volumes:
+      # ATENÇÃO ao backup: a partir daqui o estado do sistema são DOIS
+      # artefatos — o dump do Postgres e este volume. Restaurar só o banco
+      # devolve os lançamentos com os recibos quebrados.
+      - attachments_data:/data/attachments
     depends_on:
       db:
         condition: service_healthy
@@ -112,3 +119,4 @@ services:
 
 volumes:
   postgres_data:
+  attachments_data:

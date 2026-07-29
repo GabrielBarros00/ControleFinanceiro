@@ -190,6 +190,64 @@ def test_totais_nao_zeram_apos_a_troca(db_session: Session):
     assert depois[0]["amount"] == Decimal("10.00")  # 50 / 5
 
 
+def test_item_com_quantidade_mantem_o_valor_da_linha(db_session: Session):
+    """Item `3 × 10,00` não pode virar o preço de UM depois da conversão.
+
+    A normalização para `1 × valor-da-linha` é correta (a fatia convertida
+    raramente é múltipla exata da quantidade), mas o valor da linha é a fonte de
+    verdade: recalculá-lo a partir de `amount / quantity` encolhia o item e
+    quebrava `soma(itens) == total` e o rateio das shares.
+    """
+    users, ws = _workspace(db_session, "bc9", n_users=2)
+    tx = _tx(db_session, ws.id, "90.00", split_mode=SplitMode.item)
+    db_session.add(TransactionPayer(
+        transaction_id=tx.id, user_id=users[0].id, amount=Decimal("90.00")
+    ))
+    # 3 × 20,00 = 60,00 e 1 × 30,00 = 30,00
+    for pos, (qtd, unit, total) in enumerate([("3", "20.00", "60.00"), ("1", "30.00", "30.00")]):
+        item = TransactionItem(
+            transaction_id=tx.id, title=f"Item {pos}", position=pos,
+            amount=Decimal(total), quantity=Decimal(qtd), unit_amount=Decimal(unit),
+        )
+        db_session.add(item)
+        db_session.flush()
+        metade = (Decimal(total) / 2).quantize(Decimal("0.01"))
+        for u in users:
+            db_session.add(TransactionItemShare(
+                item_id=item.id, user_id=u.id, split_method=SplitMethod.equal,
+                input_value=Decimal("0"), computed_amount=metade,
+            ))
+    for u in users:
+        db_session.add(TransactionSplit(
+            transaction_id=tx.id, user_id=u.id, split_method=SplitMethod.fixed,
+            input_value=Decimal("45.00"), computed_amount=Decimal("45.00"),
+        ))
+    db_session.commit()
+
+    BaseCurrencyService.convert_workspace(db_session, ws.id, "USD")
+    db_session.commit()
+    db_session.refresh(tx)
+
+    items = db_session.exec(
+        select(TransactionItem)
+        .where(TransactionItem.transaction_id == tx.id)
+        .order_by(TransactionItem.position)
+    ).all()
+
+    assert tx.total_amount == Decimal("18.00")  # 90 / 5
+    # 60 e 30 viram 12 e 6 — e NÃO 4 e 6 (o bug dividia o primeiro por quantity)
+    assert [i.amount for i in items] == [Decimal("12.00"), Decimal("6.00")]
+    assert sum(i.amount for i in items) == tx.total_amount
+    # Linha normalizada: 1 × valor-da-linha
+    for item in items:
+        assert item.quantity == Decimal("1")
+        assert item.unit_amount == item.amount
+        shares = db_session.exec(
+            select(TransactionItemShare).where(TransactionItemShare.item_id == item.id)
+        ).all()
+        assert sum(s.computed_amount for s in shares) == item.amount
+
+
 # --- proveniência e round-trip ---------------------------------------------
 
 

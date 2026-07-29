@@ -6,9 +6,9 @@ import { MoneyInput } from '@/components/ui/MoneyInput';
 import { Label } from '@/components/ui/label';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { Trash2, Plus } from 'lucide-react';
-import { formatCurrency } from '@/lib/money';
 import { useCategories } from '@/hooks/use-categories';
 import { SplitSummary } from './SplitSummary';
+import { useFormCurrency } from './use-form-currency';
 import type { Participant } from './SplitEditor';
 import type { TransactionFormValues } from './schema';
 
@@ -25,6 +25,7 @@ interface ItemsEditorProps {
 export function ItemsEditor({ participants, defaultUserId }: ItemsEditorProps) {
   const { control, watch, formState: { errors } } = useFormContext<TransactionFormValues>();
   const { fields, append, remove } = useFieldArray({ control, name: 'items' });
+  const { fmt } = useFormCurrency();
 
   const watchedItems = watch('items');
   const watchedTotal = watch('total_amount');
@@ -92,10 +93,10 @@ export function ItemsEditor({ participants, defaultUserId }: ItemsEditorProps) {
           className={`text-xs font-semibold ${closed ? 'text-emerald-500' : 'text-destructive'}`}
         >
           {closed
-            ? `Itens fecham ${formatCurrency(watchedTotal ?? 0)}`
+            ? `Itens fecham ${fmt(watchedTotal ?? 0)}`
             : itemsCents < totalCents
-              ? `Itens: ${formatCurrency(itemsCents / 100)} de ${formatCurrency(totalCents / 100)} — faltam ${formatCurrency(diff)}`
-              : `Itens: ${formatCurrency(itemsCents / 100)} de ${formatCurrency(totalCents / 100)} — ${formatCurrency(diff)} acima do total`}
+              ? `Itens: ${fmt(itemsCents / 100)} de ${fmt(totalCents / 100)} — faltam ${fmt(diff)}`
+              : `Itens: ${fmt(itemsCents / 100)} de ${fmt(totalCents / 100)} — ${fmt(diff)} acima do total`}
         </p>
         {/* Resumo ao vivo acima é a fonte única da soma. O erro do schema só
             aparece quando NÃO há itens — evita a mensagem stale que contradizia
@@ -117,6 +118,7 @@ interface ItemRowProps {
 function ItemRow({ index, participants, onRemove }: ItemRowProps) {
   const { register, control, watch, setValue, formState: { errors } } = useFormContext<TransactionFormValues>();
   const { categories } = useCategories();
+  const { currency, symbol, fmt } = useFormCurrency();
   const { fields, append, remove } = useFieldArray({ control, name: `items.${index}.shares` as const });
 
   const quantity = watch(`items.${index}.quantity` as const);
@@ -184,6 +186,7 @@ function ItemRow({ index, participants, onRemove }: ItemRowProps) {
                 aria-label="Valor unitário"
                 value={field.value ?? undefined}
                 onChange={(v) => field.onChange(v > 0 ? v : null)}
+                prefix={symbol}
                 className="bg-background border-border"
               />
             )}
@@ -193,7 +196,7 @@ function ItemRow({ index, participants, onRemove }: ItemRowProps) {
           <Label className="text-[11px] font-semibold text-muted-foreground">Total</Label>
           {hasUnitPrice ? (
             <div className="h-9 flex items-center px-3 rounded-md border border-border bg-muted text-sm font-bold" aria-label="Total do item">
-              {formatCurrency(Number.isFinite(amount) ? amount : 0)}
+              {fmt(Number.isFinite(amount) ? amount : 0)}
             </div>
           ) : (
             <Controller
@@ -204,6 +207,7 @@ function ItemRow({ index, participants, onRemove }: ItemRowProps) {
                   aria-label="Total do item"
                   value={field.value}
                   onChange={field.onChange}
+                  prefix={symbol}
                   className="bg-background border-border font-bold"
                 />
               )}
@@ -286,7 +290,9 @@ function ItemRow({ index, participants, onRemove }: ItemRowProps) {
               )}
             </div>
             {shareMethod !== 'equal' && (
-              <div className="w-24">
+              // w-32, não w-24: com o prefixo da moeda dentro do campo, 96px
+              // cortavam valores de 4 dígitos ("R$ 1.234,56")
+              <div className={shareMethod === 'percentage' ? 'w-24' : 'w-32'}>
                 {shareMethod === 'percentage' ? (
                   <Input
                     type="number"
@@ -305,6 +311,7 @@ function ItemRow({ index, participants, onRemove }: ItemRowProps) {
                         aria-label={`Valor fixo do item ${index + 1}`}
                         value={field.value}
                         onChange={field.onChange}
+                        prefix={symbol}
                         className="bg-background border-border h-9"
                       />
                     )}
@@ -323,9 +330,16 @@ function ItemRow({ index, participants, onRemove }: ItemRowProps) {
         method={shareMethod}
         splits={shares ?? []}
         totalAmount={Number.isFinite(amount) ? amount : 0}
+        currency={currency}
         testId={`item-summary-${index}`}
       />
-      {sharesError && <p className="text-xs text-destructive font-medium">{sharesError}</p>}
+      {/* Mesma regra do resumo dos itens: com participantes na tela, o resumo ao
+          vivo acima JÁ diz quanto falta — repetir a soma em vermelho era a
+          mesma frase duas vezes. Sem participantes não há resumo, e aí o erro
+          ("adicione pelo menos um") é o único sinal. */}
+      {fields.length === 0 && sharesError && (
+        <p className="text-xs text-destructive font-medium">{sharesError}</p>
+      )}
     </div>
   );
 }

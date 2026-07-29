@@ -202,6 +202,10 @@ class ReportService:
             .where(Income.received_at >= window_start)
             .where(Income.received_at <= window_end)
             .where(Income.deleted_at.is_(None))
+            # MESMA política de moeda do get_summary (ADR 0006). Sem este filtro
+            # o histórico somava renda legada em outra moeda e o card "Receita"
+            # divergia da barra do mesmo mês — na MESMA tela de Relatórios.
+            .where(Income.currency == base_currency)
         ).all()
         income_by_month: Dict[str, Decimal] = {}
         for dt, amount in income_rows:
@@ -225,8 +229,14 @@ class ReportService:
                 key = dt.strftime("%Y-%m")
                 my_by_month[key] = my_by_month.get(key, Decimal("0.00")) + amount
 
+        # `month` (YYYY-MM) é o rótulo AUTORITATIVO: `name` vinha de
+        # `strftime("%b")`, que usa o locale do processo — no container (locale C)
+        # o eixo dos gráficos de Relatórios falava inglês ("Jan/Feb/May") num app
+        # inteiro em PT-BR. O nome fica por compatibilidade; quem desenha formata
+        # a partir de `month` com Intl.
         return [
             {
+                "month": d.strftime("%Y-%m"),
                 "name": d.strftime("%b"),
                 "expenses": expenses_by_month.get(d.strftime("%Y-%m"), Decimal("0.00")),
                 "income": income_by_month.get(d.strftime("%Y-%m"), Decimal("0.00")),

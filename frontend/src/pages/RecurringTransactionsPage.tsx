@@ -21,6 +21,7 @@ import { Switch } from "@/components/ui/switch";
 import { MoneyInput } from "@/components/ui/MoneyInput";
 import { CurrencyCombobox } from "@/components/dashboard/transaction-form/CurrencyCombobox";
 import { currencySymbol, formatCurrency } from "@/lib/money";
+import { useBaseCurrency } from '@/hooks/use-base-currency';
 import { RecurrenceEditor } from "@/components/recurrence/RecurrenceEditor";
 import { MaterializeScopeField } from "@/components/recurrence/MaterializeScopeField";
 import {
@@ -90,7 +91,8 @@ const DEFAULTS: RecurringValues = {
   title: '',
   description: '',
   base_amount: 0,
-  currency: 'BRL',
+  // Preenchida com a moeda-base do workspace ao abrir o form (ver reset abaixo)
+  currency: '',
   category_id: 0,
   payment_method: '',
   credit_card_id: 0,
@@ -107,6 +109,7 @@ const DEFAULTS: RecurringValues = {
 export function RecurringTransactionsPage() {
   const { recurring, isLoading, create, update, remove, generate, isGenerating } = useRecurring();
   const { categories, categoryName } = useCategories();
+  const baseCurrency = useBaseCurrency();
   const { cards } = useCreditCards();
   const confirm = useConfirm();
   const [dialogOpen, setDialogOpen] = React.useState(false);
@@ -149,7 +152,7 @@ export function RecurringTransactionsPage() {
     setEditingId(null);
     setEditScope('future');
     setMaterialize('current');
-    reset({ ...DEFAULTS, start_date: todayStr() });
+    reset({ ...DEFAULTS, currency: baseCurrency, start_date: todayStr() });
     setDialogOpen(true);
   };
 
@@ -162,7 +165,7 @@ export function RecurringTransactionsPage() {
       title: item.title,
       description: item.description || '',
       base_amount: parseFloat(item.base_amount),
-      currency: item.currency ?? 'BRL',
+      currency: item.currency ?? baseCurrency,
       category_id: item.category_id ?? 0,
       payment_method: item.payment_method ?? '',
       credit_card_id: item.credit_card_id ?? 0,
@@ -190,7 +193,7 @@ export function RecurringTransactionsPage() {
       title: data.title,
       description: data.description,
       base_amount: data.base_amount,
-      currency: data.currency || 'BRL',
+      currency: data.currency || baseCurrency,
       // A categoria segue para cada instância materializada (RecurringService._apply_category)
       category_id: data.category_id > 0 ? data.category_id : null,
       payment_method: data.payment_method || null,
@@ -328,7 +331,7 @@ export function RecurringTransactionsPage() {
                   </TableCell>
                   <TableCell className="text-right">
                     <span className="font-black text-foreground">
-                      {formatCurrency(parseFloat(item.base_amount), item.currency ?? 'BRL')}
+                      {formatCurrency(parseFloat(item.base_amount), item.currency ?? baseCurrency)}
                     </span>
                   </TableCell>
                   <TableCell>
@@ -404,9 +407,10 @@ export function RecurringTransactionsPage() {
                 <CurrencyCombobox value={currency} onChange={(c) => setValue('currency', c, { shouldValidate: true })} />
               </div>
               {errors.base_amount && <p className="text-xs text-destructive font-medium">{errors.base_amount.message}</p>}
-              {currency && currency !== 'BRL' && (
+              {/* "Estrangeira" é != da moeda-BASE, não != 'BRL' */}
+              {currency && currency !== baseCurrency && (
                 <p className="text-[11px] font-medium text-muted-foreground">
-                  Recorrência em moeda estrangeira: converte para BRL a cada mês, com a taxa do dia.
+                  Recorrência em moeda estrangeira: converte para {baseCurrency} a cada mês, com a taxa do dia.
                 </p>
               )}
             </div>

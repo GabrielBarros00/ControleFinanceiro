@@ -66,6 +66,10 @@ export const transactionFormSchema = z.object({
     });
   }
 
+  // As mensagens falam a moeda do lançamento — não um "R$" fixo que contradizia
+  // o prefixo dos campos numa despesa em USD/EUR.
+  const money = (value: number) => formatCurrency(value, data.currency || 'BRL');
+
   // Pagadores: sem repetição; com vários, a soma precisa fechar o total
   const seenPayers = new Set<string>();
   data.payers.forEach((payer, index) => {
@@ -108,8 +112,8 @@ export const transactionFormSchema = z.object({
         code: 'custom',
         path: ['payers'],
         message: sumCents < totalCents
-          ? `Os pagadores somam ${formatCurrency(sumCents / 100)} de ${formatCurrency(totalCents / 100)} — faltam ${formatCurrency(diff)}`
-          : `Os pagadores somam ${formatCurrency(sumCents / 100)} de ${formatCurrency(totalCents / 100)} — ${formatCurrency(diff)} acima do total`,
+          ? `Os pagadores somam ${money(sumCents / 100)} de ${money(totalCents / 100)} — faltam ${money(diff)}`
+          : `Os pagadores somam ${money(sumCents / 100)} de ${money(totalCents / 100)} — ${money(diff)} acima do total`,
       });
     }
   }
@@ -134,7 +138,7 @@ export const transactionFormSchema = z.object({
   }
 
   if (data.split_mode === 'transaction') {
-    validateShareGroup(ctx, ['splits'], data.split_method, data.splits, data.total_amount);
+    validateShareGroup(ctx, ['splits'], data.split_method, data.splits, data.total_amount, money);
     if (data.splits.length === 0) {
       ctx.addIssue({
         code: 'custom',
@@ -163,8 +167,8 @@ export const transactionFormSchema = z.object({
       code: 'custom',
       path: ['items'],
       message: itemsCents < totalCents
-        ? `Os itens somam ${formatCurrency(itemsCents / 100)} de ${formatCurrency(totalCents / 100)} — faltam ${formatCurrency(diff)}`
-        : `Os itens somam ${formatCurrency(itemsCents / 100)} de ${formatCurrency(totalCents / 100)} — ${formatCurrency(diff)} acima do total`,
+        ? `Os itens somam ${money(itemsCents / 100)} de ${money(totalCents / 100)} — faltam ${money(diff)}`
+        : `Os itens somam ${money(itemsCents / 100)} de ${money(totalCents / 100)} — ${money(diff)} acima do total`,
     });
   }
 
@@ -175,7 +179,7 @@ export const transactionFormSchema = z.object({
         ctx.addIssue({
           code: 'custom',
           path: ['items', index, 'amount'],
-          message: `Valor da linha difere de quantidade × unitário (${formatCurrency(expected / 100)})`,
+          message: `Valor da linha difere de quantidade × unitário (${money(expected / 100)})`,
         });
       }
     }
@@ -184,7 +188,8 @@ export const transactionFormSchema = z.object({
       ['items', index, 'shares'],
       item.share_method,
       item.shares,
-      item.amount
+      item.amount,
+      money
     );
   });
 });
@@ -194,7 +199,8 @@ function validateShareGroup(
   path: (string | number)[],
   method: 'equal' | 'percentage' | 'fixed',
   shares: { user_id: string; value: number }[],
-  totalAmount: number
+  totalAmount: number,
+  money: (value: number) => string
 ) {
   const seen = new Set<string>();
   shares.forEach((share, index) => {
@@ -247,8 +253,8 @@ function validateShareGroup(
         code: 'custom',
         path,
         message: sumCents < totalCents
-          ? `Os valores somam ${formatCurrency(sumCents / 100)} de ${formatCurrency(totalCents / 100)} — faltam ${formatCurrency(diff)}`
-          : `Os valores somam ${formatCurrency(sumCents / 100)} de ${formatCurrency(totalCents / 100)} — ${formatCurrency(diff)} acima do total`,
+          ? `Os valores somam ${money(sumCents / 100)} de ${money(totalCents / 100)} — faltam ${money(diff)}`
+          : `Os valores somam ${money(sumCents / 100)} de ${money(totalCents / 100)} — ${money(diff)} acima do total`,
       });
     }
   }

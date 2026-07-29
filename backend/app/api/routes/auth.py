@@ -48,6 +48,8 @@ from app.services.email_service import EmailService
 from app.services.category_service import seed_default_categories
 from app.services.event_service import publish_event
 from app.services.membership_service import ensure_membership
+from app.models.notification import NotificationType
+from app.services.notification_service import notify
 from pydantic import BaseModel, Field
 
 from app.schemas.common import NormalizedEmail, NormalizedEmailStr, normalize_email
@@ -115,8 +117,24 @@ def _setup_default_workspace(db: Session, user: User) -> Workspace:
     return workspace
 
 
-def _accept_pending_invites(db: Session, user: User) -> None:
-    """Converte convites por email pendentes (e não expirados) em memberships."""
+def _resolve_pending_invites(
+    db: Session, user: User, accept_token: Optional[str] = None
+) -> None:
+    """Resolve os convites por e-mail pendentes de um usuário RECÉM-CRIADO.
+
+    Só entra no workspace do convite cujo **token acompanhou o cadastro** — é o
+    link que `create_invite` monta (`/register?invite=<token>`), ou seja, a
+    pessoa clicou no convite e ele é o consentimento. Os demais convites
+    pendentes para o mesmo e-mail viram NOTIFICAÇÃO, para aceitar ou recusar
+    depois.
+
+    Antes, cadastrar-se aceitava TODOS os convites pendentes para aquele e-mail.
+    Quem se cadastrasse por conta própria caía dentro do workspace de um
+    desconhecido que soubesse seu endereço — e passava a ver (e a ser visto nas)
+    finanças de outra família sem ter aceitado nada. A E15 já tinha corrigido
+    isso para quem JÁ tinha conta (`members.create_invite`); o caminho de
+    registro tinha ficado para trás.
+    """
     now = datetime.now(UTC)
     invites = db.exec(
         select(WorkspaceInvite).where(
@@ -124,18 +142,45 @@ def _accept_pending_invites(db: Session, user: User) -> None:
             WorkspaceInvite.status == InviteStatus.pending,
         )
     ).all()
+    if not invites:
+        return
+
     for invite in invites:
         expires_at = invite.expires_at
         if expires_at.tzinfo is None:
             expires_at = expires_at.replace(tzinfo=UTC)
         if expires_at < now:
             continue
-        if ensure_membership(db, invite.workspace_id, user.id, invite.role):
-            publish_event(db, invite.workspace_id, "member.added", "member", user.id, user.id)
-        invite.status = InviteStatus.accepted
-        db.add(invite)
-    if invites:
-        db.commit()
+
+        if accept_token and invite.token == accept_token:
+            if ensure_membership(db, invite.workspace_id, user.id, invite.role):
+                publish_event(db, invite.workspace_id, "member.added", "member", user.id, user.id)
+            invite.status = InviteStatus.accepted
+            db.add(invite)
+            continue
+
+        workspace = db.get(Workspace, invite.workspace_id)
+        inviter = db.get(User, invite.invited_by_user_id) if invite.invited_by_user_id else None
+        notify(
+            db,
+            user_id=user.id,
+            type=NotificationType.workspace_invite,
+            title=(
+                f"{inviter.name} convidou você para \"{workspace.name}\""
+                if inviter and workspace
+                else "Você tem um convite para um workspace"
+            ),
+            body=(
+                # A coluna é String(20): vindo do banco, `role` pode ser str crua
+                # em vez do enum — daí o getattr em vez de `.value` direto.
+                f"Você foi convidado como {getattr(invite.role, 'value', invite.role)}. "
+                "Aceite para começar a ver e lançar as despesas compartilhadas."
+            ),
+            workspace_id=invite.workspace_id,
+            workspace_name=workspace.name if workspace else None,
+            invite_token=invite.token,
+        )
+    db.commit()
 
 async def get_current_user(
     access_token: Optional[str] = Cookie(None),
@@ -186,6 +231,9 @@ class RegisterRequest(BaseModel):
     name: str = Field(..., min_length=1, max_length=100)
     email: NormalizedEmail
     password: str = Field(..., min_length=6, max_length=72)
+    # Token do link `/register?invite=<token>`: é o CONSENTIMENTO de entrar
+    # naquele workspace. Sem ele, convites pendentes viram só notificação.
+    invite_token: Optional[str] = None
 
 class OnboardingRequest(BaseModel):
     workspace_id: int
@@ -270,7 +318,7 @@ async def register(
     db.refresh(user)
 
     _setup_default_workspace(db, user)
-    _accept_pending_invites(db, user)
+    _resolve_pending_invites(db, user, accept_token=register_data.invite_token)
 
     return user
 
@@ -629,7 +677,9 @@ def google_callback(
         db.commit()
         db.refresh(user)
         _setup_default_workspace(db, user)
-        _accept_pending_invites(db, user)
+        # O fluxo OAuth não carrega o token do convite de volta do Google, então
+        # aqui NUNCA há consentimento: os convites pendentes viram notificação.
+        _resolve_pending_invites(db, user)
     elif user.deleted_at is not None or not user.is_active:
         # Mesma regra do login local: conta desativada não recebe sessão
         return fail("conta_desativada")

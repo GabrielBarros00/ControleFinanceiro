@@ -20,6 +20,8 @@ Cada ADR registra **uma decisão** relevante do projeto: o contexto, a decisão 
 | [0012](0012-recorrencia-com-snapshot-e-meses-de-calendario.md) | Recorrência materializa despesa completa; meses de calendário | Recorrência |
 | [0013](0013-sessoes-de-refresh-e-hardening-de-producao.md) | Sessões de refresh persistidas e hardening de produção | Segurança |
 | [0014](0014-consultas-moeda-e-experiencia.md) | Consultas financeiras, moeda-base e experiência | Relatórios / UX |
+| [0015](0015-conversao-na-entrada-e-taxa-cruzada.md) | Conversão na entrada pela taxa cruzada da moeda-base (supersede 0006) | Consultas / moeda |
+| [0016](0016-armazenamento-de-anexos-em-volume.md) | Armazenamento de anexos em volume: endereçado por conteúdo, com dedup (implementa 0007) | Anexos |
 
 ## Escrevendo um novo ADR
 

@@ -1,11 +1,14 @@
 /**
- * @deprecated Prefira `formatMoney`, que interpreta string como decimal.
+ * Formatação `Intl` pura de um valor monetário — o sinal sai como o locale
+ * manda (`-R$ 5,00`).
  *
- * String aqui era lida como CENTAVOS via `replace(/\D/g,'')`: isso descartava o
- * sinal (`"-50.00"` virava R$ 50,00) e lia `"1234.5"` como R$ 123,45. Nenhum
- * call-site passava string crua — todos usavam `parseFloat` antes — mas a
- * armadilha estava armada para o próximo. Agora string é decimal, igual a
- * `formatMoney`.
+ * Não é obsoleta: `formatMoney` é a irmã tipográfica (menos U+2212, `+`
+ * opcional, `hideCents`) e serve a números em destaque; esta serve a texto
+ * corrido e mensagens. As duas leem string como DECIMAL.
+ *
+ * (Histórico: string aqui já foi lida como CENTAVOS via `replace(/\D/g,'')`,
+ * o que descartava o sinal — `"-50.00"` virava R$ 50,00 — e lia `"1234.5"`
+ * como R$ 123,45.)
  */
 export const formatCurrency = (value: number | string, currency: string = 'BRL'): string => {
   const raw = typeof value === 'string' ? parseFloat(value) : value;
@@ -93,15 +96,25 @@ export function formatMoney(value: number | string, opts: FormatMoneyOptions = {
   return `${prefix}${body}`;
 }
 
-/** Valor compacto para eixos/labels curtos: "R$ 1,2 mil", "R$ 3 mi". */
-export function formatCompact(value: number | string): string {
+/** Dois valores representam a MESMA quantia? Compara em centavos (0.1+0.2 ≠ 0.3). */
+export function sameMoney(a: number | string, b: number | string): boolean {
+  const cents = (v: number | string) => {
+    const n = toNum(v);
+    return Number.isFinite(n) ? Math.round(n * 100) : 0;
+  };
+  return cents(a) === cents(b);
+}
+
+/** Valor compacto para eixos/labels curtos: "R$ 1,2 mil", "US$ 3 mi". */
+export function formatCompact(value: number | string, currency = 'BRL'): string {
   const n = toNum(value);
-  if (!Number.isFinite(n)) return 'R$ 0';
+  const symbol = currencySymbol(currency);
+  if (!Number.isFinite(n)) return `${symbol} 0`;
   const abs = Math.abs(n);
   const sign = n < 0 ? '−' : '';
   const fmt = (v: number, suffix: string) =>
-    `${sign}R$ ${new Intl.NumberFormat('pt-BR', { maximumFractionDigits: 1 }).format(v)}${suffix}`;
+    `${sign}${symbol} ${new Intl.NumberFormat('pt-BR', { maximumFractionDigits: 1 }).format(v)}${suffix}`;
   if (abs >= 1_000_000) return fmt(abs / 1_000_000, ' mi');
   if (abs >= 1_000) return fmt(abs / 1_000, ' mil');
-  return `${sign}${formatMoney(abs, { hideCents: true })}`;
+  return `${sign}${formatMoney(abs, { hideCents: true, currency })}`;
 }

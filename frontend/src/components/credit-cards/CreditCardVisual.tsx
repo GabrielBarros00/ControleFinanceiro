@@ -1,6 +1,16 @@
-import { CreditCard as CardIcon, Pencil, Trash2 } from 'lucide-react';
+import { AlertTriangle, CreditCard as CardIcon, Clock, Pencil, Trash2 } from 'lucide-react';
 import { formatMoney } from '@/lib/money';
 import { cn } from '@/lib/utils';
+import type { StatementAlert } from '@/lib/statement-alert';
+
+// Selo sobre o gradiente da marca: fundo translúcido claro para o texto ficar
+// legível sem brigar com o roxo do cartão.
+const SELO_POR_TOM: Record<StatementAlert['tone'], string> = {
+  danger: 'bg-white text-destructive',
+  warning: 'bg-amber-300 text-amber-950',
+  info: 'bg-white/25 text-primary-foreground',
+  success: 'bg-white/25 text-primary-foreground',
+};
 
 /*
  * CreditCardVisual — cartão com identidade de cartão (docs/frontend-redesign/05 §5,
@@ -14,6 +24,12 @@ interface CreditCardVisualProps {
   committed: number;
   closingDay: number;
   dueDay: number;
+  /** moeda-base do workspace — default BRL */
+  currency?: string;
+  /** aviso da fatura que pede atenção (fechada / vencendo / vencida) */
+  alert?: StatementAlert | null;
+  /** vencimento real da fatura em aberto, em dd/mm */
+  dueLabel?: string | null;
   selected?: boolean;
   onClick?: () => void;
   onEdit?: () => void;
@@ -27,6 +43,9 @@ export function CreditCardVisual({
   committed,
   closingDay,
   dueDay,
+  currency,
+  alert,
+  dueLabel,
   selected,
   onClick,
   onEdit,
@@ -82,17 +101,42 @@ export function CreditCardVisual({
         </div>
       </div>
 
-      <p className="mt-5 text-xs text-primary-foreground/70">Disponível</p>
-      <p className="tabular text-2xl font-semibold">{formatMoney(available)}</p>
+      {/* O selo mora nesta linha, não no canto superior: lá ele dividia espaço
+          com editar/excluir e sumia no hover — justo quando o alerta é vermelho. */}
+      <div className="mt-5 flex items-center justify-between gap-2">
+        <p className="text-xs text-primary-foreground/70">Disponível</p>
+        {alert && (
+          <span
+            data-testid="card-alert"
+            className={cn(
+              'inline-flex shrink-0 items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-bold',
+              SELO_POR_TOM[alert.tone],
+            )}
+          >
+            {alert.tone === 'danger' ? (
+              <AlertTriangle className="h-3 w-3" />
+            ) : alert.tone === 'warning' ? (
+              <Clock className="h-3 w-3" />
+            ) : null}
+            {alert.short}
+          </span>
+        )}
+      </div>
+      <p className="tabular text-2xl font-semibold">{formatMoney(available, { currency })}</p>
 
       <div className="mt-3 h-1.5 w-full overflow-hidden rounded-full bg-white/20">
         <div className="h-full rounded-full bg-white/80" style={{ width: `${usedPct}%` }} />
       </div>
 
-      <div className="mt-2.5 flex items-center justify-between text-xs text-primary-foreground/85">
-        <span className="tabular">Limite {formatMoney(limit)}</span>
-        <span>Fecha dia {closingDay} · vence {dueDay}</span>
+      <div className="mt-2.5 flex items-center justify-between gap-2 text-xs text-primary-foreground/85">
+        <span className="tabular">Limite {formatMoney(limit, { currency })}</span>
+        {/* Vencimento REAL da fatura em aberto quando existe; sem fatura, os dias
+            configurados do ciclo (o cartão recém-criado ainda não tem data). */}
+        <span className="tabular shrink-0">
+          {dueLabel ? `Vence ${dueLabel}` : `Fecha dia ${closingDay} · vence ${dueDay}`}
+        </span>
       </div>
+
     </button>
   );
 }

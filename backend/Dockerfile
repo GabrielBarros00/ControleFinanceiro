@@ -12,7 +12,14 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY . .
 
-RUN useradd --create-home appuser && chown -R appuser /app
+# O diretório de anexos (ADR 0007) precisa existir NA IMAGEM e pertencer ao
+# appuser. Um volume nomeado montado num caminho que não existe na imagem é
+# criado pelo Docker como root:root — e o processo, que roda como appuser, levava
+# "permission denied" no primeiro upload de cada workspace. Criando aqui, o
+# volume novo herda dono e modo deste diretório.
+RUN useradd --create-home appuser \
+ && mkdir -p /data/attachments \
+ && chown -R appuser /app /data
 USER appuser
 
 EXPOSE 8000

@@ -8,6 +8,7 @@ from app.schemas.common import NAME_MAX
 from sqlmodel import Session, select
 
 from app.db.session import get_session
+from app.domain.query_policy import resolve_currency
 from app.models.payment_account import PaymentAccount, PaymentAccountType
 from app.models.workspace import WorkspaceMembership, WorkspaceRole
 from app.api.deps import get_workspace_membership, require_role
@@ -19,7 +20,8 @@ router = APIRouter(prefix="/workspaces/{workspace_id}/payment-accounts", tags=["
 class PaymentAccountCreate(BaseModel):
     name: str = Field(min_length=1, max_length=NAME_MAX)
     type: PaymentAccountType = PaymentAccountType.checking
-    currency: str = "BRL"
+    # None = "não informada" → a rota resolve para a moeda-base do workspace
+    currency: Optional[str] = None
     owner_user_id: Optional[int] = None
 
 
@@ -84,6 +86,9 @@ def create_payment_account(
     if not name:
         raise HTTPException(status_code=400, detail="Informe o nome da conta")
     _ensure_owner_is_member(session, workspace_id, account_in.owner_user_id)
+    # Moeda ausente = a do workspace (nunca "BRL" fixo — ver resolve_currency).
+    # Resolvida UMA vez: vale tanto para a conta nova quanto para a reativação.
+    currency = resolve_currency(session, workspace_id, account_in.currency)
 
     existing = session.exec(
         select(PaymentAccount).where(
@@ -99,7 +104,7 @@ def create_payment_account(
         existing.deleted_at = None
         existing.active = True
         existing.type = account_in.type
-        existing.currency = account_in.currency
+        existing.currency = currency
         existing.owner_user_id = account_in.owner_user_id
         existing.updated_at = datetime.now(UTC)
         session.add(existing)
@@ -108,7 +113,7 @@ def create_payment_account(
         account = PaymentAccount(
             name=name,
             type=account_in.type,
-            currency=account_in.currency,
+            currency=currency,
             owner_user_id=account_in.owner_user_id,
             workspace_id=workspace_id,
         )

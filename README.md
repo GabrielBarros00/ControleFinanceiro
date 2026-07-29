@@ -77,7 +77,7 @@ O passo a passo completo (cada variável, HTTPS vs HTTP, Google OAuth, SMTP, bac
 | **[SETUP.md](SETUP.md)** | Configuração e deploy: variáveis de ambiente, produção vs dev, OAuth, SMTP, backup, problemas comuns |
 | **[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)** | Arquitetura: camadas, modelo de dados, tempo real, autenticação, migrações, topologia de deploy |
 | **[docs/API.md](docs/API.md)** | Referência da API: convenções, autenticação, envelope de erro, endpoints por recurso, WebSocket |
-| **[docs/adr/](docs/adr/README.md)** | Architecture Decision Records — as 14 decisões-chave e o porquê de cada uma |
+| **[docs/adr/](docs/adr/README.md)** | Architecture Decision Records — as 16 decisões-chave e o porquê de cada uma |
 | **[CONTRIBUTING.md](CONTRIBUTING.md)** | Ambiente de dev, testes, lint, migrações Alembic, geração de tipos, convenções |
 | **[SECURITY.md](SECURITY.md)** | Como reportar vulnerabilidades e o modelo de segurança |
 | **[CHANGELOG.md](CHANGELOG.md)** | Histórico de versões |

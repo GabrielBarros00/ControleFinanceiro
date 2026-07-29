@@ -10,6 +10,8 @@ import { useNavigate } from 'react-router-dom';
 import { getApiErrorMessage } from '@/lib/api-error';
 import { toast } from '@/stores/toast';
 import { parseApiDate } from '@/lib/date';
+import { formatMoney } from '@/lib/money';
+import { useBaseCurrency } from '@/hooks/use-base-currency';
 
 interface ParsedRow {
   line?: number;
@@ -30,6 +32,7 @@ const IMPORT_MAX_ROWS = 5000;
 export function ImportPage() {
   const navigate = useNavigate();
   const { parse, isParsing, commit, isCommitting } = useImports();
+  const baseCurrency = useBaseCurrency();
   const [file, setFile] = React.useState<File | null>(null);
   const [preview, setPreview] = React.useState<ParsedRow[] | null>(null);
   const [skippedRows, setSkippedRows] = React.useState<SkippedRow[]>([]);
@@ -239,7 +242,7 @@ export function ImportPage() {
                         </span>
                       </TableCell>
                       <TableCell className="text-right font-black">
-                        R$ {parseFloat(tx.total_amount).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                        {formatMoney(tx.total_amount, { currency: baseCurrency })}
                       </TableCell>
                     </TableRow>
                   ))}

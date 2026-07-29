@@ -38,12 +38,12 @@ Entidades principais (`app/models/`) e seus vínculos:
 
 ```
 User ──< WorkspaceMembership >── Workspace ──< WorkspaceInvite
-                                     │
-                                     ├──< Category            ├──< Tag
-                                     ├──< PaymentAccount      ├──< Income
-                                     ├──< CreditCard ──< CardStatement ──< StatementPayment
-                                     ├──< RecurringExpense
-                                     ├──< Financing ──< AmortizationInstallment
+ │                                   │
+ ├──< RefreshSession                 ├──< Category            ├──< Tag
+ └──< Notification                   ├──< PaymentAccount      ├──< Income
+      (pessoal: quem recebe          ├──< CreditCard ──< CardStatement ──< StatementPayment
+       um convite ainda não          ├──< RecurringExpense    ├──< RecurringIncome
+       é membro do workspace)        ├──< Financing ──< AmortizationInstallment
                                      ├──< MonthlyEstimate
                                      ├──< Settlement
                                      ├──< ImportBatch ──< ImportRow
@@ -53,7 +53,10 @@ User ──< WorkspaceMembership >── Workspace ──< WorkspaceInvite
                                             ├──< TransactionSplit      (quem deve quanto)
                                             ├──< TransactionItem ──< TransactionItemShare
                                             ├──< TransactionAdjustment (desconto/frete/...)
-                                            └──  Attachment
+                                            └──  Attachment            (metadados + sha256 + chave;
+                                                                        conteúdo no volume — ADR 0007/0016)
+
+ExchangeRate  (global, sem workspace: cotação moeda→BRL por dia, alimentada pelo backfill)
 ```
 
 Invariantes de despesa: `soma(pagadores) == total`, `total == soma(itens) + soma(ajustes)`, e a divisão soma exatamente o total (em centavos). A fatura (`statement_id`) é **sempre derivada no servidor** a partir de cartão + data (ADR 0002); nunca vem do cliente.
@@ -65,7 +68,7 @@ Todas as entidades de conteúdo têm `workspace_id` (isolamento multi-tenant) e 
 Para não existir “duas definições de gasto do mês”, todas as agregações (dívidas, relatórios, forecast, total de fatura) passam por `app/domain/query_policy.py`:
 
 - **Status**: só `confirmed`/`paid` entram no realizado; `pending` também no forecast; `draft`/`cancelled` nunca (ADR 0003).
-- **Moeda**: cada workspace tem `base_currency`; transações em outra moeda ficam **fora** das agregações até existir taxa histórica congelada (ADR 0006).
+- **Moeda**: cada workspace tem `base_currency`. Lançamento em outra moeda é **convertido na entrada**, pela taxa cruzada `(from→BRL)/(base→BRL)` da data — fonte única em `ExchangeRateStore.rate_between` (ADR 0015). O que ficou gravado em outra moeda (legado) segue fora das agregações, e a contagem é exibida ao usuário.
 - **Valores em `Decimal`** ponta a ponta — nada de `float`.
 
 ## Autenticação e sessão

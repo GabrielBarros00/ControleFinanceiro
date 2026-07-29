@@ -117,9 +117,43 @@ def test_get_last_6_months_ancorado_no_mes_pedido(db_session: Session, seed_ws):
     results = ReportService.get_last_6_months(db_session, workspace_id, ref_month=date(2026, 5, 1))
 
     assert len(results) == 6
-    assert [r["name"] for r in results] == ["Dec", "Jan", "Feb", "Mar", "Apr", "May"]
+    # `month` é o rótulo autoritativo (o frontend formata em PT-BR a partir dele);
+    # `name` vem de strftime e depende do locale do processo — não serve de âncora.
+    assert [r["month"] for r in results] == [
+        "2025-12", "2026-01", "2026-02", "2026-03", "2026-04", "2026-05",
+    ]
     assert results[3]["expenses"] == Decimal("80.00")  # março
     assert results[-1]["expenses"] == Decimal("0.00")  # maio
+
+
+def test_historico_e_resumo_concordam_na_renda_em_outra_moeda(db_session: Session, seed_ws):
+    """Renda fora da moeda-base fica fora dos DOIS somatórios.
+
+    O `get_summary` já filtrava a moeda; o `get_last_6_months` não — e os dois
+    alimentam a MESMA tela de Relatórios. O card "Receita" e a barra do mês
+    mostravam números diferentes para o mesmo mês, sem nada explicando a
+    diferença.
+    """
+    workspace_id = seed_ws["ws"].id
+    user = seed_ws["user"]
+    db_session.add_all([
+        Income(
+            amount=Decimal("1000.00"), currency="BRL", received_at=datetime(2026, 5, 5),
+            workspace_id=workspace_id, title="Salário", user_id=user.id,
+        ),
+        Income(
+            amount=Decimal("900.00"), currency="USD", received_at=datetime(2026, 5, 6),
+            workspace_id=workspace_id, title="Freela em dólar", user_id=user.id,
+        ),
+    ])
+    db_session.commit()
+
+    resumo = ReportService.get_summary(db_session, workspace_id, date(2026, 5, 1))
+    historico = ReportService.get_last_6_months(db_session, workspace_id, ref_month=date(2026, 5, 1))
+    maio = next(r for r in historico if r["month"] == "2026-05")
+
+    assert resumo["total_income"] == Decimal("1000.00")
+    assert maio["income"] == resumo["total_income"]
 
 
 def test_summary_leva_o_id_da_categoria(db_session: Session, seed_ws):

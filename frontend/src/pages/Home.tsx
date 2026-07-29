@@ -14,7 +14,7 @@ import { HeroBalance } from '@/components/dashboard/HeroBalance';
 import { ExcludedForeignNotice } from '@/components/money/ExcludedForeignNotice';
 import { useBaseCurrency } from '@/hooks/use-base-currency';
 import { TransactionLedger } from '@/components/money/TransactionLedger';
-import { formatMoney } from '@/lib/money';
+import { formatMoney, sameMoney } from '@/lib/money';
 import { currentMonthLocal } from '@/lib/date';
 
 
@@ -44,6 +44,10 @@ export function Home() {
   const houseIncome = Number(summary?.total_income ?? 0);
   const houseExpenses = Number(summary?.total_expenses ?? 0);
   const budget = parseFloat(forecast?.total_budget ?? '0') || 0;
+  // "Casa X" só quando o total do workspace DIFERE da sua parte. Sozinho no
+  // workspace (ou num mês em que tudo foi só seu) ele repetia o número de cima.
+  const casa = (mine: number, house: number) =>
+    sameMoney(mine, house) ? undefined : `Casa ${formatMoney(house, { currency: baseCurrency })}`;
   const firstName = user?.name?.split(' ')[0];
 
   return (
@@ -72,13 +76,14 @@ export function Home() {
         </div>
       ) : (
         <>
-          <div className="grid gap-6 lg:grid-cols-3">
+          <div className="grid gap-6 lg:grid-cols-3 lg:items-start">
             <HeroBalance
               className="lg:col-span-2"
               net={myNet}
               spent={myExpenses}
               budget={budget}
               daysLeft={daysLeftInMonth()}
+              currency={baseCurrency}
             />
             <div className="grid gap-4 sm:grid-cols-3 lg:grid-cols-1">
               <StatTile
@@ -86,20 +91,23 @@ export function Home() {
                 value={myIncome}
                 kind="income"
                 icon={TrendingUp}
-                hint={`Casa ${formatMoney(houseIncome)}`}
+                currency={baseCurrency}
+                hint={casa(myIncome, houseIncome)}
               />
               <StatTile
                 label="Sua despesa"
                 value={myExpenses}
                 kind="expense"
                 icon={TrendingDown}
-                hint={`Casa ${formatMoney(houseExpenses)}`}
+                currency={baseCurrency}
+                hint={casa(myExpenses, houseExpenses)}
               />
               <StatTile
                 label="Seu saldo"
                 value={myNet}
                 kind={myNet >= 0 ? 'income' : 'expense'}
                 icon={Wallet}
+                currency={baseCurrency}
               />
               <ExcludedForeignNotice
                 count={summary?.excluded_foreign_count}

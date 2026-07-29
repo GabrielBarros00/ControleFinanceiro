@@ -7,11 +7,14 @@ interface SplitSummaryProps {
   method: 'equal' | 'percentage' | 'fixed';
   splits: { user_id: string; value: number }[];
   totalAmount: number;
+  /** moeda do lançamento — o resumo fala a MESMA moeda dos campos acima */
+  currency?: string;
   testId?: string;
 }
 
 // Resumo vivo da divisão: verde quando fecha, âmbar mostrando o que falta
-export function SplitSummary({ method, splits, totalAmount, testId = 'split-summary' }: SplitSummaryProps) {
+export function SplitSummary({ method, splits, totalAmount, currency = 'BRL', testId = 'split-summary' }: SplitSummaryProps) {
+  const fmt = (value: number) => formatCurrency(value, currency);
   const count = splits.length;
   if (!count) return null;
 
@@ -19,7 +22,7 @@ export function SplitSummary({ method, splits, totalAmount, testId = 'split-summ
     if (totalAmount <= 0) return null;
     return (
       <p data-testid={testId} className="text-xs font-semibold text-muted-foreground">
-        Dividido igualmente entre {count} participante{count > 1 ? 's' : ''} — aprox. {formatCurrency(totalAmount / count)} cada
+        Dividido igualmente entre {count} participante{count > 1 ? 's' : ''} — aprox. {fmt(totalAmount / count)} cada
       </p>
     );
   }
@@ -47,10 +50,10 @@ export function SplitSummary({ method, splits, totalAmount, testId = 'split-summ
   return (
     <p data-testid={testId} className={`text-xs font-semibold ${closed ? 'text-emerald-500' : 'text-amber-500'}`}>
       {closed
-        ? `Valores fecham ${formatCurrency(totalAmount)}`
+        ? `Valores fecham ${fmt(totalAmount)}`
         : sumCents < totalCents
-          ? `Somam ${formatCurrency(sumCents / 100)} de ${formatCurrency(totalAmount)} — faltam ${formatCurrency(diff)}`
-          : `Somam ${formatCurrency(sumCents / 100)} de ${formatCurrency(totalAmount)} — ${formatCurrency(diff)} acima do total`}
+          ? `Somam ${fmt(sumCents / 100)} de ${fmt(totalAmount)} — faltam ${fmt(diff)}`
+          : `Somam ${fmt(sumCents / 100)} de ${fmt(totalAmount)} — ${fmt(diff)} acima do total`}
     </p>
   );
 }

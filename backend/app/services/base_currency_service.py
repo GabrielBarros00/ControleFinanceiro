@@ -98,10 +98,11 @@ def _as_date(value) -> date:
 class _FactorResolver:
     """Fator OLD→NEW na data pedida, com cache por dia.
 
-    O store guarda só X→BRL, então OLD→NEW = (OLD→BRL) / (NEW→BRL). Quando um
-    dos lados é BRL a taxa dele é 1 por definição. Datas sem taxa são coletadas
-    em `missing` em vez de levantar na hora — assim o dry-run devolve a LISTA
-    inteira do que falta, não só a primeira falha.
+    A taxa cruzada vem de `ExchangeRateStore.rate_between` — a MESMA fonte que o
+    caminho de entrada (criar/editar lançamento) usa, para migrar e lançar nunca
+    discordarem. Datas sem taxa são coletadas em `missing` em vez de levantar na
+    hora: assim o dry-run devolve a LISTA inteira do que falta, não só a primeira
+    falha.
 
     O cache por dia importa: um histórico de 3 anos tem ~1000 datas distintas e
     sem ele cada linha repetiria a consulta.
@@ -115,32 +116,24 @@ class _FactorResolver:
         self._cache: Dict[date, Optional[Decimal]] = {}
         self.missing: List[str] = []
 
-    def _to_brl(self, currency: str, on: date) -> Optional[Decimal]:
-        if currency == "BRL":
-            return Decimal("1")
-        try:
-            rate, _ = ExchangeRateStore.get_or_fetch(
-                self.db, currency, on, allow_fetch=self.allow_fetch
-            )
-            return rate
-        except ExchangeRateUnavailable:
-            return None
-
     def factor(self, on) -> Optional[Decimal]:
         on = _as_date(on)
         if on in self._cache:
             return self._cache[on]
 
-        old_brl = self._to_brl(self.old, on)
-        new_brl = self._to_brl(self.new, on)
-        if old_brl is None or new_brl is None or not new_brl:
+        try:
+            value, _source = ExchangeRateStore.rate_between(
+                self.db, self.old, self.new, on, allow_fetch=self.allow_fetch
+            )
+        except ExchangeRateUnavailable as exc:
             self._cache[on] = None
-            label = f"{on.isoformat()} ({self.old if old_brl is None else self.new})"
+            # A exceção carrega QUAL moeda faltou — é o que o operador precisa
+            # para saber o que mandar o backfill buscar.
+            label = f"{on.isoformat()} ({exc.currency})"
             if label not in self.missing:
                 self.missing.append(label)
             return None
 
-        value = old_brl / new_brl
         self._cache[on] = value
         return value
 
@@ -439,14 +432,16 @@ class BaseCurrencyService:
             # Itens somam (total − ajustes): a mesma reconciliação do create
             _reallocate(items, lambda i: i.amount, _set_item_amount, total_cents - adj_cents)
             for item in items:
-                # quantity × unitário deixa de fechar após a conversão; o valor
-                # da linha é a fonte de verdade, então o unitário é derivado.
+                # quantity × unitário deixa de fechar após a conversão (a fatia
+                # convertida raramente é múltipla exata da quantidade), então a
+                # linha é normalizada para 1 × valor-da-linha. O `amount` que
+                # `_reallocate` acabou de gravar é a fonte de verdade e NÃO pode
+                # ser recalculado a partir do unitário: dividi-lo pela quantidade
+                # encolhia o item (3 × 10 virava o preço de UM), quebrando
+                # `soma(itens) + ajustes == total` e o rateio das shares abaixo.
                 if item.unit_amount is not None and item.quantity:
-                    item.unit_amount = (item.amount / item.quantity).quantize(
-                        Decimal("0.01"), rounding=ROUND_HALF_UP
-                    )
+                    item.unit_amount = item.amount
                     item.quantity = Decimal("1")
-                    item.amount = item.unit_amount
                 db.add(item)
 
                 shares = db.exec(

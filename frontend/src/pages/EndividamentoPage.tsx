@@ -13,6 +13,7 @@ import { useLiabilities } from '@/hooks/use-liabilities';
 import { useMembers } from '@/hooks/use-members';
 import { useAuth } from '@/hooks/use-auth';
 import { formatMoney } from '@/lib/money';
+import { useBaseCurrency } from '@/hooks/use-base-currency';
 import { currentMonthLocal, shiftMonth } from '@/lib/date';
 import {
   ChevronLeft, ChevronRight, RefreshCcw, Loader2, CalendarDays,
@@ -36,6 +37,8 @@ export function EndividamentoPage() {
   const { overview, isLoading, isError, refetch } = useLiabilities(month);
   const { members } = useMembers();
   const { user } = useAuth();
+  const baseCurrency = useBaseCurrency();
+  const fmt = (value: number | string) => formatMoney(value, { currency: baseCurrency });
 
   const memberName = (id: number) =>
     members.find((m) => m.user_id === id)?.user_name ?? `Membro #${id}`;
@@ -148,15 +151,15 @@ export function EndividamentoPage() {
               <div className="grid grid-cols-3 gap-2 text-center">
                 <div className="rounded-lg bg-accent/20 p-3">
                   <p className="text-[10px] font-semibold uppercase text-muted-foreground">Financiamento</p>
-                  <p className="mt-0.5 text-sm font-black text-foreground">{formatMoney(month_due.financing_due)}</p>
+                  <p className="mt-0.5 text-sm font-black text-foreground">{fmt(month_due.financing_due)}</p>
                 </div>
                 <div className="rounded-lg bg-accent/20 p-3">
                   <p className="text-[10px] font-semibold uppercase text-muted-foreground">Cartão</p>
-                  <p className="mt-0.5 text-sm font-black text-foreground">{formatMoney(month_due.cards_due)}</p>
+                  <p className="mt-0.5 text-sm font-black text-foreground">{fmt(month_due.cards_due)}</p>
                 </div>
                 <div className="rounded-lg bg-amber-500/10 p-3">
                   <p className="text-[10px] font-semibold uppercase text-muted-foreground">Total do mês</p>
-                  <p className="mt-0.5 text-sm font-black text-amber-500">{formatMoney(month_due.total)}</p>
+                  <p className="mt-0.5 text-sm font-black text-amber-500">{fmt(month_due.total)}</p>
                 </div>
               </div>
             </CardContent>
@@ -186,13 +189,13 @@ export function EndividamentoPage() {
                         <div>
                           <p className="text-sm font-bold text-foreground">{mine ? 'Você' : memberName(p.user_id)}</p>
                           <p className="flex flex-wrap gap-x-2 text-[11px] text-muted-foreground">
-                            <span>Financ. {formatMoney(p.financing)}</span>
+                            <span>Financ. {fmt(p.financing)}</span>
                             <span>·</span>
-                            <span>Cartão {formatMoney(p.cards)}</span>
+                            <span>Cartão {fmt(p.cards)}</span>
                           </p>
                         </div>
                       </div>
-                      <p className="text-lg font-black text-foreground">{formatMoney(p.total)}</p>
+                      <p className="text-lg font-black text-foreground">{fmt(p.total)}</p>
                     </div>
                   );
                 })}
@@ -230,7 +233,7 @@ export function EndividamentoPage() {
                           {f.remaining_installments} de {f.installments_count} restantes
                         </TableCell>
                         <TableCell className="text-muted-foreground">{formatDay(f.next_due_date)}</TableCell>
-                        <TableCell className="text-right font-black text-foreground">{formatMoney(f.outstanding)}</TableCell>
+                        <TableCell className="text-right font-black text-foreground">{fmt(f.outstanding)}</TableCell>
                       </TableRow>
                     ))}
                   </TableBody>
@@ -263,8 +266,8 @@ export function EndividamentoPage() {
                     {cards.map((c) => (
                       <TableRow key={c.id} className="border-border hover:bg-accent/30">
                         <TableCell className="font-bold">{c.name}</TableCell>
-                        <TableCell className="text-muted-foreground">{formatMoney(c.month_due)}</TableCell>
-                        <TableCell className="text-right font-black text-foreground">{formatMoney(c.committed)}</TableCell>
+                        <TableCell className="text-muted-foreground">{fmt(c.month_due)}</TableCell>
+                        <TableCell className="text-right font-black text-foreground">{fmt(c.committed)}</TableCell>
                         <TableCell className="text-right">
                           <Link to="/cards" className="inline-flex items-center gap-1 text-xs font-bold text-primary hover:underline">
                             Ver <ArrowRight className="h-3 w-3" />

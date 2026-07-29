@@ -3,6 +3,7 @@ from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlmodel import Session, select
 from app.db.session import get_session
+from app.domain.query_policy import resolve_currency
 from app.domain.recurrence_rules import validate_frequency_fields as _validate_frequency_fields
 from app.models.category import Category
 from app.models.credit_card import CreditCard
@@ -42,7 +43,8 @@ class RecurringCreate(BaseModel):
     day_of_week: Optional[int] = Field(default=None, ge=0, le=6)
     month_of_year: Optional[int] = Field(default=None, ge=1, le=12)
     # Snapshot (ADR 0012): materializa despesa completa em vez de nua
-    currency: str = "BRL"
+    # None = "não informada" → a rota resolve para a moeda-base do workspace
+    currency: Optional[str] = None
     payment_method: Optional[PaymentMethod] = None
     credit_card_id: Optional[int] = None
     category_id: Optional[int] = None
@@ -162,6 +164,8 @@ def create_recurring(
         recurring_in.credit_card_id, recurring_in.payment_method,
     )
     data = recurring_in.model_dump(exclude={"split_snapshot"})
+    # Moeda ausente = a do workspace (nunca "BRL" fixo — ver resolve_currency)
+    data["currency"] = resolve_currency(session, workspace_id, recurring_in.currency)
     db_recurring = RecurringExpense(
         **data,
         split_snapshot=_snapshot_json(recurring_in.split_snapshot),

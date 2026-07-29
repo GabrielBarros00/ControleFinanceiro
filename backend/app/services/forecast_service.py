@@ -34,7 +34,10 @@ def _template_amount_in_base(db, template, occ: date, base_currency: str):
     if not currency or currency == base_currency:
         return template.base_amount, True
     try:
-        rate, _ = ExchangeRateStore.get_or_fetch(db, currency, occ, allow_fetch=False)
+        # rate_between: a taxa precisa ser moeda→BASE, e o store só guarda X→BRL
+        rate, _ = ExchangeRateStore.rate_between(
+            db, currency, base_currency, occ, allow_fetch=False
+        )
     except ExchangeRateUnavailable:
         return Decimal("0.00"), False
     return (template.base_amount * rate).quantize(
@@ -74,6 +77,21 @@ class ForecastService:
 
         total_spent = sum((t.total_amount for t in transactions), Decimal("0.00"))
 
+        # Base da TENDÊNCIA: só gasto variável. Extrapolar por dia um custo que
+        # não se repete no mês inflava a projeção de forma grosseira — um aluguel
+        # de 3.000 lançado no dia 1, visto no dia 5, virava média de 600/dia e
+        # somava ~15.600 de gasto imaginário até o fim do mês. E ele já é contado
+        # duas vezes: uma no realizado, outra em `remaining_fixed` (o que ainda
+        # vence) ou nas parcelas dos meses seguintes. Errar para MAIS numa
+        # previsão de orçamento é o que ensina o usuário a ignorá-la.
+        variable_spent = sum(
+            (
+                t.total_amount for t in transactions
+                if t.recurring_expense_id is None and t.installment_group_id is None
+            ),
+            Decimal("0.00"),
+        )
+
         # Faturas de cartão com vencimento neste mês (ainda não pagas) são caixa a sair
         card_statements_due = db.exec(
             select(CardStatement)
@@ -103,7 +121,7 @@ class ForecastService:
             days_passed = 0
             remaining_days = last_day_num
             
-        daily_avg = (total_spent / days_passed).quantize(Decimal("0.01")) if days_passed > 0 else Decimal("0.00")
+        daily_avg = (variable_spent / days_passed).quantize(Decimal("0.01")) if days_passed > 0 else Decimal("0.00")
         
         # 3. Fixed Costs (Remaining Recurring Expenses)
         recurring = db.exec(

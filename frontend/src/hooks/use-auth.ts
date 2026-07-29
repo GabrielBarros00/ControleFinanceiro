@@ -58,7 +58,11 @@ export function useAuth() {
 
   // Register mutation
   const registerMutation = useMutation({
-    mutationFn: async (data: { name: string; email: string; password: string }) => {
+    // `invite_token` vem do link `/register?invite=<token>` e é o CONSENTIMENTO
+    // de entrar naquele workspace. Sem ele o backend só cria a notificação.
+    mutationFn: async (data: {
+      name: string; email: string; password: string; invite_token?: string;
+    }) => {
       const response = await apiClient.post('/auth/register', data);
       return response.data;
     },

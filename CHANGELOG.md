@@ -4,6 +4,120 @@ Todas as mudanças relevantes deste projeto são documentadas aqui.
 O formato segue [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e o versionamento
 segue [SemVer](https://semver.org/lang/pt-BR/).
 
+## [Não lançado]
+
+### Adicionado
+- **Moeda estrangeira ponta a ponta**: lançamento, renda e recorrência em outra moeda são
+  convertidos na entrada (PTAX oficial para as majores, fonte de mercado para o resto, + IOF de
+  3,5% em compra no cartão), guardando o original para exibição. Store histórico de cotações
+  (`ExchangeRate`) com backfill diário no serviço `cron` do Compose.
+- **Moeda-base do workspace trocável pela interface**, com dry-run (quantas linhas, que
+  cotações faltam) e reconversão de todo o histórico pela cotação da data de cada registro.
+- **Panorama de endividamento** (`/liabilities`): financiamentos + faturas em aberto, no total,
+  no mês e por pessoa — eixo separado do acerto entre membros.
+- **Edição da compra parcelada inteira** (`PUT /transactions/{id}/installment-group`):
+  refatiar total e número de parcelas de uma vez, congelando as já pagas.
+- **Preview do lançamento** em qualquer tela (clique na linha abre o detalhe somente leitura).
+- **Notificações no app** com consentimento no convite: quem já tem conta recebe um aviso para
+  aceitar ou recusar, em vez de ser adicionado ao workspace sem saber.
+- **Recorrência com intervalo** ("a cada N dias/semanas/meses/anos") e materialização
+  preguiçosa: o que é recorrente aparece sozinho, sem depender de um botão.
+- **Avisos de fatura** (fechada / vence em N dias / vencida) no cartão e na tela da fatura.
+- **Filtros de categoria e tag** na lista de lançamentos; anexos podem ser escolhidos já na
+  criação da despesa.
+- **Convite pendente vira modal logo depois do onboarding.** Quem se cadastra por fora do
+  link (ou entra com o Google, que não devolve o token) chegava ao app sem estar no
+  workspace, com o convite só no sino — que é justamente o que ninguém olha no primeiro
+  minuto de uso, e a impressão era de que o convite não tinha funcionado.
+
+### Alterado — armazenamento de anexos
+- **O conteúdo dos anexos saiu do banco para um volume** ([ADR 0007](docs/adr/0007-anexos-fora-do-banco-com-hash.md),
+  desenho em [ADR 0016](docs/adr/0016-armazenamento-de-anexos-em-volume.md)). Recibo é dado
+  grande, imutável e que nenhuma consulta lê: no banco, fazia cada dump carregar todos os
+  comprovantes já enviados e obrigava a trazer o blob inteiro pelo driver para servir um
+  arquivo. Os objetos são endereçados pelo `sha256` (o mesmo comprovante enviado duas vezes
+  não duplica bytes) e a escrita é atômica.
+- ⚠️ **O backup passou a ser DOIS artefatos**: o dump do Postgres **e** o volume
+  `attachments_data`. Restaurar só o banco devolve os lançamentos com os recibos quebrados —
+  ver [SETUP](SETUP.md#depois-de-subir).
+- O diretório do volume é criado **na imagem** e pertence ao usuário do processo. Volume
+  nomeado montado num caminho que não existe na imagem nasce `root`, e o backend roda como
+  `appuser`: o primeiro upload de cada workspace levava "permission denied". Falha de
+  gravação agora responde 503 com mensagem, não 500 — o erro acontecia no `mkdir`, que
+  estava fora do bloco tratado. O `smoke_prod.py` passou a subir e baixar um anexo: é o
+  único gate que exercita o volume real (os testes usam diretório temporário).
+- ⚠️ **Quem já tinha anexos**: rode `scripts/migrate_attachments_to_disk.py` depois de subir.
+  A migração de schema não move bytes de propósito (fazer isso a partir de um DDL destruiria
+  recibos se o volume não estivesse montado), e o download serve dos dois lugares enquanto a
+  transferência não acontece — sem janela de indisponibilidade.
+
+### Corrigido — integridade financeira
+- **Moeda-base diferente de BRL agora converte certo.** Toda entrada de valor usava a taxa
+  `moeda → BRL` como se fosse `moeda → moeda-base`: num workspace em USD, uma despesa de
+  EUR 50 era gravada como 315 USD, e uma em BRL virava o mesmo número em dólar (taxa 1,0).
+  A taxa passou a ser a cruzada `(from→BRL)/(to→BRL)`, com fonte única em
+  `ExchangeRateStore.rate_between` ([ADR 0015](docs/adr/0015-conversao-na-entrada-e-taxa-cruzada.md)).
+- **Fim dos defaults de moeda fixos em "BRL".** Importação e criação em lote gravavam
+  `currency="BRL"` literal — num workspace em outra moeda, cada linha importada caía fora de
+  dívidas, relatórios, previsão e fatura, e sumia sem aviso. A moeda ausente agora vem do
+  workspace (`resolve_currency`), com normalização de caixa; no frontend, de `useBaseCurrency()`.
+- **Troca de moeda-base não encolhe mais item com quantidade.** Um item `3 × 20,00` era
+  reduzido ao valor de UM unitário, quebrando `soma(itens) + ajustes == total` e o rateio das
+  shares.
+- **Busca no extrato ignora a caixa.** `LIKE` é case-sensitive no Postgres e insensitive no
+  SQLite: procurar `supermercado` achava `Supermercado` em desenvolvimento e não achava em
+  produção.
+- **Financiamento nasce na moeda-base do workspace.** Era o último caminho de entrada com
+  `"BRL"` fixo — o campo nem existia no corpo da criação. Num workspace em outra moeda, o
+  financiamento ficava invisível no painel de Endividamento (que filtra pela moeda-base) e
+  a despesa gerada ao pagar a parcela caía fora de dívidas, relatórios, previsão e fatura.
+- **Receita do histórico de 6 meses respeita a moeda-base.** O card "Receita" já filtrava e
+  o gráfico ao lado dele não: renda legada em outra moeda fazia os dois números discordarem
+  para o mesmo mês, na mesma tela.
+- **A previsão parou de contar os custos fixos duas vezes.** A média diária era calculada
+  sobre TODO o gasto do mês, então um aluguel lançado no dia 1 era extrapolado pelos dias
+  restantes — e ele já estava contado, no realizado ou nos fixos pendentes. Um aluguel de
+  3.000 visto no dia 6 inflava a projeção em ~12.750. A tendência agora usa só gasto
+  variável (fora recorrências e parcelas).
+- **Estorno de parcela de financiamento vincula por ID.** O vínculo era o TÍTULO da despesa:
+  renomear o financiamento deixava o gasto para sempre no caixa (com a parcela já reaberta), e
+  uma despesa manual homônima era apagada junto.
+
+### Corrigido — privacidade e segurança
+- **Cadastrar-se não entra mais em workspace alheio.** O registro (e o login com Google)
+  aceitava TODO convite pendente para aquele e-mail: quem soubesse o endereço de alguém dava a
+  si mesmo acesso às finanças dessa pessoa — e vice-versa — sem ela aceitar nada. Agora só o
+  convite cujo token acompanhou o cadastro (`/register?invite=…`, que a tela passou a ler) é
+  aceito; os demais viram notificação com aceitar/recusar.
+- **Anexo de despesa excluída libera a cota.** O recibo ficava inalcançável pela interface e
+  mesmo assim ocupava os 200 MB do workspace, sem nenhuma tela por onde removê-lo
+  ([ADR 0016](docs/adr/0016-armazenamento-de-anexos-em-volume.md)).
+
+- **Revogar um convite encerra o aviso no app.** O convite pendente aparece como modal na
+  primeira tela do convidado; revogado, o modal continuava lá com um "Aceitar" que só dava
+  erro, e o contador de não lidas não tinha mais como zerar.
+
+### Corrigido — experiência
+- **Os meses dos gráficos de Relatórios voltaram ao português.** O nome vinha pronto do
+  servidor, formatado pelo locale do processo — no container, "Jan/Feb/May" num app inteiro
+  em PT-BR. O backend manda o mês (`YYYY-MM`) e quem desenha formata.
+- **O convite pendente virou um diálogo de verdade** (foco preso, `Esc`, foco devolvido);
+  era um overlay montado à mão, e é o primeiro modal que o usuário novo encontra.
+- **Meses futuros acessíveis** em Lançamentos, Rendas e Relatórios: uma compra em 12x cria 11
+  parcelas em meses à frente, e o seletor travava no mês corrente — enquanto "Dívidas do mês" e
+  "Endividamento" já navegavam para frente e mostravam essas mesmas parcelas.
+- **Mudar o dia de fechamento/vencimento do cartão atualiza a fatura em aberto** (as fechadas
+  ficam congeladas, são histórico). Antes o aviso seguia anunciando a data antiga.
+- Mensagens de erro do servidor deixaram de escrever `R$` fixo.
+- A dica de câmbio no formulário estima na moeda-base do workspace, com a mesma taxa que o
+  servidor vai aplicar.
+
+### Alterado
+- `notification.type` virou enum nativo no Postgres — o `alembic check` (gate de CI) acusava
+  drift desde a introdução das notificações.
+- Removida a coluna `transaction.card_limit_holder_user_id`, que nunca foi lida nem escrita.
+- Painel de endividamento faz uma varredura de faturas por cartão em vez de duas.
+
 ## [4.0.0] — 2026-07-20
 
 Primeira versão pública. Base completa da aplicação.

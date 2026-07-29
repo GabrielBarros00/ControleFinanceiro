@@ -57,9 +57,14 @@ class Settings(BaseSettings):
 
     RATE_LIMIT_ENABLED: bool = True
     UPLOAD_MAX_BYTES: int = 5242880  # 5MB
-    # Teto de anexos por workspace (ADR 0007). O conteúdo mora no banco, então
-    # sem quota um único membro enche o Postgres com blobs de 5MB.
+    # Teto de anexos por workspace (ADR 0007) — vale independente de onde o
+    # conteúdo mora: sem quota um único membro enche o volume com arquivos de 5MB.
     ATTACHMENT_QUOTA_BYTES: int = 209715200  # 200MB
+    # Diretório do CONTEÚDO dos anexos (ADR 0007): o banco guarda metadados +
+    # sha256 + chave, os bytes ficam aqui. Em produção é um volume dedicado
+    # (docker-compose), e ele PRECISA entrar na rotina de backup junto com o
+    # dump do Postgres — são dois artefatos, não um.
+    ATTACHMENT_STORAGE_DIR: str = "./attachments_data"
     # Teto de linhas por commit de importação: o corpo é JSON livre, então sem
     # limite um cliente pede a criação de milhões de transações numa transação só
     IMPORT_MAX_ROWS: int = 5000

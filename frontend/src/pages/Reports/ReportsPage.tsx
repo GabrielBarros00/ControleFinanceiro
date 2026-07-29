@@ -22,10 +22,11 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { BudgetPanel } from './BudgetPanel';
 import { useChartTheme } from '@/hooks/use-chart-theme';
 import { StatTile } from '@/components/ui/stat-tile';
-import { formatMoney } from '@/lib/money';
+import { formatCompact, formatMoney, sameMoney } from '@/lib/money';
+import { useBaseCurrency } from '@/hooks/use-base-currency';
 import { PageHeader } from '@/components/layout/PageHeader';
 import { PeriodPicker } from '@/components/layout/PeriodPicker';
-import { currentMonthLocal } from '@/lib/date';
+import { currentMonthLocal, monthShortLabel } from '@/lib/date';
 
 
 export function ReportsPage() {
@@ -33,6 +34,7 @@ export function ReportsPage() {
   // no mês corrente, sem como olhar o passado.
   const [month, setMonth] = React.useState(currentMonthLocal());
   const { data, isLoading, isError } = useReports(month);
+  const baseCurrency = useBaseCurrency();
   // Cores lidas do tema atual (claro/escuro) — nunca hardcoded (corrige B3)
   const chart = useChartTheme();
   const COLORS = chart.series;
@@ -41,7 +43,7 @@ export function ReportsPage() {
     <PageHeader
       title="Relatórios"
       subtitle="Para onde o dinheiro foi."
-      period={<PeriodPicker value={month} max={currentMonthLocal()} onChange={setMonth} />}
+      period={<PeriodPicker value={month} onChange={setMonth} />}
     />
   );
 
@@ -70,7 +72,14 @@ export function ReportsPage() {
     );
   }
 
-  const monthlyData = data?.monthly_history || [];
+  // O eixo lê `name`; o backend manda `month` (YYYY-MM) como rótulo autoritativo
+  // e o nome curto é formatado aqui, em PT-BR (ver monthShortLabel).
+  const monthlyData = (data?.monthly_history || []).map(
+    (m: { month?: string; name?: string }) => ({
+      ...m,
+      name: m.month ? monthShortLabel(m.month) : m.name,
+    }),
+  );
   // "Pouca história" (B4): conta meses com movimento real, não o tamanho da série
   // (o back devolve 6 meses, a maioria zerada para quem é novo).
   const monthsWithData = monthlyData.filter(
@@ -83,6 +92,9 @@ export function ReportsPage() {
   const myExpenses = Number(currentSummary.my_expenses ?? 0);
   const myIncome = Number(currentSummary.my_income ?? 0);
   const myNet = Number(currentSummary.my_net ?? 0);
+  // Ver Home: o hint da casa é redundante quando bate com a sua parte
+  const casa = (mine: number, house: number) =>
+    sameMoney(mine, house) ? undefined : `Casa ${formatMoney(house, { currency: baseCurrency })}`;
 
   return (
     <div className="space-y-8 animate-in fade-in duration-700">
@@ -92,13 +104,15 @@ export function ReportsPage() {
           label="Seu gasto (mês)"
           value={myExpenses}
           kind="expense"
-          hint={`Casa ${formatMoney(Number(currentSummary.total_expenses))}`}
+          currency={baseCurrency}
+          hint={casa(myExpenses, Number(currentSummary.total_expenses))}
         />
         <StatTile
           label="Sua receita (mês)"
           value={myIncome}
           kind="income"
-          hint={`Casa ${formatMoney(Number(currentSummary.total_income))}`}
+          currency={baseCurrency}
+          hint={casa(myIncome, Number(currentSummary.total_income))}
         />
         <div className="rounded-xl border border-border bg-card p-4">
           <p className="text-sm text-muted-foreground">Maior categoria</p>
@@ -112,7 +126,8 @@ export function ReportsPage() {
           label="Seu saldo (mês)"
           value={myNet}
           kind={myNet >= 0 ? 'income' : 'expense'}
-          hint={`Casa ${formatMoney(Number(currentSummary.net_savings))}`}
+          currency={baseCurrency}
+          hint={casa(myNet, Number(currentSummary.net_savings))}
         />
       </div>
 
@@ -148,7 +163,7 @@ export function ReportsPage() {
                   <BarChart data={monthlyData}>
                     <CartesianGrid strokeDasharray="3 3" stroke={chart.grid} vertical={false} />
                     <XAxis dataKey="name" stroke={chart.axis} fontSize={12} tickLine={false} axisLine={false} />
-                    <YAxis stroke={chart.axis} fontSize={12} tickLine={false} axisLine={false} tickFormatter={(value) => `R$${value}`} />
+                    <YAxis stroke={chart.axis} fontSize={12} tickLine={false} axisLine={false} tickFormatter={(value) => formatCompact(value, baseCurrency)} />
                     <Tooltip 
                       contentStyle={{ backgroundColor: chart.tooltipBg, border: `1px solid ${chart.tooltipBorder}`, borderRadius: '12px', color: chart.tooltipText }}
                       itemStyle={{ color: chart.tooltipText, fontWeight: 'bold' }}
@@ -221,7 +236,7 @@ export function ReportsPage() {
                                 <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ backgroundColor: color }} />
                                 <span className="truncate text-sm font-medium text-foreground">{item.name}</span>
                               </div>
-                              <span className="tabular text-sm font-semibold text-foreground">{formatMoney(item.value)}</span>
+                              <span className="tabular text-sm font-semibold text-foreground">{formatMoney(item.value, { currency: baseCurrency })}</span>
                             </div>
                             <div className="h-1.5 w-full overflow-hidden rounded-full bg-muted">
                               <div className="h-full rounded-full" style={{ width: `${pct}%`, backgroundColor: color }} />

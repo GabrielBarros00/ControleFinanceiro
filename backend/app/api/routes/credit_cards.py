@@ -9,8 +9,9 @@ from app.schemas.common import DESCRIPTION_MAX, MAX_MONEY, NAME_MAX
 from sqlmodel import Session, select
 
 from app.db.session import get_session
+from app.domain.query_policy import resolve_currency
 from app.models.workspace import WorkspaceMembership, WorkspaceRole
-from app.models.credit_card import CreditCard, CardStatement, StatementStatus
+from app.models.credit_card import CreditCard, CardStatement
 from app.models.payment_account import PaymentAccount
 from app.models.transaction import Transaction
 from app.api.deps import get_workspace_membership, require_role
@@ -26,7 +27,8 @@ class CreditCardCreate(BaseModel):
     limit: Decimal = Field(gt=0, le=MAX_MONEY)
     closing_day: int = Field(ge=1, le=31)
     due_day: int = Field(ge=1, le=31)
-    currency: str = "BRL"
+    # None = "não informada" → a rota resolve para a moeda-base do workspace
+    currency: Optional[str] = None
 
 
 class CreditCardUpdate(BaseModel):
@@ -57,28 +59,34 @@ def _get_statement_or_404(session: Session, card: CreditCard, statement_id: int)
     return stmt
 
 
-def _is_overdue(stmt: CardStatement) -> bool:
-    """Vencida = não paga e passou do vencimento (derivado, não persistido —
-    evita depender de um job para carimbar status)."""
-    if stmt.status == StatementStatus.paid:
-        return False
-    return datetime.now(UTC).date() > stmt.due_date.date()
-
-
 def _serialize_statement(session: Session, stmt: CardStatement) -> dict:
     return {
         **stmt.model_dump(),
         "computed_total": CreditCardService.effective_total(session, stmt),
-        "is_overdue": _is_overdue(stmt),
+        "is_overdue": CreditCardService.is_overdue(stmt),
     }
 
 
 def _serialize_card(session: Session, card: CreditCard) -> dict:
-    committed = CreditCardService.card_committed(session, card)
+    overview = CreditCardService.card_overview(session, card)
+    committed = overview["committed"]
+    attention: Optional[CardStatement] = overview["attention"]
     return {
         **card.model_dump(),
         "committed_amount": committed,
         "available_limit": CreditCardService.available_limit(committed, card),
+        # Fatura que pede atenção (a não paga mais antiga com valor): permite à
+        # tela avisar "fechada", "vence em N dias" ou "vencida" por cartão, sem
+        # precisar carregar as faturas de cada um.
+        "next_due": None if attention is None else {
+            "statement_id": attention.id,
+            "month": attention.month,
+            "status": attention.status,
+            "closing_date": attention.closing_date,
+            "due_date": attention.due_date,
+            "amount": overview["attention_total"],
+            "is_overdue": CreditCardService.is_overdue(attention),
+        },
     }
 
 
@@ -104,7 +112,10 @@ def create_credit_card(
     session: Session = Depends(get_session),
     membership: WorkspaceMembership = Depends(require_role(WorkspaceRole.member))
 ):
-    card = CreditCard(**card_in.model_dump(), workspace_id=workspace_id)
+    data = card_in.model_dump()
+    # Moeda ausente = a do workspace (nunca "BRL" fixo — ver resolve_currency)
+    data["currency"] = resolve_currency(session, workspace_id, card_in.currency)
+    card = CreditCard(**data, workspace_id=workspace_id)
     session.add(card)
     session.flush()
     publish_event(session, workspace_id, "credit_card.created", "credit_card", card.id, membership.user_id)
@@ -122,10 +133,21 @@ def update_credit_card(
     membership: WorkspaceMembership = Depends(require_role(WorkspaceRole.member))
 ):
     card = _get_card_or_404(session, workspace_id, card_id)
-    for key, value in card_in.model_dump(exclude_unset=True).items():
+    update_data = card_in.model_dump(exclude_unset=True)
+    ciclo_mudou = any(
+        campo in update_data and update_data[campo] != getattr(card, campo)
+        for campo in ("closing_day", "due_day")
+    )
+    for key, value in update_data.items():
         setattr(card, key, value)
     card.updated_at = datetime.now(UTC)
     session.add(card)
+    # Mudar os dias do ciclo tem que valer para a fatura em aberto: as datas
+    # dela eram congeladas na criação, então corrigir o vencimento no cadastro
+    # não mudava nada na tela — e o aviso continuava anunciando a data antiga.
+    if ciclo_mudou:
+        session.flush()
+        CreditCardService.resync_open_statement_dates(session, card)
     publish_event(session, workspace_id, "credit_card.updated", "credit_card", card.id, membership.user_id)
     session.commit()
     session.refresh(card)

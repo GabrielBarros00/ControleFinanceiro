@@ -10,6 +10,7 @@ import { Loader2, CheckCircle2, AlertCircle, SlidersHorizontal, ChevronDown } fr
 import { useMembers } from '@/hooks/use-members';
 import { useCategories } from '@/hooks/use-categories';
 import { useExchangeRate } from '@/hooks/use-exchange-rate';
+import { useBaseCurrency } from '@/hooks/use-base-currency';
 import { useAuthStore } from '@/stores';
 import { cn } from '@/lib/utils';
 import { currencySymbol, formatMoney } from '@/lib/money';
@@ -40,12 +41,14 @@ interface TransactionFormProps {
   allowInstallments?: boolean;
   // Chamado após um submit bem-sucedido (ex.: fechar o modal)
   onSuccess?: () => void;
+  // Bloco extra dentro do form, acima do botão de salvar (ex.: anexos na criação)
+  extraFields?: React.ReactNode;
 }
 
 // Form compartilhado criar/editar despesa. Layout slim: o essencial fica sempre
 // visível; método %/fixo, divisão por item e categoria moram em "Opções
 // avançadas" (progressive disclosure).
-export function TransactionForm({ initialValues, onSubmit, submitLabel, resetOnSuccess = false, allowInstallments = false, onSuccess }: TransactionFormProps) {
+export function TransactionForm({ initialValues, onSubmit, submitLabel, resetOnSuccess = false, allowInstallments = false, onSuccess, extraFields }: TransactionFormProps) {
   const { user } = useAuthStore();
   const { members } = useMembers();
   const { categories } = useCategories();
@@ -69,10 +72,11 @@ export function TransactionForm({ initialValues, onSubmit, submitLabel, resetOnS
     mode: 'onChange',
     defaultValues: initialValues,
   });
-  const { register, control, handleSubmit, watch, reset, getValues, setValue, formState: { errors } } = methods;
+  const { register, control, handleSubmit, watch, reset, getValues, setValue, trigger, formState: { errors } } = methods;
 
   const splitMode = watch('split_mode');
   const currency = watch('currency');
+  const baseCurrency = useBaseCurrency();
   const defaultUserId = user ? String(user.id) : '';
 
   const handleSplitModeChange = (mode: 'transaction' | 'item') => {
@@ -154,10 +158,24 @@ export function TransactionForm({ initialValues, onSubmit, submitLabel, resetOnS
                     />
                   )}
                 />
-                <CurrencyCombobox value={currency} onChange={(c) => setValue('currency', c, { shouldValidate: true })} />
+                <CurrencyCombobox
+                  value={currency}
+                  onChange={(c) => {
+                    setValue('currency', c, { shouldValidate: true });
+                    // Revalida o form INTEIRO: as mensagens de soma citam valores
+                    // formatados na moeda, e com `shouldValidate` só o campo
+                    // `currency` era revisitado — os erros de itens/pagadores
+                    // ficavam congelados na moeda anterior ("R$" numa despesa
+                    // que já era USD).
+                    void trigger();
+                  }}
+                />
               </div>
               {errors.total_amount && <p className="text-xs text-destructive font-medium">{errors.total_amount.message as string}</p>}
-              {currency && currency !== 'BRL' && (
+              {/* "Estrangeira" é != da moeda-BASE do workspace, não != 'BRL':
+                  num workspace em USD a dica aparecia para toda despesa em
+                  dólar (que é a moeda da casa) e sumia para uma em real. */}
+              {currency && currency !== baseCurrency && (
                 <CurrencyHint currency={currency} amount={watch('total_amount')} />
               )}
             </div>
@@ -230,6 +248,8 @@ export function TransactionForm({ initialValues, onSubmit, submitLabel, resetOnS
             </div>
           )}
 
+          {extraFields}
+
         </div>
 
         <div className="flex justify-end border-t border-border mt-6 pt-6 gap-4 items-center">
@@ -252,14 +272,17 @@ export function TransactionForm({ initialValues, onSubmit, submitLabel, resetOnS
   );
 }
 
-// Referência para moeda estrangeira: mostra a estimativa em BRL (PTAX, best-effort)
-// e lembra do IOF no cartão. O valor final é congelado no servidor na criação.
+// Referência para moeda estrangeira: mostra a estimativa na MOEDA-BASE do
+// workspace (best-effort) e lembra do IOF no cartão. O valor final é congelado
+// no servidor na criação — e o hook consulta a mesma taxa cruzada que o servidor
+// vai aplicar, então a estimativa não contradiz o valor gravado.
 function CurrencyHint({ currency, amount }: { currency: string; amount: number }) {
+  const baseCurrency = useBaseCurrency();
   const { rate } = useExchangeRate(currency);
   return (
     <p className="text-[11px] font-medium text-muted-foreground">
-      {rate ? `≈ ${formatMoney((amount || 0) * rate)} (câmbio ${rate.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}) · ` : ''}
-      convertido para BRL na entrada (+3,5% de IOF no cartão).
+      {rate ? `≈ ${formatMoney((amount || 0) * rate, { currency: baseCurrency })} (câmbio ${rate.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}) · ` : ''}
+      convertido para {baseCurrency} na entrada (+3,5% de IOF no cartão).
     </p>
   );
 }

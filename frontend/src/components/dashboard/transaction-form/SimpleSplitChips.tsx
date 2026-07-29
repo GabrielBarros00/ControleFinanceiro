@@ -2,7 +2,7 @@ import { useFormContext } from 'react-hook-form';
 import { Label } from '@/components/ui/label';
 import { Check } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { formatCurrency } from '@/lib/money';
+import { useFormCurrency } from './use-form-currency';
 import type { Participant } from './SplitEditor';
 import type { TransactionFormValues } from './schema';
 
@@ -15,6 +15,7 @@ interface SimpleSplitChipsProps {
 // em "Opções avançadas".
 export function SimpleSplitChips({ participants }: SimpleSplitChipsProps) {
   const { watch, setValue } = useFormContext<TransactionFormValues>();
+  const { fmt } = useFormCurrency();
   const splits = watch('splits') ?? [];
   const total = watch('total_amount') ?? 0;
   const selected = new Set(splits.map((s) => s.user_id));
@@ -34,7 +35,7 @@ export function SimpleSplitChips({ participants }: SimpleSplitChipsProps) {
         <Label className="text-sm font-semibold text-foreground">Dividir com</Label>
         {count > 0 && total > 0 && (
           <span className="text-xs font-semibold text-muted-foreground">
-            ≈ {formatCurrency(total / count)} cada
+            ≈ {fmt(total / count)} cada
           </span>
         )}
       </div>

@@ -3,9 +3,9 @@ import { Button } from '@/components/ui/button';
 import { MoneyInput } from '@/components/ui/MoneyInput';
 import { Label } from '@/components/ui/label';
 import { Trash2 } from 'lucide-react';
-import { formatCurrency } from '@/lib/money';
 import { PAYMENT_METHOD_OPTIONS } from '@/lib/payment-methods';
 import { usePaymentAccounts } from '@/hooks/use-payment-accounts';
+import { useFormCurrency } from './use-form-currency';
 import type { Participant } from './SplitEditor';
 import type { TransactionFormValues } from './schema';
 
@@ -21,6 +21,7 @@ export function PayersEditor({ participants }: PayersEditorProps) {
   const { register, control, watch, formState: { errors } } = useFormContext<TransactionFormValues>();
   const { fields, append, remove } = useFieldArray({ control, name: 'payers' });
   const { activeAccounts } = usePaymentAccounts();
+  const { symbol, fmt } = useFormCurrency();
 
   const watchedPayers = watch('payers');
   const watchedTotal = watch('total_amount');
@@ -71,7 +72,7 @@ export function PayersEditor({ participants }: PayersEditorProps) {
                 )}
               </div>
               {multi && (
-                <div className="w-28">
+                <div className="w-32">
                   <Controller
                     name={`payers.${index}.amount` as const}
                     control={control}
@@ -80,6 +81,7 @@ export function PayersEditor({ participants }: PayersEditorProps) {
                         aria-label="Valor pago"
                         value={field.value}
                         onChange={field.onChange}
+                        prefix={symbol}
                         className="bg-background border-border"
                       />
                     )}
@@ -149,8 +151,8 @@ export function PayersEditor({ participants }: PayersEditorProps) {
           className={`text-xs font-semibold ${closed ? 'text-emerald-500' : 'text-amber-500'}`}
         >
           {closed
-            ? `Pagadores fecham ${formatCurrency(watchedTotal ?? 0)}`
-            : `Pagadores: ${formatCurrency(sumCents / 100)} de ${formatCurrency(totalCents / 100)}`}
+            ? `Pagadores fecham ${fmt(watchedTotal ?? 0)}`
+            : `Pagadores: ${fmt(sumCents / 100)} de ${fmt(totalCents / 100)}`}
         </p>
       )}
       {payersError && <p className="text-xs text-destructive font-medium">{payersError}</p>}

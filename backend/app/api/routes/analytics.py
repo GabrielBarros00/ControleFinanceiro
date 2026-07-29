@@ -8,7 +8,9 @@ from app.domain.dates import InvalidMonth, parse_month
 from app.models.workspace import WorkspaceMembership, WorkspaceRole
 from app.models.estimate import MonthlyEstimate
 from app.schemas.estimate import MonthlyEstimateCreate, MonthlyEstimateRead
-from app.services.currency_service import CurrencyService, ExchangeRateUnavailable
+from app.domain.query_policy import workspace_base_currency
+from app.services.currency_service import ExchangeRateUnavailable
+from app.services.exchange_rate_store import ExchangeRateStore
 from app.services.forecast_service import ForecastService
 from app.services.report_service import ReportService
 from app.services.recurring_service import RecurringMaterializationService
@@ -79,18 +81,34 @@ def get_forecast(
 def get_exchange_rate(
     workspace_id: int,
     from_currency: str,
-    to_currency: str = "BRL",
+    to_currency: Optional[str] = None,
+    session: Session = Depends(get_session),
     membership: WorkspaceMembership = Depends(get_workspace_membership),
 ):
     """Taxa de câmbio de referência + fonte: PTAX (oficial) para as majores → BRL,
-    senão fonte de mercado. Nunca 500: indisponível responde 422."""
+    senão fonte de mercado. Nunca 500: indisponível responde 422.
+
+    Sem `to_currency`, o alvo é a MOEDA-BASE do workspace — não "BRL" fixo: este
+    endpoint alimenta a dica "≈ tanto" do formulário, e num workspace em outra
+    moeda a dica mostrava a conversão para um real que não é usado em lugar
+    nenhum. Passa pelo `ExchangeRateStore` (mesma taxa cruzada que a criação do
+    lançamento vai aplicar), então dica e valor gravado não divergem.
+    """
+    target = to_currency or workspace_base_currency(session, workspace_id)
     try:
-        rate, source = CurrencyService.get_rate_sync(from_currency, to_currency)
+        rate, source = ExchangeRateStore.rate_between(
+            session, from_currency, target, date.today()
+        )
     except ExchangeRateUnavailable as exc:
         raise HTTPException(status_code=422, detail=str(exc))
+    # O store grava a cotação buscada com `flush`, e `get_session` não comita: sem
+    # este commit a taxa era descartada no fim do request e TODA sessão nova
+    # repetia a chamada à fonte externa. Cotação de um dia passado é fato
+    # imutável, e o `_save` é idempotente pela unique (moeda, data).
+    session.commit()
     return {
         "from_currency": from_currency.upper(),
-        "to_currency": to_currency.upper(),
+        "to_currency": target.upper(),
         "rate": str(rate),
         "source": source,
     }

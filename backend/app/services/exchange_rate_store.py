@@ -59,6 +59,51 @@ class ExchangeRateStore:
         return cls._fallback_or_raise(db, currency, target_date)
 
     @classmethod
+    def rate_between(
+        cls,
+        db: Session,
+        from_currency: str,
+        to_currency: str,
+        target_date: date,
+        *,
+        allow_fetch: bool = True,
+    ) -> Tuple[Decimal, str]:
+        """Taxa `from → to` na data. **Use esta, não `get_or_fetch`, para converter
+        para a moeda-base de um workspace.**
+
+        O store guarda apenas X→BRL, então a taxa entre duas moedas quaisquer é a
+        cruzada `(from→BRL) / (to→BRL)`. Usar `get_or_fetch(from)` direto só está
+        certo quando a base É BRL — e a moeda-base é configurável por workspace
+        desde a Onda 5. Num workspace em USD, `get_or_fetch("EUR")` devolvia a
+        taxa EUR→BRL (~6,3) e o lançamento de EUR 50 era gravado como 315 USD;
+        pior, `get_or_fetch("BRL")` devolve 1,0 e uma despesa em BRL virava o
+        mesmo número em USD, sem nenhum sinal de erro.
+
+        Levanta `ExchangeRateUnavailable` (com a moeda que faltou) como o
+        `get_or_fetch`, para os chamadores manterem o tratamento que já têm.
+        """
+        from_currency = str(from_currency).upper()
+        to_currency = str(to_currency).upper()
+        if from_currency == to_currency:
+            return Decimal("1.0"), "base"
+
+        from_brl, from_source = cls.get_or_fetch(
+            db, from_currency, target_date, allow_fetch=allow_fetch
+        )
+        to_brl, to_source = cls.get_or_fetch(
+            db, to_currency, target_date, allow_fetch=allow_fetch
+        )
+        # A PTAX é oficial só CONTRA o real: uma taxa cruzada derivada de duas
+        # cotações não é a taxa oficial do par, e o selo na UI não pode dizer que é.
+        if to_currency == "BRL":
+            source = from_source
+        elif from_currency == "BRL":
+            source = to_source
+        else:
+            source = "market"
+        return from_brl / to_brl, source
+
+    @classmethod
     def _fallback_or_raise(
         cls, db: Session, currency: str, target_date: date
     ) -> Tuple[Decimal, str]:

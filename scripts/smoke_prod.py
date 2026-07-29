@@ -18,6 +18,9 @@ import httpx
 BASE = os.environ.get("SMOKE_BASE_URL", "http://localhost:8890").rstrip("/")
 API = f"{BASE}/api/v1"
 
+# PNG válido pelos magic bytes — o upload valida o CONTEÚDO, não só o Content-Type
+PNG_MINIMO = b"\x89PNG\r\n\x1a\n" + b"recibo-do-smoke-test" * 8
+
 _passed = 0
 
 
@@ -123,6 +126,7 @@ def main():
         "items": [{"title": "Mercado Smoke", "amount": "150.00", "category_id": cat_id}],
     })
     check("transação com categoria + cartão (fev, fechamento 31)", res.status_code == 200 and res.json()["statement_id"])
+    tx_anexo_id = res.json()["id"]  # recebe o anexo mais adiante
 
     res = alice.get(f"/workspaces/{ws_id}/credit-cards/{card_id}/statements")
     check("fatura criada com total", res.status_code == 200 and float(res.json()[0]["computed_total"]) == 150.0)
@@ -149,8 +153,25 @@ def main():
     res = bruno.get("/auth/me")
     bruno_id = res.json()["id"]
 
+    # Convite exige ACEITE: usuário já cadastrado não entra mais direto (era
+    # possível dar a si mesmo acesso às finanças de quem tivesse o e-mail).
     res = alice.post(f"/workspaces/{ws_id}/invites", json={"email": email_b, "role": "member"})
-    check("convite a usuário existente = entrada direta", res.status_code == 200 and res.json()["status"] == "member_added")
+    check("convite enviado (não entra direto)", res.status_code == 200 and res.json()["status"] == "invite_sent")
+
+    res = bruno.get(f"/workspaces/{ws_id}/members")
+    check("convidado ainda NÃO é membro (403)", res.status_code == 403)
+
+    res = bruno.get("/notifications")
+    convites = [n for n in res.json()["items"] if n["type"] == "workspace_invite" and n["invite_token"]]
+    check("convite chega como notificação no app", res.status_code == 200 and len(convites) == 1)
+    token_convite = convites[0]["invite_token"]
+
+    res = bruno.post(f"/invites/accept/{token_convite}")
+    check("Bruno aceita o convite", res.status_code == 200)
+
+    res = bruno.get("/notifications")
+    check("notificação do convite deixa de estar pendente",
+          all(n["read_at"] for n in res.json()["items"] if n["type"] == "workspace_invite"))
 
     res = bruno.get(f"/workspaces/{ws_id}/members")
     check("Bruno vê os membros do workspace", res.status_code == 200 and len(res.json()) == 2)
@@ -206,6 +227,23 @@ def main():
         "title": "Freela", "amount": "800", "received_at": "2026-02-15T12:00:00",
     })
     check("renda extra criada", res.status_code == 200)
+
+    # --- Anexos: o ÚNICO passo que prova o volume (ADR 0007) ---
+    # Nenhum teste da suíte toca no volume real — eles apontam o armazenamento
+    # para um tmpdir. Volume nomeado nasce root e o container roda como appuser:
+    # sem este passo, "permission denied" no upload só apareceria para o usuário.
+    res = alice.post(
+        f"/workspaces/{ws_id}/transactions/{tx_anexo_id}/attachments",
+        files={"file": ("recibo.png", PNG_MINIMO, "image/png")},
+    )
+    check("upload de anexo grava no volume", res.status_code == 200, res.text[:200])
+    anexo_id = res.json()["id"]
+
+    res = alice.get(f"/workspaces/{ws_id}/attachments/{anexo_id}")
+    check("download devolve os bytes gravados", res.status_code == 200 and res.content == PNG_MINIMO)
+
+    res = alice.delete(f"/workspaces/{ws_id}/attachments/{anexo_id}")
+    check("anexo removido", res.status_code == 200)
 
     # --- Papéis: Bruno (member) não gerencia membros ---
     res = bruno.post(f"/workspaces/{ws_id}/invites", json={"email": "x@y.com", "role": "member"})

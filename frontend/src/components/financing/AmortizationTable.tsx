@@ -10,9 +10,10 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { MoneyInput } from "@/components/ui/MoneyInput";
-import { Loader2, Trash2 } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Loader2, Trash2 } from 'lucide-react';
 import { useFinancing, useFinancingSchedule, type Financing } from '@/hooks/use-financing';
-import { formatCurrency } from '@/lib/money';
+import { useBaseCurrency } from '@/hooks/use-base-currency';
+import { currencySymbol, formatMoney } from '@/lib/money';
 import { toast } from '@/stores/toast';
 import { useConfirm } from '@/components/ui/confirm';
 import { parseApiDate, todayLocalISO } from '@/lib/date';
@@ -23,8 +24,12 @@ import { parseApiDate, todayLocalISO } from '@/lib/date';
 const selectClass =
   'flex h-10 w-full rounded-md border border-border bg-background px-3 py-2 text-sm font-semibold text-foreground focus:outline-none focus:ring-2 focus:ring-ring';
 
+// Um ano por página: o recorte natural de um cronograma de amortização
+const PARCELAS_POR_PAGINA = 12;
+
 function CreateFinancingDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (o: boolean) => void }) {
   const { create } = useFinancing();
+  const baseCurrency = useBaseCurrency();
   const [title, setTitle] = React.useState('');
   const [totalAmount, setTotalAmount] = React.useState(0);
   const [interestRate, setInterestRate] = React.useState('1.00'); // % ao mês
@@ -74,7 +79,7 @@ function CreateFinancingDialog({ open, onOpenChange }: { open: boolean; onOpenCh
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-2">
               <Label>Valor Financiado</Label>
-              <MoneyInput value={totalAmount} onChange={setTotalAmount} className="bg-background/50" />
+              <MoneyInput value={totalAmount} onChange={setTotalAmount} prefix={currencySymbol(baseCurrency)} className="bg-background/50" />
             </div>
             <div className="space-y-2">
               <Label>Juros (% ao mês)</Label>
@@ -118,6 +123,8 @@ function CreateFinancingDialog({ open, onOpenChange }: { open: boolean; onOpenCh
 function FinancingDetail({ financing }: { financing: Financing }) {
   const { schedule, settlement } = useFinancingSchedule(financing.id);
   const { payInstallment } = useFinancing();
+  const baseCurrency = useBaseCurrency();
+  const fmt = (value: number | string) => formatMoney(value, { currency: baseCurrency });
 
   const unpaid = schedule.filter((i) => !i.is_paid);
   const nextInstallment = unpaid[0] ?? null;
@@ -127,6 +134,24 @@ function FinancingDetail({ financing }: { financing: Financing }) {
   const paidCount = schedule.length - unpaid.length;
   const progress = schedule.length > 0 ? (paidCount / schedule.length) * 100 : 0;
 
+  // Paginação de 12 em 12 (um ano por página): um financiamento de 30 anos são
+  // 360 linhas: a página passava de 7.000px e o usuário rolava por um cronograma
+  // inteiro para achar a parcela do mês.
+  const totalPages = Math.max(1, Math.ceil(schedule.length / PARCELAS_POR_PAGINA));
+  const [page, setPage] = React.useState(0);
+
+  // Abre na página da PRÓXIMA parcela — é a que interessa (e a única com o botão
+  // "Pagar"). Reancora quando o cronograma muda (trocar de financiamento, pagar).
+  const nextNumber = nextInstallment?.installment_number;
+  React.useEffect(() => {
+    const alvo = nextNumber ? Math.floor((nextNumber - 1) / PARCELAS_POR_PAGINA) : 0;
+    setPage(Math.min(alvo, totalPages - 1));
+  }, [nextNumber, totalPages]);
+
+  const pageSafe = Math.min(page, totalPages - 1);
+  const inicio = pageSafe * PARCELAS_POR_PAGINA;
+  const visiveis = schedule.slice(inicio, inicio + PARCELAS_POR_PAGINA);
+
   return (
     <div className="space-y-8">
       <div className="grid gap-6 md:grid-cols-3">
@@ -135,7 +160,7 @@ function FinancingDetail({ financing }: { financing: Financing }) {
             <CardTitle className="text-xs font-medium text-muted-foreground uppercase">Saldo Devedor</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="text-xl font-bold">{formatCurrency(remainingBalance)}</div>
+            <div className="text-xl font-bold">{fmt(remainingBalance)}</div>
             <Progress value={progress} className="h-1 mt-3" />
             <p className="text-xs text-muted-foreground mt-2">{paidCount} de {schedule.length} parcelas pagas</p>
           </CardContent>
@@ -146,7 +171,7 @@ function FinancingDetail({ financing }: { financing: Financing }) {
           </CardHeader>
           <CardContent>
             <div className="text-xl font-bold">
-              {nextInstallment ? formatCurrency(parseFloat(nextInstallment.total_amount)) : '—'}
+              {nextInstallment ? fmt(nextInstallment.total_amount) : '—'}
             </div>
             {nextInstallment && (
               <p className="text-xs text-muted-foreground mt-1">
@@ -161,11 +186,11 @@ function FinancingDetail({ financing }: { financing: Financing }) {
           </CardHeader>
           <CardContent>
             <div className="text-xl font-bold text-emerald-500">
-              {settlement ? formatCurrency(parseFloat(settlement.savings)) : '—'}
+              {settlement ? fmt(settlement.savings) : '—'}
             </div>
             {settlement && (
               <p className="text-xs text-muted-foreground mt-1">
-                Pagaria {formatCurrency(parseFloat(settlement.total_to_pay))} (valor presente)
+                Pagaria {fmt(settlement.total_to_pay)} (valor presente)
               </p>
             )}
           </CardContent>
@@ -175,7 +200,12 @@ function FinancingDetail({ financing }: { financing: Financing }) {
       <Card className="bg-card border-border">
         <CardHeader>
           <CardTitle>Tabela {financing.method} — {financing.title}</CardTitle>
-          <CardDescription>Visualização detalhada das parcelas e amortização.</CardDescription>
+          <CardDescription>
+            Visualização detalhada das parcelas e amortização.
+            {schedule.length > PARCELAS_POR_PAGINA && (
+              <> Mostrando {inicio + 1}–{Math.min(inicio + PARCELAS_POR_PAGINA, schedule.length)} de {schedule.length}.</>
+            )}
+          </CardDescription>
         </CardHeader>
         <CardContent>
           <Table>
@@ -191,14 +221,14 @@ function FinancingDetail({ financing }: { financing: Financing }) {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {schedule.map((row) => (
+              {visiveis.map((row) => (
                 <TableRow key={row.id} className="border-border">
                   <TableCell className="text-muted-foreground">{row.installment_number}</TableCell>
                   <TableCell>{parseApiDate(row.due_date).toLocaleDateString('pt-BR')}</TableCell>
-                  <TableCell>{formatCurrency(parseFloat(row.principal_amount))}</TableCell>
-                  <TableCell>{formatCurrency(parseFloat(row.interest_amount))}</TableCell>
-                  <TableCell className="font-medium">{formatCurrency(parseFloat(row.total_amount))}</TableCell>
-                  <TableCell className="text-right text-muted-foreground">{formatCurrency(parseFloat(row.remaining_balance))}</TableCell>
+                  <TableCell>{fmt(row.principal_amount)}</TableCell>
+                  <TableCell>{fmt(row.interest_amount)}</TableCell>
+                  <TableCell className="font-medium">{fmt(row.total_amount)}</TableCell>
+                  <TableCell className="text-right text-muted-foreground">{fmt(row.remaining_balance)}</TableCell>
                   <TableCell className="text-center">
                     {row.is_paid ? (
                       <StatusPill tone="success">Paga</StatusPill>
@@ -223,6 +253,44 @@ function FinancingDetail({ financing }: { financing: Financing }) {
               ))}
             </TableBody>
           </Table>
+
+          {totalPages > 1 && (
+            <div className="mt-4 flex items-center justify-between gap-3">
+              <Button
+                variant="outline"
+                size="sm"
+                className="gap-1.5"
+                disabled={pageSafe === 0}
+                onClick={() => setPage(pageSafe - 1)}
+              >
+                <ChevronLeft className="h-4 w-4" /> Anteriores
+              </Button>
+              <div className="flex items-center gap-3">
+                <span className="text-sm text-muted-foreground">
+                  Página {pageSafe + 1} de {totalPages}
+                </span>
+                {nextNumber != null && (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-8 text-xs text-primary hover:bg-primary/10"
+                    onClick={() => setPage(Math.floor((nextNumber - 1) / PARCELAS_POR_PAGINA))}
+                  >
+                    Ir para a próxima parcela
+                  </Button>
+                )}
+              </div>
+              <Button
+                variant="outline"
+                size="sm"
+                className="gap-1.5"
+                disabled={pageSafe >= totalPages - 1}
+                onClick={() => setPage(pageSafe + 1)}
+              >
+                Próximas <ChevronRight className="h-4 w-4" />
+              </Button>
+            </div>
+          )}
         </CardContent>
       </Card>
     </div>

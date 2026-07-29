@@ -94,6 +94,37 @@ def test_group_edit_muda_total_refatia(db_session, setup_data, override_get_sess
     assert [tx.title for tx in live] == ["Geladeira (1/3)", "Geladeira (2/3)", "Geladeira (3/3)"]
 
 
+def test_group_edit_migra_anexos_para_a_nova_ancora(db_session, setup_data, override_get_session):
+    """O recibo é da COMPRA, não da linha: sem parcelas pagas o grupo é refeito
+    do zero, e o anexo não pode ficar preso na parcela que virou tombstone —
+    sumiria da UI e só ocuparia a cota do workspace."""
+    ws, u1, headers, card = setup_data["ws1"], setup_data["u1"], setup_data["headers1"], setup_data["card"]
+    resp = _create(ws.id, headers, u1.id, card.id, total=300.0, count=3)
+    anchor_id = resp.json()["id"]
+
+    resp = client.post(
+        f"/api/v1/workspaces/{ws.id}/transactions/{anchor_id}/attachments",
+        files={"file": ("nota.png", b"\x89PNG\r\n\x1a\n" + b"0" * 32, "image/png")},
+        headers=headers,
+    )
+    assert resp.status_code == 200, resp.text
+    att_id = resp.json()["id"]
+
+    resp = client.put(
+        f"/api/v1/workspaces/{ws.id}/transactions/{anchor_id}/installment-group",
+        json=_edit_body(u1.id, card.id, total=600.0, count=3),
+        headers=headers,
+    )
+    assert resp.status_code == 200, resp.text
+    new_anchor_id = resp.json()["id"]
+    assert new_anchor_id != anchor_id
+
+    resp = client.get(
+        f"/api/v1/workspaces/{ws.id}/transactions/{new_anchor_id}/attachments", headers=headers
+    )
+    assert [a["id"] for a in resp.json()] == [att_id]
+
+
 def test_group_edit_muda_numero_de_parcelas(db_session, setup_data, override_get_session):
     ws, u1, headers, card = setup_data["ws1"], setup_data["u1"], setup_data["headers1"], setup_data["card"]
     resp = _create(ws.id, headers, u1.id, card.id, total=300.0, count=3)

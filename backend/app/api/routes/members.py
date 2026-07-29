@@ -9,6 +9,7 @@ from app.api.deps import get_workspace_membership, require_role
 from app.api.routes.auth import get_current_user
 from app.core.config import settings
 from app.db.session import get_session
+from app.domain.query_policy import workspace_base_currency
 from app.models.user import User
 from app.models.workspace import (
     Workspace,
@@ -63,10 +64,12 @@ def _ensure_no_open_balance(session: Session, workspace_id: int, user_id: int) -
     if pendente is None:
         return
     devedor = pendente["debtor_id"] == user_id
+    # Moeda do workspace, não "R$" fixo (a base é configurável desde a Onda 5)
+    moeda = workspace_base_currency(session, workspace_id)
     raise HTTPException(
         status_code=409,
         detail=(
-            f"Ainda há acerto pendente de R$ {pendente['amount']} "
+            f"Ainda há acerto pendente de {moeda} {pendente['amount']} "
             + ("a pagar" if devedor else "a receber")
             + ". Registre o acerto antes de sair/remover — senão o histórico "
             "fica com lançamentos de alguém que não é mais membro."
@@ -340,6 +343,11 @@ def revoke_invite(
     invite.status = InviteStatus.revoked
     session.add(invite)
     publish_event(session, workspace_id, "invite.revoked", "invite", invite.id, actor.user_id)
+    # O aviso no app tem que morrer junto com o convite. Sem isto, o convidado
+    # continuava vendo o modal de convite pendente (que é a PRIMEIRA coisa do
+    # app) com um botão "Aceitar" que só devolve 404 — e o contador de não lidas
+    # nunca zerava, porque não havia ação capaz de resolver a notificação.
+    resolve_invite_notifications(session, invite.token)
     session.commit()
     return {"status": "ok"}
 

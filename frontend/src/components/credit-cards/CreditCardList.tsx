@@ -14,7 +14,11 @@ import { Label } from '@/components/ui/label';
 import { MoneyInput } from '@/components/ui/MoneyInput';
 import { EmptyState } from '@/components/ui/empty-state';
 import { CreditCardVisual } from './CreditCardVisual';
-import { useCreditCards } from '@/hooks/use-credit-cards';
+import { useCreditCards, type CardNextDue } from '@/hooks/use-credit-cards';
+import { useBaseCurrency } from '@/hooks/use-base-currency';
+import { currencySymbol } from '@/lib/money';
+import { statementAlert } from '@/lib/statement-alert';
+import { parseApiDay } from '@/lib/date';
 import { toast } from '@/stores/toast';
 import { useConfirm } from '@/components/ui/confirm';
 
@@ -31,10 +35,18 @@ interface CardRow {
   due_day: number;
   committed_amount: string;
   available_limit: string;
+  next_due: CardNextDue | null;
 }
+
+// dd/mm do vencimento da fatura em aberto (o dia REAL, não o dia do ciclo)
+const dueLabelOf = (next: CardNextDue | null) =>
+  next
+    ? parseApiDay(next.due_date).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' })
+    : null;
 
 export function CreditCardList({ selectedCardId, onSelectCard }: CreditCardListProps) {
   const { cards, isLoading, create, update, remove } = useCreditCards();
+  const baseCurrency = useBaseCurrency();
   const confirm = useConfirm();
   const [dialogOpen, setDialogOpen] = React.useState(false);
   const [editingId, setEditingId] = React.useState<number | null>(null);
@@ -154,6 +166,9 @@ export function CreditCardList({ selectedCardId, onSelectCard }: CreditCardListP
               committed={parseFloat(card.committed_amount)}
               closingDay={card.closing_day}
               dueDay={card.due_day}
+              currency={baseCurrency}
+              alert={card.next_due ? statementAlert({ ...card.next_due, amount: parseFloat(card.next_due.amount) }, baseCurrency) : null}
+              dueLabel={dueLabelOf(card.next_due)}
               selected={selectedCardId === card.id}
               onClick={() => onSelectCard?.(card.id)}
               onEdit={() => openEdit(card)}
@@ -193,7 +208,7 @@ export function CreditCardList({ selectedCardId, onSelectCard }: CreditCardListP
             </div>
             <div className="space-y-2">
               <Label htmlFor="card-limit">Limite</Label>
-              <MoneyInput id="card-limit" value={limit} onChange={setLimit} />
+              <MoneyInput id="card-limit" value={limit} onChange={setLimit} prefix={currencySymbol(baseCurrency)} />
             </div>
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">

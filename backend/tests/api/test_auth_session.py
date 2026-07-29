@@ -272,7 +272,14 @@ def test_google_callback_existing_user_logs_in(
 def test_google_callback_accepts_pending_invites(
     db_session: Session, override_get_session, google_configured, monkeypatch
 ):
-    """Convite pendente por email é aceito quando a conta nasce via Google."""
+    """Conta nascida via Google NÃO entra sozinha no workspace do convite.
+
+    O retorno do Google não carrega o token do convite, então não há como a
+    pessoa ter consentido — e "o e-mail bate" nunca foi consentimento: quem
+    soubesse o endereço de alguém colocava essa pessoa dentro das próprias
+    finanças (e a si mesmo dentro das dela) sem ela aceitar nada. O convite vira
+    NOTIFICAÇÃO, com aceite e recusa.
+    """
     from datetime import timedelta as td
     from datetime import datetime as dt, UTC as utc
     from app.models.workspace import Workspace as WS, WorkspaceMembership as WM, WorkspaceInvite, WorkspaceRole
@@ -303,7 +310,27 @@ def test_google_callback_accepts_pending_invites(
     )
     assert res.status_code == 307
 
+    from app.models.notification import Notification
+
     new_user = db_session.exec(select(User).where(User.email == "convidada@gmail.com")).first()
+    membership = db_session.exec(select(WM).where(
+        WM.workspace_id == ws.id, WM.user_id == new_user.id
+    )).first()
+    assert membership is None, "entrou no workspace alheio só porque o e-mail batia"
+
+    # O convite continua pendente e chega como aviso dentro do app
+    aviso = db_session.exec(
+        select(Notification).where(Notification.user_id == new_user.id)
+    ).first()
+    assert aviso is not None
+    assert aviso.workspace_id == ws.id
+
+    # Aceite explícito coloca a pessoa no workspace, com o papel do convite
+    res = client.post(
+        f"/api/v1/invites/accept/{aviso.invite_token}",
+        headers={"Cookie": f"access_token={create_access_token({'sub': str(new_user.id)})}"},
+    )
+    assert res.status_code == 200, res.text
     membership = db_session.exec(select(WM).where(
         WM.workspace_id == ws.id, WM.user_id == new_user.id
     )).first()

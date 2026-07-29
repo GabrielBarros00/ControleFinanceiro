@@ -35,8 +35,10 @@ from app.schemas.transaction import (
 from app.api.deps import get_workspace_membership, require_role
 from app.core.config import settings
 from app.domain.money import Money
-from app.domain.query_policy import workspace_base_currency
+from app.domain.query_policy import resolve_currency, workspace_base_currency
+from app.models.attachment import Attachment
 from app.models.tag import Tag, TransactionTagLink
+from app.services.attachment_storage import free_keys, keys_to_free
 from app.services.currency_service import ExchangeRateUnavailable
 from app.services.exchange_rate_store import ExchangeRateStore
 from app.services.event_service import publish_event
@@ -114,9 +116,9 @@ def _compute_base_conversion(
     transaction_date: datetime.datetime,
     payment_method: Optional[PaymentMethod],
 ) -> Optional[Dict]:
-    """Fator de conversão para a moeda-base (BRL) na ENTRADA: PTAX do dia × (1 +
-    IOF no cartão). Retorna None se já for base; 422 se a taxa faltar. A divisão
-    (pagadores/splits/itens/ajustes) é convertida à parte por
+    """Fator de conversão para a MOEDA-BASE DO WORKSPACE na ENTRADA: taxa do dia
+    × (1 + IOF no cartão). Retorna None se já for base; 422 se a taxa faltar. A
+    divisão (pagadores/splits/itens/ajustes) é convertida à parte por
     `convert_division_to_base` — inclusive valor fixo, por item e multi-pagador."""
     base = workspace_base_currency(session, workspace_id)
     if not currency or currency == base:
@@ -124,7 +126,9 @@ def _compute_base_conversion(
 
     occ = transaction_date.date() if hasattr(transaction_date, "date") else transaction_date
     try:
-        rate, source = ExchangeRateStore.get_or_fetch(session, currency, occ)
+        # rate_between (não get_or_fetch): a taxa tem que ser moeda→BASE. O store
+        # só guarda X→BRL, então num workspace não-BRL a taxa direta estava errada.
+        rate, source = ExchangeRateStore.rate_between(session, currency, base, occ)
     except ExchangeRateUnavailable as exc:
         raise HTTPException(status_code=422, detail=str(exc))
 
@@ -135,11 +139,11 @@ def _compute_base_conversion(
         else Decimal("0")
     )
     factor = rate * (Decimal("1") + iof)
-    brl_total = (total_amount * factor).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+    base_total = (total_amount * factor).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
 
     return {
         "base_currency": base,
-        "brl_total": brl_total,
+        "base_total": base_total,
         "factor": factor,
         "meta": {
             "original_amount": total_amount,
@@ -167,14 +171,14 @@ def _convert_create_to_base(
         return transaction_in, None
     div = convert_division_to_base(
         factor=conv["factor"],
-        brl_total=conv["brl_total"],
+        base_total=conv["base_total"],
         payers=transaction_in.payers,
         splits=transaction_in.splits or [],
         items=transaction_in.items,
         adjustments=transaction_in.adjustments,
     )
     converted = transaction_in.model_copy(update={
-        "total_amount": conv["brl_total"],
+        "total_amount": conv["base_total"],
         "currency": conv["base_currency"],
         "payers": div["payers"],
         "splits": div["splits"],
@@ -200,7 +204,11 @@ def create_transaction(
         if not card or card.workspace_id != workspace_id or card.deleted_at:
             raise HTTPException(status_code=400, detail="Cartão de crédito inválido para este workspace")
 
-    # Moeda estrangeira: converte para BRL na entrada (PTAX do dia + IOF no cartão)
+    # Moeda ausente = a do workspace (nunca "BRL" fixo — ver resolve_currency)
+    transaction_in = transaction_in.model_copy(update={
+        "currency": resolve_currency(session, workspace_id, transaction_in.currency)
+    })
+    # Moeda estrangeira: converte para a base na entrada (taxa do dia + IOF no cartão)
     transaction_in, conv_meta = _convert_create_to_base(session, workspace_id, transaction_in)
 
     # Parcelamento: N transações irmãs, uma por mês/fatura
@@ -517,11 +525,16 @@ def list_transactions(
     if month:
         statement = statement.where(Transaction.billing_month == month)
 
-    # Filtering by search — '%' e '_' são curingas do LIKE e precisam de escape,
-    # senão buscar "%" casa com TODOS os lançamentos
+    # Filtering by search. Dois cuidados:
+    # 1. '%' e '_' são curingas do LIKE e precisam de escape, senão buscar "%"
+    #    casa com TODOS os lançamentos (autoescape=True).
+    # 2. lower() nos DOIS lados: LIKE é case-sensitive no Postgres e
+    #    case-insensitive no SQLite. Sem isto, "supermercado" achava
+    #    "Supermercado" em dev e não achava em produção — e nenhum teste pegava,
+    #    porque a fixture usava a mesma caixa da busca.
     if search:
         statement = statement.where(
-            Transaction.title.contains(search, autoescape=True)
+            func.lower(Transaction.title).contains(search.lower(), autoescape=True)
         )
 
     # Filtering by category (via items). DISTINCT: uma despesa com dois itens da
@@ -759,19 +772,19 @@ def _full_edit(
     if conv is not None:
         div = convert_division_to_base(
             factor=conv["factor"],
-            brl_total=conv["brl_total"],
+            base_total=conv["base_total"],
             payers=transaction_in.payers,
             splits=splits,
             items=items,
             adjustments=adjustments,
         )
-        effective_total = conv["brl_total"]
+        effective_total = conv["base_total"]
         splits = div["splits"]
         items = div["items"]
         adjustments = div["adjustments"]
         transaction_in = transaction_in.model_copy(update={"payers": div["payers"]})
         # total_amount vem em update_data (setattr) — precisa virar BRL também
-        update_data["total_amount"] = conv["brl_total"]
+        update_data["total_amount"] = conv["base_total"]
         update_data["currency"] = conv["base_currency"]
         update_data.update(conv["meta"])
     else:
@@ -841,9 +854,35 @@ def delete_transaction(
 
     db_transaction.deleted_at = datetime.datetime.now(datetime.UTC)
     session.add(db_transaction)
+    liberar = _purge_attachments(session, [db_transaction.id])
     publish_event(session, workspace_id, "transaction.deleted", "transaction", db_transaction.id, membership.user_id)
     session.commit()
+    free_keys(liberar)
     return {"status": "ok"}
+
+
+def _purge_attachments(session: Session, transaction_ids: List[int]) -> List[str]:
+    """Apaga os anexos das despesas excluídas e devolve as chaves de
+    armazenamento a liberar DEPOIS do commit (`free_keys`).
+
+    A exclusão de despesa é SOFT, mas o anexo não tem soft delete nem cascade: o
+    recibo ficava inalcançável pela UI (list/download passam por
+    `_get_transaction_or_404`, que dá 404 na despesa apagada) e mesmo assim
+    continuava contando na cota do workspace (`_ensure_quota` soma tudo). Ou
+    seja: espaço perdido para sempre, sem nenhuma tela por onde liberá-lo.
+
+    Delete pelo ORM (não bulk) para os listeners de auditoria registrarem a
+    remoção. Não comita — quem chama comanda a transação (ADR 0010).
+    """
+    if not transaction_ids:
+        return []
+    anexos = session.exec(
+        select(Attachment).where(Attachment.transaction_id.in_(transaction_ids))
+    ).all()
+    liberar = keys_to_free(session, anexos)
+    for anexo in anexos:
+        session.delete(anexo)
+    return liberar
 
 
 def _load_group_siblings(
@@ -1182,16 +1221,20 @@ def delete_installment_group(
     now = datetime.datetime.now(datetime.UTC)
     deleted = 0
     skipped_paid = 0
+    excluidas: List[int] = []
     for tx in siblings:
         if tx.status == TransactionStatus.paid:
             skipped_paid += 1
             continue
         tx.deleted_at = now
         session.add(tx)
+        excluidas.append(tx.id)
         deleted += 1
+    liberar = _purge_attachments(session, excluidas)
 
     publish_event(session, workspace_id, "transaction.bulk_updated", "transaction", None, membership.user_id)
     session.commit()
+    free_keys(liberar)
     return {"status": "ok", "deleted": deleted, "skipped_paid": skipped_paid}
 
 
@@ -1249,9 +1292,10 @@ def update_installment_group(
         raise HTTPException(status_code=400, detail="Informe o número de parcelas (mínimo 2)")
 
     # Título base sem o sufixo "(i/N)" — o motor de parcelas o re-aplica por parcela
-    transaction_in = transaction_in.model_copy(
-        update={"title": _strip_installment_suffix(transaction_in.title)}
-    )
+    transaction_in = transaction_in.model_copy(update={
+        "title": _strip_installment_suffix(transaction_in.title),
+        "currency": resolve_currency(session, workspace_id, transaction_in.currency),
+    })
 
     # Cartão efetivo (parcelamento sempre é no crédito — o schema já exige)
     card = None
@@ -1276,11 +1320,13 @@ def update_installment_group(
                 detail="Há parcelas pagas — reabra-as antes de mudar o número de parcelas.",
             )
         if transaction_in.total_amount < paid_sum:
+            # Moeda do workspace, não "R$" fixo (a base é configurável)
+            moeda = workspace_base_currency(session, workspace_id)
             raise HTTPException(
                 status_code=409,
                 detail=(
-                    f"O novo total (R$ {transaction_in.total_amount}) é menor que o já pago "
-                    f"(R$ {paid_sum}). Reabra as parcelas pagas antes."
+                    f"O novo total ({moeda} {transaction_in.total_amount}) é menor que o já pago "
+                    f"({moeda} {paid_sum}). Reabra as parcelas pagas antes."
                 ),
             )
         try:
@@ -1294,6 +1340,7 @@ def update_installment_group(
         # Sem parcelas pagas: refaz o grupo do zero (mantendo o group_id). As
         # antigas viram tombstone (soft-delete), como no delete de grupo.
         now = datetime.datetime.now(datetime.UTC)
+        old_ids = [t.id for t in siblings]
         for t in siblings:
             t.deleted_at = now
             session.add(t)
@@ -1301,6 +1348,15 @@ def update_installment_group(
         first_tx = _create_installments(
             session, workspace_id, transaction_in, membership, card, group_id=group_id, conv_meta=conv_meta
         )
+        session.flush()
+        # O recibo é da COMPRA, não da linha: as parcelas antigas viraram
+        # tombstone, então os anexos migram para a nova âncora do grupo — senão
+        # sumiriam da UI e só ficariam ocupando a cota do workspace.
+        for att in session.exec(
+            select(Attachment).where(Attachment.transaction_id.in_(old_ids))
+        ).all():
+            att.transaction_id = first_tx.id
+            session.add(att)
 
     publish_event(session, workspace_id, "transaction.bulk_updated", "transaction", None, membership.user_id)
     session.commit()
@@ -1317,6 +1373,7 @@ def bulk_create_transactions(
     session: Session = Depends(get_session),
     membership: WorkspaceMembership = Depends(require_role(WorkspaceRole.member))
 ):
+    base_currency = workspace_base_currency(session, workspace_id)
     created_count = 0
     skipped = []
     for index, tx_data in enumerate(transactions_in):
@@ -1346,7 +1403,10 @@ def bulk_create_transactions(
             billing_month=dt.strftime("%Y-%m"),
             workspace_id=workspace_id,
             created_by_user_id=membership.user_id,
-            currency="BRL",
+            # Moeda-base do workspace, não "BRL" fixo: com o literal, TODA linha
+            # importada num workspace em outra moeda caía fora das agregações
+            # (que filtram `currency == base`) e sumia sem aviso.
+            currency=base_currency,
             status="confirmed"
         )
         session.add(db_transaction)

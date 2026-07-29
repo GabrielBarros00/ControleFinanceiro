@@ -109,6 +109,28 @@ def test_busca_escapa_curinga_do_like(client, db_session, setup_data):
     assert res.json()["total"] == 1
 
 
+def test_busca_ignora_a_caixa(client, db_session, setup_data):
+    """LIKE é case-sensitive no Postgres e case-insensitive no SQLite.
+
+    Como dev e testes rodam em SQLite, a busca "funcionava" aqui e falhava em
+    produção: quem digitasse `supermercado` não achava `Supermercado`. Este teste
+    usa caixa DIFERENTE de propósito — é o que faltava para a divergência
+    aparecer no job `backend-postgres`.
+    """
+    ws, u1 = setup_data["ws1"], setup_data["u1"]
+    _tx(db_session, ws, u1, title="Supermercado Extra")
+    _tx(db_session, ws, u1, title="Farmácia")
+
+    for termo in ("supermercado", "SUPERMERCADO", "SuperMercado"):
+        res = client.get(
+            f"/api/v1/workspaces/{ws.id}/transactions/?search={termo}",
+            headers=setup_data["headers1"],
+        )
+        body = res.json()
+        assert body["total"] == 1, f"busca por {termo!r} não achou 'Supermercado Extra'"
+        assert body["items"][0]["title"] == "Supermercado Extra"
+
+
 def test_total_amount_e_do_filtro_inteiro_nao_da_pagina(client, db_session, setup_data):
     ws, u1 = setup_data["ws1"], setup_data["u1"]
     for i in range(5):

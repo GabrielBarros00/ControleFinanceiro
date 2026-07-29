@@ -3,6 +3,7 @@ import type { TransactionRead } from '@/types/transaction';
 import { useCategories } from '@/hooks/use-categories';
 import { useMembers } from '@/hooks/use-members';
 import { formatMoney } from '@/lib/money';
+import { useBaseCurrency } from '@/hooks/use-base-currency';
 import { TransactionItem } from './TransactionItem';
 import { parseApiDate } from '@/lib/date';
 
@@ -46,6 +47,7 @@ export function TransactionLedger({
 }: TransactionLedgerProps) {
   const { categories } = useCategories();
   const { members } = useMembers();
+  const baseCurrency = useBaseCurrency();
 
   const categoryById = React.useMemo(() => {
     const map = new Map<number, (typeof categories)[number]>();
@@ -85,7 +87,7 @@ export function TransactionLedger({
           <div className="mb-1 flex items-center justify-between px-2">
             <span className="text-xs font-medium text-muted-foreground">{g.label}</span>
             {showDayTotals && (
-              <span className="tabular text-xs text-muted-foreground">{formatMoney(g.total)}</span>
+              <span className="tabular text-xs text-muted-foreground">{formatMoney(g.total, { currency: baseCurrency })}</span>
             )}
           </div>
           <div className="divide-y divide-border/60">

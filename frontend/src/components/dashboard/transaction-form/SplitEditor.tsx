@@ -6,6 +6,7 @@ import { Label } from '@/components/ui/label';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { Trash2 } from 'lucide-react';
 import { SplitSummary } from './SplitSummary';
+import { useFormCurrency } from './use-form-currency';
 import type { TransactionFormValues } from './schema';
 
 export interface Participant {
@@ -21,6 +22,7 @@ interface SplitEditorProps {
 export function SplitEditor({ participants }: SplitEditorProps) {
   const { register, control, watch, formState: { errors } } = useFormContext<TransactionFormValues>();
   const { fields, append, remove } = useFieldArray({ control, name: 'splits' });
+  const { currency, symbol } = useFormCurrency();
 
   const splitMethod = watch('split_method');
   const watchedSplits = watch('splits');
@@ -103,6 +105,7 @@ export function SplitEditor({ participants }: SplitEditorProps) {
                           aria-label="Valor fixo"
                           value={field.value}
                           onChange={field.onChange}
+                          prefix={symbol}
                           className="bg-background border-border"
                         />
                       )}
@@ -118,8 +121,13 @@ export function SplitEditor({ participants }: SplitEditorProps) {
             </div>
           ))}
         </div>
-        <SplitSummary method={splitMethod} splits={watchedSplits ?? []} totalAmount={watchedTotal ?? 0} />
-        {splitsError && <p className="text-sm text-destructive font-medium">{splitsError}</p>}
+        <SplitSummary method={splitMethod} splits={watchedSplits ?? []} totalAmount={watchedTotal ?? 0} currency={currency} />
+        {/* Com participantes na tela o resumo ao vivo acima já diz quanto falta;
+            o erro do schema repetia a MESMA frase em vermelho. Sem nenhum
+            participante não há resumo, e o erro é o único sinal. */}
+        {fields.length === 0 && splitsError && (
+          <p className="text-sm text-destructive font-medium">{splitsError}</p>
+        )}
       </div>
     </>
   );

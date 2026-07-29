@@ -92,18 +92,20 @@ def _statement_for(db: Session, template: RecurringExpense, occ: date) -> Option
 def _recurring_conversion(
     db, workspace_id, base_amount, currency, occ_date, payment_method, *, allow_fetch=True
 ):
-    """Converte o valor de um template recorrente para a moeda-base (BRL) na data
-    da OCORRÊNCIA — cada materialização usa a taxa daquele dia (recorrência
-    estrangeira re-converte todo mês). IOF só em despesa no cartão (renda não tem).
-    Devolve (brl, rate, iof, source, factor); rate=None se já for base.
+    """Converte o valor de um template recorrente para a MOEDA-BASE DO WORKSPACE
+    na data da OCORRÊNCIA — cada materialização usa a taxa daquele dia
+    (recorrência estrangeira re-converte todo mês). IOF só em despesa no cartão
+    (renda não tem). Devolve (converted, rate, iof, source, factor); rate=None se
+    já for base.
 
     `allow_fetch=False` proíbe ir à rede: é o modo do caminho de LEITURA, onde
     uma busca de cotação bloquearia o GET (ver ExchangeRateStore.get_or_fetch)."""
     base = workspace_base_currency(db, workspace_id)
     if not currency or currency == base:
         return base_amount, None, Decimal("0"), None, Decimal("1")
-    rate, source = ExchangeRateStore.get_or_fetch(
-        db, currency, occ_date, allow_fetch=allow_fetch
+    # rate_between: a taxa precisa ser moeda→BASE, e o store só guarda X→BRL
+    rate, source = ExchangeRateStore.rate_between(
+        db, currency, base, occ_date, allow_fetch=allow_fetch
     )
     iof = (
         settings.IOF_INTERNATIONAL_CARD_RATE
@@ -111,8 +113,8 @@ def _recurring_conversion(
         else Decimal("0")
     )
     factor = rate * (Decimal("1") + iof)
-    brl = (base_amount * factor).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
-    return brl, rate, iof, source, factor
+    converted = (base_amount * factor).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+    return converted, rate, iof, source, factor
 
 
 class RecurringService:
@@ -252,7 +254,7 @@ class RecurringService:
         nascer com um valor inventado)."""
         # Moeda estrangeira: converte na data da ocorrência (re-converte todo mês)
         try:
-            brl, rate, iof, source, factor = _recurring_conversion(
+            converted, rate, iof, source, factor = _recurring_conversion(
                 db, template.workspace_id, template.base_amount, template.currency, occ,
                 template.payment_method, allow_fetch=allow_fetch,
             )
@@ -271,7 +273,7 @@ class RecurringService:
         tx = Transaction(
             title=template.title,
             description=template.description,
-            total_amount=brl,
+            total_amount=converted,
             currency=base_currency if is_foreign else template.currency,
             payment_method=template.payment_method,
             credit_card_id=template.credit_card_id,
@@ -297,16 +299,16 @@ class RecurringService:
             # Legado: sem pagador não dá para montar divisão — instância "nua"
             return tx
 
-        payers = [TransactionPayerBase(user_id=payer_user, amount=brl)]
+        payers = [TransactionPayerBase(user_id=payer_user, amount=converted)]
         if is_foreign:
-            div = convert_division_to_base(factor=factor, brl_total=brl, payers=payers, splits=splits, items=None, adjustments=None)
+            div = convert_division_to_base(factor=factor, base_total=converted, payers=payers, splits=splits, items=None, adjustments=None)
             payers, splits = div["payers"], div["splits"]
         try:
             persist_transaction_children(
                 db,
                 template.workspace_id,
                 tx,
-                total_amount=brl,
+                total_amount=converted,
                 split_mode=SplitMode.transaction,
                 payers=payers,
                 splits=splits,
@@ -318,7 +320,7 @@ class RecurringService:
             db.flush()
             return None
 
-        RecurringService._apply_category(db, template, tx, amount=brl)
+        RecurringService._apply_category(db, template, tx, amount=converted)
         return tx
 
     @staticmethod
@@ -539,13 +541,13 @@ class RecurringService:
         for tx in unpaid_txs:
             # Re-converte cada instância na SUA data (meses diferentes, taxas diferentes)
             occ = tx.transaction_date.date() if hasattr(tx.transaction_date, "date") else tx.transaction_date
-            brl, rate, iof, source, factor = _recurring_conversion(
+            converted, rate, iof, source, factor = _recurring_conversion(
                 db, template.workspace_id, template.base_amount, template.currency, occ, template.payment_method
             )
             is_foreign = rate is not None
             tx.title = template.title
             tx.description = template.description
-            tx.total_amount = brl
+            tx.total_amount = converted
             tx.currency = base_currency if is_foreign else template.currency
             tx.payment_method = template.payment_method
             # Trocar o cartão do template re-roteia a fatura das instâncias não
@@ -561,17 +563,17 @@ class RecurringService:
             # Recria os filhos no valor novo (senão payer/split divergem do total)
             if payer_user is not None and splits:
                 delete_transaction_children(db, tx.id)
-                p = [TransactionPayerBase(user_id=payer_user, amount=brl)]
+                p = [TransactionPayerBase(user_id=payer_user, amount=converted)]
                 s = splits
                 if is_foreign:
-                    div = convert_division_to_base(factor=factor, brl_total=brl, payers=p, splits=s, items=None, adjustments=None)
+                    div = convert_division_to_base(factor=factor, base_total=converted, payers=p, splits=s, items=None, adjustments=None)
                     p, s = div["payers"], div["splits"]
                 try:
                     persist_transaction_children(
                         db,
                         template.workspace_id,
                         tx,
-                        total_amount=brl,
+                        total_amount=converted,
                         split_mode=SplitMode.transaction,
                         payers=p,
                         splits=s,
@@ -579,7 +581,7 @@ class RecurringService:
                     )
                 except ValueError:
                     pass
-                RecurringService._apply_category(db, template, tx, amount=brl)
+                RecurringService._apply_category(db, template, tx, amount=converted)
         db.flush()
 
 
@@ -651,7 +653,7 @@ class RecurringIncomeService:
 
                 # Renda estrangeira: converte na data da ocorrência (sem IOF)
                 try:
-                    brl, rate, _iof, source, _factor = _recurring_conversion(
+                    converted, rate, _iof, source, _factor = _recurring_conversion(
                         db, template.workspace_id, template.base_amount,
                         template.currency, occ, None, allow_fetch=allow_fetch,
                     )
@@ -674,7 +676,7 @@ class RecurringIncomeService:
                         db.add(Income(
                             title=template.title,
                             description=template.description,
-                            amount=brl,
+                            amount=converted,
                             currency=base_currency if is_foreign else template.currency,
                             category=template.category,
                             received_at=datetime(occ.year, occ.month, occ.day, tzinfo=UTC),
@@ -709,12 +711,12 @@ class RecurringIncomeService:
         base_currency = workspace_base_currency(db, template.workspace_id)
         for inc in rows:
             occ = inc.received_at.date() if hasattr(inc.received_at, "date") else inc.received_at
-            brl, rate, _iof, source, _factor = _recurring_conversion(
+            converted, rate, _iof, source, _factor = _recurring_conversion(
                 db, template.workspace_id, template.base_amount, template.currency, occ, None
             )
             is_foreign = rate is not None
             inc.title = template.title
-            inc.amount = brl
+            inc.amount = converted
             inc.currency = base_currency if is_foreign else template.currency
             inc.category = template.category
             inc.original_amount = template.base_amount if is_foreign else None

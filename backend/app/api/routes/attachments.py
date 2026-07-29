@@ -3,6 +3,7 @@ from datetime import datetime
 from typing import List, Optional
 from urllib.parse import quote
 
+import structlog
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Response
 from pydantic import BaseModel
 from sqlmodel import Session, select, func
@@ -13,7 +14,15 @@ from app.models.attachment import Attachment
 from app.models.transaction import Transaction
 from app.models.workspace import WorkspaceMembership, WorkspaceRole, role_level
 from app.api.deps import get_workspace_membership, require_role
+from app.services.attachment_storage import (
+    AttachmentStorage,
+    AttachmentStorageError,
+    free_keys,
+    keys_to_free,
+)
 from app.services.event_service import publish_event
+
+logger = structlog.get_logger("app.attachments")
 
 router = APIRouter(prefix="/workspaces/{workspace_id}", tags=["attachments"])
 
@@ -79,8 +88,12 @@ def _get_transaction_or_404(session: Session, workspace_id: int, transaction_id:
 def _ensure_quota(session: Session, workspace_id: int, incoming_bytes: int) -> None:
     """Teto de armazenamento por workspace (ADR 0007).
 
-    O conteúdo dos anexos vive no próprio banco, então sem quota qualquer
-    membro enche o Postgres subindo arquivos de 5MB em sequência.
+    Vale independente de onde o conteúdo mora: sem quota, qualquer membro enche
+    o volume subindo arquivos de 5 MB em sequência. A conta é pela soma dos
+    `size_bytes` das linhas — o armazenamento dedupica por conteúdo, então dois
+    envios do mesmo recibo ocupam um arquivo só e contam duas vezes na cota. A
+    diferença é a favor do teto, e simplificar isso exigiria contar chaves
+    distintas por workspace a cada upload.
     """
     used = session.exec(
         select(func.coalesce(func.sum(Attachment.size_bytes), 0)).where(
@@ -127,14 +140,29 @@ async def upload_attachment(
         )
     _ensure_quota(session, workspace_id, len(data))
 
+    # Conteúdo vai para o armazenamento (ADR 0007); o banco fica com metadados +
+    # hash + chave. Grava ANTES do commit: um arquivo órfão (se a transação
+    # falhar depois) é recuperável e não é lido por ninguém; a linha apontando
+    # para um arquivo que não existe, não.
+    digest = hashlib.sha256(data).hexdigest()
+    try:
+        storage_key = AttachmentStorage.save(workspace_id, digest, data)
+    except AttachmentStorageError as exc:
+        logger.error("anexo_falha_ao_gravar", workspace_id=workspace_id, erro=str(exc))
+        raise HTTPException(
+            status_code=503,
+            detail="Não foi possível armazenar o anexo agora. Tente novamente.",
+        )
+
     attachment = Attachment(
         workspace_id=workspace_id,
         transaction_id=transaction_id,
         filename=file.filename or "anexo",
         content_type=content_type,
         size_bytes=len(data),
-        sha256=hashlib.sha256(data).hexdigest(),
-        data=data,
+        sha256=digest,
+        storage_key=storage_key,
+        data=None,
         uploaded_by_user_id=membership.user_id,
     )
     session.add(attachment)
@@ -160,6 +188,18 @@ def list_attachments(
     ).all()
 
 
+def read_attachment_bytes(attachment: Attachment) -> Optional[bytes]:
+    """Conteúdo do anexo: do armazenamento (ADR 0007) ou da coluna LEGADA.
+
+    O fallback existe porque a migração de schema não move os bytes — quem já
+    tinha recibos continua servindo do banco até rodar
+    `scripts/migrate_attachments_to_disk.py`.
+    """
+    if attachment.storage_key:
+        return AttachmentStorage.read(attachment.storage_key)
+    return attachment.data
+
+
 @router.get("/attachments/{attachment_id}")
 def download_attachment(
     workspace_id: int,
@@ -171,9 +211,25 @@ def download_attachment(
     if not attachment or attachment.workspace_id != workspace_id:
         raise HTTPException(status_code=404, detail="Anexo não encontrado")
 
+    content = read_attachment_bytes(attachment)
+    if content is None:
+        # A linha existe mas o objeto não está no volume (não montado, restore
+        # parcial). 500 mandaria o usuário caçar um bug que é de operação; a
+        # mensagem explícita, somada ao log de erro, aponta para o lugar certo.
+        logger.error(
+            "anexo_conteudo_indisponivel",
+            attachment_id=attachment.id,
+            workspace_id=workspace_id,
+            storage_key=attachment.storage_key,
+        )
+        raise HTTPException(
+            status_code=404,
+            detail="Conteúdo do anexo indisponível — verifique o armazenamento de anexos.",
+        )
+
     filename = quote(attachment.filename)
     return Response(
-        content=attachment.data,
+        content=content,
         media_type=attachment.content_type,
         headers={
             "Content-Disposition": f"inline; filename*=UTF-8''{filename}",
@@ -201,7 +257,11 @@ def delete_attachment(
     ):
         raise HTTPException(status_code=403, detail="Você só pode remover os próprios anexos")
 
+    # Quais objetos ficarão sem referência (o armazenamento dedupica por
+    # conteúdo). Calculado ANTES de remover a linha; aplicado DEPOIS do commit.
+    liberar = keys_to_free(session, [attachment])
     session.delete(attachment)
     publish_event(session, workspace_id, "attachment.deleted", "attachment", attachment_id, membership.user_id)
     session.commit()
+    free_keys(liberar)
     return {"status": "ok"}

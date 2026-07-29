@@ -140,7 +140,9 @@ export function TransactionDialog({
               allowInstallments={isGroup}
             />
 
-            {!isGroup && <AttachmentsSection transactionId={transaction.id} />}
+            {/* Compra parcelada: os recibos ficam na 1ª parcela viva (a âncora
+                do grupo), então abrir qualquer parcela mostra os mesmos anexos. */}
+            <AttachmentsSection transactionId={isGroup ? installmentWhole!.id : transaction.id} />
 
             <div className="mt-6 p-4 rounded-lg bg-destructive/10 border border-destructive/20 flex items-start gap-3">
               <AlertCircle className="h-5 w-5 text-destructive mt-0.5" />

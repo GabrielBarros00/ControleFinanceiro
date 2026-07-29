@@ -8,6 +8,11 @@ class StatementStatus(str, Enum):
     open = "open"
     closed = "closed"
     paid = "paid"
+    # LEGADO — nunca é atribuído. "Vencida" é DERIVADO na leitura
+    # (`CreditCardService.is_overdue`), justamente para não depender de um job
+    # que carimbe o estado. O rótulo continua no enum porque ele existe no tipo
+    # nativo do Postgres e removê-lo exigiria recriar o tipo numa coluna em uso —
+    # risco que não se paga por um valor que ninguém grava.
     overdue = "overdue"
 
 class CreditCardBase(SQLModel):

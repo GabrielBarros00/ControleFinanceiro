@@ -115,11 +115,16 @@ class CreditCardService:
         enquanto aberta). Ignora rascunho/cancelada e moeda diferente da base
         do workspace (ADR 0006)."""
         stmt = db.get(CardStatement, statement_id)
-        base_currency = "BRL"
-        if stmt:
-            card = db.get(CreditCard, stmt.card_id)
-            if card:
-                base_currency = workspace_base_currency(db, card.workspace_id)
+        if not stmt:
+            # Fatura inexistente não tem total — e inventar uma moeda-base aqui
+            # ("BRL" fixo) contradiz a regra de que nenhum default de moeda é
+            # literal (ADR 0015): num workspace em outra moeda o filtro abaixo
+            # casaria a moeda errada.
+            return Decimal("0.00")
+        card = db.get(CreditCard, stmt.card_id)
+        if not card:
+            return Decimal("0.00")
+        base_currency = workspace_base_currency(db, card.workspace_id)
         total = db.exec(
             select(func.sum(Transaction.total_amount)).where(
                 Transaction.statement_id == statement_id,
@@ -138,18 +143,98 @@ class CreditCardService:
         return statement.total_amount
 
     @staticmethod
+    def resync_open_statement_dates(db: Session, card: CreditCard) -> int:
+        """Recalcula closing_date/due_date das faturas ABERTAS do cartão.
+
+        Os dias do ciclo (`closing_day`/`due_day`) são editáveis, mas as datas da
+        fatura eram congeladas na criação dela: corrigir o vencimento no cadastro
+        não mudava a fatura em aberto, e o aviso do cartão seguia anunciando uma
+        data que não existe mais. Num app de finanças, vencimento errado é fatura
+        paga com atraso.
+
+        Fechadas/pagas ficam como estão: são histórico do que foi cobrado.
+        Devolve quantas faturas foram ajustadas. Não comita (ADR 0010).
+        """
+        abertas = db.exec(
+            select(CardStatement)
+            .where(CardStatement.card_id == card.id)
+            .where(CardStatement.status == StatementStatus.open)
+        ).all()
+
+        ajustadas = 0
+        for stmt in abertas:
+            try:
+                year, month = (int(p) for p in stmt.month.split("-"))
+            except (ValueError, AttributeError):
+                continue
+            closing_dt, due_dt = _statement_dates(card, year, month)
+            if stmt.closing_date == closing_dt and stmt.due_date == due_dt:
+                continue
+            stmt.closing_date = closing_dt
+            stmt.due_date = due_dt
+            stmt.updated_at = datetime.now(UTC)
+            db.add(stmt)
+            ajustadas += 1
+        if ajustadas:
+            db.flush()
+        return ajustadas
+
+    @staticmethod
+    def is_overdue(statement: CardStatement, today: Optional[date] = None) -> bool:
+        """Vencida = não paga e passou do vencimento. DERIVADO (não persistido):
+        não depende de um job para carimbar status. Definição única — a rota e o
+        resumo do cartão leem daqui."""
+        if statement.status == StatementStatus.paid:
+            return False
+        ref = today or datetime.now(UTC).date()
+        return ref > statement.due_date.date()
+
+    @staticmethod
     def card_committed(db: Session, card: CreditCard) -> Decimal:
         """Limite comprometido: soma das faturas ainda NÃO pagas (aberta usa total
         calculado; fechada usa o congelado). Fatura paga libera o limite."""
+        return CreditCardService.card_overview(db, card)["committed"]
+
+    @staticmethod
+    def card_overview(db: Session, card: CreditCard) -> dict:
+        """Uma passada só pelas faturas do cartão devolvendo limite comprometido
+        E a fatura que pede atenção.
+
+        `attention` é a NÃO paga mais antiga com valor > 0 — a de vencimento mais
+        próximo, e por isso a que corre risco de atraso. `None` quando não há
+        nada a pagar. A tela de cartões precisa disso para avisar de fatura
+        fechada/vencendo/vencida sem buscar as faturas de cada cartão.
+
+        Uma passada porque `effective_total` dispara um SUM por fatura aberta:
+        calcular comprometido e alerta em varreduras separadas dobrava as
+        consultas por cartão.
+        """
         statements = db.exec(
-            select(CardStatement).where(CardStatement.card_id == card.id)
+            select(CardStatement)
+            .where(CardStatement.card_id == card.id)
+            .order_by(CardStatement.month)
         ).all()
+
         committed = Decimal("0.00")
+        attention: Optional[CardStatement] = None
+        attention_total = Decimal("0.00")
         for stmt in statements:
             if stmt.status == StatementStatus.paid:
                 continue
-            committed += CreditCardService.effective_total(db, stmt)
-        return committed
+            total = CreditCardService.effective_total(db, stmt)
+            committed += total
+            if attention is None and total > 0:
+                attention = stmt
+                attention_total = total
+
+        return {
+            "committed": committed,
+            "attention": attention,
+            "attention_total": attention_total,
+            # As faturas já carregadas: quem precisa delas (panorama de
+            # endividamento) reusa em vez de disparar um segundo SELECT.
+            "statements": statements,
+        }
 
     @staticmethod
     def available_limit(committed: Decimal, card: CreditCard) -> Decimal:

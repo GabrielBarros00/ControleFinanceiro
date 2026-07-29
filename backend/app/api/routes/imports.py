@@ -8,6 +8,7 @@ import io
 
 from app.core.config import settings
 from app.db.session import get_session
+from app.domain.query_policy import workspace_base_currency
 from app.models.transaction import (
     Transaction,
     TransactionPayer,
@@ -129,6 +130,10 @@ def commit_import(
 ):
     """Persiste um lote com DECISÃO por linha (importar/ignorar) e idempotência
     por fingerprint (ADR 0008): reimportar o mesmo arquivo não duplica."""
+    # Moeda-base do workspace, não "BRL" fixo: com o literal, TODA linha
+    # importada num workspace em outra moeda caía fora das agregações (que
+    # filtram `currency == base`) e sumia sem aviso nenhum.
+    base_currency = workspace_base_currency(session, workspace_id)
     batch = ImportBatch(
         workspace_id=workspace_id,
         filename=body.filename,
@@ -168,7 +173,7 @@ def commit_import(
                 billing_month=row.transaction_date.strftime("%Y-%m"),
                 workspace_id=workspace_id,
                 created_by_user_id=membership.user_id,
-                currency="BRL",
+                currency=base_currency,
                 status=TransactionStatus.confirmed,
             )
             session.add(tx)

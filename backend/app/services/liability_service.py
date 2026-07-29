@@ -4,7 +4,7 @@ from typing import Any, Dict, List
 from sqlmodel import Session, select, func
 
 from app.domain.query_policy import REALIZED_STATUSES, workspace_base_currency
-from app.models.credit_card import CardStatement, CreditCard, StatementStatus
+from app.models.credit_card import CreditCard, StatementStatus
 from app.models.financing import (
     AmortizationInstallment,
     Financing,
@@ -146,14 +146,16 @@ class LiabilityService:
         out: List[Dict[str, Any]] = []
         unpaid_statement_ids: List[int] = []
         for card in cards:
-            committed = CreditCardService.card_committed(db, card)
+            # Uma passada só: `card_committed` já varre as faturas por dentro de
+            # `card_overview`, e havia um segundo SELECT logo abaixo para os
+            # mesmos dados — duas varreduras (e um SUM por fatura aberta) por
+            # cartão só para montar este painel.
+            overview = CreditCardService.card_overview(db, card)
+            committed = overview["committed"]
             total_committed += committed
 
-            statements = db.exec(
-                select(CardStatement).where(CardStatement.card_id == card.id)
-            ).all()
             card_due = ZERO
-            for s in statements:
+            for s in overview["statements"]:
                 if s.status == StatementStatus.paid:
                     continue
                 unpaid_statement_ids.append(s.id)

@@ -7,7 +7,7 @@ from sqlmodel import Session, select
 
 from app.db.session import get_session
 from app.domain.dates import InvalidMonth, month_bounds, parse_month
-from app.domain.query_policy import workspace_base_currency
+from app.domain.query_policy import resolve_currency, workspace_base_currency
 from app.models.workspace import WorkspaceMembership, WorkspaceRole, role_level
 from app.models.income import Income
 from app.schemas.income import IncomeCreate, IncomeRead, IncomeUpdate
@@ -23,19 +23,21 @@ router = APIRouter(prefix="/workspaces/{workspace_id}/income", tags=["income"])
 def _convert_income_fields(
     session: Session, workspace_id: int, amount: Decimal, currency: Optional[str], received_at: datetime
 ) -> dict:
-    """Renda em moeda estrangeira → BRL na data de recebimento (sem IOF). Devolve
-    os campos a gravar (amount BRL + currency BRL + original_*); {} se já for base."""
+    """Renda em moeda estrangeira → moeda-base do workspace na data de recebimento
+    (sem IOF). Devolve os campos a gravar (amount e currency na base + original_*);
+    {} se já for base."""
     base = workspace_base_currency(session, workspace_id)
     if not currency or currency == base:
         return {}
     occ = received_at.date() if hasattr(received_at, "date") else received_at
     try:
-        rate, source = ExchangeRateStore.get_or_fetch(session, currency, occ)
+        # rate_between: a taxa precisa ser moeda→BASE, e o store só guarda X→BRL
+        rate, source = ExchangeRateStore.rate_between(session, currency, base, occ)
     except ExchangeRateUnavailable as exc:
         raise HTTPException(status_code=422, detail=str(exc))
-    brl = (amount * rate).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+    converted = (amount * rate).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
     return {
-        "amount": brl,
+        "amount": converted,
         "currency": base,
         "original_amount": amount,
         "original_currency": currency,
@@ -68,8 +70,10 @@ def create_income(
     membership: WorkspaceMembership = Depends(require_role(WorkspaceRole.member))
 ):
     data = income_in.model_dump()
-    # Renda estrangeira: converte para BRL na entrada, guardando o original
-    data.update(_convert_income_fields(session, workspace_id, income_in.amount, income_in.currency, income_in.received_at))
+    # Moeda ausente = a do workspace (nunca "BRL" fixo — ver resolve_currency)
+    data["currency"] = resolve_currency(session, workspace_id, income_in.currency)
+    # Renda estrangeira: converte para a moeda-base na entrada, guardando o original
+    data.update(_convert_income_fields(session, workspace_id, income_in.amount, data["currency"], income_in.received_at))
     db_income = Income(
         **data,
         workspace_id=workspace_id,

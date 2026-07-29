@@ -13,11 +13,18 @@ interface HeroBalanceProps {
   spent: number; // sua despesa (mês)
   budget: number; // orçamento total previsto
   daysLeft?: number;
+  /** moeda-base do workspace — default BRL */
+  currency?: string;
   className?: string;
 }
 
-export function HeroBalance({ net, spent, budget, daysLeft, className }: HeroBalanceProps) {
+export function HeroBalance({ net, spent, budget, daysLeft, currency, className }: HeroBalanceProps) {
+  const fmt = (value: number) => formatMoney(value, { currency });
   const pct = budget > 0 ? Math.round((spent / budget) * 100) : 0;
+  const diasRestantes =
+    typeof daysLeft === 'number' && daysLeft >= 0 ? (
+      <> · {daysLeft} {daysLeft === 1 ? 'dia restante' : 'dias restantes'}</>
+    ) : null;
   const over = budget > 0 && spent > budget;
 
   return (
@@ -27,24 +34,32 @@ export function HeroBalance({ net, spent, budget, daysLeft, className }: HeroBal
         value={net}
         kind={net >= 0 ? 'income' : 'expense'}
         size="hero"
+        currency={currency}
         className="mt-1 block"
       />
       <p className="mt-2 text-sm text-muted-foreground">
-        Você gastou <span className="font-medium text-foreground">{formatMoney(spent)}</span>
-        {budget > 0 ? <> de {formatMoney(budget)} previstos</> : <> este mês</>}
+        Você gastou <span className="font-medium text-foreground">{fmt(spent)}</span>
+        {budget > 0 ? <> de {fmt(budget)} previstos</> : <> este mês</>}
       </p>
-      {budget > 0 && (
+      {budget > 0 ? (
         <div className="mt-3 space-y-1.5">
           <BudgetBar value={spent} max={budget} />
           <p className="text-xs text-muted-foreground">
             <span className={cn('font-medium', over ? 'text-expense' : 'text-foreground')}>
               {pct}% do orçamento
             </span>
-            {typeof daysLeft === 'number' && daysLeft >= 0 && (
-              <> · {daysLeft} {daysLeft === 1 ? 'dia restante' : 'dias restantes'}</>
-            )}
+            {diasRestantes}
           </p>
         </div>
+      ) : (
+        // Sem orçamento o card ficava com a metade de baixo VAZIA (ele estica
+        // para acompanhar a coluna de tiles ao lado). Os dias restantes já são
+        // úteis sozinhos e dão contexto ao "sobra do mês".
+        <p className="mt-3 text-xs text-muted-foreground">
+          {typeof daysLeft === 'number' && daysLeft >= 0
+            ? `${daysLeft === 1 ? 'Falta 1 dia' : `Faltam ${daysLeft} dias`} para fechar o mês`
+            : null}
+        </p>
       )}
     </div>
   );

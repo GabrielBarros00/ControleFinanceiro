@@ -81,9 +81,23 @@ Qualquer provedor SMTP serve (Resend, Brevo, Mailgun...) — mesmos campos.
 ### Depois de subir
 
 - **Smoke test**: `python scripts/smoke_prod.py` (ou `SMOKE_BASE_URL=https://seu-dominio python scripts/smoke_prod.py`).
-- **Backup** (agende num cron):
+- **Backup — são DOIS artefatos** (agende os dois no mesmo cron). O dump sozinho
+  restaura os lançamentos com os **recibos quebrados**: desde o [ADR 0007](docs/adr/0007-anexos-fora-do-banco-com-hash.md)
+  o conteúdo dos anexos mora no volume `attachments_data`, não no banco.
   ```bash
+  # 1. banco
   docker compose exec db pg_dump -U cf4 controle_financeiro > backup_$(date +%F).sql
+  # 2. anexos
+  docker run --rm -v controle_financeiro_v4_attachments_data:/data -v "$PWD":/saida alpine \
+    tar czf /saida/anexos_$(date +%F).tar.gz -C /data .
+  ```
+  (Confira o nome real do volume com `docker volume ls`; ele leva o prefixo da pasta do projeto.)
+- **Vindo de uma versão anterior a 2026-07-29?** Os anexos antigos ainda estão no
+  banco. Depois de subir, mova-os para o volume — o app serve dos dois lugares
+  enquanto isso, então não há indisponibilidade:
+  ```bash
+  docker compose exec backend python scripts/migrate_attachments_to_disk.py --dry-run
+  docker compose exec backend python scripts/migrate_attachments_to_disk.py
   ```
 - **Logs**: `docker compose logs -f backend`.
 - **Atualizar o app**: `git pull && docker compose up --build -d` (migrações rodam sozinhas no start).

@@ -1,5 +1,6 @@
 import * as React from 'react';
 import { Input } from '@/components/ui/input';
+import { cn } from '@/lib/utils';
 import { maskCurrency, parseCurrency } from '@/lib/money';
 
 interface MoneyInputProps extends Omit<React.ComponentProps<"input">, 'onChange' | 'value'> {
@@ -8,9 +9,25 @@ interface MoneyInputProps extends Omit<React.ComponentProps<"input">, 'onChange'
   prefix?: string;
 }
 
+// Recuo do prefixo (left-3) e respiro entre ele e o número
+const PREFIX_LEFT = 12;
+const PREFIX_GAP = 6;
+const PREFIX_MIN_PADDING = 36; // = pl-9, o suficiente para "R$"
+
 const MoneyInput = React.forwardRef<HTMLInputElement, MoneyInputProps>(
-  ({ value, onChange, prefix = 'R$', ...props }, ref) => {
+  ({ value, onChange, prefix = 'R$', className, style, ...props }, ref) => {
     const [displayValue, setDisplayValue] = React.useState('');
+    const prefixRef = React.useRef<HTMLSpanElement>(null);
+    const [padding, setPadding] = React.useState(PREFIX_MIN_PADDING);
+
+    // O recuo do texto acompanha a LARGURA REAL do prefixo. Com padding fixo
+    // (pl-9), símbolos de 3 caracteres — "US$", "ARS", "CHF" — encostavam no
+    // valor ("US$1.234,56") ou ficavam por baixo dele.
+    React.useLayoutEffect(() => {
+      if (!prefix) return;
+      const width = prefixRef.current?.offsetWidth ?? 0;
+      setPadding(Math.max(PREFIX_MIN_PADDING, PREFIX_LEFT + width + PREFIX_GAP));
+    }, [prefix]);
 
     React.useEffect(() => {
       if (value !== undefined && !isNaN(value)) {
@@ -29,7 +46,7 @@ const MoneyInput = React.forwardRef<HTMLInputElement, MoneyInputProps>(
       const rawValue = e.target.value;
       const masked = maskCurrency(rawValue);
       const numericValue = parseCurrency(masked);
-      
+
       setDisplayValue(masked);
       if (onChange) {
         onChange(numericValue);
@@ -39,7 +56,10 @@ const MoneyInput = React.forwardRef<HTMLInputElement, MoneyInputProps>(
     return (
       <div className="relative">
         {prefix && (
-          <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground font-bold text-sm pointer-events-none">
+          <span
+            ref={prefixRef}
+            className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground font-bold text-sm pointer-events-none"
+          >
             {prefix}
           </span>
         )}
@@ -48,7 +68,8 @@ const MoneyInput = React.forwardRef<HTMLInputElement, MoneyInputProps>(
           ref={ref}
           value={displayValue}
           onChange={handleChange}
-          className={`${prefix ? 'pl-9' : ''} ${props.className || ''}`}
+          className={cn(className)}
+          style={prefix ? { ...style, paddingLeft: padding } : style}
         />
       </div>
     );

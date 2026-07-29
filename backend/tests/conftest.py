@@ -10,6 +10,7 @@ import pytest
 from sqlmodel import Session, SQLModel, create_engine
 from app.db.session import get_session
 from app.main import app
+from app.core.config import settings
 from app.core.rate_limit import account_limiter, auth_limiter
 
 # Import all models to ensure metadata is complete before create_all
@@ -73,6 +74,17 @@ def reset_rate_limiter():
     yield
     auth_limiter.reset()
     account_limiter.reset()
+
+
+@pytest.fixture(autouse=True)
+def isolar_armazenamento_de_anexos(tmp_path_factory, monkeypatch):
+    """O conteúdo dos anexos vive FORA do banco (ADR 0007), então limpar as
+    tabelas entre testes não basta: sem isto a suíte escreveria no diretório real
+    de anexos e um teste enxergaria o arquivo do anterior (o armazenamento é
+    endereçado por conteúdo — mesmo PNG, mesma chave)."""
+    destino = tmp_path_factory.mktemp("anexos")
+    monkeypatch.setattr(settings, "ATTACHMENT_STORAGE_DIR", str(destino))
+    yield
 
 
 @pytest.fixture(autouse=True)

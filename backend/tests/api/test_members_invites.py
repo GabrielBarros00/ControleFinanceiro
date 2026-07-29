@@ -303,9 +303,13 @@ def test_invite_unknown_email_creates_pending_and_register_accepts(team):
     )
     assert res.status_code == 400
 
-    # Registro com o email convidado aceita automaticamente
+    # Registro pelo LINK do convite (token no corpo) = consentimento explícito
+    token = db.exec(select(WorkspaceInvite).where(
+        WorkspaceInvite.email == "novata@example.com"
+    )).first().token
     res = client.post("/api/v1/auth/register", json={
         "name": "Novata", "email": "novata@example.com", "password": "secret123",
+        "invite_token": token,
     })
     assert res.status_code == 200
     new_user = db.exec(select(User).where(User.email == "novata@example.com")).first()
@@ -321,6 +325,59 @@ def test_invite_unknown_email_creates_pending_and_register_accepts(team):
         WorkspaceInvite.email == "novata@example.com"
     )).first()
     assert invite.status == InviteStatus.accepted
+
+
+def test_registro_sem_o_token_do_convite_nao_entra_no_workspace(team):
+    """Cadastrar-se por conta própria NÃO pode dar acesso ao workspace alheio.
+
+    Antes, `register` aceitava TODO convite pendente para aquele e-mail: quem
+    soubesse o endereço de alguém dava a si mesmo uma plateia para as próprias
+    finanças — e colocava a pessoa dentro das finanças de outra família — sem
+    ela aceitar nada. A E15 corrigiu isso para quem JÁ tinha conta; o caminho de
+    registro tinha ficado para trás. O convite agora vira NOTIFICAÇÃO.
+    """
+    from app.models.notification import Notification
+
+    ws, users, db = team["ws"], team["users"], team["db"]
+    res = client.post(
+        f"/api/v1/workspaces/{ws.id}/invites",
+        json={"email": "alheia@example.com", "role": "member"},
+        headers=_headers(users["admin"]),
+    )
+    assert res.status_code == 200
+
+    # Cadastro POR FORA do link: nenhum token acompanha
+    res = client.post("/api/v1/auth/register", json={
+        "name": "Alheia", "email": "alheia@example.com", "password": "secret123",
+    })
+    assert res.status_code == 200
+    nova = db.exec(select(User).where(User.email == "alheia@example.com")).first()
+
+    m = db.exec(select(WorkspaceMembership).where(
+        WorkspaceMembership.workspace_id == ws.id,
+        WorkspaceMembership.user_id == nova.id,
+    )).first()
+    assert m is None, "entrou no workspace de terceiros sem consentir"
+
+    invite = db.exec(select(WorkspaceInvite).where(
+        WorkspaceInvite.email == "alheia@example.com"
+    )).first()
+    assert invite.status == InviteStatus.pending, "o convite foi consumido sem aceite"
+
+    # Mas o convite não some: chega como aviso, com as duas saídas
+    aviso = db.exec(select(Notification).where(Notification.user_id == nova.id)).first()
+    assert aviso is not None, "o convite sumiu — sem membership e sem notificação"
+    assert aviso.invite_token == invite.token
+    assert aviso.workspace_id == ws.id
+
+    # E o aceite explícito continua funcionando pelo endpoint de convite
+    res = client.post(f"/api/v1/invites/accept/{invite.token}", headers=_headers(nova))
+    assert res.status_code == 200, res.text
+    m = db.exec(select(WorkspaceMembership).where(
+        WorkspaceMembership.workspace_id == ws.id,
+        WorkspaceMembership.user_id == nova.id,
+    )).first()
+    assert m is not None
 
 
 # --- Convites por link ---
@@ -394,6 +451,45 @@ def test_revoked_invite_cannot_be_accepted(team):
 
     res = client.post(f"/api/v1/invites/accept/{token}", headers=_headers(users["outsider"]))
     assert res.status_code == 404
+
+
+def test_revogar_convite_encerra_a_notificacao(team):
+    """Revogar tem que apagar o aviso do app junto.
+
+    O convite pendente vira um MODAL na cara do convidado (é a primeira coisa
+    depois do onboarding). Revogado sem resolver a notificação, o modal
+    continuava aparecendo com um "Aceitar" que só devolve 404 — e o contador de
+    não lidas não tinha mais nenhuma ação capaz de zerá-lo.
+    """
+    from app.models.notification import Notification
+
+    ws, users, db = team["ws"], team["users"], team["db"]
+    res = client.post(
+        f"/api/v1/workspaces/{ws.id}/invites",
+        json={"email": "outsider@team.com", "role": "member"},
+        headers=_headers(users["admin"]),
+    )
+    assert res.status_code == 200
+    invite_id = res.json()["invite"]["id"]
+
+    aviso = db.exec(
+        select(Notification).where(Notification.user_id == users["outsider"].id)
+    ).first()
+    assert aviso is not None and aviso.read_at is None
+
+    res = client.delete(
+        f"/api/v1/workspaces/{ws.id}/invites/{invite_id}",
+        headers=_headers(users["admin"]),
+    )
+    assert res.status_code == 200
+
+    db.refresh(aviso)
+    assert aviso.read_at is not None, "o convite morreu mas o aviso continuou pendente"
+
+    # E o convidado não vê mais nada pendente para responder
+    res = client.get("/api/v1/notifications", headers=_headers(users["outsider"]))
+    assert res.status_code == 200
+    assert res.json()["unread"] == 0
 
 
 def test_expired_invite_cannot_be_accepted(team):

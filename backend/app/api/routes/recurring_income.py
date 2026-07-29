@@ -9,6 +9,7 @@ from app.schemas.common import DESCRIPTION_MAX, MAX_MONEY, NAME_MAX, TITLE_MAX
 from sqlmodel import Session, select
 
 from app.db.session import get_session
+from app.domain.query_policy import resolve_currency
 from app.domain.recurrence_rules import validate_frequency_fields as _validate_frequency_fields
 from app.models.workspace import WorkspaceMembership, WorkspaceRole, role_level
 from app.models.recurring import RecurringIncome, RecurrenceFrequency
@@ -28,7 +29,8 @@ class RecurringIncomeCreate(BaseModel):
     title: str = Field(min_length=1, max_length=TITLE_MAX)
     description: Optional[str] = Field(default=None, max_length=DESCRIPTION_MAX)
     base_amount: Decimal = Field(gt=0, le=MAX_MONEY)
-    currency: str = "BRL"
+    # None = "não informada" → a rota resolve para a moeda-base do workspace
+    currency: Optional[str] = None
     category: Optional[str] = Field(default=None, max_length=NAME_MAX)
     frequency: RecurrenceFrequency = RecurrenceFrequency.monthly
     interval: int = Field(default=1, ge=1)
@@ -88,8 +90,11 @@ def create_recurring_income(
         recurring_in.frequency, recurring_in.day_of_week, recurring_in.month_of_year,
         recurring_in.interval, recurring_in.start_date,
     )
+    data = recurring_in.model_dump()
+    # Moeda ausente = a do workspace (nunca "BRL" fixo — ver resolve_currency)
+    data["currency"] = resolve_currency(session, workspace_id, recurring_in.currency)
     db_rec = RecurringIncome(
-        **recurring_in.model_dump(),
+        **data,
         workspace_id=workspace_id,
         created_by_user_id=membership.user_id,
         user_id=membership.user_id,

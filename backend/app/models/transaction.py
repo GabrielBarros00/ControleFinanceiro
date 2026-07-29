@@ -70,9 +70,15 @@ class Transaction(TransactionBase, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
     workspace_id: int = Field(foreign_key="workspace.id", index=True)
     created_by_user_id: Optional[int] = Field(default=None, foreign_key="user.id")
-    card_limit_holder_user_id: Optional[int] = Field(default=None, foreign_key="user.id")
     recurring_expense_id: Optional[int] = Field(default=None, foreign_key="recurringexpense.id", index=True)
     occurrence_date: Optional[date] = Field(default=None)
+    # Despesa gerada ao PAGAR uma parcela de financiamento. O vínculo era o
+    # TÍTULO ("Casa — Parcela 3/60"): renomear o financiamento fazia o estorno
+    # não achar a despesa (que ficava para sempre no caixa), e uma despesa manual
+    # homônima era apagada junto. Identidade resolve os dois.
+    financing_installment_id: Optional[int] = Field(
+        default=None, foreign_key="amortizationinstallment.id", index=True
+    )
     
     # Credit Card links
     credit_card_id: Optional[int] = Field(default=None, foreign_key="creditcard.id", index=True)

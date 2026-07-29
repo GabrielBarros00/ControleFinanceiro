@@ -10,6 +10,7 @@ from sqlmodel import Session, select
 
 from app.api.deps import get_workspace_membership, require_role
 from app.db.session import get_session
+from app.domain.query_policy import resolve_currency
 from app.models.financing import (
     Financing,
     AmortizationInstallment,
@@ -38,6 +39,12 @@ class FinancingCreate(BaseModel):
     start_date: date
     installments_count: int
     method: AmortizationMethod = AmortizationMethod.SAC
+    # None = "não informada" → a rota resolve para a moeda-base do workspace.
+    # O campo nem existia: o financiamento herdava o default "BRL" do model e,
+    # num workspace em outra moeda, sumia do painel de Endividamento
+    # (LiabilityService filtra `currency == base`) e a despesa gerada ao pagar a
+    # parcela caía fora de dívidas, relatórios, previsão e fatura.
+    currency: Optional[str] = None
 
 
 class EarlySettlementRequest(BaseModel):
@@ -95,8 +102,11 @@ def create_financing(
     if financing_in.total_amount <= 0:
         raise HTTPException(status_code=400, detail="Valor total deve ser maior que zero")
 
+    data = financing_in.model_dump()
+    # Moeda ausente = a do workspace (nunca "BRL" fixo — ver resolve_currency)
+    data["currency"] = resolve_currency(session, workspace_id, financing_in.currency)
     financing = Financing(
-        **financing_in.model_dump(),
+        **data,
         workspace_id=workspace_id,
         created_by_user_id=membership.user_id,
     )
@@ -228,6 +238,9 @@ def pay_installment(
         workspace_id=workspace_id,
         created_by_user_id=owner_id,
         status=TransactionStatus.confirmed,
+        # Identidade da parcela: é por aqui que o estorno reencontra a despesa.
+        # Pelo título, renomear o financiamento deixava a despesa órfã no caixa.
+        financing_installment_id=installment.id,
     )
     session.add(payment_tx)
     session.flush()
@@ -303,11 +316,26 @@ def update_financing(
     session.add(financing)
 
     if regenerar:
-        for antiga in session.exec(
+        antigas = list(session.exec(
             select(AmortizationInstallment).where(
                 AmortizationInstallment.financing_id == financing.id
             )
-        ).all():
+        ).all())
+        # Desvincula antes de apagar: uma parcela estornada mantém a despesa
+        # como tombstone (soft delete), e a linha continua apontando para ela —
+        # apagar a parcela violaria a FK no Postgres (mesmo cuidado do
+        # delete_recurring). Só chega aqui se NÃO houver parcela paga.
+        ids_antigos = [i.id for i in antigas]
+        if ids_antigos:
+            for tx in session.exec(
+                select(Transaction).where(
+                    Transaction.financing_installment_id.in_(ids_antigos)
+                )
+            ).all():
+                tx.financing_installment_id = None
+                session.add(tx)
+            session.flush()
+        for antiga in antigas:
             session.delete(antiga)
         session.flush()
         for parcela in FinancingService.calculate_amortization_schedule(
@@ -357,16 +385,30 @@ def unpay_installment(
     installment.paid_at = None
     session.add(installment)
 
-    # A despesa gerada no pagamento sai do caixa junto (o vínculo é pelo título,
-    # que o pagamento monta de forma determinística)
-    titulo = f"{financing.title} — Parcela {installment_number}/{financing.installments_count}"
-    for tx in session.exec(
+    # A despesa gerada no pagamento sai do caixa junto. O vínculo é por ID
+    # (`financing_installment_id`): pelo título, renomear o financiamento fazia
+    # o estorno não achar nada — a despesa ficava para sempre no caixa com a
+    # parcela já reaberta — e uma despesa manual homônima era apagada junto.
+    geradas = list(session.exec(
         select(Transaction).where(
-            Transaction.workspace_id == workspace_id,
-            Transaction.title == titulo,
+            Transaction.financing_installment_id == installment.id,
             Transaction.deleted_at.is_(None),
         )
-    ).all():
+    ).all())
+    if not geradas:
+        # Fallback só para linhas ANTERIORES à coluna de vínculo (elas não têm
+        # como ser reencontradas de outro jeito). Restrito ao título exato que o
+        # pagamento monta, como era antes.
+        titulo = f"{financing.title} — Parcela {installment_number}/{financing.installments_count}"
+        geradas = list(session.exec(
+            select(Transaction).where(
+                Transaction.workspace_id == workspace_id,
+                Transaction.title == titulo,
+                Transaction.financing_installment_id.is_(None),
+                Transaction.deleted_at.is_(None),
+            )
+        ).all())
+    for tx in geradas:
         tx.deleted_at = datetime.now(UTC)
         session.add(tx)
 

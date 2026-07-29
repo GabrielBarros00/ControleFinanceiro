@@ -61,3 +61,65 @@ def test_pagar_parcela_ja_paga_falha(db_session, setup_data, override_get_sessio
     # Não cria uma segunda transação para a mesma parcela
     txs = db_session.exec(select(Transaction).where(Transaction.workspace_id == ws.id)).all()
     assert len(txs) == 1
+
+
+def test_estorno_encontra_a_despesa_mesmo_apos_renomear(db_session, setup_data, override_get_session):
+    """O estorno vincula por ID, não pelo título do financiamento.
+
+    Pelo título, renomear o financiamento (que é permitido, e não trava com
+    parcelas pagas) fazia o `unpay` não achar a despesa: a parcela voltava a
+    aberta e o gasto ficava PARA SEMPRE no caixa e nos relatórios.
+    """
+    ws, headers = setup_data["ws1"], setup_data["headers1"]
+    fin_id = _create_financing(ws.id, headers).json()["id"]
+
+    pago = client.post(
+        f"/api/v1/workspaces/{ws.id}/financing/{fin_id}/installments/1/pay", headers=headers
+    )
+    tx_id = pago.json()["transaction_id"]
+
+    # Renomeia DEPOIS de pagar — só o título, então o cronograma não é regerado
+    renomeado = client.put(
+        f"/api/v1/workspaces/{ws.id}/financing/{fin_id}",
+        json={"title": "Carro novo"},
+        headers=headers,
+    )
+    assert renomeado.status_code == 200, renomeado.text
+
+    estorno = client.post(
+        f"/api/v1/workspaces/{ws.id}/financing/{fin_id}/installments/1/unpay", headers=headers
+    )
+    assert estorno.status_code == 200, estorno.text
+
+    db_session.expire_all()
+    tx = db_session.get(Transaction, tx_id)
+    assert tx.deleted_at is not None, "a despesa da parcela sobreviveu ao estorno"
+
+
+def test_estorno_nao_apaga_despesa_homonima(db_session, setup_data, override_get_session):
+    """Uma despesa manual com o mesmo título não pode sumir junto com o estorno."""
+    from decimal import Decimal
+
+    ws, headers = setup_data["ws1"], setup_data["headers1"]
+    fin_id = _create_financing(ws.id, headers).json()["id"]
+    client.post(
+        f"/api/v1/workspaces/{ws.id}/financing/{fin_id}/installments/1/pay", headers=headers
+    )
+
+    homonima = Transaction(
+        title="Carro — Parcela 1/12",
+        total_amount=Decimal("10.00"),
+        billing_month="2026-02",
+        workspace_id=ws.id,
+        created_by_user_id=setup_data["u1"].id,
+    )
+    db_session.add(homonima)
+    db_session.commit()
+    db_session.refresh(homonima)
+
+    client.post(
+        f"/api/v1/workspaces/{ws.id}/financing/{fin_id}/installments/1/unpay", headers=headers
+    )
+
+    db_session.expire_all()
+    assert db_session.get(Transaction, homonima.id).deleted_at is None

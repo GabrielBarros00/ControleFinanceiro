@@ -651,6 +651,12 @@ export interface paths {
          * Get Exchange Rate
          * @description Taxa de câmbio de referência + fonte: PTAX (oficial) para as majores → BRL,
          *     senão fonte de mercado. Nunca 500: indisponível responde 422.
+         *
+         *     Sem `to_currency`, o alvo é a MOEDA-BASE do workspace — não "BRL" fixo: este
+         *     endpoint alimenta a dica "≈ tanto" do formulário, e num workspace em outra
+         *     moeda a dica mostrava a conversão para um real que não é usado em lugar
+         *     nenhum. Passa pelo `ExchangeRateStore` (mesma taxa cruzada que a criação do
+         *     lançamento vai aplicar), então dica e valor gravado não divergem.
          */
         get: operations["get_exchange_rate_api_v1_workspaces__workspace_id__analytics_exchange_rate_get"];
         put?: never;
@@ -1655,11 +1661,8 @@ export interface components {
             closing_day: number;
             /** Due Day */
             due_day: number;
-            /**
-             * Currency
-             * @default BRL
-             */
-            currency: string;
+            /** Currency */
+            currency?: string | null;
         };
         /** CreditCardUpdate */
         CreditCardUpdate: {
@@ -1741,6 +1744,8 @@ export interface components {
             installments_count: number;
             /** @default SAC */
             method: components["schemas"]["AmortizationMethod"];
+            /** Currency */
+            currency?: string | null;
         };
         /**
          * FinancingStatus
@@ -1788,11 +1793,8 @@ export interface components {
             description?: string | null;
             /** Amount */
             amount: number | string;
-            /**
-             * Currency
-             * @default BRL
-             */
-            currency: string;
+            /** Currency */
+            currency?: string | null;
             /**
              * Received At
              * Format: date-time
@@ -2083,11 +2085,8 @@ export interface components {
             name: string;
             /** @default checking */
             type: components["schemas"]["PaymentAccountType"];
-            /**
-             * Currency
-             * @default BRL
-             */
-            currency: string;
+            /** Currency */
+            currency?: string | null;
             /** Owner User Id */
             owner_user_id?: number | null;
         };
@@ -2161,11 +2160,8 @@ export interface components {
             day_of_week?: number | null;
             /** Month Of Year */
             month_of_year?: number | null;
-            /**
-             * Currency
-             * @default BRL
-             */
-            currency: string;
+            /** Currency */
+            currency?: string | null;
             payment_method?: components["schemas"]["PaymentMethod"] | null;
             /** Credit Card Id */
             credit_card_id?: number | null;
@@ -2305,11 +2301,8 @@ export interface components {
             description?: string | null;
             /** Base Amount */
             base_amount: number | string;
-            /**
-             * Currency
-             * @default BRL
-             */
-            currency: string;
+            /** Currency */
+            currency?: string | null;
             /** Category */
             category?: string | null;
             /** @default monthly */
@@ -2418,6 +2411,8 @@ export interface components {
             email: string;
             /** Password */
             password: string;
+            /** Invite Token */
+            invite_token?: string | null;
         };
         /** ResetPasswordRequest */
         ResetPasswordRequest: {
@@ -2533,11 +2528,8 @@ export interface components {
             title: string;
             /** Description */
             description?: string | null;
-            /**
-             * Currency
-             * @default BRL
-             */
-            currency: string;
+            /** Currency */
+            currency?: string | null;
             /** Total Amount */
             total_amount: number | string;
             /**
@@ -2549,8 +2541,6 @@ export interface components {
             billing_month?: string | null;
             /** @default confirmed */
             status: components["schemas"]["TransactionStatus"];
-            /** Card Limit Holder User Id */
-            card_limit_holder_user_id?: number | null;
             /** Credit Card Id */
             credit_card_id?: number | null;
             /** @default transaction */
@@ -2715,8 +2705,6 @@ export interface components {
             billing_month?: string | null;
             /** @default confirmed */
             status: components["schemas"]["TransactionStatus"];
-            /** Card Limit Holder User Id */
-            card_limit_holder_user_id?: number | null;
             /** Credit Card Id */
             credit_card_id?: number | null;
             /** @default transaction */
@@ -4568,7 +4556,7 @@ export interface operations {
         parameters: {
             query: {
                 from_currency: string;
-                to_currency?: string;
+                to_currency?: string | null;
             };
             header?: never;
             path: {

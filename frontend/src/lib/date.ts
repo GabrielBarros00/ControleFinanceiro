@@ -64,6 +64,50 @@ export function parseApiDate(value: string | Date): Date {
   return new Date(temOffset ? value : `${value}Z`);
 }
 
+/**
+ * Converte um DIA DE CALENDÁRIO que a API serializa como datetime à meia-noite
+ * ("2026-08-28T00:00:00") para Date, lendo os componentes como estão.
+ *
+ * `parseApiDate` marca a string como UTC — correto para instantes (quando a
+ * despesa foi lançada), errado para dias de calendário: meia-noite UTC é 21h do
+ * dia ANTERIOR em Brasília, e o fechamento/vencimento da fatura aparecia um dia
+ * adiantado (cartão que fecha dia 28 exibia "27/08"). Data de vencimento errada
+ * num app de finanças é fatura paga com atraso.
+ */
+export function parseApiDay(value: string | Date): Date {
+  if (value instanceof Date) return value;
+  const [y, m, d] = value.slice(0, 10).split('-').map(Number);
+  return new Date(y, (m || 1) - 1, d || 1);
+}
+
+/**
+ * Dias de calendário (locais) entre hoje e `target`. Positivo = futuro, 0 = hoje,
+ * negativo = passado.
+ *
+ * Compara os DIAS, não os instantes: "vence em 1 dia" tem que valer o dia
+ * inteiro, não virar 0 porque faltam 23 horas.
+ */
+export function daysUntil(target: string | Date): number {
+  const alvo = parseApiDay(target);
+  const hoje = new Date();
+  const meiaNoite = (d: Date) => new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
+  return Math.round((meiaNoite(alvo) - meiaNoite(hoje)) / 86_400_000);
+}
+
+/**
+ * "2026-07" → "jul." — rótulo curto de mês em PT-BR, para eixos de gráfico.
+ *
+ * O backend devolvia o nome pronto via `strftime("%b")`, que segue o locale do
+ * PROCESSO: no container (locale C) o eixo de Relatórios mostrava "Jan/Feb/May"
+ * num app inteiro em português. Formatar aqui deixa o backend livre de locale e
+ * o rótulo sempre no idioma de quem lê.
+ */
+export function monthShortLabel(month: string): string {
+  const [y, m] = month.split('-').map(Number);
+  if (!y || !m) return month;
+  return new Date(y, m - 1, 1).toLocaleDateString('pt-BR', { month: 'short' });
+}
+
 /** Data da API → YYYY-MM-DD local (para preencher <input type="date">). */
 export function apiDateToInput(value: string | Date): string {
   return toLocalISODate(parseApiDate(value));

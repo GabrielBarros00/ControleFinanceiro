@@ -16,6 +16,7 @@ import { EmptyState } from '@/components/ui/empty-state';
 import { ErrorState } from '@/components/ui/error-state';
 import { Skeleton } from '@/components/ui/skeleton';
 import { formatMoney } from '@/lib/money';
+import { useBaseCurrency } from '@/hooks/use-base-currency';
 import { PAYMENT_METHOD_OPTIONS } from '@/lib/payment-methods';
 import { useCategories } from '@/hooks/use-categories';
 import { useTags } from '@/hooks/use-tags';
@@ -45,6 +46,7 @@ export function TransactionsPage() {
   const { transactions, total, totalAmount, totalPages, currentPage, isLoading, isError, remove } =
     useTransactions(filters);
   const { canWrite } = useWorkspaceRole();
+  const baseCurrency = useBaseCurrency();
   const { categories } = useCategories();
   const { tags } = useTags();
   const setNewTxOpen = useNewTxStore((s) => s.setOpen);
@@ -90,7 +92,7 @@ export function TransactionsPage() {
         title="Lançamentos"
         subtitle="Tudo que entrou e saiu."
         period={
-          <PeriodPicker value={filters.month!} max={currentMonthLocal()} onChange={(m) => patch({ month: m })} />
+          <PeriodPicker value={filters.month!} onChange={(m) => patch({ month: m })} />
         }
         action={
           <Button onClick={() => setNewTxOpen(true)} className="gap-2">
@@ -214,7 +216,7 @@ export function TransactionsPage() {
                 {total} lançamento{total === 1 ? '' : 's'}
               </span>
               <span className="text-muted-foreground">
-                saídas <span className="tabular font-medium text-expense">{formatMoney(totalSpent)}</span>
+                saídas <span className="tabular font-medium text-expense">{formatMoney(totalSpent, { currency: baseCurrency })}</span>
               </span>
             </div>
             <div className="p-2 sm:p-3">

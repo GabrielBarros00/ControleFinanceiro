@@ -3,18 +3,29 @@ from enum import Enum
 from typing import List, Union
 
 class Currency(str, Enum):
+    """Atalhos para as moedas mais usadas nos testes e no domínio.
+
+    NÃO é a lista de moedas suportadas: o app aceita ~30 (ver
+    `frontend/src/lib/currencies.ts`) e `Money` aceita o CÓDIGO como string.
+    Como `Currency` herda de `str`, `Money(x, "GBP") == Money(x, "GBP")` e a
+    comparação com um membro do enum continua funcionando.
+    """
     BRL = "BRL"
     USD = "USD"
     EUR = "EUR"
+
+
+# Código ISO da moeda: membro do enum acima OU a string crua (ex.: "GBP").
+CurrencyCode = Union[Currency, str]
 
 class MoneyError(Exception):
     pass
 
 class Money:
     def __init__(
-        self, 
-        amount: Union[Decimal, str, int], 
-        currency: Currency = Currency.BRL,
+        self,
+        amount: Union[Decimal, str, int],
+        currency: CurrencyCode = Currency.BRL,
         allow_negative: bool = False
     ):
         if isinstance(amount, float):
@@ -80,7 +91,7 @@ class Money:
             for i, cents in enumerate(floors)
         ]
 
-    def convert(self, target_currency: Currency, rate: Decimal) -> "Money":
+    def convert(self, target_currency: CurrencyCode, rate: Decimal) -> "Money":
         """
         Converts the current amount to a target currency using a provided rate.
         rate: The multiplier to get from current currency to target currency.

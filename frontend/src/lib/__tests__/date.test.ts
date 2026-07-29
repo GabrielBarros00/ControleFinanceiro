@@ -5,6 +5,7 @@ import {
   currentMonthLocal,
   firstOfCurrentMonth,
   parseApiDate,
+  parseApiDay,
   shiftMonth,
   todayLocalISO,
   toLocalISODate,
@@ -67,6 +68,27 @@ describe('parseApiDate', () => {
   it('aceita Date direto', () => {
     const d = new Date(2026, 6, 10);
     expect(parseApiDate(d)).toBe(d);
+  });
+});
+
+describe('parseApiDay', () => {
+  // Regressão: fechamento/vencimento da fatura são DIAS de calendário que a API
+  // serializa como meia-noite sem offset. Lidos como UTC, viravam 21h do dia
+  // anterior em Brasília — o cartão que fecha dia 28 exibia "27/08".
+  it('não retrocede um dia em fuso negativo', () => {
+    expect(toLocalISODate(parseApiDay('2026-08-28T00:00:00'))).toBe('2026-08-28');
+    expect(parseApiDay('2026-08-28T00:00:00').toLocaleDateString('pt-BR')).toBe('28/08/2026');
+  });
+
+  it('aceita data pura e Date', () => {
+    expect(toLocalISODate(parseApiDay('2026-09-07'))).toBe('2026-09-07');
+    const d = new Date(2026, 8, 7);
+    expect(parseApiDay(d)).toBe(d);
+  });
+
+  it('difere de parseApiDate justamente na meia-noite', () => {
+    expect(toLocalISODate(parseApiDate('2026-08-28T00:00:00'))).toBe('2026-08-27');
+    expect(toLocalISODate(parseApiDay('2026-08-28T00:00:00'))).toBe('2026-08-28');
   });
 });
 

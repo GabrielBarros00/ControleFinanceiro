@@ -4,6 +4,8 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { MoneyInput } from "@/components/ui/MoneyInput";
 import { useAuth } from '@/hooks/use-auth';
+import { useBaseCurrency } from '@/hooks/use-base-currency';
+import { currencySymbol } from '@/lib/money';
 import { apiClient } from '@/api/client';
 import { useUIStore } from '@/stores';
 import { toast } from '@/stores/toast';
@@ -12,6 +14,7 @@ import { Wallet, CreditCard, Sparkles, ChevronRight, ArrowLeft, Calendar } from 
 export function OnboardingModal() {
   const { user } = useAuth();
   const { currentWorkspaceId } = useUIStore();
+  const baseCurrency = useBaseCurrency();
   const [isOpen, setIsOpen] = React.useState(false);
   const [step, setStep] = React.useState(1);
   const [loading, setLoading] = React.useState(false);
@@ -90,11 +93,12 @@ export function OnboardingModal() {
               <div className="space-y-4 pt-2">
                 <div className="space-y-2">
                   <Label htmlFor="salary">Salário / Renda Líquida</Label>
-                  <MoneyInput 
-                    id="salary" 
-                    placeholder="0,00" 
+                  <MoneyInput
+                    id="salary"
+                    placeholder="0,00"
                     value={salary}
                     onChange={(val: number) => setSalary(val)}
+                    prefix={currencySymbol(baseCurrency)}
                     className="h-12 text-lg font-bold"
                   />
                 </div>
@@ -129,10 +133,11 @@ export function OnboardingModal() {
                    <div className="grid grid-cols-2 gap-4">
                      <div className="space-y-2">
                        <Label>Limite Total</Label>
-                       <MoneyInput 
-                        placeholder="0,00" 
-                        value={cardLimit} 
-                        onChange={(val: number) => setCardLimit(val)} 
+                       <MoneyInput
+                        placeholder="0,00"
+                        value={cardLimit}
+                        onChange={(val: number) => setCardLimit(val)}
+                        prefix={currencySymbol(baseCurrency)}
                        />
                      </div>
                      <div className="space-y-2">

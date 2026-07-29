@@ -29,6 +29,7 @@ import {
   type RecurrenceValue,
 } from "@/lib/recurrence";
 import { formatCurrency, currencySymbol } from '@/lib/money';
+import { useBaseCurrency } from '@/hooks/use-base-currency';
 import { CurrencyCombobox } from '@/components/dashboard/transaction-form/CurrencyCombobox';
 import { getApiErrorMessage } from '@/lib/api-error';
 import { toast } from '@/stores/toast';
@@ -42,6 +43,7 @@ import { currentMonthLocal, parseApiDate, todayLocalISO } from '@/lib/date';
 export function IncomePage() {
   const [month, setMonth] = React.useState(currentMonthLocal);
   const { incomes, isLoading, create, update, remove } = useIncome(month);
+  const baseCurrency = useBaseCurrency();
   const {
     recurringIncomes,
     isLoading: loadingRecurring,
@@ -61,7 +63,10 @@ export function IncomePage() {
   const [title, setTitle] = React.useState('');
   const [amount, setAmount] = React.useState(0);
   const [receivedAt, setReceivedAt] = React.useState(todayLocalISO);
-  const [currency, setCurrency] = React.useState('BRL');
+  // Moeda-base do workspace, não 'BRL' fixo: num workspace em USD o default
+  // fazia o backend tratar toda renda comum como ESTRANGEIRA (e converter
+  // com taxa 1). `useState(fn)` porque o valor vem de hook, não de literal.
+  const [currency, setCurrency] = React.useState(baseCurrency);
   const [recurrence, setRecurrence] = React.useState<RecurrenceValue>(defaultRecurrenceValue);
   // Só usado quando a data de início é retroativa (ver MaterializeScopeField)
   const [materialize, setMaterialize] = React.useState<MaterializeScope>('current');
@@ -77,7 +82,7 @@ export function IncomePage() {
     setTitle('');
     setAmount(0);
     setReceivedAt(todayLocalISO());
-    setCurrency('BRL');
+    setCurrency(baseCurrency);
     setRecurrence(defaultRecurrenceValue());
     setIsActive(true);
     setMaterialize('current');
@@ -98,7 +103,7 @@ export function IncomePage() {
     setTitle(income.title);
     // Estrangeira: edita o valor/moeda ORIGINAIS (o backend re-converte no save)
     setAmount(income.original_amount ? parseFloat(income.original_amount) : parseFloat(income.amount));
-    setCurrency(income.original_currency ?? income.currency ?? 'BRL');
+    setCurrency(income.original_currency ?? income.currency ?? baseCurrency);
     setReceivedAt(income.received_at.slice(0, 10));
     setDialogOpen(true);
   };
@@ -109,7 +114,7 @@ export function IncomePage() {
     resetForm();
     setTitle(item.title);
     setAmount(parseFloat(item.base_amount));
-    setCurrency(item.currency ?? 'BRL');
+    setCurrency(item.currency ?? baseCurrency);
     setRecurrence(recurrenceFromItem(item));
     setIsActive(item.is_active);
     setDialogOpen(true);
@@ -221,8 +226,8 @@ export function IncomePage() {
     <div className="space-y-6">
       <PageHeader
         title="Rendas"
-        subtitle={`Salários e entradas do mês — total ${formatCurrency(total)}`}
-        period={<PeriodPicker value={month} max={currentMonthLocal()} onChange={setMonth} />}
+        subtitle={`Salários e entradas do mês — total ${formatCurrency(total, baseCurrency)}`}
+        period={<PeriodPicker value={month} onChange={setMonth} />}
         action={
           <div className="flex items-center gap-2">
             <Button variant="outline" onClick={handleGenerate} disabled={isGenerating} className="gap-2">

@@ -5,6 +5,7 @@ import { OnboardingModal } from './OnboardingModal';
 import { NewTransactionDialog } from '@/components/dashboard/NewTransactionDialog';
 import { TransactionDetailHost } from '@/components/dashboard/TransactionDetailHost';
 import { NotificationCenter } from '@/components/notifications/NotificationCenter';
+import { PendingInvitesModal } from '@/components/notifications/PendingInvitesModal';
 import { useWorkspaceEvents } from '@/hooks/use-workspace-events';
 import { useNewTxStore } from '@/stores';
 
@@ -33,6 +34,9 @@ export function AppShell({ children }: { children: ReactNode }) {
       </div>
       <BottomNav />
       <OnboardingModal />
+      {/* Depois do onboarding (que termina em reload), o convite pendente é a
+          primeira coisa a resolver — no sino ele passava batido. */}
+      <PendingInvitesModal />
       <NewTransactionDialog open={open} onOpenChange={setOpen} />
       <TransactionDetailHost />
     </div>

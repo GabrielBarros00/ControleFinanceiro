@@ -18,6 +18,17 @@ export interface CardStatement {
   is_current: boolean;
 }
 
+/** Fatura que pede atenção: a NÃO paga mais antiga com valor > 0 (ou null). */
+export interface CardNextDue {
+  statement_id: number;
+  month: string;
+  status: 'open' | 'closed' | 'paid' | 'overdue';
+  closing_date: string;
+  due_date: string;
+  amount: string;
+  is_overdue: boolean;
+}
+
 export interface CreditCardSummary {
   id: number;
   name: string;
@@ -27,6 +38,7 @@ export interface CreditCardSummary {
   currency: string;
   committed_amount: string;
   available_limit: string;
+  next_due: CardNextDue | null;
 }
 
 export function useCreditCards() {

@@ -14,6 +14,8 @@ import { MoneyInput } from '@/components/ui/MoneyInput';
 import { AlertCircle, HandCoins } from 'lucide-react';
 import { getApiErrorMessage } from '@/lib/api-error';
 import { useSettlements } from '@/hooks/use-settlements';
+import { useBaseCurrency } from '@/hooks/use-base-currency';
+import { currencySymbol } from '@/lib/money';
 import type { Member } from '@/hooks/use-members';
 
 const selectClass =
@@ -37,6 +39,7 @@ interface SettlementDialogProps {
 // Registrar um acerto: from pagou amount para to (desconta do balanço)
 export function SettlementDialog({ open, onOpenChange, draft, members }: SettlementDialogProps) {
   const { create, isMutating } = useSettlements();
+  const baseCurrency = useBaseCurrency();
   const [fromId, setFromId] = React.useState('');
   const [toId, setToId] = React.useState('');
   const [amount, setAmount] = React.useState(0);
@@ -117,7 +120,7 @@ export function SettlementDialog({ open, onOpenChange, draft, members }: Settlem
 
           <div className="space-y-2">
             <Label htmlFor="settlement-amount" className="text-sm font-semibold">Valor</Label>
-            <MoneyInput id="settlement-amount" value={amount} onChange={setAmount} className="font-bold" />
+            <MoneyInput id="settlement-amount" value={amount} onChange={setAmount} prefix={currencySymbol(baseCurrency)} className="font-bold" />
           </div>
 
           <div className="space-y-2">

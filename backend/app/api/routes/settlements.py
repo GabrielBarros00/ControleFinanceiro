@@ -9,6 +9,7 @@ from app.schemas.common import DESCRIPTION_MAX, MAX_MONEY
 from sqlmodel import Session, select
 
 from app.db.session import get_session
+from app.domain.query_policy import workspace_base_currency
 from app.models.settlement import Settlement
 from app.models.workspace import WorkspaceMembership, WorkspaceRole, role_level
 from app.api.deps import get_workspace_membership, require_role
@@ -106,9 +107,12 @@ def create_settlement(
             detail=f"Não há dívida nessa direção para acertar ({escopo})",
         )
     if settlement_in.amount > debt["amount"]:
+        # Moeda do workspace, não "R$" fixo: num workspace em outra moeda a
+        # mensagem contradizia todos os valores exibidos na mesma tela.
+        moeda = workspace_base_currency(session, workspace_id)
         raise HTTPException(
             status_code=400,
-            detail=f"Valor excede a dívida {escopo} (R$ {debt['amount']})",
+            detail=f"Valor excede a dívida {escopo} ({moeda} {debt['amount']})",
         )
 
     db_settlement = Settlement(

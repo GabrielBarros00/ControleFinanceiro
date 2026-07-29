@@ -21,7 +21,14 @@ function monthLabel(month: string): string {
 interface PeriodPickerProps {
   value: string; // "YYYY-MM"
   onChange: (month: string) => void;
-  /** não permite avançar além deste mês (ex.: mês atual) */
+  /**
+   * Teto opcional de navegação. **Não use `max={mês atual}`**: uma compra em 12x
+   * cria 11 lançamentos em meses FUTUROS (cada parcela tem o seu
+   * `billing_month`), e travar no mês corrente os tornava inalcançáveis — sendo
+   * que "Dívidas do mês" e "Endividamento" navegam para frente sem limite e
+   * mostram exatamente essas parcelas. O mês futuro vazio é informação
+   * legítima; a parcela escondida não.
+   */
   max?: string;
   className?: string;
 }
