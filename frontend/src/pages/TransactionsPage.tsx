@@ -2,7 +2,8 @@ import * as React from 'react';
 import { Search, Plus, ChevronLeft, ChevronRight, Receipt, FilterX } from 'lucide-react';
 import { useTransactions, type TransactionFilters } from '@/hooks/use-transactions';
 import { useWorkspaceRole } from '@/hooks/use-workspace-role';
-import { useNewTxStore, useTxDetailStore } from '@/stores';
+import { useMonthParam } from '@/hooks/use-month-param';
+import { useNewTxStore, useTxDetailStore, useUIStore } from '@/stores';
 import { useConfirm } from '@/components/ui/confirm';
 import { toast } from '@/stores/toast';
 import { getApiErrorMessage } from '@/lib/api-error';
@@ -20,16 +21,17 @@ import { useBaseCurrency } from '@/hooks/use-base-currency';
 import { PAYMENT_METHOD_OPTIONS } from '@/lib/payment-methods';
 import { useCategories } from '@/hooks/use-categories';
 import { useTags } from '@/hooks/use-tags';
-import { currentMonthLocal } from '@/lib/date';
 
 
 const SEARCH_DEBOUNCE_MS = 300;
 
 export function TransactionsPage() {
-  const [filters, setFilters] = React.useState<TransactionFilters>({
+  // O mês mora na URL (sobrevive a reload/voltar e dá para compartilhar); o resto
+  // do filtro é estado de tela.
+  const [month, setMonth] = useMonthParam();
+  const [filters, setFilters] = React.useState<Omit<TransactionFilters, 'month'>>({
     page: 1,
     limit: 15,
-    month: currentMonthLocal(),
     search: '',
   });
   // O campo responde a cada tecla, mas a query só sai quando o usuário para de
@@ -44,7 +46,8 @@ export function TransactionsPage() {
   }, [searchInput]);
 
   const { transactions, total, totalAmount, totalPages, currentPage, isLoading, isError, remove } =
-    useTransactions(filters);
+    useTransactions({ ...filters, month });
+  const { currentWorkspaceId } = useUIStore();
   const { canWrite } = useWorkspaceRole();
   const baseCurrency = useBaseCurrency();
   const { categories } = useCategories();
@@ -53,8 +56,24 @@ export function TransactionsPage() {
   const openDetail = useTxDetailStore((s) => s.open);
   const confirm = useConfirm();
 
-  const patch = (p: Partial<TransactionFilters>) =>
+  const patch = (p: Partial<Omit<TransactionFilters, 'month'>>) =>
     setFilters((f) => ({ ...f, ...p, page: p.page ?? 1 }));
+
+  // Categoria e tag são IDs de UM workspace. Ao trocar de workspace eles não
+  // existem do outro lado: a lista voltava VAZIA e o select ficava com um rótulo
+  // que não correspondia a nada — parecia que o workspace novo não tinha
+  // lançamento nenhum. (O CardsPage já zerava o cartão selecionado por isso.)
+  React.useEffect(() => {
+    setSearchInput('');
+    setFilters((f) => ({
+      ...f,
+      page: 1,
+      search: '',
+      category_id: undefined,
+      payment_method: undefined,
+      tag_id: undefined,
+    }));
+  }, [currentWorkspaceId]);
 
   const handleDelete = async (id: number) => {
     const ok = await confirm({
@@ -92,7 +111,7 @@ export function TransactionsPage() {
         title="Lançamentos"
         subtitle="Tudo que entrou e saiu."
         period={
-          <PeriodPicker value={filters.month!} onChange={(m) => patch({ month: m })} />
+          <PeriodPicker value={month} onChange={setMonth} />
         }
         action={
           <Button onClick={() => setNewTxOpen(true)} className="gap-2">

@@ -452,6 +452,41 @@ def test_revoked_invite_cannot_be_accepted(team):
     res = client.post(f"/api/v1/invites/accept/{token}", headers=_headers(users["outsider"]))
     assert res.status_code == 404
 
+    # Revogar de novo é 409, não 200: nada mudou, e responder "ok" sugere ao
+    # admin que a ação teve efeito.
+    res = client.delete(
+        f"/api/v1/workspaces/{ws.id}/invites/{invite_id}",
+        headers=_headers(users["admin"]),
+    )
+    assert res.status_code == 409
+
+
+def test_revogar_convite_ja_aceito_e_recusado(team):
+    """Convite aceito não pode virar "revogado" retroativamente.
+
+    O membro continua dentro do workspace — reescrever o status só faz a trilha
+    de auditoria contar uma história que não aconteceu. Quem quer tirar o acesso
+    de alguém que já entrou remove o MEMBRO.
+    """
+    ws, users = team["ws"], team["users"]
+    res = client.post(
+        f"/api/v1/workspaces/{ws.id}/invites/link",
+        json={"role": "member", "expires_days": 7, "max_uses": 1},
+        headers=_headers(users["owner"]),
+    )
+    invite_id, token = res.json()["id"], res.json()["token"]
+
+    assert client.post(
+        f"/api/v1/invites/accept/{token}", headers=_headers(users["outsider"])
+    ).status_code == 200
+
+    res = client.delete(
+        f"/api/v1/workspaces/{ws.id}/invites/{invite_id}",
+        headers=_headers(users["admin"]),
+    )
+    assert res.status_code == 409
+    assert "remova o membro" in res.json()["error"]["message"]
+
 
 def test_revogar_convite_encerra_a_notificacao(team):
     """Revogar tem que apagar o aviso do app junto.

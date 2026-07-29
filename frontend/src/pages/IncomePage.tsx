@@ -37,11 +37,12 @@ import { useConfirm } from '@/components/ui/confirm';
 import { PageHeader } from '@/components/layout/PageHeader';
 import { PeriodPicker } from '@/components/layout/PeriodPicker';
 import { MoneyText } from '@/components/money/MoneyText';
-import { currentMonthLocal, parseApiDate, todayLocalISO } from '@/lib/date';
+import { parseApiDate, todayLocalISO } from '@/lib/date';
+import { useMonthParam } from '@/hooks/use-month-param';
 
 
 export function IncomePage() {
-  const [month, setMonth] = React.useState(currentMonthLocal);
+  const [month, setMonth] = useMonthParam();
   const { incomes, isLoading, create, update, remove } = useIncome(month);
   const baseCurrency = useBaseCurrency();
   const {

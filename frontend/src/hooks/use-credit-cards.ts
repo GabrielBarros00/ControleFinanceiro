@@ -41,6 +41,43 @@ export interface CreditCardSummary {
   next_due: CardNextDue | null;
 }
 
+/** Destino de uma compra: em qual fatura ela cai (derivado no servidor). */
+export interface StatementTarget {
+  month: string;
+  closing_date: string;
+  due_date: string;
+  /** false = a fatura ainda não existe; nasce no primeiro lançamento. */
+  exists: boolean;
+  /** true = rolou para frente porque a fatura do mês da compra já estava fechada. */
+  rolled_forward: boolean;
+}
+
+/**
+ * Em qual fatura a compra vai cair, perguntando ao SERVIDOR (ADR 0002: o cliente
+ * nunca escolhe a fatura). A regra tem duas partes que ninguém adivinha olhando o
+ * formulário — a partir do dia de fechamento a compra vai para o mês seguinte, e
+ * se aquela fatura já estiver fechada ela rola para frente — e o usuário só
+ * descobria o resultado depois de salvar.
+ *
+ * Reimplementar a regra aqui seria uma segunda cópia dela, que divergiria na
+ * primeira mudança; a rota é só leitura e não cria fatura nenhuma.
+ */
+export function useStatementTarget(cardId?: number | null, date?: string | null) {
+  const { currentWorkspaceId } = useUIStore();
+  const query = useQuery({
+    queryKey: ['statement-target', currentWorkspaceId, cardId, date],
+    queryFn: async (): Promise<StatementTarget> => {
+      const response = await apiClient.get(
+        `/workspaces/${currentWorkspaceId}/credit-cards/${cardId}/statement-for`,
+        { params: { on: date } },
+      );
+      return response.data;
+    },
+    enabled: !!currentWorkspaceId && cardId != null && !!date,
+  });
+  return { target: query.data ?? null, isLoading: query.isLoading };
+}
+
 export function useCreditCards() {
   const queryClient = useQueryClient();
   const { currentWorkspaceId } = useUIStore();

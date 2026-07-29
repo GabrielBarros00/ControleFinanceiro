@@ -63,6 +63,35 @@ def test_pagar_parcela_ja_paga_falha(db_session, setup_data, override_get_sessio
     assert len(txs) == 1
 
 
+def test_pagar_parcela_de_financiamento_simulado_e_recusado(
+    db_session, setup_data, override_get_session
+):
+    """Simulação é plano, não dívida contratada.
+
+    Pagar parcela de um financiamento `simulated` criava DESPESA REAL a partir de
+    um cenário hipotético — e como o painel de Endividamento filtra
+    `status == active`, o gasto nascia fora da única tela que o explicaria.
+    """
+    from app.models.financing import Financing, FinancingStatus
+
+    ws, headers = setup_data["ws1"], setup_data["headers1"]
+    fin_id = _create_financing(ws.id, headers).json()["id"]
+
+    financiamento = db_session.get(Financing, fin_id)
+    financiamento.status = FinancingStatus.simulated
+    db_session.add(financiamento)
+    db_session.commit()
+
+    resp = client.post(
+        f"/api/v1/workspaces/{ws.id}/financing/{fin_id}/installments/1/pay", headers=headers
+    )
+    assert resp.status_code == 409
+    assert "não está ativo" in resp.json()["error"]["message"]
+    # E nenhuma despesa foi criada
+    txs = db_session.exec(select(Transaction).where(Transaction.workspace_id == ws.id)).all()
+    assert txs == []
+
+
 def test_estorno_encontra_a_despesa_mesmo_apos_renomear(db_session, setup_data, override_get_session):
     """O estorno vincula por ID, não pelo título do financiamento.
 

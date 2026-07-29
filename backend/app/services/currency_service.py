@@ -5,6 +5,7 @@ from typing import Dict, Optional
 import structlog
 
 from app.core.config import settings
+from app.domain.query_policy import InvalidCurrencyCode, normalize_currency_code  # noqa: F401
 
 logger = structlog.get_logger()
 
@@ -21,10 +22,10 @@ class ExchangeRateUnavailable(Exception):
 
 class CurrencyService:
     """
-    Service to handle currency conversion using official rates from the 
+    Service to handle currency conversion using official rates from the
     Brazilian Central Bank (BCB) Olinda API.
     """
-    
+
     # Official BCB Olinda PTAX API
     BASE_URL = "https://olinda.bcb.gov.br/olinda/servico/PTAX/versao/v1/odata"
 
@@ -46,9 +47,12 @@ class CurrencyService:
     ) -> tuple:
         """SÍNCRONA (fluxo de criação/edição). Devolve **(taxa, fonte)**: fonte é
         `'ptax'` (oficial, majores→BRL, bate com o cartão), `'market'`
-        (referência fawazahmed0, 200+ moedas) ou `'base'` (mesma moeda)."""
-        from_code = str(from_code).upper()
-        to_code = str(to_code).upper()
+        (referência fawazahmed0, 200+ moedas) ou `'base'` (mesma moeda).
+
+        Levanta `InvalidCurrencyCode` ANTES de qualquer I/O: os códigos entram na
+        URL das fontes externas."""
+        from_code = normalize_currency_code(from_code)
+        to_code = normalize_currency_code(to_code)
         if from_code == to_code:
             return Decimal("1.0"), "base"
         if target_date is None:

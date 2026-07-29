@@ -1,4 +1,3 @@
-import * as React from 'react';
 import { Link } from 'react-router-dom';
 import {
   Card, CardContent, CardDescription, CardHeader, CardTitle,
@@ -15,6 +14,7 @@ import { useAuth } from '@/hooks/use-auth';
 import { formatMoney } from '@/lib/money';
 import { useBaseCurrency } from '@/hooks/use-base-currency';
 import { currentMonthLocal, shiftMonth } from '@/lib/date';
+import { useMonthParam } from '@/hooks/use-month-param';
 import {
   ChevronLeft, ChevronRight, RefreshCcw, Loader2, CalendarDays,
   Landmark, CreditCard, Users, ArrowRight,
@@ -33,7 +33,7 @@ function formatDay(iso: string | null) {
 }
 
 export function EndividamentoPage() {
-  const [month, setMonth] = React.useState(currentMonthLocal);
+  const [month, setMonth] = useMonthParam();
   const { overview, isLoading, isError, refetch } = useLiabilities(month);
   const { members } = useMembers();
   const { user } = useAuth();
@@ -127,7 +127,7 @@ export function EndividamentoPage() {
                 <CardDescription>Parcelas de financiamento e faturas com vencimento no mês.</CardDescription>
               </div>
               <div className="flex items-center justify-between rounded-xl border border-border bg-accent/30 p-2">
-                <Button variant="ghost" size="icon" aria-label="Mês anterior" onClick={() => setMonth((m) => shiftMonth(m, -1))}>
+                <Button variant="ghost" size="icon" aria-label="Mês anterior" onClick={() => setMonth(shiftMonth(month, -1))}>
                   <ChevronLeft className="h-4 w-4" />
                 </Button>
                 <div className="flex flex-col items-center">
@@ -142,7 +142,7 @@ export function EndividamentoPage() {
                     </button>
                   )}
                 </div>
-                <Button variant="ghost" size="icon" aria-label="Próximo mês" onClick={() => setMonth((m) => shiftMonth(m, 1))}>
+                <Button variant="ghost" size="icon" aria-label="Próximo mês" onClick={() => setMonth(shiftMonth(month, 1))}>
                   <ChevronRight className="h-4 w-4" />
                 </Button>
               </div>

@@ -20,7 +20,7 @@ from app.services.recurring_service import (
 )
 from pydantic import BaseModel, Field
 
-from app.schemas.common import DESCRIPTION_MAX, MAX_MONEY, TITLE_MAX
+from app.schemas.common import DESCRIPTION_MAX, MAX_MONEY, OptionalCurrencyCode, TITLE_MAX
 from decimal import Decimal
 
 router = APIRouter(prefix="/workspaces/{workspace_id}/recurring", tags=["recurring"])
@@ -44,7 +44,7 @@ class RecurringCreate(BaseModel):
     month_of_year: Optional[int] = Field(default=None, ge=1, le=12)
     # Snapshot (ADR 0012): materializa despesa completa em vez de nua
     # None = "não informada" → a rota resolve para a moeda-base do workspace
-    currency: Optional[str] = None
+    currency: OptionalCurrencyCode = None
     payment_method: Optional[PaymentMethod] = None
     credit_card_id: Optional[int] = None
     category_id: Optional[int] = None
@@ -63,7 +63,7 @@ class RecurringUpdate(BaseModel):
     day_of_week: Optional[int] = Field(default=None, ge=0, le=6)
     month_of_year: Optional[int] = Field(default=None, ge=1, le=12)
     is_active: Optional[bool] = None
-    currency: Optional[str] = None
+    currency: OptionalCurrencyCode = None
     payment_method: Optional[PaymentMethod] = None
     credit_card_id: Optional[int] = None
     category_id: Optional[int] = None

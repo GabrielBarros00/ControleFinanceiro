@@ -32,10 +32,15 @@ Listagens paginadas (ex.: transações) aceitam `page` e `limit` e retornam:
 lado da contagem, e as duas precisam falar da mesma amostra.
 
 ### Rate limiting
-Endpoints sensíveis de auth (`/auth/login`, `/auth/register`, `/auth/forgot-password`) têm limite de **5 requisições/min por IP** → `429` ao exceder.
+Endpoints sensíveis de auth (`/auth/login`, `/auth/register`, `/auth/forgot-password`, `/auth/reset-password`) têm **dois baldes**, e estourar qualquer um devolve `429`:
+
+- **5 requisições/min por IP + rota** — o balde geral;
+- **10 tentativas/min por CONTA alvo** (login e forgot-password) — o balde por IP sozinho é contornável: o uvicorn roda com `--forwarded-allow-ips`, então quem alcança o backend diretamente forja `X-Forwarded-For` e ganha um balde novo a cada valor inventado. Amarrado à conta, o custo do ataque deixa de depender de quantos IPs o atacante consegue simular.
 
 ### Datas e dinheiro
 Datas em ISO-8601 (UTC). Valores monetários como **string decimal** (ex.: `"90.00"`), nunca float. Cada workspace tem uma `base_currency` (BRL por padrão, trocável em Configurações). Lançamento em moeda diferente dela é **convertido para a moeda-base na entrada** — PTAX oficial do dia para as majores contra o real (AUD/CAD/CHF/DKK/EUR/GBP/JPY/NOK/SEK/USD), senão taxa de mercado (referência); + **IOF 3,5%** em compra no cartão. Quando a base não é BRL, a taxa é a **cruzada** `(from→BRL)/(base→BRL)` e a fonte vira `market` (a PTAX só é oficial contra o real) — ver [ADR 0015](adr/0015-conversao-na-entrada-e-taxa-cruzada.md). O original fica guardado (`original_amount`, `original_currency`, `exchange_rate`, `iof_rate`, `rate_source` = `ptax`|`market`). Recorrência estrangeira re-converte a cada mês, com a taxa daquele dia. Taxas históricas ficam num store local (`GET /{ws}/analytics/exchange-rate` devolve `{rate, source}`; sem `to_currency`, o alvo é a moeda-base do workspace).
+
+Todo campo de moeda é validado como **código ISO-4217 alfabético de 3 letras** e normalizado para caixa alta na borda: código fora do formato é `422` no corpo (`currency`) e `400` na query (`from_currency`/`to_currency`). Não é preciosismo — o código entra na URL da fonte de câmbio, e um código inventado seria persistido e sumiria de *todas* as agregações (que filtram `currency == base_currency`) sem nenhum aviso.
 
 ## Endpoints por recurso
 
@@ -51,7 +56,7 @@ Base: `/api/v1`. `{ws}` = `workspaces/{workspace_id}`.
 | **Transações** | `/{ws}/transactions` | `GET` (filtros: mês, busca, categoria, método, tag), `POST`, `PUT`, `DELETE`; `POST /preview` (dry-run da divisão); `POST /bulk`; compra parcelada: `GET/PUT/DELETE /{id}/installment-group` (editar/excluir o grupo inteiro) + `POST /{id}/installment-group/cancel` |
 | **Anexos** | `/{ws}/transactions/{id}/attachments`, `/{ws}/attachments/{id}` | upload (magic bytes + hash), listar, download, excluir. O conteúdo fica fora do banco (ADR 0007); `404` no download significa objeto ausente no armazenamento, não anexo inexistente |
 | **Contas/carteiras** | `/{ws}/payment-accounts` | `GET/POST/PUT/DELETE` |
-| **Cartões e faturas** | `/{ws}/credit-cards` | CRUD do cartão; `POST /{id}/statements/{sid}/close\|pay\|reopen` |
+| **Cartões e faturas** | `/{ws}/credit-cards` | CRUD do cartão (o `DELETE` devolve `409` se houver fatura em aberto — senão a dívida ficaria sem tela por onde ser quitada); `GET /{id}/statement-for?on=YYYY-MM-DD` (em qual fatura cairia uma compra nessa data — só leitura, não cria fatura); `POST /{id}/statements/{sid}/close\|pay\|reopen` |
 | **Categorias** | `/{ws}/categories` | `GET/POST/PUT/DELETE` |
 | **Tags** | `/{ws}/tags` | `GET/POST/PUT/DELETE` (nome reativável) |
 | **Renda** | `/{ws}/income` | `GET` (filtro `month=YYYY-MM`, por competência), `POST/PUT/DELETE` |

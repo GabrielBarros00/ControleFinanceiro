@@ -214,3 +214,58 @@ def test_forecast_uses_frozen_statement_total_after_close(db_session: Session, s
         assert projection["card_statements_pending"] == Decimal("200.00")
         # E bate com o comprometido do cartão (mesma definição)
         assert CreditCardService.card_committed(db_session, card) == Decimal("200.00")
+
+
+def test_forecast_ignora_fatura_de_cartao_excluido(db_session: Session, seed_ws):
+    """Cartão excluído sai dos DOIS somatórios de dívida, não de um só.
+
+    A previsão juntava as faturas por `join(CreditCard)` sem olhar `deleted_at`,
+    enquanto o Endividamento (`LiabilityService._cards`) filtrava. As duas telas
+    mostravam dívidas diferentes para o mesmo mês — e, como fechar/pagar exigem
+    cartão vivo, não havia como reconciliar. Hoje o delete é bloqueado com fatura
+    em aberto (rota), mas o filtro precisa valer também para os cartões já
+    excluídos antes desta regra existir.
+    """
+    workspace_id = seed_ws["ws"].id
+    target_month = date(2026, 5, 1)
+
+    with patch("app.services.forecast_service.date") as mock_date:
+        mock_date.today.return_value = date(2026, 5, 6)
+        mock_date.side_effect = lambda *args, **kwargs: date(*args, **kwargs)
+
+        card = CreditCard(
+            name="Antigo", limit=Decimal("5000.00"),
+            closing_day=1, due_day=10, workspace_id=workspace_id,
+        )
+        db_session.add(card)
+        db_session.flush()
+
+        stmt = CardStatement(
+            card_id=card.id, month="2026-05",
+            closing_date=datetime(2026, 5, 1),
+            due_date=datetime(2026, 5, 10),
+            status=StatementStatus.open,
+        )
+        db_session.add(stmt)
+        db_session.flush()
+
+        db_session.add(Transaction(
+            title="Compra", total_amount=Decimal("200.00"),
+            transaction_date=datetime(2026, 4, 20), workspace_id=workspace_id,
+            statement_id=stmt.id, status=TransactionStatus.confirmed, currency="BRL",
+        ))
+        db_session.commit()
+
+        antes = ForecastService.get_monthly_projection(db_session, workspace_id, target_month)
+        assert antes["card_statements_pending"] == Decimal("200.00")
+
+        card.deleted_at = datetime(2026, 5, 5)
+        db_session.add(card)
+        db_session.commit()
+
+        depois = ForecastService.get_monthly_projection(db_session, workspace_id, target_month)
+        assert depois["card_statements_pending"] == Decimal("0.00")
+        # O outro eixo (Endividamento) já ignorava — agora os dois concordam
+        from app.services.liability_service import LiabilityService
+        panorama = LiabilityService.get_overview(db_session, workspace_id, "2026-05")
+        assert panorama["month_due"]["cards_due"] == Decimal("0.00")

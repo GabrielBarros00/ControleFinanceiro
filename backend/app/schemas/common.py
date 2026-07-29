@@ -2,6 +2,8 @@ from decimal import Decimal
 from typing import Annotated, Any, Dict, Optional
 from pydantic import BaseModel, BeforeValidator, EmailStr, Field
 
+from app.domain.query_policy import normalize_currency_code
+
 # Teto de qualquer valor monetário de ENTRADA. As colunas são NUMERIC(20,2), e
 # nenhum schema impunha limite: um POST com 1e30 virava
 # `DataError: numeric field overflow` → 500 no Postgres, enquanto o SQLite de dev
@@ -35,6 +37,26 @@ NormalizedEmail = Annotated[EmailStr, BeforeValidator(normalize_email)]
 # e-mail deve receber "email ou senha incorretos", não um 422 que confirma que
 # o formato existe).
 NormalizedEmailStr = Annotated[str, BeforeValidator(normalize_email)]
+
+
+def _normalize_optional_currency(value: Any) -> Any:
+    """`None`/vazio segue como None (a rota resolve para a moeda-base)."""
+    if value is None or (isinstance(value, str) and not value.strip()):
+        return None
+    return normalize_currency_code(value)
+
+
+# Moeda validada E normalizada na BORDA. Um código inventado agora é 422 com
+# mensagem, não um registro persistido que some calado de todas as agregações
+# (que filtram `currency == base_currency`). Mesmo princípio do MAX_MONEY acima:
+# erro de cliente é 422, e o comportamento não pode depender do banco nem da
+# disponibilidade da fonte de câmbio.
+CurrencyCode = Annotated[str, BeforeValidator(normalize_currency_code)]
+# Para campos opcionais: None = "não informada" → a rota resolve com
+# `resolve_currency` (moeda-base do workspace).
+OptionalCurrencyCode = Annotated[
+    Optional[str], BeforeValidator(_normalize_optional_currency)
+]
 
 class ErrorDetail(BaseModel):
     code: str = Field(..., description="Código estável de erro para tratamento lógico.")

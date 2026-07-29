@@ -1,8 +1,8 @@
 from typing import Optional
 from datetime import datetime
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field
 
-from app.schemas.common import NormalizedEmail
+from app.schemas.common import NormalizedEmail, OptionalCurrencyCode
 
 from app.models.workspace import WorkspaceRole, InviteStatus
 
@@ -21,17 +21,9 @@ class WorkspaceUpdate(BaseModel):
     description: Optional[str] = Field(default=None, max_length=2000)
     # Moeda-base das agregações (ADR 0006). Existia no modelo e em toda consulta
     # desde a Onda 5, mas nenhuma rota permitia alterá-la — ficava BRL para sempre.
-    base_currency: Optional[str] = Field(default=None, min_length=3, max_length=3)
-
-    @field_validator("base_currency")
-    @classmethod
-    def _upper(cls, v: Optional[str]) -> Optional[str]:
-        if v is None:
-            return v
-        v = v.strip().upper()
-        if not v.isalpha():
-            raise ValueError("Moeda-base deve ser um código ISO de 3 letras (ex.: BRL, USD)")
-        return v
+    # Mesma validação de todo campo de moeda do app (`isalpha()` sozinho aceitava
+    # "ÁÁÁ", que viraria uma moeda-base impossível de casar com qualquer cotação).
+    base_currency: OptionalCurrencyCode = None
 
 
 class WorkspaceRead(WorkspaceBase):

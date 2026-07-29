@@ -10,7 +10,7 @@ from app.models.transaction import (
     PaymentMethod,
 )
 
-from app.schemas.common import DESCRIPTION_MAX, MAX_MONEY, TITLE_MAX  # noqa: F401
+from app.schemas.common import DESCRIPTION_MAX, MAX_MONEY, OptionalCurrencyCode, TITLE_MAX  # noqa: F401
 
 
 class TransactionPayerBase(BaseModel):
@@ -221,7 +221,7 @@ class TransactionCreate(TransactionBase):
     # None = "não informada" → a rota resolve para a moeda-base do workspace
     # (`resolve_currency`). Um default "BRL" aqui fazia um workspace em outra
     # moeda tratar toda despesa comum como estrangeira.
-    currency: Optional[str] = None
+    currency: OptionalCurrencyCode = None
     payers: List[TransactionPayerBase]
     splits: List[TransactionSplitBase] = []
     items: Optional[List[TransactionItemCreate]] = None
@@ -298,7 +298,7 @@ class TransactionUpdate(BaseModel):
     description: Optional[str] = Field(default=None, max_length=DESCRIPTION_MAX)
     total_amount: Optional[Decimal] = Field(default=None, gt=0, le=MAX_MONEY)
     # Moeda do lançamento na edição: estrangeira dispara reconversão para BRL
-    currency: Optional[str] = None
+    currency: OptionalCurrencyCode = None
     transaction_date: Optional[datetime] = None
     billing_month: Optional[str] = None
     status: Optional[TransactionStatus] = None

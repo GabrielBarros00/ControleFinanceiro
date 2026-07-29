@@ -1,3 +1,5 @@
+from decimal import Decimal
+
 import pytest
 from fastapi.testclient import TestClient
 from sqlmodel import Session
@@ -99,6 +101,60 @@ def test_estimates_crud_and_variants(analytics_setup, override_get_session):
     
     response = client.get(f"/api/v1/workspaces/{ws_id}/analytics/estimates?month=2026-06", headers=headers)
     assert len(response.json()) == 0
+
+def test_edicao_parcial_do_total_atualiza_a_fatia_da_categoria(
+    db_session: Session, analytics_setup, override_get_session
+):
+    """PUT parcial que muda só o total precisa levar o item de categoria junto.
+
+    O item é a fonte da distribuição por categoria (ReportService soma
+    TransactionItem.amount). Ele ficava com o valor ANTIGO, e o resíduo
+    `total − categorizado` virava uma fatia "Sem categoria" fantasma: o gráfico
+    fechava com o total e mentia na composição.
+    """
+    from app.models.category import Category
+
+    ws_id = analytics_setup["ws"].id
+    headers = analytics_setup["headers"]
+    user_id = analytics_setup["u"].id
+
+    categoria = Category(name="Mercado", workspace_id=ws_id)
+    db_session.add(categoria)
+    db_session.commit()
+    db_session.refresh(categoria)
+
+    criar = client.post(
+        f"/api/v1/workspaces/{ws_id}/transactions/",
+        json={
+            "title": "Compra do mês",
+            "total_amount": "100.00",
+            "transaction_date": "2026-05-10T12:00:00",
+            "payers": [{"user_id": user_id, "amount": "100.00"}],
+            "splits": [{"user_id": user_id, "split_method": "equal", "input_value": "100"}],
+            "items": [{"title": "Compra do mês", "amount": "100.00", "category_id": categoria.id}],
+        },
+        headers=headers,
+    )
+    assert criar.status_code == 200
+    tx_id = criar.json()["id"]
+
+    # Caminho PARCIAL: sem payers, só o total
+    editar = client.put(
+        f"/api/v1/workspaces/{ws_id}/transactions/{tx_id}",
+        json={"total_amount": "200.00"},
+        headers=headers,
+    )
+    assert editar.status_code == 200
+
+    resumo = client.get(
+        f"/api/v1/workspaces/{ws_id}/analytics/summary?month=2026-05", headers=headers
+    ).json()
+    assert Decimal(str(resumo["total_expenses"])) == Decimal("200.00")
+
+    por_categoria = {c["name"]: Decimal(str(c["value"])) for c in resumo["categories"]}
+    assert por_categoria == {"Mercado": Decimal("200.00")}
+    assert "Sem categoria" not in por_categoria
+
 
 def test_analytics_forbidden(db_session: Session, analytics_setup, override_get_session):
     # New user not in workspace

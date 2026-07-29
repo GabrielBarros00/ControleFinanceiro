@@ -5,7 +5,7 @@ from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 
-from app.schemas.common import DESCRIPTION_MAX, MAX_MONEY, NAME_MAX, TITLE_MAX
+from app.schemas.common import DESCRIPTION_MAX, MAX_MONEY, NAME_MAX, OptionalCurrencyCode, TITLE_MAX
 from sqlmodel import Session, select
 
 from app.db.session import get_session
@@ -30,7 +30,7 @@ class RecurringIncomeCreate(BaseModel):
     description: Optional[str] = Field(default=None, max_length=DESCRIPTION_MAX)
     base_amount: Decimal = Field(gt=0, le=MAX_MONEY)
     # None = "não informada" → a rota resolve para a moeda-base do workspace
-    currency: Optional[str] = None
+    currency: OptionalCurrencyCode = None
     category: Optional[str] = Field(default=None, max_length=NAME_MAX)
     frequency: RecurrenceFrequency = RecurrenceFrequency.monthly
     interval: int = Field(default=1, ge=1)
@@ -45,7 +45,7 @@ class RecurringIncomeUpdate(BaseModel):
     title: Optional[str] = Field(default=None, min_length=1, max_length=TITLE_MAX)
     description: Optional[str] = Field(default=None, max_length=DESCRIPTION_MAX)
     base_amount: Optional[Decimal] = Field(default=None, gt=0, le=MAX_MONEY)
-    currency: Optional[str] = None
+    currency: OptionalCurrencyCode = None
     category: Optional[str] = Field(default=None, max_length=NAME_MAX)
     frequency: Optional[RecurrenceFrequency] = None
     interval: Optional[int] = Field(default=None, ge=1)

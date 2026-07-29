@@ -46,7 +46,17 @@ export const handlers = [
     return HttpResponse.json([
       { id: 1, name: 'Main Workspace', description: 'Test' }
     ]);
-  })
+  }),
+  // Coleções auxiliares que várias telas carregam por baixo dos panos. Sem
+  // handler, `onUnhandledRequest: 'error'` cospe um erro do MSW no meio da saída
+  // dos testes a cada rodada — ruído constante em que uma requisição REALMENTE
+  // inesperada passaria despercebida.
+  http.get(`${BASE_URL}/workspaces/:id/payment-accounts`, () => HttpResponse.json([])),
+  http.get(`${BASE_URL}/workspaces/:id/transactions/`, () =>
+    HttpResponse.json({
+      items: [], total: 0, total_amount: '0.00', page: 1, limit: 10, total_pages: 1,
+    })
+  ),
 ];
 
 export const server = setupServer(...handlers);

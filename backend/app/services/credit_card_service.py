@@ -46,17 +46,22 @@ class StatementStateError(ValueError):
 
 class CreditCardService:
     @staticmethod
-    def get_or_create_statement(
+    def resolve_statement_target(
         db: Session,
         card: CreditCard,
         transaction_date: datetime,
-    ) -> CardStatement:
-        """Fatura correta para uma transação (ADR 0002).
+    ) -> tuple[int, int, Optional[CardStatement]]:
+        """Para qual fatura esta compra vai — SEM criar nada (ADR 0002).
 
-        A partir do dia de fechamento, roteia para a fatura do mês certo; se essa
-        fatura já estiver FECHADA/PAGA (imutável), rola para frente até achar uma
-        aberta — cobrança que chega depois do fechamento cai na próxima fatura
-        (ADR 0011), nunca reabre um mês já faturado.
+        Devolve `(ano, mês, fatura_existente | None)` aplicando as duas regras que
+        o usuário não tem como adivinhar: a partir do dia de fechamento a compra
+        pertence à fatura do mês SEGUINTE; e se essa fatura já estiver
+        fechada/paga (imutável), rola para frente até achar uma aberta.
+
+        Existe separado do `get_or_create_statement` para que a UI possa ANUNCIAR
+        o destino enquanto o usuário preenche o formulário sem, com isso, criar
+        faturas vazias a cada tecla. As duas rotinas compartilham esta função —
+        duas cópias da regra de roteamento divergiriam na primeira mudança.
         """
         t_date = transaction_date.date()
 
@@ -67,32 +72,74 @@ class CreditCardService:
             year, month = t_date.year, t_date.month
 
         while True:
-            statement_month = f"{year}-{month:02d}"
             statement = db.exec(
                 select(CardStatement)
                 .where(CardStatement.card_id == card.id)
-                .where(CardStatement.month == statement_month)
+                .where(CardStatement.month == f"{year}-{month:02d}")
             ).first()
 
-            if statement is None:
-                closing_dt, due_dt = _statement_dates(card, year, month)
-                statement = CardStatement(
-                    card_id=card.id,
-                    month=statement_month,
-                    closing_date=closing_dt,
-                    due_date=due_dt,
-                    status=StatementStatus.open,
-                )
-                db.add(statement)
-                # flush, NUNCA commit (ADR 0010): o chamador comanda a transação
-                db.flush()
-                return statement
-
-            if statement.status == StatementStatus.open:
-                return statement
+            if statement is None or statement.status == StatementStatus.open:
+                return year, month, statement
 
             # Fechada/paga é imutável: tenta o próximo mês
             year, month = _advance_month(year, month)
+
+    @staticmethod
+    def get_or_create_statement(
+        db: Session,
+        card: CreditCard,
+        transaction_date: datetime,
+    ) -> CardStatement:
+        """Fatura correta para uma transação (ADR 0002), criando-a se ainda não
+        existe. A regra de roteamento vive em `resolve_statement_target`."""
+        year, month, statement = CreditCardService.resolve_statement_target(
+            db, card, transaction_date
+        )
+        if statement is not None:
+            return statement
+
+        closing_dt, due_dt = _statement_dates(card, year, month)
+        statement = CardStatement(
+            card_id=card.id,
+            month=f"{year}-{month:02d}",
+            closing_date=closing_dt,
+            due_date=due_dt,
+            status=StatementStatus.open,
+        )
+        db.add(statement)
+        # flush, NUNCA commit (ADR 0010): o chamador comanda a transação
+        db.flush()
+        return statement
+
+    @staticmethod
+    def preview_statement_target(
+        db: Session,
+        card: CreditCard,
+        transaction_date: datetime,
+    ) -> dict:
+        """Destino da compra em formato de leitura, sem efeito colateral."""
+        year, month, statement = CreditCardService.resolve_statement_target(
+            db, card, transaction_date
+        )
+        closing_dt, due_dt = _statement_dates(card, year, month)
+
+        # Mês "natural" pelo ciclo (só a regra do dia de fechamento, sem rolagem).
+        # A diferença entre ele e o destino real é exatamente o caso que
+        # surpreende: a fatura daquele mês já estava fechada/paga.
+        t_date = transaction_date.date()
+        if t_date.day >= card.closing_day:
+            natural = _advance_month(t_date.year, t_date.month)
+        else:
+            natural = (t_date.year, t_date.month)
+
+        return {
+            "month": f"{year}-{month:02d}",
+            "closing_date": statement.closing_date if statement else closing_dt,
+            "due_date": statement.due_date if statement else due_dt,
+            # False = a fatura ainda não existe (nasce no primeiro lançamento)
+            "exists": statement is not None,
+            "rolled_forward": (year, month) != natural,
+        }
 
     @staticmethod
     def ensure_current_statement(db: Session, card: CreditCard, today: Optional[date] = None) -> CardStatement:

@@ -8,7 +8,11 @@ from app.domain.dates import InvalidMonth, parse_month
 from app.models.workspace import WorkspaceMembership, WorkspaceRole
 from app.models.estimate import MonthlyEstimate
 from app.schemas.estimate import MonthlyEstimateCreate, MonthlyEstimateRead
-from app.domain.query_policy import workspace_base_currency
+from app.domain.query_policy import (
+    InvalidCurrencyCode,
+    normalize_currency_code,
+    workspace_base_currency,
+)
 from app.services.currency_service import ExchangeRateUnavailable
 from app.services.exchange_rate_store import ExchangeRateStore
 from app.services.forecast_service import ForecastService
@@ -93,8 +97,22 @@ def get_exchange_rate(
     moeda a dica mostrava a conversão para um real que não é usado em lugar
     nenhum. Passa pelo `ExchangeRateStore` (mesma taxa cruzada que a criação do
     lançamento vai aplicar), então dica e valor gravado não divergem.
+
+    Os dois códigos são validados como ISO-3 ANTES de qualquer I/O: eles descem
+    até a URL da fonte de mercado (`.../v1/currencies/{codigo}.json`), então sem
+    validação um parâmetro de query escolheria o caminho de uma requisição que o
+    servidor faz para fora. `preview_base_currency_change` já validava; esta rota
+    tinha ficado para trás.
     """
-    target = to_currency or workspace_base_currency(session, workspace_id)
+    try:
+        from_currency = normalize_currency_code(from_currency)
+        target = (
+            normalize_currency_code(to_currency)
+            if to_currency
+            else workspace_base_currency(session, workspace_id)
+        )
+    except InvalidCurrencyCode as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
     try:
         rate, source = ExchangeRateStore.rate_between(
             session, from_currency, target, date.today()

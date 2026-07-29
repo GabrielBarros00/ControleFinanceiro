@@ -5,7 +5,7 @@ from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
-from app.schemas.common import DESCRIPTION_MAX, MAX_MONEY, TITLE_MAX
+from app.schemas.common import DESCRIPTION_MAX, MAX_MONEY, OptionalCurrencyCode, TITLE_MAX
 from sqlmodel import Session, select
 
 from app.api.deps import get_workspace_membership, require_role
@@ -44,7 +44,7 @@ class FinancingCreate(BaseModel):
     # num workspace em outra moeda, sumia do painel de Endividamento
     # (LiabilityService filtra `currency == base`) e a despesa gerada ao pagar a
     # parcela caía fora de dívidas, relatórios, previsão e fatura.
-    currency: Optional[str] = None
+    currency: OptionalCurrencyCode = None
 
 
 class EarlySettlementRequest(BaseModel):
@@ -209,6 +209,19 @@ def pay_installment(
 ):
     financing = _get_financing_or_404(session, workspace_id, financing_id)
     _check_ownership(membership, financing)
+    # Só financiamento ATIVO gera despesa. Um `simulated` é plano, não dívida
+    # contratada: pagar parcela dele criava gasto real a partir de uma simulação
+    # — e como o Endividamento filtra `status == active`, essa despesa nascia
+    # fora do painel que deveria explicá-la.
+    if financing.status != FinancingStatus.active:
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                f"Financiamento não está ativo (status: "
+                f"{getattr(financing.status, 'value', financing.status)}) — "
+                "não é possível pagar parcelas."
+            ),
+        )
     installment = session.exec(
         select(AmortizationInstallment).where(
             AmortizationInstallment.financing_id == financing.id,

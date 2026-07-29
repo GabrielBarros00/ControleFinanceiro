@@ -3,7 +3,7 @@ from datetime import datetime
 from decimal import Decimal
 from pydantic import BaseModel, Field
 
-from app.schemas.common import DESCRIPTION_MAX, MAX_MONEY, TITLE_MAX
+from app.schemas.common import DESCRIPTION_MAX, MAX_MONEY, OptionalCurrencyCode, TITLE_MAX
 
 class IncomeBase(BaseModel):
     title: str = Field(min_length=1, max_length=TITLE_MAX)
@@ -20,13 +20,13 @@ class IncomeBase(BaseModel):
 class IncomeCreate(IncomeBase):
     amount: Decimal = Field(gt=0, le=MAX_MONEY)
     # None = "não informada" → a rota resolve para a moeda-base do workspace
-    currency: Optional[str] = None
+    currency: OptionalCurrencyCode = None
 
 class IncomeUpdate(BaseModel):
     title: Optional[str] = Field(default=None, min_length=1, max_length=TITLE_MAX)
     description: Optional[str] = Field(default=None, max_length=DESCRIPTION_MAX)
     amount: Optional[Decimal] = Field(default=None, gt=0, le=MAX_MONEY)
-    currency: Optional[str] = None
+    currency: OptionalCurrencyCode = None
     received_at: Optional[datetime] = None
     category: Optional[str] = None
 

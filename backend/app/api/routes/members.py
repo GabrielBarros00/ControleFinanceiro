@@ -340,6 +340,19 @@ def revoke_invite(
     invite = session.get(WorkspaceInvite, invite_id)
     if not invite or invite.workspace_id != workspace_id:
         raise HTTPException(status_code=404, detail="Convite não encontrado")
+    # Só convite PENDENTE pode ser revogado. Sem esta guarda, revogar um convite
+    # já aceito reescrevia o histórico (a pessoa continua membro, mas a trilha
+    # passa a dizer que o convite foi revogado) e revogar um já revogado devolvia
+    # 200 como se algo tivesse acontecido. Mesma regra do `decline_invite` e do
+    # `_get_valid_invite`.
+    if invite.status != InviteStatus.pending:
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                f"Convite não está pendente (status: {getattr(invite.status, 'value', invite.status)}) "
+                "— para tirar o acesso de quem já entrou, remova o membro."
+            ),
+        )
     invite.status = InviteStatus.revoked
     session.add(invite)
     publish_event(session, workspace_id, "invite.revoked", "invite", invite.id, actor.user_id)

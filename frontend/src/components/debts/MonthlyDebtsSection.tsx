@@ -1,4 +1,3 @@
-import * as React from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Button } from "@/components/ui/button";
@@ -8,6 +7,7 @@ import { useBaseCurrency } from '@/hooks/use-base-currency';
 import { useTxDetailStore } from '@/stores';
 import type { SettlementDraft } from '@/components/debts/SettlementDialog';
 import { currentMonthLocal, shiftMonth } from '@/lib/date';
+import { useMonthParam } from '@/hooks/use-month-param';
 import { formatMoney } from '@/lib/money';
 
 interface MemberLike {
@@ -33,7 +33,7 @@ export function MonthlyDebtsSection({ members, currentUserId, canWrite, onSettle
   // todo endpoint agregado — a tela formatava com "R$" fixo no código.
   const baseCurrency = useBaseCurrency();
   const formatBRL = (value: number | string) => formatMoney(value, { currency: baseCurrency });
-  const [month, setMonth] = React.useState(currentMonthLocal);
+  const [month, setMonth] = useMonthParam();
   const { ledger, isLoading } = useMonthlyDebts(month);
   const openDetail = useTxDetailStore((s) => s.open);
 
@@ -58,7 +58,7 @@ export function MonthlyDebtsSection({ members, currentUserId, canWrite, onSettle
 
         {/* Navegador de mês */}
         <div className="flex items-center justify-between rounded-xl bg-accent/30 border border-border p-2">
-          <Button variant="ghost" size="icon" aria-label="Mês anterior" onClick={() => setMonth((m) => shiftMonth(m, -1))}>
+          <Button variant="ghost" size="icon" aria-label="Mês anterior" onClick={() => setMonth(shiftMonth(month, -1))}>
             <ChevronLeft className="h-4 w-4" />
           </Button>
           <div className="flex flex-col items-center">
@@ -73,7 +73,7 @@ export function MonthlyDebtsSection({ members, currentUserId, canWrite, onSettle
               </button>
             )}
           </div>
-          <Button variant="ghost" size="icon" aria-label="Próximo mês" onClick={() => setMonth((m) => shiftMonth(m, 1))}>
+          <Button variant="ghost" size="icon" aria-label="Próximo mês" onClick={() => setMonth(shiftMonth(month, 1))}>
             <ChevronRight className="h-4 w-4" />
           </Button>
         </div>

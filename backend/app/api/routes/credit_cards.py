@@ -5,13 +5,13 @@ from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
-from app.schemas.common import DESCRIPTION_MAX, MAX_MONEY, NAME_MAX
+from app.schemas.common import DESCRIPTION_MAX, MAX_MONEY, NAME_MAX, OptionalCurrencyCode
 from sqlmodel import Session, select
 
 from app.db.session import get_session
 from app.domain.query_policy import resolve_currency
 from app.models.workspace import WorkspaceMembership, WorkspaceRole
-from app.models.credit_card import CreditCard, CardStatement
+from app.models.credit_card import CreditCard, CardStatement, StatementStatus
 from app.models.payment_account import PaymentAccount
 from app.models.transaction import Transaction
 from app.api.deps import get_workspace_membership, require_role
@@ -28,7 +28,7 @@ class CreditCardCreate(BaseModel):
     closing_day: int = Field(ge=1, le=31)
     due_day: int = Field(ge=1, le=31)
     # None = "não informada" → a rota resolve para a moeda-base do workspace
-    currency: Optional[str] = None
+    currency: OptionalCurrencyCode = None
 
 
 class CreditCardUpdate(BaseModel):
@@ -162,11 +162,59 @@ def delete_credit_card(
     membership: WorkspaceMembership = Depends(require_role(WorkspaceRole.member))
 ):
     card = _get_card_or_404(session, workspace_id, card_id)
+
+    # Fatura em aberto trava a exclusão. O soft delete só escondia o cartão: as
+    # faturas não pagas continuavam existindo e ficavam INALCANÇÁVEIS (fechar/
+    # pagar/reabrir passam por _get_card_or_404, que recusa cartão excluído).
+    # Pior, a dívida sobrevivia só de um lado — a previsão somava a fatura e o
+    # Endividamento não —, e não havia tela por onde resolver. Quitar antes é a
+    # condição para o cartão sair sem deixar dívida órfã.
+    overview = CreditCardService.card_overview(session, card)
+    abertas = [
+        s for s in overview["statements"]
+        if s.status != StatementStatus.paid
+        and CreditCardService.effective_total(session, s) > 0
+    ]
+    if abertas:
+        meses = ", ".join(s.month for s in abertas[:3])
+        reticencias = "…" if len(abertas) > 3 else ""
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                f"Há {len(abertas)} fatura(s) em aberto neste cartão ({meses}{reticencias}). "
+                "Pague-as (ou reabra e zere) antes de excluir — senão a dívida ficaria "
+                "sem nenhuma tela por onde ser quitada."
+            ),
+        )
+
     card.deleted_at = datetime.now(UTC)
     session.add(card)
     publish_event(session, workspace_id, "credit_card.deleted", "credit_card", card.id, membership.user_id)
     session.commit()
     return {"status": "ok"}
+
+
+@router.get("/{card_id}/statement-for")
+def statement_for_date(
+    workspace_id: int,
+    card_id: int,
+    on: datetime,
+    session: Session = Depends(get_session),
+    membership: WorkspaceMembership = Depends(get_workspace_membership),
+):
+    """Em qual fatura cairia uma compra neste cartão nesta data (ADR 0002).
+
+    A fatura é derivada no SERVIDOR, e a regra não é óbvia: a partir do dia de
+    fechamento a compra vai para o mês seguinte, e se essa fatura já estiver
+    fechada/paga ela rola para frente. O formulário não mostrava nada disso — o
+    usuário só descobria depois de salvar, e "por que minha compra de hoje está
+    na fatura de setembro?" não tinha resposta na tela.
+
+    Somente LEITURA: não cria fatura (senão digitar no formulário criaria faturas
+    vazias). O `GET` não muda estado, então não precisa de papel de escrita.
+    """
+    card = _get_card_or_404(session, workspace_id, card_id)
+    return CreditCardService.preview_statement_target(session, card, on)
 
 
 @router.get("/{card_id}/statements")

@@ -10,6 +10,7 @@ from app.models.workspace import Workspace, WorkspaceMembership, WorkspaceRole
 from app.schemas.workspace import WorkspaceCreate, WorkspaceRead, WorkspaceUpdate
 from app.api.routes.auth import get_current_user
 from app.api.deps import get_workspace_membership, require_role
+from app.domain.query_policy import InvalidCurrencyCode, normalize_currency_code
 from app.services.base_currency_service import BaseCurrencyService, MissingRates
 from app.services.category_service import seed_default_categories
 from app.services.event_service import publish_event
@@ -191,9 +192,10 @@ def preview_base_currency_change(
     """Dry-run da troca de moeda-base: quantas linhas seriam reconvertidas e que
     cotações faltam. A UI usa isto para avisar ANTES de confirmar — a troca é
     uma reescrita de todo o histórico financeiro do workspace."""
-    to = to.strip().upper()
-    if len(to) != 3 or not to.isalpha():
-        raise HTTPException(status_code=400, detail="Moeda inválida: use um código ISO de 3 letras")
+    try:
+        to = normalize_currency_code(to)
+    except InvalidCurrencyCode as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
     report = BaseCurrencyService.plan_conversion(session, workspace_id, to)
     return report.as_dict()
 

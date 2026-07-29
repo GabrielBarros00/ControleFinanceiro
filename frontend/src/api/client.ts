@@ -1,5 +1,16 @@
 import axios from 'axios';
+import type { QueryClient } from '@tanstack/react-query';
 import { useAuthStore } from '@/stores';
+
+// O QueryClient é criado no App; o interceptor precisa dele para descartar o
+// cache quando a sessão morre de vez (mesma limpeza do logout explícito). Sem
+// isto, expirar a sessão deixava os dados do usuário em memória para a próxima
+// pessoa que entrasse no mesmo navegador.
+let queryClientRef: QueryClient | null = null;
+
+export function registerQueryClient(client: QueryClient): void {
+  queryClientRef = client;
+}
 
 export const baseURL = import.meta.env.VITE_API_URL || 'http://localhost:8000/api/v1';
 
@@ -46,6 +57,7 @@ apiClient.interceptors.response.use(
       } catch {
         // Sessão realmente expirada: o ProtectedRoute redireciona ao ver o store
         useAuthStore.getState().logout();
+        queryClientRef?.clear();
       }
     }
     return Promise.reject(error);

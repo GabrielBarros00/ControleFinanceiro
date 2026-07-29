@@ -16,7 +16,6 @@ Revises: b6d4f28a9c15
 Create Date: 2026-07-29
 """
 from alembic import op
-import sqlalchemy as sa
 
 revision = 'c1b7e0a4d386'
 down_revision = 'b6d4f28a9c15'

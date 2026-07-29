@@ -51,6 +51,54 @@ def _usd_payload(u1_id, **over):
     return p
 
 
+@pytest.mark.parametrize(
+    "moeda",
+    [
+        "../../../etc/passwd",   # o código desce até o PATH da URL da fonte de mercado
+        "usd/../../outro",
+        "NOTACURRENCY",          # aceito e persistido: sumia de TODA agregação
+        "US",
+        "US1",
+        "ÁÁÁ",                   # isalpha() sozinho aceitava letras não-ASCII
+    ],
+)
+def test_moeda_invalida_e_recusada_sem_ir_a_rede(
+    ws_with_card, override_get_session, monkeypatch, moeda
+):
+    """Código de moeda é validado como ISO-3 ANTES de qualquer I/O.
+
+    Dois problemas de uma vez: (1) o código entra na URL da fonte de mercado
+    (`.../v1/currencies/{codigo}.json`), então um parâmetro de query escolhia o
+    caminho de uma requisição que o SERVIDOR faz para fora; (2) um código
+    inventado era gravado no lançamento e, como toda agregação filtra
+    `currency == base_currency`, a linha sumia de dívidas, relatórios, fatura e
+    previsão sem nenhum aviso.
+    """
+    ws, u1, headers = ws_with_card["ws1"], ws_with_card["u1"], ws_with_card["headers1"]
+
+    def _explode(*a, **k):  # nenhuma busca externa pode acontecer
+        raise AssertionError("foi à fonte de câmbio com uma moeda inválida")
+
+    monkeypatch.setattr(CurrencyService, "get_rate_sync", _explode)
+
+    # 1) Consulta de câmbio: 400 explícito
+    resp = client.get(
+        f"/api/v1/workspaces/{ws.id}/analytics/exchange-rate",
+        params={"from_currency": moeda},
+        headers=headers,
+    )
+    assert resp.status_code == 400
+    assert "Moeda inválida" in resp.json()["error"]["message"]
+
+    # 2) Criação de lançamento: 422 na borda (nunca persiste a moeda inventada)
+    resp = client.post(
+        f"/api/v1/workspaces/{ws.id}/transactions/",
+        json=_usd_payload(u1.id, currency=moeda),
+        headers=headers,
+    )
+    assert resp.status_code == 422
+
+
 def test_usd_card_converts_with_iof(db_session, ws_with_card, override_get_session):
     ws, u1, card, headers = ws_with_card["ws1"], ws_with_card["u1"], ws_with_card["card"], ws_with_card["headers1"]
     resp = client.post(

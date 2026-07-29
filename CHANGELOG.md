@@ -6,6 +6,54 @@ segue [SemVer](https://semver.org/lang/pt-BR/).
 
 ## [Não lançado]
 
+### Corrigido — auditoria 2026-07-29 (3ª rodada)
+
+- **Excluir um cartão de crédito deixava a fatura em aberto órfã.** O soft delete só escondia
+  o cartão: as faturas não pagas continuavam existindo, mas fechar/pagar/reabrir exigem um
+  cartão vivo — não havia como quitá-las. Pior, a dívida sobrevivia só de um lado: a
+  **Previsão** somava aquelas faturas (o filtro não olhava `deleted_at`) e o **Endividamento**
+  não, então as duas telas mostravam dívidas diferentes para o mesmo mês, sem nada por onde
+  reconciliar. Agora o `DELETE` devolve **409** enquanto houver fatura em aberto com valor, e
+  a previsão passou a filtrar cartão excluído.
+- **Editar só o valor de uma despesa (PUT parcial) não atualizava o item que carrega a
+  categoria.** A distribuição por categoria dos Relatórios soma `TransactionItem.amount`:
+  a fatia ficava congelada no valor antigo e a diferença virava uma fatia "Sem categoria" que
+  não existe. O gráfico fechava com o total e mentia na composição — que é o que se lê ali.
+  Os itens agora acompanham o novo total, rateados em centavos exatos.
+- **O total "saídas" da tela de Lançamentos contava despesa cancelada e rascunho** (e somava
+  lançamento legado em outra moeda junto com a moeda-base), enquanto "Sua despesa" no Início
+  usa só os status realizados: os dois números nunca fechavam. A soma passou a seguir a
+  política única (ADR 0003/0006); a lista continua mostrando tudo, com a pílula de status.
+- **Código de moeda não era validado.** Ele desce até a URL da fonte de câmbio de mercado
+  (`.../v1/currencies/{codigo}.json`), então um parâmetro de query escolhia o caminho de uma
+  requisição que o servidor faz para fora; e um código inventado era gravado no lançamento e
+  sumia de **todas** as agregações (que filtram `currency == base_currency`) sem aviso. Agora
+  todo campo de moeda é ISO-4217 de 3 letras, validado na borda (422 no corpo, 400 na query).
+- **Revogar convite já aceito reescrevia o histórico** (o membro segue dentro, mas a trilha
+  passava a dizer "revogado") e revogar um já revogado devolvia 200 → agora **409**.
+- **Pagar parcela de financiamento `simulated` gerava despesa real** a partir de um cenário
+  hipotético — e o Endividamento, que filtra `status == active`, não a explicava → agora **409**.
+- **Logout não limpava o cache de queries**: os dados do usuário que saiu (extrato, dívidas,
+  membros) ficavam em memória e apareciam para quem entrasse em seguida no mesmo navegador.
+- **Filtro de categoria/tag sobrevivia à troca de workspace**, com IDs que não existem do
+  outro lado: a lista voltava vazia e parecia que o workspace novo estava sem lançamentos.
+- **`ruff check backend` estava vermelho** (import não usado numa migração), reprovando o
+  primeiro passo do CI antes de qualquer teste rodar.
+
+### Adicionado — auditoria 2026-07-29 (3ª rodada)
+
+- **O formulário de despesa anuncia a fatura de destino** ("Vai para a fatura de Agosto/2026,
+  vence 10/09"). A fatura é derivada no servidor (ADR 0002) por uma regra que a tela não
+  contava — a partir do dia de fechamento a compra vai para o mês seguinte, e se aquela
+  fatura já estiver fechada ela rola para frente —, então o usuário só descobria depois de
+  salvar. Novo `GET /{ws}/credit-cards/{id}/statement-for?on=YYYY-MM-DD`, **só leitura**:
+  perguntar não cria fatura.
+- **O mês selecionado vive na URL** (`?month=YYYY-MM`) em Lançamentos, Rendas, Relatórios,
+  Dívidas do mês e Endividamento: sobrevive ao reload e ao botão voltar, e dá para
+  compartilhar o link de um mês específico.
+- **Expurgo alcança `importrow`/`importbatch`** e apaga com `DELETE` em massa no banco, em vez
+  de carregar milhões de linhas na memória do processo `cron`.
+
 ### Adicionado
 - **Moeda estrangeira ponta a ponta**: lançamento, renda e recorrência em outra moeda são
   convertidos na entrada (PTAX oficial para as majores, fonte de mercado para o resto, + IOF de

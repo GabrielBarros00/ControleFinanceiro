@@ -131,7 +131,31 @@ def main():
     res = alice.get(f"/workspaces/{ws_id}/credit-cards/{card_id}/statements")
     check("fatura criada com total", res.status_code == 200 and float(res.json()[0]["computed_total"]) == 150.0)
 
+    # A UI anuncia o destino da compra ANTES de salvar (ADR 0002) — e perguntar
+    # não pode criar fatura. Cartão do onboarding fecha dia 31.
+    faturas_antes = len(res.json())
+    res = alice.get(
+        f"/workspaces/{ws_id}/credit-cards/{card_id}/statement-for", params={"on": "2026-05-10"}
+    )
+    alvo = res.json() if res.status_code == 200 else {}
+    check(
+        "statement-for anuncia a fatura de destino",
+        res.status_code == 200 and alvo.get("month") == "2026-05" and "due_date" in alvo,
+        str(alvo),
+    )
+    res = alice.get(f"/workspaces/{ws_id}/credit-cards/{card_id}/statements")
+    check("consultar o destino NÃO cria fatura", len(res.json()) == faturas_antes)
+
+    # Excluir cartão com fatura em aberto é 409: o soft delete escondia o cartão
+    # e deixava a dívida sem nenhuma tela por onde ser quitada.
+    res = alice.delete(f"/workspaces/{ws_id}/credit-cards/{card_id}")
+    check("excluir cartão com fatura em aberto → 409", res.status_code == 409, res.text)
+
     # --- Validações de borda em produção ---
+    res = alice.get(
+        f"/workspaces/{ws_id}/analytics/exchange-rate", params={"from_currency": "../../etc"}
+    )
+    check("moeda fora do formato ISO-3 rejeitada (400)", res.status_code == 400, res.text)
     res = alice.post(f"/workspaces/{ws_id}/transactions/", json={
         "title": "Negativa", "total_amount": "-10",
         "transaction_date": "2026-02-10T12:00:00",

@@ -81,7 +81,12 @@ export function useAuth() {
     },
     onSuccess: () => {
       clearStore();
-      queryClient.setQueryData(['auth-me'], null);
+      // Limpa o cache INTEIRO, não só o ['auth-me']: as queries do usuário que
+      // saiu (extrato, dívidas, membros, faturas) continuavam em memória e
+      // apareciam para quem entrasse em seguida, no intervalo até o refetch —
+      // numa máquina compartilhada isso é a finança de uma pessoa na tela de
+      // outra. O `currentWorkspaceId` persistido já era revalidado; o cache não.
+      queryClient.clear();
     }
   });
 

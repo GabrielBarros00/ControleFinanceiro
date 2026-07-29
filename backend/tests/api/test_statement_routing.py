@@ -10,7 +10,7 @@ from decimal import Decimal
 
 import pytest
 from fastapi.testclient import TestClient
-from sqlmodel import Session
+from sqlmodel import Session, select
 
 from app.main import app
 from app.models.credit_card import CreditCard, CardStatement, StatementStatus
@@ -168,3 +168,69 @@ def test_update_com_cartao_de_outro_workspace_e_rejeitado(
     assert resp.status_code == 400
     db_session.expire_all()
     assert db_session.get(Transaction, tx_id).credit_card_id is None
+
+
+def test_statement_for_anuncia_a_fatura_sem_criar_nada(
+    db_session, two_ws_cards, override_get_session
+):
+    """A UI precisa ANUNCIAR o destino, e perguntar não pode criar fatura.
+
+    A regra tem duas partes que o formulário não contava — a partir do dia de
+    fechamento a compra vai para o mês seguinte, e se aquela fatura já estiver
+    fechada ela rola para frente. O usuário só descobria depois de salvar.
+    Consultar enquanto digita não pode deixar faturas vazias para trás.
+    """
+    ws1, headers = two_ws_cards["ws1"], two_ws_cards["headers1"]
+    card1 = db_session.exec(
+        select(CreditCard).where(CreditCard.workspace_id == ws1.id)
+    ).first()  # closing_day=25, due_day=5
+
+    def alvo(dia_iso: str) -> dict:
+        resp = client.get(
+            f"/api/v1/workspaces/{ws1.id}/credit-cards/{card1.id}/statement-for",
+            params={"on": dia_iso},
+            headers=headers,
+        )
+        assert resp.status_code == 200, resp.text
+        return resp.json()
+
+    # Antes do fechamento (dia 25): fatura do próprio mês, vencendo em 05/04
+    antes = alvo("2026-03-10")
+    assert antes["month"] == "2026-03"
+    assert antes["due_date"].startswith("2026-04-05")
+    assert antes["exists"] is False        # ainda não existe
+    assert antes["rolled_forward"] is False
+
+    # A partir do fechamento: cai na fatura do mês SEGUINTE
+    depois = alvo("2026-03-25")
+    assert depois["month"] == "2026-04"
+    assert depois["rolled_forward"] is False  # é a regra do ciclo, não rolagem
+
+    # Consultar não pode ter criado fatura nenhuma
+    assert db_session.exec(
+        select(CardStatement).where(CardStatement.card_id == card1.id)
+    ).all() == []
+
+    # Fatura de março FECHADA: a compra do dia 10 rola para abril
+    fechada = CardStatement(
+        card_id=card1.id, month="2026-03", status=StatementStatus.closed,
+        closing_date=datetime(2026, 3, 25), due_date=datetime(2026, 4, 5),
+        total_amount=Decimal("100.00"),
+    )
+    db_session.add(fechada)
+    db_session.commit()
+
+    rolada = alvo("2026-03-10")
+    assert rolada["month"] == "2026-04"
+    assert rolada["rolled_forward"] is True
+
+    # E o anúncio bate com o que o POST realmente faz (mesma fonte de verdade)
+    resp = client.post(
+        f"/api/v1/workspaces/{ws1.id}/transactions/",
+        json={**_payload(two_ws_cards["u1"].id), "credit_card_id": card1.id,
+              "payment_method": "credit_card", "transaction_date": "2026-03-10T12:00:00"},
+        headers=headers,
+    )
+    assert resp.status_code == 200, resp.text
+    stmt = db_session.get(CardStatement, resp.json()["statement_id"])
+    assert stmt.month == rolada["month"]

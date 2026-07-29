@@ -120,11 +120,32 @@ describe('useAuth', () => {
     );
 
     const { result } = renderHook(() => useAuth(), { wrapper });
-    
+
     await result.current.logout();
-    
+
     expect(logoutCalled).toBe(true);
-    expect(result.current.user).toBeNull();
+    // `undefined` (e não `null`): o logout descarta o cache INTEIRO com
+    // queryClient.clear(), em vez de só sobrescrever ['auth-me'] com null. O que
+    // importa é não sobrar dado do usuário anterior para quem entrar depois.
+    expect(result.current.user).toBeFalsy();
     expect(result.current.isAuthenticated).toBe(false);
+  });
+
+  it('logout descarta o cache de TODAS as queries, não só o auth-me', async () => {
+    server.use(
+      http.post('http://localhost:8000/api/v1/auth/logout', () =>
+        HttpResponse.json({ message: 'Logged out' })
+      )
+    );
+
+    // Dado de outra família, como o extrato do usuário que está saindo
+    queryClient.setQueryData(['transactions', 1], { items: [{ id: 7, title: 'Segredo' }] });
+
+    const { result } = renderHook(() => useAuth(), { wrapper });
+    await result.current.logout();
+
+    // Numa máquina compartilhada, isto ficava em memória e aparecia na tela do
+    // próximo usuário no intervalo até o refetch.
+    expect(queryClient.getQueryData(['transactions', 1])).toBeUndefined();
   });
 });

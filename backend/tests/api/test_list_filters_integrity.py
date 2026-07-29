@@ -13,7 +13,7 @@ from fastapi.testclient import TestClient
 from app.main import app
 from app.models.category import Category
 from app.models.tag import Tag, TransactionTagLink
-from app.models.transaction import Transaction, TransactionItem
+from app.models.transaction import Transaction, TransactionItem, TransactionStatus
 
 
 @pytest.fixture(name="client")
@@ -143,6 +143,34 @@ def test_total_amount_e_do_filtro_inteiro_nao_da_pagina(client, db_session, setu
     assert len(body["items"]) == 2          # a página traz 2
     assert body["total"] == 5               # mas a contagem é global
     assert Decimal(str(body["total_amount"])) == Decimal("50.00")  # e a soma também
+
+
+def test_total_amount_ignora_cancelada_e_moeda_fora_da_base(client, db_session, setup_data):
+    """A soma exibida como "saídas" segue a política única (ADR 0003/0006).
+
+    A LISTA continua mostrando cancelada e rascunho (o extrato as rotula com a
+    pílula de status), mas elas não são gasto: contá-las fazia o número da tela
+    de Lançamentos nunca fechar com "Sua despesa" do Início, que usa
+    REALIZED_STATUSES. Idem para lançamento legado em outra moeda.
+    """
+    ws, u1 = setup_data["ws1"], setup_data["u1"]
+    _tx(db_session, ws, u1, title="Confirmada", amount="100.00")
+
+    cancelada = _tx(db_session, ws, u1, title="Cancelada", amount="70.00")
+    cancelada.status = TransactionStatus.cancelled
+    rascunho = _tx(db_session, ws, u1, title="Rascunho", amount="30.00")
+    rascunho.status = TransactionStatus.draft
+    estrangeira = _tx(db_session, ws, u1, title="Legado em USD", amount="500.00")
+    estrangeira.currency = "USD"
+    db_session.add_all([cancelada, rascunho, estrangeira])
+    db_session.commit()
+
+    body = client.get(
+        f"/api/v1/workspaces/{ws.id}/transactions/?month=2026-07", headers=setup_data["headers1"]
+    ).json()
+
+    assert body["total"] == 4  # as quatro continuam visíveis na lista
+    assert Decimal(str(body["total_amount"])) == Decimal("100.00")  # só a realizada em BRL
 
 
 def test_titulo_gigante_e_recusado(client, db_session, setup_data):

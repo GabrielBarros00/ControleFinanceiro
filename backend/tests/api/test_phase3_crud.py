@@ -187,7 +187,22 @@ def test_credit_card_update_delete_and_statements(ws_team):
     assert res.status_code == 200
     assert len(res.json()["transactions"]) == 1
 
-    # Delete soft: some da listagem
+    # Fatura em aberto trava a exclusão: o cartão sairia da tela deixando uma
+    # dívida sem nenhum caminho para ser quitada (fechar/pagar exigem cartão vivo)
+    res = client.delete(f"/api/v1/workspaces/{ws.id}/credit-cards/{card_id}", headers=_headers(users["member"]))
+    assert res.status_code == 409
+    assert "em aberto" in res.json()["error"]["message"]
+
+    # Quitada a fatura, o delete soft passa e o cartão some da listagem
+    client.post(
+        f"/api/v1/workspaces/{ws.id}/credit-cards/{card_id}/statements/{stmt_id}/close",
+        headers=_headers(users["member"]),
+    )
+    client.post(
+        f"/api/v1/workspaces/{ws.id}/credit-cards/{card_id}/statements/{stmt_id}/pay",
+        json={},
+        headers=_headers(users["member"]),
+    )
     res = client.delete(f"/api/v1/workspaces/{ws.id}/credit-cards/{card_id}", headers=_headers(users["member"]))
     assert res.status_code == 200
     res = client.get(f"/api/v1/workspaces/{ws.id}/credit-cards/", headers=_headers(users["member"]))

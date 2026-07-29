@@ -35,7 +35,11 @@ from app.schemas.transaction import (
 from app.api.deps import get_workspace_membership, require_role
 from app.core.config import settings
 from app.domain.money import Money
-from app.domain.query_policy import resolve_currency, workspace_base_currency
+from app.domain.query_policy import (
+    REALIZED_STATUSES,
+    resolve_currency,
+    workspace_base_currency,
+)
 from app.models.attachment import Attachment
 from app.models.tag import Tag, TransactionTagLink
 from app.services.attachment_storage import free_keys, keys_to_free
@@ -105,6 +109,35 @@ def _ensure_not_cancelled(db_transaction: Transaction):
             status_code=409,
             detail="Despesa cancelada é definitiva e não pode ser alterada",
         )
+
+
+def _resync_item_amounts(session: Session, transaction_id: int, new_total: Decimal) -> None:
+    """Rateia `new_total` entre os itens da transação, em centavos exatos.
+
+    Usado pelo caminho de edição PARCIAL, que altera o total sem passar pela
+    recriação dos filhos. `quantity`/`unit_amount` são normalizados para
+    `1 × valor-da-linha`: a fatia rateada raramente é múltipla exata da
+    quantidade, e recalcular a linha a partir do unitário encolheria o item
+    (mesmo cuidado do `BaseCurrencyService._apply`).
+    """
+    items = session.exec(
+        select(TransactionItem)
+        .where(TransactionItem.transaction_id == transaction_id)
+        .order_by(TransactionItem.position, TransactionItem.id)
+    ).all()
+    if not items:
+        return
+
+    pesos = {i: _cents(item.amount) for i, item in enumerate(items)}
+    if sum(pesos.values()) <= 0:
+        pesos = {i: 1 for i in range(len(items))}
+    alocado = _allocate_proportional(_cents(new_total), pesos)
+    for i, item in enumerate(items):
+        item.amount = Decimal(alocado[i]) / Decimal("100")
+        if item.unit_amount is not None:
+            item.unit_amount = item.amount
+            item.quantity = Decimal("1")
+        session.add(item)
 
 
 def _compute_base_conversion(
@@ -562,9 +595,20 @@ def list_transactions(
     total = session.exec(select(func.count()).select_from(subq)).one()
 
     # Soma do FILTRO INTEIRO (não só da página): a tela mostra "N lançamentos"
-    # global, então o total de saídas ao lado precisa ser da mesma amostra
+    # global, então o total de saídas ao lado precisa ser da mesma amostra.
+    #
+    # A política única (ADR 0003/0006) vale só na AGREGAÇÃO, não na lista: o
+    # extrato continua mostrando rascunho e cancelada (com a pílula de status),
+    # mas elas não são gasto e não podem entrar no número. Sem estes dois
+    # filtros, "saídas" aqui e "Sua despesa" no Início — lidos na mesma sessão —
+    # nunca fechavam, e um lançamento legado em outra moeda era somado cru junto
+    # com a moeda-base.
+    base_currency = workspace_base_currency(session, workspace_id)
     total_amount = session.exec(
-        select(func.coalesce(func.sum(subq.c.total_amount), 0))
+        select(func.coalesce(func.sum(subq.c.total_amount), 0)).where(
+            subq.c.status.in_(REALIZED_STATUSES),
+            subq.c.currency == base_currency,
+        )
     ).one()
 
     # Final statement with ordering and pagination
@@ -697,6 +741,15 @@ def update_transaction(
             if split.split_method == SplitMethod.fixed:
                 split.input_value = new_total
             session.add(split)
+        # Os ITENS acompanham o novo total. Sem isto, o item que carrega a
+        # categoria ficava com o valor ANTIGO — e a distribuição por categoria
+        # (ReportService.get_summary soma TransactionItem.amount) mostrava a fatia
+        # congelada no valor velho, com o resíduo `total − categorizado` virando
+        # uma fatia "Sem categoria" que não existe. O gráfico fechava com o total
+        # e mentia na composição, que é justamente o que o usuário lê ali.
+        # Rateio em centavos exatos (ADR 0001) para `soma(itens) == total` valer
+        # também quando há mais de um item.
+        _resync_item_amounts(session, db_transaction.id, new_total)
         # Total alterado no caminho parcial (semântica BRL): a proveniência
         # estrangeira congelada (original_*) não corresponde mais ao novo total —
         # limpa p/ o registro não afirmar um câmbio que já não bate. Edição de

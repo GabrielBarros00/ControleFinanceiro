@@ -2,6 +2,7 @@ import * as React from 'react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import { Home } from './pages/Home';
+import { registerQueryClient } from './api/client';
 import { Layout } from './components/layout/Layout';
 import { useAuth } from './hooks/use-auth';
 import { useTheme } from './hooks/use-theme';
@@ -45,6 +46,9 @@ const queryClient = new QueryClient({
     },
   },
 });
+
+// O interceptor de 401 precisa descartar o cache quando a sessão morre
+registerQueryClient(queryClient);
 
 function RouteFallback() {
   return (

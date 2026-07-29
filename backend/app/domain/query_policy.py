@@ -36,6 +36,34 @@ def workspace_base_currency(session, workspace_id: int) -> str:
     return (ws.base_currency if ws and ws.base_currency else BASE_CURRENCY)
 
 
+class InvalidCurrencyCode(ValueError):
+    """Código de moeda fora do formato ISO-4217 alfabético (3 letras)."""
+
+
+def normalize_currency_code(value) -> str:
+    """`" usd "` → `"USD"`; qualquer outra coisa levanta `InvalidCurrencyCode`.
+
+    Duas razões para existir, as duas com histórico:
+
+    1. O código desce até a URL da fonte de câmbio de mercado
+       (`.../v1/currencies/{codigo}.json`). Sem validar, um parâmetro de query
+       escolhia o CAMINHO de uma requisição que o servidor faz para fora.
+    2. Um código inventado (`"NOTACURRENCY"`) era aceito e PERSISTIDO. Como toda
+       agregação filtra `currency == base_currency`, o registro sumia de dívidas,
+       relatórios, fatura e previsão sem nenhum aviso — o mesmo modo de falha do
+       `"BRL"` literal que a auditoria anterior já tinha caçado.
+
+    Primitiva pura (sem I/O): é usada pelo schema de entrada (vira 422 na borda),
+    por `resolve_currency` e pelo `CurrencyService` (defesa em profundidade).
+    """
+    codigo = str(value or "").strip().upper()
+    if len(codigo) != 3 or not codigo.isalpha() or not codigo.isascii():
+        raise InvalidCurrencyCode(
+            f"Moeda inválida: '{value}' — use um código ISO de 3 letras (ex.: USD)"
+        )
+    return codigo
+
+
 def resolve_currency(session, workspace_id: int, currency: Optional[str]) -> str:
     """Moeda de um registro NOVO: a informada, senão a moeda-base do workspace.
 
@@ -48,5 +76,7 @@ def resolve_currency(session, workspace_id: int, currency: Optional[str]) -> str
     Também normaliza a caixa: a comparação com a base é igualdade de string, e um
     `"brl"` minúsculo cairia fora dos totais sem nenhum sinal.
     """
-    informada = (currency or "").strip().upper()
-    return informada or workspace_base_currency(session, workspace_id)
+    bruta = (currency or "").strip()
+    if not bruta:
+        return workspace_base_currency(session, workspace_id)
+    return normalize_currency_code(bruta)

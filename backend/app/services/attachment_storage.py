@@ -135,7 +135,14 @@ class AttachmentStorage:
 
     @classmethod
     def delete_workspace(cls, workspace_id: int) -> None:
-        """Remove o diretório inteiro de um workspace (uso administrativo)."""
+        """Remove o diretório inteiro de um workspace.
+
+        **Ferramenta de operação, não do fluxo do app**: `DELETE /workspaces/{id}`
+        é SOFT (a linha fica com `deleted_at`), então apagar os bytes ali destruiria
+        os recibos de um workspace que ainda pode ser restaurado — irreversível
+        contra uma exclusão reversível. Use isto ao purgar um workspace em
+        definitivo, depois de decidir que não há volta.
+        """
         try:
             alvo = cls._path(str(int(workspace_id)))
         except AttachmentStorageError:

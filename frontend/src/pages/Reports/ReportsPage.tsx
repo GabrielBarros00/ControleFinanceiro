@@ -16,7 +16,6 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { BarChart3, TrendingUp, PieChart as PieChartIcon } from 'lucide-react';
 
-import * as React from 'react';
 import { useReports } from '@/hooks/use-reports';
 import { Skeleton } from "@/components/ui/skeleton";
 import { BudgetPanel } from './BudgetPanel';
@@ -26,13 +25,14 @@ import { formatCompact, formatMoney, sameMoney } from '@/lib/money';
 import { useBaseCurrency } from '@/hooks/use-base-currency';
 import { PageHeader } from '@/components/layout/PageHeader';
 import { PeriodPicker } from '@/components/layout/PeriodPicker';
-import { currentMonthLocal, monthShortLabel } from '@/lib/date';
+import { monthShortLabel } from '@/lib/date';
+import { useMonthParam } from '@/hooks/use-month-param';
 
 
 export function ReportsPage() {
   // Relatórios seguem o mesmo período das outras telas — antes ficavam presos
   // no mês corrente, sem como olhar o passado.
-  const [month, setMonth] = React.useState(currentMonthLocal());
+  const [month, setMonth] = useMonthParam();
   const { data, isLoading, isError } = useReports(month);
   const baseCurrency = useBaseCurrency();
   // Cores lidas do tema atual (claro/escuro) — nunca hardcoded (corrige B3)

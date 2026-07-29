@@ -4,7 +4,7 @@ from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
-from app.schemas.common import NAME_MAX
+from app.schemas.common import NAME_MAX, OptionalCurrencyCode
 from sqlmodel import Session, select
 
 from app.db.session import get_session
@@ -21,7 +21,7 @@ class PaymentAccountCreate(BaseModel):
     name: str = Field(min_length=1, max_length=NAME_MAX)
     type: PaymentAccountType = PaymentAccountType.checking
     # None = "não informada" → a rota resolve para a moeda-base do workspace
-    currency: Optional[str] = None
+    currency: OptionalCurrencyCode = None
     owner_user_id: Optional[int] = None
 
 

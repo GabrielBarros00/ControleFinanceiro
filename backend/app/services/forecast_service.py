@@ -92,11 +92,16 @@ class ForecastService:
             Decimal("0.00"),
         )
 
-        # Faturas de cartão com vencimento neste mês (ainda não pagas) são caixa a sair
+        # Faturas de cartão com vencimento neste mês (ainda não pagas) são caixa a sair.
+        # `deleted_at` no filtro: sem ele, a fatura de um cartão EXCLUÍDO seguia
+        # sendo somada aqui enquanto o Endividamento (LiabilityService._cards, que
+        # filtra) a ignorava — as duas telas mostravam dívidas diferentes para o
+        # mesmo mês, sem nada por onde reconciliar. As duas leem o mesmo universo.
         card_statements_due = db.exec(
             select(CardStatement)
             .join(CreditCard, CreditCard.id == CardStatement.card_id)
             .where(CreditCard.workspace_id == workspace_id)
+            .where(CreditCard.deleted_at.is_(None))
             .where(CardStatement.status != StatementStatus.paid)
             .where(CardStatement.due_date >= datetime.combine(first_day, datetime.min.time()))
             .where(CardStatement.due_date <= datetime.combine(last_day, datetime.max.time()))
