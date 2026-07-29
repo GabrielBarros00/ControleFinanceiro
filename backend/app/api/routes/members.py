@@ -235,15 +235,22 @@ def create_invite(
     if existing_user and find_membership(session, workspace_id, existing_user.id):
         raise HTTPException(status_code=400, detail="Este usuário já é membro do workspace")
 
-    pending = session.exec(
+    pendentes = session.exec(
         select(WorkspaceInvite).where(
             WorkspaceInvite.workspace_id == workspace_id,
             WorkspaceInvite.email == data.email,
             WorkspaceInvite.status == InviteStatus.pending,
         )
-    ).first()
-    if pending and not _is_expired(pending):
+    ).all()
+    if any(not _is_expired(p) for p in pendentes):
         raise HTTPException(status_code=400, detail="Já existe um convite pendente para este email")
+    # Os expirados viram `revoked`. Ficavam para sempre como "pendente": a lista
+    # do admin anunciava convites mortos como ativos, e a cada reenvio sobrava
+    # mais uma linha. `_get_valid_invite` já os recusa — o estado é que mentia.
+    for expirado in pendentes:
+        expirado.status = InviteStatus.revoked
+        session.add(expirado)
+        resolve_invite_notifications(session, expirado.token)
 
     invite = WorkspaceInvite(
         workspace_id=workspace_id,

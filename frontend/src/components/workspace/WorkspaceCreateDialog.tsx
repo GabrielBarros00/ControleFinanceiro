@@ -12,6 +12,11 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Loader2 } from 'lucide-react';
 import { useWorkspaces } from '@/hooks/use-workspaces';
+import { CURRENCIES } from '@/lib/currencies';
+
+// <select> nativo: dentro de Dialog (Radix) o Select do Base UI foge do focus-trap
+const selectClass =
+  'flex h-10 w-full rounded-md border border-border bg-background px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring';
 
 interface WorkspaceCreateDialogProps {
   open: boolean;
@@ -22,6 +27,7 @@ export function WorkspaceCreateDialog({ open, onOpenChange }: WorkspaceCreateDia
   const { create } = useWorkspaces();
   const [name, setName] = React.useState('');
   const [description, setDescription] = React.useState('');
+  const [baseCurrency, setBaseCurrency] = React.useState('BRL');
   const [loading, setLoading] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
 
@@ -33,9 +39,14 @@ export function WorkspaceCreateDialog({ open, onOpenChange }: WorkspaceCreateDia
     setLoading(true);
     setError(null);
     try {
-      await create({ name: name.trim(), description: description.trim() || undefined });
+      await create({
+        name: name.trim(),
+        description: description.trim() || undefined,
+        base_currency: baseCurrency,
+      });
       setName('');
       setDescription('');
+      setBaseCurrency('BRL');
       onOpenChange(false);
     } catch {
       setError('Erro ao criar workspace. Tente novamente.');
@@ -73,6 +84,27 @@ export function WorkspaceCreateDialog({ open, onOpenChange }: WorkspaceCreateDia
               onChange={(e) => setDescription(e.target.value)}
               className="bg-background/50"
             />
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="ws-currency">Moeda-base</Label>
+            <select
+              id="ws-currency"
+              className={selectClass}
+              value={baseCurrency}
+              onChange={(e) => setBaseCurrency(e.target.value)}
+            >
+              {CURRENCIES.map((c) => (
+                <option key={c.code} value={c.code} className="bg-card">
+                  {c.code} — {c.name}
+                </option>
+              ))}
+            </select>
+            {/* Trocar depois exige reconverter todo o histórico — escolher aqui
+                é grátis, e o workspace ainda está vazio. */}
+            <p className="text-xs text-muted-foreground">
+              Todos os totais deste workspace são somados nesta moeda. Dá para mudar
+              depois, mas aí o histórico inteiro é reconvertido.
+            </p>
           </div>
           {error && <p className="text-xs text-destructive font-medium">{error}</p>}
         </div>

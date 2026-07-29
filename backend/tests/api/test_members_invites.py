@@ -576,3 +576,57 @@ def test_admin_lists_invites(team):
     # Member não pode listar convites
     res = client.get(f"/api/v1/workspaces/{ws.id}/invites", headers=_headers(users["member"]))
     assert res.status_code == 403
+
+
+def test_convite_expirado_e_revogado_ao_reenviar(db_session: Session, team):
+    """Convite vencido ficava `pending` para sempre.
+
+    `create_invite` só recusava quando havia um pendente NÃO expirado; o expirado
+    seguia na lista do admin anunciado como ativo, e cada reenvio deixava mais uma
+    linha. `_get_valid_invite` já o recusava — o estado é que mentia.
+    """
+    ws, users = team["ws"], team["users"]
+    vencido = WorkspaceInvite(
+        workspace_id=ws.id,
+        email="vencido@example.com",
+        role=WorkspaceRole.member,
+        invited_by_user_id=users["admin"].id,
+        expires_at=datetime.now(UTC) - timedelta(days=1),
+    )
+    db_session.add(vencido)
+    db_session.commit()
+    db_session.refresh(vencido)
+
+    res = client.post(
+        f"/api/v1/workspaces/{ws.id}/invites",
+        json={"email": "vencido@example.com", "role": "member"},
+        headers=_headers(users["admin"]),
+    )
+    assert res.status_code == 200, res.text
+
+    db_session.refresh(vencido)
+    assert vencido.status == InviteStatus.revoked
+
+    pendentes = db_session.exec(
+        select(WorkspaceInvite).where(
+            WorkspaceInvite.workspace_id == ws.id,
+            WorkspaceInvite.email == "vencido@example.com",
+            WorkspaceInvite.status == InviteStatus.pending,
+        )
+    ).all()
+    assert len(pendentes) == 1
+
+
+def test_convite_pendente_valido_continua_bloqueando(team):
+    """O reenvio só limpa o EXPIRADO — um convite vivo segue barrando o duplicado."""
+    ws, users = team["ws"], team["users"]
+    payload = {"email": "vivo@example.com", "role": "member"}
+    primeiro = client.post(
+        f"/api/v1/workspaces/{ws.id}/invites", json=payload, headers=_headers(users["admin"])
+    )
+    assert primeiro.status_code == 200, primeiro.text
+
+    segundo = client.post(
+        f"/api/v1/workspaces/{ws.id}/invites", json=payload, headers=_headers(users["admin"])
+    )
+    assert segundo.status_code == 400

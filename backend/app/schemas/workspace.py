@@ -13,7 +13,11 @@ class WorkspaceBase(BaseModel):
 
 
 class WorkspaceCreate(WorkspaceBase):
-    pass
+    # Moeda-base já na criação. Sem este campo todo workspace nascia "BRL" e a
+    # única forma de mudar era o PUT, que dispara a reconversão de TODO o
+    # histórico (BaseCurrencyService) — uma operação pesada e sujeita a
+    # `MissingRates` para um workspace ainda vazio.
+    base_currency: OptionalCurrencyCode = None
 
 
 class WorkspaceUpdate(BaseModel):

@@ -657,6 +657,12 @@ export interface paths {
          *     moeda a dica mostrava a conversão para um real que não é usado em lugar
          *     nenhum. Passa pelo `ExchangeRateStore` (mesma taxa cruzada que a criação do
          *     lançamento vai aplicar), então dica e valor gravado não divergem.
+         *
+         *     Os dois códigos são validados como ISO-3 ANTES de qualquer I/O: eles descem
+         *     até a URL da fonte de mercado (`.../v1/currencies/{codigo}.json`), então sem
+         *     validação um parâmetro de query escolheria o caminho de uma requisição que o
+         *     servidor faz para fora. `preview_base_currency_change` já validava; esta rota
+         *     tinha ficado para trás.
          */
         get: operations["get_exchange_rate_api_v1_workspaces__workspace_id__analytics_exchange_rate_get"];
         put?: never;
@@ -734,6 +740,35 @@ export interface paths {
         post?: never;
         /** Delete Credit Card */
         delete: operations["delete_credit_card_api_v1_workspaces__workspace_id__credit_cards__card_id__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/workspaces/{workspace_id}/credit-cards/{card_id}/statement-for": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Statement For Date
+         * @description Em qual fatura cairia uma compra neste cartão nesta data (ADR 0002).
+         *
+         *     A fatura é derivada no SERVIDOR, e a regra não é óbvia: a partir do dia de
+         *     fechamento a compra vai para o mês seguinte, e se essa fatura já estiver
+         *     fechada/paga ela rola para frente. O formulário não mostrava nada disso — o
+         *     usuário só descobria depois de salvar, e "por que minha compra de hoje está
+         *     na fatura de setembro?" não tinha resposta na tela.
+         *
+         *     Somente LEITURA: não cria fatura (senão digitar no formulário criaria faturas
+         *     vazias). O `GET` não muda estado, então não precisa de papel de escrita.
+         */
+        get: operations["statement_for_date_api_v1_workspaces__workspace_id__credit_cards__card_id__statement_for_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
         options?: never;
         head?: never;
         patch?: never;
@@ -2001,6 +2036,12 @@ export interface components {
             description?: string | null;
             /** Category Id */
             category_id?: number | null;
+            /**
+             * Scope
+             * @default workspace
+             * @enum {string}
+             */
+            scope: "workspace" | "personal";
         };
         /** MonthlyEstimateRead */
         MonthlyEstimateRead: {
@@ -2020,6 +2061,8 @@ export interface components {
             workspace_id: number;
             /** User Id */
             user_id: number;
+            /** Owner User Id */
+            owner_user_id?: number | null;
             /**
              * Created At
              * Format: date-time
@@ -2030,6 +2073,11 @@ export interface components {
              * Format: date-time
              */
             updated_at: string;
+            /**
+             * Scope
+             * @enum {string}
+             */
+            readonly scope: "workspace" | "personal";
         };
         /** NotificationList */
         NotificationList: {
@@ -2069,7 +2117,7 @@ export interface components {
         /** OnboardingRequest */
         OnboardingRequest: {
             /** Workspace Id */
-            workspace_id: number;
+            workspace_id?: number | null;
             /** Salary */
             salary: number | string;
             /** Credit Card Name */
@@ -2870,6 +2918,8 @@ export interface components {
             name: string;
             /** Description */
             description?: string | null;
+            /** Base Currency */
+            base_currency?: string | null;
         };
         /** WorkspaceRead */
         WorkspaceRead: {
@@ -4845,6 +4895,42 @@ export interface operations {
     delete_credit_card_api_v1_workspaces__workspace_id__credit_cards__card_id__delete: {
         parameters: {
             query?: never;
+            header?: never;
+            path: {
+                workspace_id: number;
+                card_id: number;
+            };
+            cookie?: {
+                access_token?: string | null;
+            };
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    statement_for_date_api_v1_workspaces__workspace_id__credit_cards__card_id__statement_for_get: {
+        parameters: {
+            query: {
+                on: string;
+            };
             header?: never;
             path: {
                 workspace_id: number;

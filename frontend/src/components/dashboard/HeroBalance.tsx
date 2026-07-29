@@ -1,3 +1,4 @@
+import { Link } from 'react-router-dom';
 import { cn } from '@/lib/utils';
 import { formatMoney } from '@/lib/money';
 import { MoneyText } from '@/components/money/MoneyText';
@@ -11,14 +12,25 @@ import { BudgetBar } from '@/components/ui/budget-bar';
 interface HeroBalanceProps {
   net: number; // sobra = sua receita − sua despesa (mês)
   spent: number; // sua despesa (mês)
-  budget: number; // orçamento total previsto
+  /** Meta PESSOAL do mês. Tem que ser a do usuário: `spent` é a parte dele. */
+  budget: number;
   daysLeft?: number;
   /** moeda-base do workspace — default BRL */
   currency?: string;
+  /** Rota para definir a meta pessoal quando ainda não há nenhuma. */
+  budgetHref?: string;
   className?: string;
 }
 
-export function HeroBalance({ net, spent, budget, daysLeft, currency, className }: HeroBalanceProps) {
+export function HeroBalance({
+  net,
+  spent,
+  budget,
+  daysLeft,
+  currency,
+  budgetHref,
+  className,
+}: HeroBalanceProps) {
   const fmt = (value: number) => formatMoney(value, { currency });
   const pct = budget > 0 ? Math.round((spent / budget) * 100) : 0;
   const diasRestantes =
@@ -59,6 +71,14 @@ export function HeroBalance({ net, spent, budget, daysLeft, currency, className 
           {typeof daysLeft === 'number' && daysLeft >= 0
             ? `${daysLeft === 1 ? 'Falta 1 dia' : `Faltam ${daysLeft} dias`} para fechar o mês`
             : null}
+          {budgetHref ? (
+            <>
+              {typeof daysLeft === 'number' && daysLeft >= 0 ? ' · ' : null}
+              <Link to={budgetHref} className="font-medium text-brand hover:underline">
+                Definir minha meta
+              </Link>
+            </>
+          ) : null}
         </p>
       )}
     </div>

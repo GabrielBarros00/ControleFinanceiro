@@ -88,6 +88,9 @@ export function ReportsPage() {
   ).length;
   const currentSummary = data?.current_summary || { total_expenses: 0, total_income: 0, net_savings: 0, my_expenses: 0, my_income: 0, my_net: 0, categories: [] };
   const categoryData = currentSummary.categories || [];
+  // Mesma composição, recortada na sua parte — é o par de `categories` para a
+  // meta pessoal (a da casa compara com o total; a sua, com a sua fatia)
+  const myCategoryData = currentSummary.my_categories || [];
   // Destaque = a sua parte (splits); sublinha = total da casa/workspace
   const myExpenses = Number(currentSummary.my_expenses ?? 0);
   const myIncome = Number(currentSummary.my_income ?? 0);
@@ -143,6 +146,9 @@ export function ReportsPage() {
           <BudgetPanel
             spentByCategory={categoryData}
             totalExpenses={currentSummary.total_expenses}
+            // Recorte pessoal: é contra ele que a meta pessoal é comparada
+            mySpentByCategory={myCategoryData}
+            myExpenses={myExpenses}
             excludedForeignCount={currentSummary.excluded_foreign_count}
             month={month}
           />

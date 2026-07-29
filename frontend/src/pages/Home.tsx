@@ -43,7 +43,11 @@ export function Home() {
   const myNet = myIncome - myExpenses;
   const houseIncome = Number(summary?.total_income ?? 0);
   const houseExpenses = Number(summary?.total_expenses ?? 0);
-  const budget = parseFloat(forecast?.total_budget ?? '0') || 0;
+  // Meta PESSOAL — o card mostra "sua despesa", então o orçamento ao lado tem
+  // que ser o seu. Com `total_budget` (a meta da CASA) a barra marcava ~50% num
+  // workspace de duas pessoas com rateio igual, enquanto Relatórios, que compara
+  // casa com casa, mostrava 100% para o MESMO orçamento.
+  const budget = parseFloat(forecast?.my_budget ?? '0') || 0;
   // "Casa X" só quando o total do workspace DIFERE da sua parte. Sozinho no
   // workspace (ou num mês em que tudo foi só seu) ele repetia o número de cima.
   const casa = (mine: number, house: number) =>
@@ -84,6 +88,7 @@ export function Home() {
               budget={budget}
               daysLeft={daysLeftInMonth()}
               currency={baseCurrency}
+              budgetHref={`/reports?month=${month}`}
             />
             <div className="grid gap-4 sm:grid-cols-3 lg:grid-cols-1">
               <StatTile

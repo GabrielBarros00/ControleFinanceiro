@@ -45,6 +45,43 @@ def test_create_workspace(db_session: Session, auth_headers, override_get_sessio
     assert membership.user_id is not None
     assert membership.role == WorkspaceRole.owner
 
+def test_create_workspace_com_moeda_base(db_session: Session, auth_headers, override_get_session):
+    """Dá para nascer em outra moeda. Antes só existia o PUT, que reconverte TODO
+    o histórico — uma operação pesada e sujeita a MissingRates para um workspace
+    ainda vazio."""
+    response = client.post(
+        "/api/v1/workspaces/",
+        json={"name": "Viagem", "base_currency": "usd"},
+        headers=auth_headers["u1"],
+    )
+    assert response.status_code == 200, response.text
+    # Normalizado na borda (OptionalCurrencyCode)
+    assert response.json()["base_currency"] == "USD"
+
+
+def test_create_workspace_recusa_moeda_invalida(auth_headers, override_get_session):
+    response = client.post(
+        "/api/v1/workspaces/",
+        json={"name": "X", "base_currency": "NOTACURRENCY"},
+        headers=auth_headers["u1"],
+    )
+    assert response.status_code == 422, response.text
+
+
+def test_list_workspaces_ordenado_por_id(db_session: Session, auth_headers, override_get_session):
+    """Sem ORDER BY o banco devolvia na ordem que quisesse — e o cliente escolhe o
+    workspace ativo como `workspaces[0]`."""
+    for nome in ("A", "B", "C"):
+        assert client.post(
+            "/api/v1/workspaces/", json={"name": nome}, headers=auth_headers["u1"]
+        ).status_code == 200
+
+    listagem = client.get("/api/v1/workspaces/", headers=auth_headers["u1"])
+    assert listagem.status_code == 200
+    ids = [w["id"] for w in listagem.json()]
+    assert ids == sorted(ids)
+
+
 def test_list_workspaces_isolation(db_session: Session, test_users, auth_headers, override_get_session):
     u1, u2 = test_users
 

@@ -84,7 +84,10 @@ def create_workspace(
     workspace = Workspace(
         name=workspace_in.name,
         description=workspace_in.description,
-        created_by_user_id=current_user.id
+        created_by_user_id=current_user.id,
+        # Ausente = o default do model (BRL). O código já vem normalizado e
+        # validado como ISO-3 pelo `OptionalCurrencyCode` (422 na borda).
+        **({"base_currency": workspace_in.base_currency} if workspace_in.base_currency else {}),
     )
     session.add(workspace)
     session.commit()
@@ -114,6 +117,11 @@ def list_workspaces(
             WorkspaceMembership.user_id == current_user.id,
             Workspace.deleted_at.is_(None),
         )
+        # Ordem EXPLÍCITA: sem ela o banco devolvia na ordem que quisesse, e o
+        # cliente escolhe o workspace ativo como `workspaces[0]`. Quem se cadastra
+        # por convite nasce com dois (o pessoal e o compartilhado), então a tela
+        # inicial abria num ou noutro de forma não determinística.
+        .order_by(Workspace.id)
     )
     workspaces = session.exec(statement).all()
     return _to_read_many(session, list(workspaces))

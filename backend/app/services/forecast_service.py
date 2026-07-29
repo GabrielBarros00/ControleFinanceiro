@@ -1,7 +1,8 @@
 from decimal import Decimal, ROUND_HALF_UP
 from datetime import datetime, date
-from typing import Dict, Any
+from typing import Any, Dict, Optional
 from sqlmodel import Session, select, func
+from app.domain.dates import month_key
 from app.domain.query_policy import (
     FORECAST_STATUSES,
     workspace_base_currency,
@@ -50,7 +51,8 @@ class ForecastService:
     def get_monthly_projection(
         db: Session,
         workspace_id: int,
-        target_month: date
+        target_month: date,
+        user_id: Optional[int] = None,
     ) -> Dict[str, Any]:
         """
         Calculates a predictive forecast for the end of the month.
@@ -60,15 +62,16 @@ class ForecastService:
         first_day = date(target_month.year, target_month.month, 1)
         last_day_num = calendar.monthrange(target_month.year, target_month.month)[1]
         last_day = date(target_month.year, target_month.month, last_day_num)
-        
+        # Mesma definição de mês do resto do app (ver domain.dates.month_key)
+        billing_month = month_key(target_month)
+
         # Gastos em dinheiro do mês. Transações vinculadas a fatura de cartão
         # (statement_id) ficam FORA do fluxo de caixa: o evento de caixa é a
         # fatura no vencimento (evita contagem dupla).
         transactions = db.exec(
             select(Transaction)
             .where(Transaction.workspace_id == workspace_id)
-            .where(Transaction.transaction_date >= datetime.combine(first_day, datetime.min.time()))
-            .where(Transaction.transaction_date <= datetime.combine(last_day, datetime.max.time()))
+            .where(Transaction.billing_month == billing_month)
             .where(Transaction.deleted_at.is_(None))
             .where(Transaction.statement_id.is_(None))
             .where(Transaction.status.in_(FORECAST_STATUSES))
@@ -138,7 +141,6 @@ class ForecastService:
         # Ocorrências que JÁ têm instância lançada no mês não entram de novo
         # (a instância já está em total_spent) — evita contagem dupla.
         # Semanal deduplica por data exata; mensal/anual por template no mês.
-        billing_month = target_month.strftime("%Y-%m")
         instanced = db.exec(
             select(Transaction.recurring_expense_id, Transaction.transaction_date)
             .where(Transaction.workspace_id == workspace_id)
@@ -177,15 +179,31 @@ class ForecastService:
         # 4. Projected Total (caixa: gastos + tendência + fixos pendentes + faturas a vencer)
         projected_total = total_spent + (daily_avg * remaining_days) + remaining_fixed + statements_pending
         
-        # 5. Budget Comparison (Monthly Estimates) — excluídas ficam fora
+        # 5. Budget Comparison (Monthly Estimates) — excluídas ficam fora.
+        # `total_budget` é a meta da CASA (owner_user_id IS NULL): a previsão é
+        # projeção de CAIXA do workspace, não de consumo de uma pessoa — por isso
+        # ela continua sendo visão da casa mesmo com o orçamento tendo escopo.
         estimates = db.exec(
             select(MonthlyEstimate)
             .where(MonthlyEstimate.workspace_id == workspace_id)
-            .where(MonthlyEstimate.month == target_month.strftime("%Y-%m"))
+            .where(MonthlyEstimate.month == billing_month)
             .where(MonthlyEstimate.deleted_at.is_(None))
+            .where(MonthlyEstimate.owner_user_id.is_(None))
         ).all()
-        
-        total_budget = sum(e.amount for e in estimates)
+
+        total_budget = sum((e.amount for e in estimates), Decimal("0.00"))
+
+        # Meta PESSOAL de quem pediu — é ela que o Início compara com "sua
+        # despesa". Sem `user_id` (chamadas internas), fica zerada.
+        my_budget = Decimal("0.00")
+        if user_id is not None:
+            my_budget = db.exec(
+                select(func.coalesce(func.sum(MonthlyEstimate.amount), 0))
+                .where(MonthlyEstimate.workspace_id == workspace_id)
+                .where(MonthlyEstimate.month == billing_month)
+                .where(MonthlyEstimate.deleted_at.is_(None))
+                .where(MonthlyEstimate.owner_user_id == user_id)
+            ).one() or Decimal("0.00")
 
         # 6. Renda do mês (INC-001): a previsão precisa do outro lado do caixa —
         # sobra projetada = renda recebida no mês − gasto projetado
@@ -241,8 +259,7 @@ class ForecastService:
         excluded_foreign_count = db.exec(
             select(func.count(Transaction.id))
             .where(Transaction.workspace_id == workspace_id)
-            .where(Transaction.transaction_date >= datetime.combine(first_day, datetime.min.time()))
-            .where(Transaction.transaction_date <= datetime.combine(last_day, datetime.max.time()))
+            .where(Transaction.billing_month == billing_month)
             .where(Transaction.deleted_at.is_(None))
             .where(Transaction.status.in_(FORECAST_STATUSES))
             .where(Transaction.currency != base_currency)
@@ -260,6 +277,8 @@ class ForecastService:
             "card_statements_pending": statements_pending,
             "total_budget": total_budget,
             "is_over_budget": projected_total > total_budget if total_budget > 0 else False,
+            # Meta pessoal de quem pediu (o Início compara com "sua despesa")
+            "my_budget": my_budget,
             "income_actual": income_actual,
             "income_pending": income_pending,
             "projected_income": projected_income,

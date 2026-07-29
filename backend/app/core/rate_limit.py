@@ -61,6 +61,22 @@ auth_limiter = RateLimiter(max_requests=5, window_seconds=60)
 account_limiter = RateLimiter(max_requests=10, window_seconds=60)
 
 
+# Rotas que fazem I/O EXTERNO síncrono. A consulta de câmbio pode disparar duas
+# buscas na fonte, e o PTAX faz look-back de 5 dias — o pior caso são ~10
+# requisições de saída, cada uma com EXCHANGE_RATE_TIMEOUT_SECONDS. Num backend
+# de 1 worker (restrição do ConnectionManager de WS) isso ocupa uma thread do
+# pool do Starlette por dezenas de segundos; algumas chamadas simultâneas com
+# códigos de moeda variados (cache miss garantido) congelam a API inteira.
+outbound_limiter = RateLimiter(max_requests=30, window_seconds=60)
+
+
+def rate_limit_outbound(key: str) -> None:
+    """Teto para rotas que podem ir à rede. Chaveado por workspace+rota."""
+    if not settings.RATE_LIMIT_ENABLED:
+        return
+    outbound_limiter.check(f"out:{key}")
+
+
 def rate_limit_auth(request: Request) -> None:
     """Dependency de rate limiting para endpoints sensíveis de auth.
 

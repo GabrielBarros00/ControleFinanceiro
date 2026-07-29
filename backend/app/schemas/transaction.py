@@ -38,7 +38,12 @@ class TransactionItemShareRead(TransactionItemShareBase):
 class TransactionItemBase(BaseModel):
     title: str = Field(min_length=1, max_length=TITLE_MAX)
     description: Optional[str] = Field(default=None, max_length=DESCRIPTION_MAX)
-    amount: Decimal = Field(le=MAX_MONEY)  # total da linha (fonte de verdade p/ somas)
+    # Total da linha (fonte de verdade p/ somas). `ge=0`: o item é uma LINHA da
+    # nota, sempre positiva — quem reduz o total é o ajuste (desconto/cashback),
+    # que tem sinal explícito e validador próprio. Sem o piso, um item negativo
+    # passava pela borda e só era barrado indiretamente (e só no modo item, pelo
+    # `Money`); no modo transaction ele fechava a conta e ia para o banco.
+    amount: Decimal = Field(ge=0, le=MAX_MONEY)
     quantity: Decimal = Field(default=Decimal("1"), gt=0)
     unit_amount: Optional[Decimal] = Field(default=None, ge=0, le=MAX_MONEY)
     position: int = 0

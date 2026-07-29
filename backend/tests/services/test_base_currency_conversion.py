@@ -294,6 +294,30 @@ def test_renda_tambem_e_convertida(db_session: Session):
     assert income.currency == "USD"
 
 
+def test_conta_de_pagamento_acompanha_a_moeda_base(db_session: Session):
+    """A conta não tem saldo, mas tem o RÓTULO da moeda — e ele ficava para trás.
+
+    A criação já respeita `resolve_currency` (nasce na base), então depois da
+    troca a conta era a única coisa da tela ainda dizendo a moeda antiga.
+    """
+    from app.models.payment_account import PaymentAccount
+
+    users, ws = _workspace(db_session, "bc-acc", n_users=1)
+    db_session.add(PaymentAccount(
+        name="Corrente", currency="BRL", workspace_id=ws.id, owner_user_id=users[0].id
+    ))
+    db_session.commit()
+
+    relatorio = BaseCurrencyService.convert_workspace(db_session, ws.id, "USD")
+    db_session.commit()
+
+    conta = db_session.exec(
+        select(PaymentAccount).where(PaymentAccount.workspace_id == ws.id)
+    ).one()
+    assert conta.currency == "USD"
+    assert relatorio.as_dict()["accounts"] == 1
+
+
 # --- tudo ou nada -----------------------------------------------------------
 
 

@@ -98,7 +98,7 @@ def test_materializacao_de_leitura_nao_toca_a_rede(db_session: Session, no_netwo
     )
     db_session.commit()
 
-    assert result == {"expenses": 0, "income": 0}
+    assert result == {"expenses": 0, "income": 0, "promoted": 0}
     assert db_session.exec(select(Income).where(Income.workspace_id == ws.id)).all() == []
 
 

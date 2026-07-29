@@ -546,7 +546,10 @@ def list_transactions(
 
     # Despesas recorrentes vencidas do mês corrente entram sozinhas (lazy accrual)
     # antes de montar o extrato — assim "tudo que é recorrente" aparece sem o botão.
-    RecurringMaterializationService.ensure_and_commit(session, workspace_id)
+    # `role`: um viewer não provoca escrita (ver ensure_and_commit).
+    RecurringMaterializationService.ensure_and_commit(
+        session, workspace_id, role=membership.role
+    )
 
     # Base query
     statement = select(Transaction).where(

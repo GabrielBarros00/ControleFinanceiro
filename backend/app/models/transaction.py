@@ -211,6 +211,14 @@ def _transaction_stamp_on_insert(mapper, connection, target: Transaction) -> Non
     # Listener de Mapper: cobre TODOS os caminhos de criação (manual, bulk,
     # recorrência, import) sem depender de cada rota lembrar do carimbo
     _stamp_status(target, target.status, datetime.now(UTC))
+    # billing_month é o MÊS ÚNICO das agregações (dívidas, relatórios, previsão,
+    # extrato). A coluna é nullable e uma linha sem ela sumiria de todas elas de
+    # uma vez. Hoje os quatro caminhos de criação preenchem — mas isso é
+    # disciplina de quem escreve o código, não uma garantia. Aqui vira invariante:
+    # sem valor explícito, deriva da data. O valor mandado pelo cliente (o mês
+    # LOCAL dele) continua vencendo, que é o certo — o servidor só conhece UTC.
+    if not target.billing_month and target.transaction_date is not None:
+        target.billing_month = target.transaction_date.strftime("%Y-%m")
 
 
 @event.listens_for(Transaction, "before_update")

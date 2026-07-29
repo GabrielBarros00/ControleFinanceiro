@@ -13,6 +13,7 @@ from app.models.category import Category
 from app.models.credit_card import CreditCard
 from app.models.income import Income
 from app.models.recurring import RecurringExpense, RecurringIncome, RecurrenceFrequency
+from app.models.workspace import WorkspaceRole, role_level
 from app.models.transaction import (
     Transaction,
     TransactionItem,
@@ -740,11 +741,11 @@ class RecurringMaterializationService:
         exp = RecurringService.generate_due_instances(
             db, workspace_id, today, allow_fetch=False
         )
-        RecurringService.promote_due_instances(db, workspace_id, today)
+        promovidas = RecurringService.promote_due_instances(db, workspace_id, today)
         inc = RecurringIncomeService.generate_due_income(
             db, workspace_id, today, allow_fetch=False
         )
-        return {"expenses": exp, "income": inc}
+        return {"expenses": exp, "income": inc, "promoted": promovidas}
 
     # ---- Escopo retroativo (start_date no passado) ---------------------------
 
@@ -798,17 +799,66 @@ class RecurringMaterializationService:
                 created += RecurringService.backfill_month(db, template.id, year, month)
         return created
 
+    #: Papel abaixo do qual a leitura NÃO materializa (ver ensure_and_commit)
+    _MIN_ROLE = WorkspaceRole.member
+
     @staticmethod
-    def ensure_and_commit(db: Session, workspace_id: int, today: Optional[date] = None) -> dict:
+    def _tem_template_ativo(db: Session, workspace_id: int) -> bool:
+        """Existe alguma recorrência ativa no workspace? Duas consultas baratas
+        (EXISTS por índice) antes de qualquer escrita."""
+        despesa = db.exec(
+            select(RecurringExpense.id)
+            .where(RecurringExpense.workspace_id == workspace_id)
+            .where(RecurringExpense.is_active.is_(True))
+            .limit(1)
+        ).first()
+        if despesa is not None:
+            return True
+        renda = db.exec(
+            select(RecurringIncome.id)
+            .where(RecurringIncome.workspace_id == workspace_id)
+            .where(RecurringIncome.is_active.is_(True))
+            .limit(1)
+        ).first()
+        return renda is not None
+
+    @staticmethod
+    def ensure_and_commit(
+        db: Session,
+        workspace_id: int,
+        today: Optional[date] = None,
+        *,
+        role=None,
+    ) -> dict:
         """Conveniência para o caminho de leitura: materializa e comita. Best-effort
         — nunca propaga erro para não derrubar um GET (a materialização é acessória
         à resposta). Não emite eventos: o próprio refetch já traz os dados novos e
-        publicar aqui provocaria tempestade de refetch (WS/seq)."""
+        publicar aqui provocaria tempestade de refetch (WS/seq).
+
+        Dois curto-circuitos, ambos ANTES de escrever qualquer coisa:
+
+        1. **`viewer` não materializa.** Um papel explicitamente somente-leitura
+           não pode provocar INSERT + COMMIT. Quem tem escrita no workspace
+           materializa na primeira tela que abrir, então nada se perde — só deixa
+           de acontecer no acesso de quem não deveria escrever.
+        2. **Sem template ativo, nem tenta.** A materialização roda no topo de 4
+           rotas de listagem; a esmagadora maioria dos workspaces não tem nada a
+           materializar na maioria dos GETs, e mesmo assim pagava as consultas de
+           dedup e um commit por requisição.
+        """
+        if role is not None and role_level(role) < role_level(
+            RecurringMaterializationService._MIN_ROLE
+        ):
+            return {"expenses": 0, "income": 0, "promoted": 0}
         try:
+            if not RecurringMaterializationService._tem_template_ativo(db, workspace_id):
+                return {"expenses": 0, "income": 0, "promoted": 0}
             result = RecurringMaterializationService.ensure_current_month(
                 db, workspace_id, today or date.today()
             )
-            db.commit()
+            # Nada mudou: o commit era puro custo (a sessão está limpa)
+            if any(result.values()):
+                db.commit()
             return result
         except Exception:
             db.rollback()
@@ -816,4 +866,4 @@ class RecurringMaterializationService:
             # (snapshot inválido, taxa ausente, IntegrityError) desaparecia sem
             # rastro e o usuário só via "a recorrência não apareceu".
             logger.exception("materializacao_falhou", workspace_id=workspace_id)
-            return {"expenses": 0, "income": 0}
+            return {"expenses": 0, "income": 0, "promoted": 0}

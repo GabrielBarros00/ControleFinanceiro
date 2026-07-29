@@ -32,6 +32,19 @@ def parse_month(month: Optional[str], *, default: Optional[date] = None) -> date
         raise InvalidMonth("Formato de mês inválido. Use YYYY-MM")
 
 
+def month_key(reference: date) -> str:
+    """`date` → `"YYYY-MM"`, o formato de `Transaction.billing_month`.
+
+    O `billing_month` é a definição ÚNICA de "mês" das agregações de despesa. As
+    janelas por `transaction_date` (um instante gravado em UTC) discordavam dele
+    na virada do mês: uma despesa lançada às 22h do dia 31 em Brasília tem
+    `transaction_date` já no dia 1 do mês seguinte, então aparecia em Lançamentos
+    e nas Dívidas de julho e nos Relatórios de agosto — a mesma despesa, na mesma
+    sessão, em dois meses diferentes.
+    """
+    return f"{reference.year:04d}-{reference.month:02d}"
+
+
 def month_bounds(reference: date) -> tuple[datetime, datetime]:
     """Primeiro instante e último instante do mês de `reference`."""
     last_day = calendar.monthrange(reference.year, reference.month)[1]

@@ -4,7 +4,7 @@ import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
 import { MoneyInput } from '@/components/ui/MoneyInput';
 import { Target, Trash2, Plus } from 'lucide-react';
-import { useEstimates, type Estimate } from '@/hooks/use-estimates';
+import { useEstimates, type Estimate, type EstimateScope } from '@/hooks/use-estimates';
 import { useCategories } from '@/hooks/use-categories';
 import { useBaseCurrency } from '@/hooks/use-base-currency';
 import { ExcludedForeignNotice } from '@/components/money/ExcludedForeignNotice';
@@ -18,6 +18,10 @@ const selectClass =
 interface BudgetPanelProps {
   spentByCategory: { category_id?: number | null; name: string; value: number }[];
   totalExpenses: number;
+  /** Mesma composição, recortada na parte do usuário (meta pessoal). */
+  mySpentByCategory?: { category_id?: number | null; name: string; value: number }[];
+  /** Soma dos splits do usuário no mês — o total contra a meta pessoal. */
+  myExpenses?: number;
   /** Lançamentos fora da moeda-base que NÃO entraram nos totais (ADR 0006). */
   excludedForeignCount?: number | null;
   /** Mês exibido (YYYY-MM) — o mesmo do resto da tela de relatórios. */
@@ -29,29 +33,47 @@ const monthLabel = (month: string) => {
   return new Date(y, m - 1, 1).toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' });
 };
 
-// Orçamento por categoria do mês exibido: meta vs. gasto real com progresso
-export function BudgetPanel({ spentByCategory, totalExpenses, excludedForeignCount, month }: BudgetPanelProps) {
+// Orçamento por categoria do mês exibido: meta vs. gasto real com progresso.
+// Duas visões, porque são duas perguntas diferentes: quanto a CASA pode gastar e
+// quanto EU posso. Antes só existia a da casa, e o Início comparava a despesa
+// pessoal contra ela — num workspace de duas pessoas a barra mentia pela metade.
+export function BudgetPanel({
+  spentByCategory,
+  totalExpenses,
+  mySpentByCategory = [],
+  myExpenses = 0,
+  excludedForeignCount,
+  month,
+}: BudgetPanelProps) {
   const baseCurrency = useBaseCurrency();
   const formatBRL = (value: number) => formatMoney(value, { currency: baseCurrency });
-  const { estimates, setCategoryBudget, removeEstimate } = useEstimates(month);
+  const [scope, setScope] = React.useState<EstimateScope>('workspace');
+  const { estimatesByScope, setCategoryBudget, removeEstimate } = useEstimates(month);
   const { categories } = useCategories();
   // Chave do <select>: 'geral' ou o id da categoria (nunca o nome — ver spentFor)
   const [newCategoryKey, setNewCategoryKey] = React.useState('');
   const [newAmount, setNewAmount] = React.useState(0);
   const [error, setError] = React.useState<string | null>(null);
 
+  const pessoal = scope === 'personal';
+  const estimates = estimatesByScope(scope);
+  const gastoPorCategoria = pessoal ? mySpentByCategory : spentByCategory;
+  const gastoTotal = pessoal ? myExpenses : totalExpenses;
+
   const spentFor = (estimate: Estimate): number => {
-    if (estimate.category === 'Geral') return totalExpenses;
+    if (estimate.category === 'Geral') return gastoTotal;
     // Casa por id: renomear a categoria costumava zerar o consumo calado, porque
     // a meta guardava o nome antigo e o gasto vinha com o novo (BUD-001).
     if (estimate.category_id != null) {
-      return spentByCategory.find((c) => c.category_id === estimate.category_id)?.value ?? 0;
+      return gastoPorCategoria.find((c) => c.category_id === estimate.category_id)?.value ?? 0;
     }
     // Metas antigas (sem id): resta o nome
-    return spentByCategory.find((c) => c.name === estimate.category)?.value ?? 0;
+    return gastoPorCategoria.find((c) => c.name === estimate.category)?.value ?? 0;
   };
 
-  // "Geral" é a meta agregada do mês, não uma categoria de verdade → id nulo
+  // "Geral" é a meta agregada do mês, não uma categoria de verdade → id nulo.
+  // O filtro olha só as metas do escopo ATIVO: a mesma categoria pode ter meta
+  // da casa e meta pessoal ao mesmo tempo.
   const availableCategories = [
     { key: 'geral', id: null as number | null, name: 'Geral' },
     ...categories.map((c) => ({ key: String(c.id), id: c.id as number | null, name: c.name })),
@@ -73,7 +95,12 @@ export function BudgetPanel({ spentByCategory, totalExpenses, excludedForeignCou
       return;
     }
     try {
-      await setCategoryBudget({ category: option.name, categoryId: option.id, amount: newAmount });
+      await setCategoryBudget({
+        category: option.name,
+        categoryId: option.id,
+        amount: newAmount,
+        scope,
+      });
       setNewCategoryKey('');
       setNewAmount(0);
     } catch (err) {
@@ -98,15 +125,45 @@ export function BudgetPanel({ spentByCategory, totalExpenses, excludedForeignCou
           Orçamento por Categoria — {monthLabel(month)}
         </CardTitle>
         <CardDescription>
-          Defina uma meta de gasto por categoria e acompanhe o consumo do mês.
-          A soma das metas vira o orçamento total usado na previsão.
+          {pessoal
+            ? 'Sua meta de gasto: comparada com a SUA parte das despesas (o rateio), não com o total da casa.'
+            : 'Meta da casa: comparada com o gasto total do workspace. A soma vira o orçamento usado na previsão.'}
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-6">
+        {/* Duas perguntas diferentes — "quanto a casa pode gastar" e "quanto eu
+            posso" — e por isso duas listas de metas. */}
+        <div role="tablist" aria-label="Escopo do orçamento" className="inline-flex rounded-lg bg-accent p-1">
+          {([
+            ['workspace', 'Da casa'],
+            ['personal', 'Minha'],
+          ] as const).map(([valor, rotulo]) => (
+            <button
+              key={valor}
+              type="button"
+              role="tab"
+              aria-selected={scope === valor}
+              onClick={() => {
+                setScope(valor);
+                setNewCategoryKey('');
+                setError(null);
+              }}
+              className={`rounded-md px-3 py-1.5 text-sm font-medium transition-colors ${
+                scope === valor
+                  ? 'bg-card text-foreground shadow-sm'
+                  : 'text-muted-foreground hover:text-foreground'
+              }`}
+            >
+              {rotulo}
+            </button>
+          ))}
+        </div>
         <ExcludedForeignNotice count={excludedForeignCount} baseCurrency={baseCurrency} />
         {estimates.length === 0 ? (
           <p className="text-sm text-muted-foreground text-center py-4">
-            Nenhuma meta definida para este mês.
+            {pessoal
+              ? 'Você ainda não definiu uma meta pessoal para este mês.'
+              : 'Nenhuma meta da casa definida para este mês.'}
           </p>
         ) : (
           <div className="space-y-4">

@@ -33,6 +33,7 @@ from app.models.credit_card import CardStatement, CreditCard, StatementPayment
 from app.models.estimate import MonthlyEstimate
 from app.models.financing import AmortizationInstallment, Financing
 from app.models.income import Income
+from app.models.payment_account import PaymentAccount
 from app.models.recurring import RecurringExpense, RecurringIncome
 from app.models.settlement import Settlement
 from app.models.transaction import (
@@ -73,6 +74,7 @@ class ConversionReport:
     financings: int = 0
     estimates: int = 0
     recurring: int = 0
+    accounts: int = 0
     missing_rates: List[str] = field(default_factory=list)
 
     def as_dict(self) -> Dict:
@@ -87,6 +89,7 @@ class ConversionReport:
             "financings": self.financings,
             "estimates": self.estimates,
             "recurring": self.recurring,
+            "accounts": self.accounts,
             "missing_rates": self.missing_rates,
         }
 
@@ -295,6 +298,16 @@ class BaseCurrencyService:
         # Template não tem data de ocorrência: converte pela taxa de hoje
         rec_pairs = [(r, resolver.factor(today)) for r in list(rec_exp) + list(rec_inc)]
 
+        # Conta de pagamento não guarda saldo — só o RÓTULO da moeda. Ficava para
+        # trás na troca: a criação respeita `resolve_currency` (nasce na base) mas
+        # a migração não mexia nela, então a conta seguia dizendo "BRL" numa tela
+        # em que todo o resto já estava na moeda nova.
+        accounts = db.exec(
+            select(PaymentAccount)
+            .where(PaymentAccount.workspace_id == workspace_id)
+            .where(PaymentAccount.currency == old_currency)
+        ).all()
+
         return {
             "transactions": tx_pairs,
             "incomes": income_pairs,
@@ -306,6 +319,7 @@ class BaseCurrencyService:
             "installments": inst_pairs,
             "estimates": est_pairs,
             "recurring": rec_pairs,
+            "accounts": list(accounts),
         }
 
     @staticmethod
@@ -318,6 +332,7 @@ class BaseCurrencyService:
         report.financings = len(work["financings"])
         report.estimates = len(work["estimates"])
         report.recurring = len(work["recurring"])
+        report.accounts = len(work["accounts"])
         return report
 
     @staticmethod
@@ -386,6 +401,11 @@ class BaseCurrencyService:
             template.base_amount = _convert(template.base_amount, factor)
             template.currency = new_currency
             db.add(template)
+
+        # Conta não tem valor a converter — só o rótulo acompanha a base
+        for account in work["accounts"]:
+            account.currency = new_currency
+            db.add(account)
 
     @staticmethod
     def _convert_transaction(db: Session, tx: Transaction, factor: Decimal, new_currency: str) -> None:

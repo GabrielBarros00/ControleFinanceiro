@@ -99,6 +99,15 @@ def test_falha_de_materializacao_e_logada(db_session: Session, ws, monkeypatch, 
     def _explode(*args, **kwargs):
         raise RuntimeError("falha proposital na materialização")
 
+    # Template ativo: sem nenhum, `ensure_and_commit` sai antes de tentar
+    # materializar (curto-circuito que evita um commit por GET) e a falha
+    # proposital nunca aconteceria.
+    db_session.add(RecurringExpense(
+        title="Aluguel", base_amount=Decimal("100.00"), day_of_month=1,
+        workspace_id=ws["ws"].id, created_by_user_id=ws["user"].id,
+    ))
+    db_session.commit()
+
     monkeypatch.setattr(
         RecurringMaterializationService, "ensure_current_month", _explode
     )
@@ -106,10 +115,54 @@ def test_falha_de_materializacao_e_logada(db_session: Session, ws, monkeypatch, 
         db_session, ws["ws"].id
     )
 
-    assert resultado == {"expenses": 0, "income": 0}
+    assert resultado == {"expenses": 0, "income": 0, "promoted": 0}
     saida = capsys.readouterr().out
     assert "materializacao_falhou" in saida
     assert "workspace_id" in saida
+
+
+def test_viewer_nao_materializa_na_leitura(db_session: Session, ws):
+    """Papel somente-leitura não pode provocar INSERT + COMMIT.
+
+    A materialização preguiçosa roda no topo de 4 rotas GET, protegidas só por
+    `get_workspace_membership` — ou seja, um `viewer` escrevia no banco só de
+    abrir o extrato. Quem tem escrita materializa na primeira tela que abrir,
+    então nada se perde.
+    """
+    db_session.add(RecurringExpense(
+        title="Aluguel", base_amount=Decimal("100.00"), day_of_month=1,
+        workspace_id=ws["ws"].id, created_by_user_id=ws["user"].id,
+    ))
+    db_session.commit()
+
+    resultado = RecurringMaterializationService.ensure_and_commit(
+        db_session, ws["ws"].id, role=WorkspaceRole.viewer
+    )
+    assert resultado == {"expenses": 0, "income": 0, "promoted": 0}
+    assert db_session.exec(
+        select(Transaction).where(Transaction.workspace_id == ws["ws"].id)
+    ).all() == []
+
+    # O mesmo workspace, lido por um member, materializa normalmente
+    criadas = RecurringMaterializationService.ensure_and_commit(
+        db_session, ws["ws"].id, role=WorkspaceRole.member
+    )
+    assert criadas["expenses"] == 1
+
+
+def test_sem_template_ativo_nao_comita(db_session: Session, ws, monkeypatch):
+    """Workspace sem recorrência não paga as consultas de dedup nem um commit a
+    cada listagem — e são 4 rotas de leitura chamando isto."""
+    def _nao_deveria(*args, **kwargs):
+        raise AssertionError("materializou sem nenhum template ativo")
+
+    monkeypatch.setattr(
+        RecurringMaterializationService, "ensure_current_month", _nao_deveria
+    )
+    resultado = RecurringMaterializationService.ensure_and_commit(
+        db_session, ws["ws"].id, role=WorkspaceRole.owner
+    )
+    assert resultado == {"expenses": 0, "income": 0, "promoted": 0}
 
 
 # --- D9: materialização restrita ao template editado ------------------------

@@ -43,13 +43,24 @@ export function LoginPage() {
     resolver: zodResolver(loginSchema),
   });
 
+  // Quem chega por um convite POR LINK (`/invite/<token>`) cai aqui, porque a
+  // rota é protegida. Se ainda não tem conta, o caminho é "Cadastre-se" — e o
+  // token morria no desvio: a pessoa se cadastrava, entrava no próprio
+  // workspace e não virava membro de nada. `?invite=` é o que o backend lê como
+  // consentimento no `POST /auth/register`.
+  const from = (location.state as { from?: string } | null)?.from;
+  const tokenDoConvite = from?.match(/^\/invite\/([^/?#]+)/)?.[1];
+  const linkCadastro = tokenDoConvite
+    ? `/register?invite=${encodeURIComponent(tokenDoConvite)}`
+    : '/register';
+
   const onSubmit = async (data: LoginValues) => {
     setLoading(true);
     setError(null);
     try {
       await login(data);
       // Volta para a rota original (ex: link de convite) se houver
-      navigate((location.state as { from?: string } | null)?.from ?? '/');
+      navigate(from ?? '/');
     } catch (err) {
       setError(getApiErrorMessage(err, 'Email ou senha incorretos.'));
     } finally {
@@ -122,7 +133,7 @@ export function LoginPage() {
             </Button>
             <GoogleLoginButton />
             <p className="text-center text-sm text-muted-foreground">
-              Não tem uma conta? <Link to="/register" className="font-bold text-primary hover:underline ml-1">Cadastre-se</Link>
+              Não tem uma conta? <Link to={linkCadastro} className="font-bold text-primary hover:underline ml-1">Cadastre-se</Link>
             </p>
           </CardFooter>
         </form>

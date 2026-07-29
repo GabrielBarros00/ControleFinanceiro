@@ -340,6 +340,102 @@ def test_cartao_e_conta_nascem_na_moeda_base(client, db_session, ws_usd):
     assert conta.json()["currency"] == "USD"
 
 
+# --- onboarding -------------------------------------------------------------
+
+
+def test_onboarding_nasce_na_moeda_base(client, db_session, ws_usd):
+    """O onboarding era o 10º (e último) caminho de entrada fora da regra.
+
+    `POST /auth/onboarding` construía `Income(...)` e `CreditCard(...)` sem passar
+    `currency`, então os dois herdavam o default "BRL" do model. Num workspace em
+    USD o salário nascia invisível: toda agregação filtra `currency == base`, e o
+    formulário ainda exibia o símbolo da moeda-base — a UI prometia US$ e o banco
+    gravava BRL.
+    """
+    ws, user = ws_usd["ws"], ws_usd["user"]
+    headers = ws_usd["headers"]
+
+    res = client.post(
+        "/api/v1/auth/onboarding",
+        json={
+            "salary": "4000.00",
+            "credit_card_name": "Nubank",
+            "credit_card_limit": "2000.00",
+            "credit_card_closing_day": 10,
+        },
+        headers=headers,
+    )
+    assert res.status_code == 200, res.text
+
+    renda = db_session.exec(select(Income).where(Income.workspace_id == ws.id)).first()
+    assert renda is not None
+    assert renda.currency == "USD"
+
+    from app.models.credit_card import CreditCard
+
+    cartao = db_session.exec(
+        select(CreditCard).where(CreditCard.workspace_id == ws.id)
+    ).first()
+    assert cartao is not None
+    assert cartao.currency == "USD"
+
+    # E a renda aparece de fato nos totais do mês (o filtro de moeda casa)
+    mes = renda.received_at.strftime("%Y-%m")
+    resumo = client.get(
+        f"/api/v1/workspaces/{ws.id}/analytics/summary?month={mes}", headers=headers
+    )
+    assert resumo.status_code == 200, resumo.text
+    assert Decimal(resumo.json()["total_income"]) == Decimal("4000.00")
+    assert Decimal(resumo.json()["my_income"]) == Decimal("4000.00")
+    assert renda.user_id == user.id
+
+
+def test_onboarding_recusa_workspace_compartilhado(client, db_session, ws_usd):
+    """Onboarding grava a renda DA PESSOA — nunca no workspace de outra família.
+
+    Quem se cadastra por convite nasce com dois workspaces, e o cliente mandava o
+    `currentWorkspaceId`, escolhido como `workspaces[0]` de uma listagem que não
+    tinha ORDER BY. O salário podia cair no workspace compartilhado.
+    """
+    convidado = User(name="Convidado", email="convidado@t.com", password_hash="h")
+    db_session.add(convidado)
+    db_session.flush()
+    # Membro (não owner) do workspace de outra pessoa...
+    db_session.add(WorkspaceMembership(
+        workspace_id=ws_usd["ws"].id, user_id=convidado.id, role=WorkspaceRole.member
+    ))
+    # ...e owner do próprio
+    proprio = Workspace(name="Meu Workspace", base_currency="USD")
+    db_session.add(proprio)
+    db_session.flush()
+    db_session.add(WorkspaceMembership(
+        workspace_id=proprio.id, user_id=convidado.id, role=WorkspaceRole.owner
+    ))
+    db_session.commit()
+
+    token = create_access_token(data={"sub": str(convidado.id)})
+    headers = {"Cookie": f"access_token={token}"}
+
+    # Apontar explicitamente para o compartilhado é recusado
+    negado = client.post(
+        "/api/v1/auth/onboarding",
+        json={"workspace_id": ws_usd["ws"].id, "salary": "1000.00"},
+        headers=headers,
+    )
+    assert negado.status_code == 403, negado.text
+
+    # Sem workspace_id, cai no PRÓPRIO
+    ok = client.post(
+        "/api/v1/auth/onboarding", json={"salary": "1000.00"}, headers=headers
+    )
+    assert ok.status_code == 200, ok.text
+    renda = db_session.exec(
+        select(Income).where(Income.user_id == convidado.id)
+    ).first()
+    assert renda is not None
+    assert renda.workspace_id == proprio.id
+
+
 # --- financiamento ----------------------------------------------------------
 
 

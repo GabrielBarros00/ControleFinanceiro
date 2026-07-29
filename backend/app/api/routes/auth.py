@@ -18,7 +18,9 @@ from app.models.workspace import (
     WorkspaceRole,
     WorkspaceInvite,
     InviteStatus,
+    role_level,
 )
+from app.domain.query_policy import resolve_currency
 from app.schemas.user import UserResponse
 from app.core.security import (
     verify_password,
@@ -96,15 +98,20 @@ def _user_workspace_ids(db: Session, user_id: int) -> List[int]:
 
 
 def _setup_default_workspace(db: Session, user: User) -> Workspace:
-    """Cria o workspace pessoal padrão com papel de owner para um usuário novo."""
+    """Cria o workspace pessoal padrão com papel de owner para um usuário novo.
+
+    Só `flush` — o commit é do chamador (ADR 0010). Antes eram DOIS commits aqui
+    (mais um no `register` e outro em `_resolve_pending_invites`): se o seed de
+    categorias falhasse, o usuário ficava criado e sem workspace, e não havia
+    rollback capaz de desfazer o cadastro.
+    """
     workspace = Workspace(
         name="Meu Workspace",
         description="Espaço pessoal criado automaticamente",
         created_by_user_id=user.id
     )
     db.add(workspace)
-    db.commit()
-    db.refresh(workspace)
+    db.flush()
 
     membership = WorkspaceMembership(
         user_id=user.id,
@@ -113,7 +120,7 @@ def _setup_default_workspace(db: Session, user: User) -> Workspace:
     )
     db.add(membership)
     seed_default_categories(db, workspace.id)
-    db.commit()
+    db.flush()
     return workspace
 
 
@@ -180,7 +187,7 @@ def _resolve_pending_invites(
             workspace_name=workspace.name if workspace else None,
             invite_token=invite.token,
         )
-    db.commit()
+    db.flush()
 
 async def get_current_user(
     access_token: Optional[str] = Cookie(None),
@@ -236,11 +243,60 @@ class RegisterRequest(BaseModel):
     invite_token: Optional[str] = None
 
 class OnboardingRequest(BaseModel):
-    workspace_id: int
+    # Opcional: o onboarding cria a RENDA e o CARTÃO da pessoa, então o destino
+    # natural é o workspace pessoal dela. Sem o campo, a rota resolve sozinha —
+    # ver _resolve_onboarding_workspace.
+    workspace_id: Optional[int] = None
     salary: Decimal
     credit_card_name: Optional[str] = None
     credit_card_limit: Optional[Decimal] = None
     credit_card_closing_day: Optional[int] = Field(None, ge=1, le=31)
+
+
+def _resolve_onboarding_workspace(db: Session, user: User, requested_id: Optional[int]) -> int:
+    """Workspace de destino do onboarding: SEMPRE um do qual o usuário é owner.
+
+    Ser membro não basta. Quem se cadastra por um convite
+    (`/register?invite=<token>`) nasce com DOIS workspaces — o pessoal e o
+    compartilhado — e o cliente mandava o `currentWorkspaceId`, escolhido como
+    `workspaces[0]` de uma listagem sem ordenação. Ou seja: a primeira tela do
+    app podia gravar o salário da pessoa dentro do workspace de outra família,
+    de forma não determinística.
+    """
+    memberships = db.exec(
+        select(WorkspaceMembership)
+        .where(WorkspaceMembership.user_id == user.id)
+        .order_by(WorkspaceMembership.workspace_id)
+    ).all()
+
+    if requested_id is not None:
+        alvo = next((m for m in memberships if m.workspace_id == requested_id), None)
+        if not alvo:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Você não é membro deste workspace"
+            )
+        if role_level(alvo.role) < role_level(WorkspaceRole.owner):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=(
+                    "O onboarding cria a sua renda e o seu cartão — use o seu "
+                    "próprio workspace, não um compartilhado."
+                ),
+            )
+        return requested_id
+
+    proprio = next(
+        (m for m in memberships if role_level(m.role) >= role_level(WorkspaceRole.owner)),
+        None,
+    )
+    if not proprio:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Nenhum workspace próprio para concluir o onboarding"
+        )
+    return proprio.workspace_id
+
 
 @router.post("/onboarding")
 async def finish_onboarding(
@@ -248,31 +304,28 @@ async def finish_onboarding(
     db: Session = Depends(get_session),
     current_user: User = Depends(get_current_user)
 ):
-    # 0. O workspace precisa existir e o usuário ser membro (anti-IDOR)
-    membership = db.exec(
-        select(WorkspaceMembership).where(
-            WorkspaceMembership.workspace_id == data.workspace_id,
-            WorkspaceMembership.user_id == current_user.id,
-        )
-    ).first()
-    if not membership:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Você não é membro deste workspace"
-        )
+    # 0. Destino: workspace PRÓPRIO (anti-IDOR + não escrever na casa dos outros)
+    workspace_id = _resolve_onboarding_workspace(db, current_user, data.workspace_id)
+    # Moeda ausente = a do workspace (nunca "BRL" fixo — ver resolve_currency).
+    # Sem isto, renda e cartão nasciam com o default "BRL" do model e, num
+    # workspace em outra moeda, sumiam de TODA agregação (que filtra
+    # `currency == base_currency`) — enquanto o formulário exibia o símbolo da
+    # moeda-base. Era o único caminho de entrada ainda fora da regra.
+    moeda = resolve_currency(db, workspace_id, None)
 
     # 1. Create Income (Salary) — pular a etapa não cria renda de valor zero
     if data.salary and data.salary > 0:
         income = Income(
             title="Salário Mensal",
             amount=data.salary,
+            currency=moeda,
             category="Salary",
-            workspace_id=data.workspace_id,
+            workspace_id=workspace_id,
             user_id=current_user.id
         )
         db.add(income)
         db.flush()
-        publish_event(db, data.workspace_id, "income.created", "income", income.id, current_user.id)
+        publish_event(db, workspace_id, "income.created", "income", income.id, current_user.id)
 
     # 2. Create Credit Card (Optional)
     if data.credit_card_name and data.credit_card_limit:
@@ -281,11 +334,12 @@ async def finish_onboarding(
             limit=data.credit_card_limit,
             closing_day=data.credit_card_closing_day or 5,
             due_day=((data.credit_card_closing_day or 5) + 10) % 31 or 1,
-            workspace_id=data.workspace_id
+            currency=moeda,
+            workspace_id=workspace_id
         )
         db.add(card)
         db.flush()
-        publish_event(db, data.workspace_id, "credit_card.created", "credit_card", card.id, current_user.id)
+        publish_event(db, workspace_id, "credit_card.created", "credit_card", card.id, current_user.id)
 
     # 3. Mark as onboarded
     current_user.needs_onboarding = False
@@ -307,19 +361,21 @@ async def register(
             detail="Este email já está cadastrado"
         )
     
-    # Create user
+    # Create user — commit ÚNICO no fim (ADR 0010): usuário, workspace pessoal,
+    # categorias padrão e a resolução dos convites nascem juntos ou não nascem.
     user = User(
         name=register_data.name,
         email=register_data.email,
         password_hash=get_password_hash(register_data.password)
     )
     db.add(user)
-    db.commit()
-    db.refresh(user)
+    db.flush()
 
     _setup_default_workspace(db, user)
     _resolve_pending_invites(db, user, accept_token=register_data.invite_token)
 
+    db.commit()
+    db.refresh(user)
     return user
 
 @router.post("/login", dependencies=[Depends(rate_limit_auth)])

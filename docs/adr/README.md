@@ -22,6 +22,7 @@ Cada ADR registra **uma decisão** relevante do projeto: o contexto, a decisão 
 | [0014](0014-consultas-moeda-e-experiencia.md) | Consultas financeiras, moeda-base e experiência | Relatórios / UX |
 | [0015](0015-conversao-na-entrada-e-taxa-cruzada.md) | Conversão na entrada pela taxa cruzada da moeda-base (supersede 0006) | Consultas / moeda |
 | [0016](0016-armazenamento-de-anexos-em-volume.md) | Armazenamento de anexos em volume: endereçado por conteúdo, com dedup (implementa 0007) | Anexos |
+| [0017](0017-orcamento-com-escopo-casa-ou-pessoal.md) | Orçamento tem escopo: meta da casa ou meta pessoal (privada) | Orçamento / UX |
 
 ## Escrevendo um novo ADR
 

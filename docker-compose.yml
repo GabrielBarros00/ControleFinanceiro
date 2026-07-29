@@ -77,6 +77,12 @@ services:
       COOKIE_SECURE: ${COOKIE_SECURE:-True}
       ALLOWED_HOSTS: ${ALLOWED_HOSTS:-}
       FRONTEND_URL: ${FRONTEND_URL:-http://localhost}
+      # Mesma configuração de anexos do backend. O expurgo de hoje não toca o
+      # conteúdo, mas rodar com um ATTACHMENT_STORAGE_DIR diferente do serviço
+      # que grava é uma armadilha esperando a primeira rotina que toque nele.
+      ATTACHMENT_STORAGE_DIR: /data/attachments
+    volumes:
+      - attachments_data:/data/attachments
     depends_on:
       backend:
         condition: service_healthy
@@ -102,6 +108,13 @@ services:
     depends_on:
       backend:
         condition: service_healthy
+    # É o ÚNICO container exposto ao host: sem healthcheck, um nginx que subiu
+    # mas não serve deixa o stack "up" e o usuário sem app, sem sinal nenhum.
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://localhost/ || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
 
   # Ferramenta de administração do banco — apenas em desenvolvimento
   # (docker compose --profile dev up)

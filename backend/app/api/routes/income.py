@@ -100,7 +100,9 @@ def list_income(
     now = datetime.now(UTC)
     current_month = f"{now.year:04d}-{now.month:02d}"
     if month is None or month == current_month:
-        RecurringMaterializationService.ensure_and_commit(session, workspace_id)
+        RecurringMaterializationService.ensure_and_commit(
+            session, workspace_id, role=membership.role
+        )
 
     statement = select(Income).where(
         Income.workspace_id == workspace_id,

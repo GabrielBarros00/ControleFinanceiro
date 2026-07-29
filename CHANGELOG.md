@@ -4,7 +4,68 @@ Todas as mudanças relevantes deste projeto são documentadas aqui.
 O formato segue [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e o versionamento
 segue [SemVer](https://semver.org/lang/pt-BR/).
 
+> **Sobre a versão:** `APP_VERSION` (`backend/app/core/config.py`, hoje `4.0.0`) nomeia a
+> LINHA do produto — é o "V4" do nome — e aparece no `/health` para identificar o binário
+> em produção. Ainda não há release tagueada: tudo abaixo é o caminho até a 4.0.0 e vive em
+> `[Não lançado]`. Ao cortar a primeira tag, mova este bloco para `## [4.0.0] - AAAA-MM-DD`.
+
 ## [Não lançado]
+
+### Corrigido — auditoria 2026-07-29 (4ª rodada)
+
+- **O onboarding gravava renda e cartão fora da moeda-base.** `POST /auth/onboarding`
+  construía `Income` e `CreditCard` sem informar `currency`, então os dois herdavam o
+  default `"BRL"` do model. Num workspace em outra moeda o salário nascia **invisível**:
+  toda agregação filtra `currency == base_currency` — e o formulário ainda exibia o
+  símbolo da moeda-base, prometendo US$ e gravando BRL. Era o 10º e último caminho de
+  entrada fora da regra (os outros nove já tinham regressão; este não estava lá).
+- **O onboarding podia lançar o salário no workspace de outra pessoa.** O cliente mandava
+  o workspace ativo, escolhido como o primeiro item de uma listagem **sem `ORDER BY`**;
+  quem se cadastra por convite nasce com dois workspaces (o pessoal e o compartilhado).
+  Agora o destino é sempre um workspace do qual a pessoa é `owner`, resolvido no servidor,
+  e `GET /workspaces/` tem ordem explícita.
+- **Relatórios e Lançamentos discordavam do mês na virada.** As agregações de despesa
+  recortavam por uma janela sobre `transaction_date` (um INSTANTE gravado em UTC)
+  enquanto o extrato e as dívidas usavam `billing_month` (o mês de calendário local).
+  Uma despesa lançada às 22h do dia 31 em Brasília aparecia em Lançamentos e Dívidas de
+  julho e nos Relatórios de **agosto** — a mesma despesa, na mesma sessão, em dois meses.
+  Agora há **uma única definição de mês** (`billing_month`), garantida por listener de
+  mapper para toda linha nova e por uma migração de backfill para as antigas.
+- **`GET /analytics/exchange-rate` podia congelar a API.** É a única rota que ainda vai à
+  rede de forma síncrona; o look-back de 5 dias do PTAX faz o pior caso chegar a ~10
+  requisições de saída, e o backend roda com 1 worker. Sem teto, algumas chamadas
+  concorrentes com códigos variados (cache miss garantido) esgotavam o threadpool. Agora
+  tem balde próprio de 30/min por workspace, aplicado **antes** do I/O.
+- **A CSP liberava WebSocket para qualquer host.** `connect-src 'self' ws: wss:` — os
+  esquemas curinga abriam o canal clássico de exfiltração pós-XSS. `'self'` sozinho já
+  cobre `ws://`/`wss://` do mesmo host.
+- **Leitura escrevia no banco, inclusive para `viewer`.** A materialização preguiçosa roda
+  no topo de 4 rotas `GET`: um papel somente-leitura provocava `INSERT` + `COMMIT` só de
+  abrir o extrato, e todo workspace pagava as consultas de dedup e um commit por
+  listagem mesmo sem nada a materializar. Dois curto-circuitos antes de qualquer escrita.
+- **A troca de moeda-base não convertia as contas de pagamento** — a conta seguia rotulada
+  na moeda antiga numa tela em que todo o resto já tinha migrado.
+- **O onboarding era um modal na mão** (`<div className="fixed inset-0">`): sem
+  `role="dialog"`, sem foco preso, sem devolver o foco. É a **primeira** tela de um
+  usuário novo. Migrado para o `Dialog` do app, bloqueante de propósito — e o "X" agora é
+  removido do DOM em vez de escondido por CSS (escondido, continuava focável pelo Tab).
+- **`POST /auth/register` fazia quatro commits.** Se o seed de categorias falhasse, o
+  usuário ficava criado e sem workspace, sem rollback possível. Commit único (ADR 0010).
+- **Convite por e-mail expirado ficava "pendente" para sempre** — a lista do admin
+  anunciava convites mortos como ativos, e cada reenvio deixava mais uma linha.
+- **Item de despesa aceitava valor negativo** na borda (`ge=0` faltava no schema): quem
+  reduz o total é o ajuste, que tem sinal explícito e validador próprio.
+- Convite **por link** para quem ainda não tem conta perdia o token no desvio
+  `/invite/<token>` → `/login` → `/register`: a pessoa se cadastrava e não virava membro
+  de nada.
+
+### Adicionado — auditoria 2026-07-29 (4ª rodada)
+
+- **Moeda-base na criação do workspace.** Antes todo workspace nascia em BRL e a única
+  forma de mudar era o `PUT`, que reconverte todo o histórico — uma operação pesada e
+  sujeita a `MissingRates` para um workspace ainda vazio.
+- `healthcheck` no container do frontend (é o único exposto ao host) e
+  `ATTACHMENT_STORAGE_DIR` + volume de anexos no serviço `cron`.
 
 ### Corrigido — auditoria 2026-07-29 (3ª rodada)
 

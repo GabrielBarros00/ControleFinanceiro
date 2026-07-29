@@ -27,7 +27,7 @@ export function useWorkspaces() {
   });
 
   const createMutation = useMutation({
-    mutationFn: async (data: { name: string; description?: string }) => {
+    mutationFn: async (data: { name: string; description?: string; base_currency?: string }) => {
       const response = await apiClient.post('/workspaces/', data);
       return response.data as Workspace;
     },

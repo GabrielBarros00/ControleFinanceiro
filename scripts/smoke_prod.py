@@ -71,6 +71,17 @@ def main():
     res = httpx.get(f"{BASE}/settings", timeout=15)
     check("SPA deep-link (/settings) responde HTML", res.status_code == 200 and "<html" in res.text.lower())
 
+    # A CSP só existe no nginx real — nenhum teste da suíte a enxerga. `ws:`/`wss:`
+    # sem host liberavam WebSocket para QUALQUER origem (exfiltração pós-XSS);
+    # `connect-src 'self'` já cobre o WebSocket same-origin.
+    csp = res.headers.get("content-security-policy", "")
+    check("CSP presente no HTML da SPA", "default-src 'self'" in csp, f"CSP={csp[:120]}")
+    check(
+        "CSP não libera WebSocket para qualquer host",
+        "connect-src 'self'" in csp and " ws:" not in csp and " wss:" not in csp,
+        f"CSP={csp[:200]}",
+    )
+
     res = httpx.get(f"{API}/rota-inexistente", timeout=15)
     check("404 JSON para rota de API inexistente", res.status_code == 404 and "error" in res.json())
 
