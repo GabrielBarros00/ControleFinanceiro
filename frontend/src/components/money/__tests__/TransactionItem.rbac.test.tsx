@@ -46,4 +46,13 @@ describe('TransactionItem — gate de RBAC (RBAC-FE-001)', () => {
     expect(screen.getByLabelText('Editar transação')).not.toBeDisabled();
     expect(screen.getByLabelText('Excluir transação')).not.toBeDisabled();
   });
+
+  it('SEM a prop canWrite, desabilita — fail-closed (ADR 0018)', () => {
+    // O default era `true`: qualquer ledger renderizado sem a prop mostrava
+    // editar/excluir habilitados a um viewer, e era exatamente o caso do Início.
+    // Este teste existe para o default nunca voltar a ser permissivo.
+    render(<TransactionItem tx={tx} onEdit={() => {}} onDelete={() => {}} />);
+    expect(screen.getByLabelText('Editar transação')).toBeDisabled();
+    expect(screen.getByLabelText('Excluir transação')).toBeDisabled();
+  });
 });

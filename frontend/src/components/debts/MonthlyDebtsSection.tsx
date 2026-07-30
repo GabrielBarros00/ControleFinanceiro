@@ -49,7 +49,7 @@ export function MonthlyDebtsSection({ members, currentUserId, canWrite, onSettle
         <div className="flex flex-col gap-1">
           <CardTitle className="text-lg flex items-center gap-2">
             <CalendarDays className="h-5 w-5 text-primary" />
-            Dívidas do mês
+            Acertos do mês
           </CardTitle>
           <CardDescription>
             Cada parcela aparece só no mês dela — veja o que cada um deve e se já foi pago.
@@ -62,7 +62,7 @@ export function MonthlyDebtsSection({ members, currentUserId, canWrite, onSettle
             <ChevronLeft className="h-4 w-4" />
           </Button>
           <div className="flex flex-col items-center">
-            <span className="text-sm font-black capitalize text-foreground">{monthLabel(month)}</span>
+            <span className="text-sm font-semibold capitalize text-foreground">{monthLabel(month)}</span>
             {!isCurrentMonth && (
               <button
                 type="button"
@@ -83,15 +83,15 @@ export function MonthlyDebtsSection({ members, currentUserId, canWrite, onSettle
           <div className="grid grid-cols-3 gap-2 text-center">
             <div className="rounded-lg bg-accent/20 p-2">
               <p className="text-[10px] font-semibold uppercase text-muted-foreground">Total do mês</p>
-              <p className="text-sm font-black text-foreground">{formatBRL(ledger.totals.total)}</p>
+              <p className="text-sm font-semibold text-foreground">{formatBRL(ledger.totals.total)}</p>
             </div>
             <div className="rounded-lg bg-emerald-500/10 p-2">
               <p className="text-[10px] font-semibold uppercase text-muted-foreground">Pago</p>
-              <p className="text-sm font-black text-emerald-500">{formatBRL(ledger.totals.paid)}</p>
+              <p className="text-sm font-semibold text-emerald-500">{formatBRL(ledger.totals.paid)}</p>
             </div>
             <div className="rounded-lg bg-amber-500/10 p-2">
               <p className="text-[10px] font-semibold uppercase text-muted-foreground">Em aberto</p>
-              <p className="text-sm font-black text-amber-500">{formatBRL(ledger.totals.open)}</p>
+              <p className="text-sm font-semibold text-amber-500">{formatBRL(ledger.totals.open)}</p>
             </div>
           </div>
         )}
@@ -129,7 +129,7 @@ export function MonthlyDebtsSection({ members, currentUserId, canWrite, onSettle
                       <p className="text-sm">
                         <span className="font-bold">{memberName(d.debtor_id)}</span>
                         <span className="text-muted-foreground"> deve </span>
-                        <span className="font-black text-destructive">{formatBRL(d.amount)}</span>
+                        <span className="font-semibold text-destructive">{formatBRL(d.amount)}</span>
                         <span className="text-muted-foreground"> a </span>
                         <span className="font-bold">{memberName(d.creditor_id)}</span>
                       </p>
@@ -153,7 +153,7 @@ export function MonthlyDebtsSection({ members, currentUserId, canWrite, onSettle
                     <p key={s.id} className="flex items-center gap-1.5 text-xs text-muted-foreground">
                       <HandCoins className="h-3 w-3 shrink-0 text-emerald-500" />
                       <span className="font-bold text-foreground">{memberName(s.from_user_id)}</span> pagou{' '}
-                      <span className="font-black text-emerald-500">{formatBRL(s.amount)}</span> a{' '}
+                      <span className="font-semibold text-emerald-500">{formatBRL(s.amount)}</span> a{' '}
                       <span className="font-bold text-foreground">{memberName(s.to_user_id)}</span>
                     </p>
                   ))}
@@ -228,7 +228,7 @@ export function MonthlyDebtsSection({ members, currentUserId, canWrite, onSettle
                           <span className="rounded-full bg-amber-500/10 px-2 py-0.5 text-[10px] font-semibold uppercase text-amber-500">Em aberto</span>
                         )}
                       </TableCell>
-                      <TableCell className="text-right font-black text-foreground">{formatBRL(exp.total_amount)}</TableCell>
+                      <TableCell className="text-right font-semibold text-foreground">{formatBRL(exp.total_amount)}</TableCell>
                     </TableRow>
                   ))}
                 </TableBody>

@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { apiClient } from '@/api/client';
-import { useUIStore } from '@/stores';
+import { useWorkspaceId } from './use-workspace-id';
 
 export interface WorkspaceTag {
   id: number;
@@ -10,7 +10,7 @@ export interface WorkspaceTag {
 
 export function useTags() {
   const queryClient = useQueryClient();
-  const { currentWorkspaceId } = useUIStore();
+  const currentWorkspaceId = useWorkspaceId();
 
   const listQuery = useQuery({
     queryKey: ['tags', currentWorkspaceId],

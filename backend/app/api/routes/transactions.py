@@ -8,8 +8,13 @@ import re
 import uuid
 
 from app.db.session import get_session
+from app.domain.access_policy import (
+    assert_can_write,
+    get_visible_transaction,
+    scope_transactions,
+)
 from app.domain.dates import add_months
-from app.models.workspace import WorkspaceMembership, WorkspaceRole, role_level
+from app.models.workspace import WorkspaceMembership, WorkspaceRole
 from app.models.transaction import (
     Transaction,
     TransactionPayer,
@@ -548,13 +553,20 @@ def list_transactions(
     # antes de montar o extrato — assim "tudo que é recorrente" aparece sem o botão.
     # `role`: um viewer não provoca escrita (ver ensure_and_commit).
     RecurringMaterializationService.ensure_and_commit(
-        session, workspace_id, role=membership.role
+        session, workspace_id, role=membership.role, user_id=membership.user_id
     )
 
-    # Base query
-    statement = select(Transaction).where(
-        Transaction.workspace_id == workspace_id,
-        Transaction.deleted_at.is_(None)
+    # Base query. O escopo de visibilidade (ADR 0018) entra ANTES de qualquer
+    # filtro opcional, e por isso a contagem e a soma logo abaixo — que derivam
+    # desta MESMA statement via `.subquery()` — já saem coerentes com o que o
+    # membro pode ver. Sem isso, "N lançamentos" e "saídas" contariam despesas
+    # que a lista nem mostra.
+    statement = scope_transactions(
+        select(Transaction).where(
+            Transaction.workspace_id == workspace_id,
+            Transaction.deleted_at.is_(None),
+        ),
+        membership,
     )
 
     # Filtering by month
@@ -634,11 +646,7 @@ def get_transaction(
     session: Session = Depends(get_session),
     membership: WorkspaceMembership = Depends(get_workspace_membership)
 ):
-    transaction = session.get(Transaction, transaction_id)
-    if not transaction or transaction.workspace_id != workspace_id or transaction.deleted_at:
-        raise HTTPException(status_code=404, detail="Lançamento não encontrado")
-
-    return transaction
+    return get_visible_transaction(session, workspace_id, transaction_id, membership)
 
 @router.put("/{transaction_id}", response_model=TransactionRead)
 def update_transaction(
@@ -649,16 +657,14 @@ def update_transaction(
     transaction_in: TransactionUpdate,
     membership: WorkspaceMembership = Depends(require_role(WorkspaceRole.member))
 ):
-    db_transaction = session.get(Transaction, transaction_id)
-    if not db_transaction or db_transaction.workspace_id != workspace_id or db_transaction.deleted_at:
-        raise HTTPException(status_code=404, detail="Lançamento não encontrado")
+    db_transaction = get_visible_transaction(session, workspace_id, transaction_id, membership)
 
     # Member edita apenas os próprios lançamentos; admin+ edita qualquer um
-    if (
-        role_level(membership.role) < role_level(WorkspaceRole.admin)
-        and db_transaction.created_by_user_id not in (None, membership.user_id)
-    ):
-        raise HTTPException(status_code=403, detail="Você só pode editar os próprios lançamentos")
+    assert_can_write(
+        db_transaction.created_by_user_id,
+        membership,
+        detail="Você só pode editar os próprios lançamentos",
+    )
 
     update_data = transaction_in.model_dump(exclude_unset=True)
 
@@ -895,16 +901,14 @@ def delete_transaction(
     session: Session = Depends(get_session),
     membership: WorkspaceMembership = Depends(require_role(WorkspaceRole.member))
 ):
-    db_transaction = session.get(Transaction, transaction_id)
-    if not db_transaction or db_transaction.workspace_id != workspace_id or db_transaction.deleted_at:
-        raise HTTPException(status_code=404, detail="Lançamento não encontrado")
+    db_transaction = get_visible_transaction(session, workspace_id, transaction_id, membership)
 
     # Member exclui apenas os próprios lançamentos; admin+ exclui qualquer um
-    if (
-        role_level(membership.role) < role_level(WorkspaceRole.admin)
-        and db_transaction.created_by_user_id not in (None, membership.user_id)
-    ):
-        raise HTTPException(status_code=403, detail="Você só pode excluir os próprios lançamentos")
+    assert_can_write(
+        db_transaction.created_by_user_id,
+        membership,
+        detail="Você só pode excluir os próprios lançamentos",
+    )
 
     _ensure_not_paid(db_transaction)
 
@@ -959,16 +963,14 @@ def _load_group_siblings(
 def _get_group_anchor(
     session: Session, workspace_id: int, transaction_id: int, membership: WorkspaceMembership
 ) -> Transaction:
-    anchor = session.get(Transaction, transaction_id)
-    if not anchor or anchor.workspace_id != workspace_id or anchor.deleted_at:
-        raise HTTPException(status_code=404, detail="Lançamento não encontrado")
+    anchor = get_visible_transaction(session, workspace_id, transaction_id, membership)
     # Grupo é coeso: as irmãs compartilham o mesmo criador, então o gate de
     # propriedade vale pela âncora (member só mexe no que é seu; admin+ em tudo)
-    if (
-        role_level(membership.role) < role_level(WorkspaceRole.admin)
-        and anchor.created_by_user_id not in (None, membership.user_id)
-    ):
-        raise HTTPException(status_code=403, detail="Você só pode alterar os próprios lançamentos")
+    assert_can_write(
+        anchor.created_by_user_id,
+        membership,
+        detail="Você só pode alterar os próprios lançamentos",
+    )
     return anchor
 
 
@@ -1304,12 +1306,16 @@ def get_installment_group(
     """Resumo do grupo de parcelas para pré-preencher a edição da compra inteira:
     total da compra (soma das parcelas vivas), nº de parcelas, quantas já pagas e
     o título base (sem o sufixo i/N)."""
-    anchor = session.get(Transaction, transaction_id)
-    if not anchor or anchor.workspace_id != workspace_id or anchor.deleted_at:
-        raise HTTPException(status_code=404, detail="Lançamento não encontrado")
+    # Leitura (não escrita): basta a âncora ser VISÍVEL — não precisa ser minha.
+    anchor = get_visible_transaction(session, workspace_id, transaction_id, membership)
     if not anchor.installment_group_id:
         raise HTTPException(status_code=400, detail="Lançamento não é uma compra parcelada")
 
+    # As irmãs não são reescopadas: o grupo é uma unidade (as N parcelas nascem
+    # juntas, com o mesmo criador e as mesmas divisões) e só se chega a ele por
+    # uma âncora já visível. Filtrar aqui daria um `group_total` parcial, que é
+    # pior do que não mostrar — o formulário de edição da compra inteira usa
+    # exatamente esse número.
     siblings = _load_group_siblings(session, workspace_id, anchor)
     paid = [t for t in siblings if t.status == TransactionStatus.paid]
     group_total = sum((t.total_amount for t in siblings), Decimal("0"))

@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { apiClient } from '@/api/client';
-import { useUIStore } from '@/stores';
+import { useWorkspaceId } from './use-workspace-id';
 
 /** `workspace` = meta da CASA; `personal` = meta do membro (a parte dele). */
 export type EstimateScope = 'workspace' | 'personal';
@@ -24,7 +24,7 @@ const escopoDe = (e: Estimate): EstimateScope =>
 /** Orçamento mensal (estimates). O forecast usa a soma do mês como total_budget. */
 export function useEstimates(month: string) {
   const queryClient = useQueryClient();
-  const { currentWorkspaceId } = useUIStore();
+  const currentWorkspaceId = useWorkspaceId();
 
   const listQuery = useQuery({
     queryKey: ['estimates', currentWorkspaceId, month],

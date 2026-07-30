@@ -1,9 +1,9 @@
 import { useQuery } from '@tanstack/react-query';
 import { apiClient } from '@/api/client';
-import { useUIStore } from '@/stores';
+import { useWorkspaceId } from './use-workspace-id';
 
 export function useDebts() {
-  const { currentWorkspaceId } = useUIStore();
+  const currentWorkspaceId = useWorkspaceId();
 
   const queryKey = ['debts', currentWorkspaceId];
 

@@ -17,12 +17,7 @@ from app.services.event_service import register_event_listeners
 from app.ws.manager import manager as ws_manager
 
 # Import all models to ensure they are registered with SQLModel.metadata
-from app.models import (  # noqa: F401
-    user, workspace, transaction, recurring, credit_card, audit,
-    income, estimate, financing, category, sync_event, payment_account,
-    import_batch, refresh_session, attachment, exchange_rate, settlement, tag,
-    notification,
-)
+from app import models  # noqa: F401
 
 from contextlib import asynccontextmanager
 

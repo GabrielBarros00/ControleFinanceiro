@@ -9,6 +9,7 @@ from app.api.deps import get_workspace_membership, require_role
 from app.api.routes.auth import get_current_user
 from app.core.config import settings
 from app.db.session import get_session
+from app.domain.access_policy import effective_access
 from app.domain.query_policy import workspace_base_currency
 from app.models.user import User
 from app.models.workspace import (
@@ -96,6 +97,10 @@ def _member_read(
     return MemberRead(
         user_id=user.id,
         role=membership.role,
+        # O acesso EFETIVO, não a coluna crua: owner/admin têm acesso completo pelo
+        # cargo, e a tela de membros tem de mostrar o que vale de verdade — senão
+        # exibiria "somente envolvido" para um admin que vê tudo.
+        financial_access=effective_access(membership),
         user_name=user.name,
         # Viewer enxerga o NOME, não o endereço: o e-mail de todo mundo era
         # exposto ao papel de menor privilégio, e é ele quem alcança um
@@ -154,6 +159,15 @@ def update_member_role(
         raise HTTPException(status_code=403, detail="Permissão insuficiente para esta ação")
 
     target.role = data.role
+    if data.financial_access is not None:
+        # Owner nunca perde a visão da casa. `effective_access` já garante isso na
+        # leitura; recusar aqui evita gravar um estado que mente sobre si mesmo.
+        if target.role == WorkspaceRole.owner:
+            raise HTTPException(
+                status_code=400,
+                detail="O owner sempre tem acesso financeiro completo",
+            )
+        target.financial_access = data.financial_access
     target.updated_at = datetime.now(UTC)
     session.add(target)
     publish_event(session, workspace_id, "member.updated", "member", user_id, actor.user_id)
@@ -256,8 +270,11 @@ def create_invite(
         workspace_id=workspace_id,
         email=data.email,
         role=data.role,
+        financial_access=data.financial_access,
         invited_by_user_id=actor.user_id,
-        expires_at=datetime.now(UTC) + timedelta(days=7),
+        # Honra o schema. Antes eram 7 dias fixos no braço e `expires_days` do
+        # cliente era silenciosamente ignorado — só o convite por link respeitava.
+        expires_at=datetime.now(UTC) + timedelta(days=data.expires_days),
     )
     session.add(invite)
     session.flush()
@@ -306,6 +323,7 @@ def create_invite_link(
         workspace_id=workspace_id,
         email=None,
         role=data.role,
+        financial_access=data.financial_access,
         invited_by_user_id=actor.user_id,
         expires_at=datetime.now(UTC) + timedelta(days=data.expires_days),
         max_uses=data.max_uses,
@@ -435,7 +453,13 @@ def accept_invite(
     if invite.email and invite.email != current_user.email:
         raise HTTPException(status_code=403, detail="Este convite foi enviado para outro email")
 
-    if not ensure_membership(session, invite.workspace_id, current_user.id, invite.role):
+    if not ensure_membership(
+        session,
+        invite.workspace_id,
+        current_user.id,
+        invite.role,
+        financial_access=invite.financial_access,
+    ):
         raise HTTPException(status_code=400, detail="Você já é membro deste workspace")
 
     publish_event(session, invite.workspace_id, "member.added", "member", current_user.id, current_user.id)

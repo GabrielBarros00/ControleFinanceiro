@@ -34,6 +34,11 @@ SEM_EVENTO_ESPERADO = {
     # não há a quem transmitir.
     "mark_notification_read",
     "mark_all_notifications_read",
+    # Moeda de relatório é ajuste PESSOAL (ADR 0020): muda só como os números do
+    # próprio usuário são expressos, e o canal de tempo real é por sala de
+    # WORKSPACE — não existe sala para a qual transmitir. Quem mudou já recebe o
+    # valor novo na resposta.
+    "set_report_currency",
 }
 
 

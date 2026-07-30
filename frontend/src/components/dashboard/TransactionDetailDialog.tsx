@@ -41,7 +41,8 @@ export function TransactionDetailDialog({
   transaction,
   open,
   onOpenChange,
-  canWrite = true,
+  // Fail-closed, como em TransactionItem: sem a prop, sem escrita
+  canWrite = false,
   onEdit,
   onDelete,
 }: TransactionDetailDialogProps) {

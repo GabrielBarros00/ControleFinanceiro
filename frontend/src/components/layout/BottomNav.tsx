@@ -2,17 +2,20 @@ import * as React from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { Plus, MoreHorizontal, LogOut } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { NAV_FLAT, MOBILE_PRIMARY_PATHS } from './nav-items';
+import { navFlat, mobilePrimaryPaths, type NavItem } from './nav-items';
+import { useWorkspaceId } from '@/hooks/use-workspace-id';
 import { useNewTxStore } from '@/stores';
 import { useAuth } from '@/hooks/use-auth';
 
 const isActivePath = (pathname: string, to: string) =>
-  to === '/' ? pathname === '/' : pathname === to || pathname.startsWith(`${to}/`);
+  pathname === to || pathname.startsWith(`${to}/`);
 
 function MoreSheet({ open, onClose }: { open: boolean; onClose: () => void }) {
   const location = useLocation();
   const navigate = useNavigate();
   const { logout } = useAuth();
+  const workspaceId = useWorkspaceId();
+  const itens = navFlat(workspaceId);
   if (!open) return null;
   return (
     <div className="fixed inset-0 z-[60] md:hidden" role="dialog" aria-modal="true">
@@ -20,7 +23,7 @@ function MoreSheet({ open, onClose }: { open: boolean; onClose: () => void }) {
       <div className="absolute inset-x-0 bottom-0 rounded-t-2xl border-t border-border bg-card p-4 pb-8 shadow-lg animate-in slide-in-from-bottom duration-200">
         <div className="mx-auto mb-4 h-1 w-10 rounded-full bg-muted" />
         <div className="grid grid-cols-3 gap-2">
-          {NAV_FLAT.map((item) => {
+          {itens.map((item) => {
             const active = isActivePath(location.pathname, item.to);
             return (
               <Link
@@ -54,11 +57,13 @@ export function BottomNav() {
   const location = useLocation();
   const setNewTxOpen = useNewTxStore((s) => s.setOpen);
   const [moreOpen, setMoreOpen] = React.useState(false);
-  const primary = MOBILE_PRIMARY_PATHS
-    .map((p) => NAV_FLAT.find((i) => i.to === p))
-    .filter((i): i is (typeof NAV_FLAT)[number] => Boolean(i));
+  const workspaceId = useWorkspaceId();
+  const itens = navFlat(workspaceId);
+  const primary = mobilePrimaryPaths(workspaceId)
+    .map((p) => itens.find((i) => i.to === p))
+    .filter((i): i is NavItem => Boolean(i));
 
-  const item = (nav: (typeof NAV_FLAT)[number]) => (
+  const item = (nav: NavItem) => (
     <Link
       key={nav.to}
       to={nav.to}

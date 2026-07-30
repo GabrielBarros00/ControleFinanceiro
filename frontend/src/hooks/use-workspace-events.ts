@@ -1,8 +1,9 @@
 import * as React from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { apiClient, baseURL } from '@/api/client';
-import { useAuthStore, useUIStore } from '@/stores';
+import { useAuthStore } from '@/stores';
 import { FULL_RESYNC, keysForEvent } from '@/lib/ws-events';
+import { useWorkspaceId } from './use-workspace-id';
 
 export { keysForEvent } from '@/lib/ws-events';
 
@@ -27,11 +28,15 @@ export function wsUrl(workspaceId: number): string {
  */
 export function useWorkspaceEvents() {
   const queryClient = useQueryClient();
-  const { currentWorkspaceId } = useUIStore();
+  const currentWorkspaceId = useWorkspaceId();
   const { isAuthenticated } = useAuthStore();
 
   // last seq visto por workspace (sobrevive a reconexões na mesma sessão)
   const lastSeqRef = React.useRef<Map<number, number>>(new Map());
+  // Workspaces cujo cache JÁ está correlacionado com um seq conhecido.
+  // Enquanto um workspace não está aqui, `hello.seq` não diz nada sobre o que
+  // temos em cache — ver o resync na primeira conexão, abaixo.
+  const syncedRef = React.useRef<Set<number>>(new Set());
 
   React.useEffect(() => {
     if (!isAuthenticated || !currentWorkspaceId) return;
@@ -75,6 +80,9 @@ export function useWorkspaceEvents() {
     const connect = () => {
       if (closedByUnmount) return;
       socket = new WebSocket(wsUrl(wsId));
+      // Maior seq entregue NESTA conexão (undefined até o primeiro evento).
+      // Só ele protege o marco contra o `hello` — ver abaixo.
+      let seqNestaConexao: number | undefined;
 
       socket.onmessage = (raw: MessageEvent) => {
         lastMessageAt = Date.now();
@@ -89,18 +97,40 @@ export function useWorkspaceEvents() {
 
         if (msg.type === 'hello') {
           attempts = 0;
+          const helloSeq = msg.seq as number;
           const lastSeen = lastSeqRef.current.get(wsId);
-          if (lastSeen !== undefined && msg.seq !== lastSeen) {
-            // Perdemos eventos enquanto desconectados → resync completo
+
+          if (!syncedRef.current.has(wsId)) {
+            // PRIMEIRA conexão com este workspace nesta sessão (carga da página
+            // ou troca pelo switcher). O cache foi preenchido por HTTP sem
+            // nenhuma correlação com o seq: qualquer mutação commitada entre o
+            // GET e a entrada na sala já está contada em `hello.seq` mas NÃO
+            // está nos dados — e não gera lacuna depois (o próximo evento vem
+            // em ordem), então ficaria invisível para sempre. Era exatamente o
+            // sintoma da troca de workspace: socket novo recebia o `hello` e o
+            // lançamento do outro membro só aparecia com F5. Resync aqui é o
+            // único jeito de correlacionar cache e seq.
+            requestFullResync();
+            syncedRef.current.add(wsId);
+          } else if (lastSeen !== undefined && helloSeq !== lastSeen) {
+            // Reconexão: perdemos eventos enquanto desconectados → resync
             requestFullResync();
           }
-          lastSeqRef.current.set(wsId, msg.seq as number);
+
+          // O `hello` é a verdade do servidor, EXCETO se esta mesma conexão já
+          // entregou algo à frente: o socket entra na sala antes de o servidor
+          // ler o seq, então um evento pode chegar antes do `hello` e voltar o
+          // marcador atrás inventaria uma lacuna no evento seguinte. Marco de
+          // conexão ANTERIOR não protege nada (se o servidor voltou atrás — um
+          // restore de backup, por exemplo, quem manda é ele).
+          lastSeqRef.current.set(wsId, Math.max(helloSeq, seqNestaConexao ?? helloSeq));
           return;
         }
 
         if (typeof msg.seq === 'number') {
           const lastSeen = lastSeqRef.current.get(wsId);
           lastSeqRef.current.set(wsId, msg.seq);
+          seqNestaConexao = Math.max(msg.seq, seqNestaConexao ?? msg.seq);
           if (lastSeen !== undefined && msg.seq !== lastSeen + 1) {
             // Lacuna na sequência → resync completo
             requestFullResync();

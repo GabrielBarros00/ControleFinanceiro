@@ -11,6 +11,200 @@ segue [SemVer](https://semver.org/lang/pt-BR/).
 
 ## [Não lançado]
 
+### Renda é da pessoa, não do workspace (ADR 0019)
+
+- **"A renda não está global — criei um novo workspace e não contou."** Todo o domínio
+  nascia com `workspace_id NOT NULL`, então **salário pertencia a um espaço de
+  colaboração**, o que é falso: renda é de quem recebe. Duas causas somadas: a coluna
+  obrigatória, e o `my_income` do `ReportService` filtrando por
+  `Income.workspace_id == workspace_id` — mesmo existindo o dado, o recorte pessoal o
+  escondia. Quem participa de duas casas cadastrava o mesmo salário duas vezes, e as
+  cópias divergiam na primeira correção.
+- Pior no caminho recorrente, que é o que se usa de verdade: a materialização preguiçosa
+  era escopada por workspace e o curto-circuito `_tem_template_ativo` devolvia `False`
+  num workspace recém-criado (ele não tem template nenhum), então o salário global nunca
+  era gerado ali. `generate_due_income` e `ensure_and_commit` passaram a receber
+  `user_id`, e as quatro rotas de leitura que materializam o repassam.
+- **`workspace_id` anulável** em `Income`/`RecurringIncome`: `NULL` = pessoal (global),
+  preenchido = renda **da casa** (aluguel de imóvel compartilhado). Criar renda nasce
+  pessoal, porque é a verdade do caso comum.
+- **Global para MIM ≠ público para a casa.** Cinco tabelas de vínculo
+  (`IncomeWorkspaceShare`, `RecurringIncomeWorkspaceShare`, `CardWorkspaceAccess`,
+  `PaymentAccountWorkspaceShare`, `FinancingWorkspaceShare`) dizem a quais orçamentos o
+  recurso CONTRIBUI; vazio é privado. Sem isso, tornar a renda global viraria "meu salário
+  entra no orçamento de toda casa de que participo" — o vazamento do ADR 0018 reaberto
+  por outra porta. A ocorrência materializada herda os compartilhamentos do template,
+  senão compartilhar um salário valeria só no mês do gesto.
+- **Cartão compartilhado deixa de ser cadastro duplicado.** Usar o mesmo cartão em dois
+  workspaces exigia dois cadastros, **cada um gerando a sua fatura** — a mesma dívida
+  contada duas vezes no Endividamento e na Previsão. `CardWorkspaceAccess.access` separa
+  *usar* de *devassar*: com `use`, o workspace lança compras e vê o subtotal dele; limite
+  e fatura inteira continuam do dono (a granularidade que faltava na onda anterior).
+- **`User.report_currency`**: o que é pessoal não tem workspace de onde herdar a
+  moeda-base, e converter pela base de quem por acaso disparou a leitura faria o MESMO
+  salário valer números diferentes conforme a tela aberta.
+- **Admin não manda em renda pessoal alheia** — ele administra a casa, não o salário de
+  quem mora nela. Renda da casa continua sob a alçada dele.
+- Migração `e1c9b482f57a` converte as rendas existentes em pessoais **compartilhadas com o
+  workspace de origem**, nessa ordem (é do `workspace_id` que sai o destino; invertida, a
+  informação se perderia). O dono passa a ver a própria renda em todos os workspaces e
+  nenhum total de casa muda. Deixar como estava faria a correção não valer para os dados
+  que já existem — os de quem reclamou.
+
+### Início global e pessoal; workspace na URL (ADR 0020)
+
+- **O Início era a dashboard de um workspace disfarçada de tela pessoal**: lia o
+  `currentWorkspaceId` do `localStorage` e misturava "minha parte" com "Últimos
+  lançamentos" da casa inteira. Agora `/overview` soma TODOS os workspaces da pessoa.
+- **Quatro números, nomeados pelo que são.** O app chamava tudo de "gasto":
+  **consumo** (minha parte), **saída de caixa** (o que saiu do meu bolso — *não existia
+  em lugar nenhum do sistema*), **a pagar/receber** (a diferença, por casa) e
+  **resultado do mês** (renda − consumo). O resultado desconta consumo, não caixa:
+  adiantar dinheiro por outro é crédito a receber, e descontando o caixa quem paga a conta
+  do restaurante apareceria no vermelho todo mês.
+- **Saldos não se compensam entre workspaces**: dever 100 na casa e ter 100 a receber na
+  viagem não é estar quitado — são pessoas e acordos diferentes.
+- **Workspace na URL** (`/w/:workspaceId/...`). Fora dela, o mesmo `/income` significava
+  coisas diferentes conforme um estado invisível: link compartilhado abria na casa de quem
+  clicou, duas abas disputavam a MESMA chave (e a despesa ia para a casa errada), e o
+  botão "voltar" não voltava. Um `WorkspaceGuard` confere a associação antes de a tela
+  montar — fecha o caso de quem foi removido e seguia com o app apontado para lá, num
+  ciclo de 403 sem explicação.
+- O refactor coube em **uma linha por hook**: `useWorkspaceId()` lê `useParams()` e os 22
+  hooks de dados trocaram `useUIStore()` por ele, com as query keys, os guards `enabled` e
+  o contrato de `lib/ws-events.ts` idênticos.
+- Renomeações: "Seu saldo" → **"Resultado do mês"** (era resultado do período, não saldo
+  bancário); "Dívidas" → **"Acertos entre pessoas"**; "Endividamento" → **"Compromissos
+  financeiros"** (dois eixos com nomes quase iguais).
+
+### Corrigido — as animações do app não existiam
+
+- **`tw-animate-css@1.4` é escrito inteiramente em sintaxe Tailwind v4** (`@utility`,
+  `@theme inline`) e o projeto é TW 3.4: as at-rules não viravam CSS nenhum. Não eram
+  "avisos de build" — **todas as animações estavam mortas em silêncio**. Trocado pelo
+  plugin nativo `tailwindcss-animate`.
+- E a correção revelou duas coisas que o silêncio escondia:
+  - **`--income` reprovava no contraste WCAG AA.** 4,35:1 sobre `--background` e 3,74:1
+    sobre `--expense-subtle`, contra os 4,5:1 exigidos. Passava porque os valores de
+    dinheiro eram `font-black`, e o axe aplica o limiar frouxo de 3:1 a negrito grande —
+    ao alinhar a tipografia ao design system (24 `font-black` → `font-semibold`, item que
+    o roadmap já dava como concluído), o limiar real apareceu. Tokens escurecidos para
+    L=0,47: ≥5,1:1 em toda superfície.
+  - **A auditoria de a11y media durante o `fade-in`**, com o elemento semitransparente.
+    `e2e/a11y.spec.ts` passou a esperar `document.getAnimations()` assentar.
+- `docker-compose.yml`: healthcheck do frontend usava `localhost`, e o nginx da imagem
+  escuta `listen 80` sem `listen [::]:80` — com IPv6 no container, `localhost` resolve
+  para `::1` e o serviço saudável aparecia como `unhealthy`. Agora `127.0.0.1`.
+- React Router: **não existe versão corrigida** para GHSA-qwww-vcr4-c8h2 (a faixa afetada
+  é 7.12.0–8.2.0 e a última publicada é 7.18.2; o "fix" do npm é o downgrade quebrado para
+  7.11.0). O aviso é sobre o modo RSC — verificado que o app usa só `BrowserRouter`
+  declarativo, sem `createBrowserRouter`, loaders, actions ou APIs `unstable_*`. Subimos
+  para a última (7.18.2) e documentamos; downgrade não se justifica.
+- `docs/frontend-redesign/08-roadmap-e-tasks.md` afirmava que a auditoria de acessibilidade
+  "nunca foi executada" (o `a11y.spec.ts` roda no gate desde a onda anterior) e dava
+  F1.3 como concluída com 24 `font-black` vivos. Os dois corrigidos.
+
+### Segurança — membro do workspace lia o que não era dele (ADR 0018)
+
+- **`app/api/deps.py` tinha 39 linhas e duas funções, e era toda a autorização do sistema.**
+  `get_workspace_membership` é satisfeito por qualquer papel — inclusive `viewer` — e era o
+  gate de praticamente todo `GET`; `require_role` protegia só as mutações. O papel controlava
+  a escrita e **não protegia a leitura**: cada listagem filtrava `workspace_id + deleted_at`
+  e mais nada. Quem entrava no workspace por convite lia o **salário** dos outros membros, os
+  **lançamentos individuais** de quem não o envolveu, os **anexos** desses lançamentos (o
+  arquivo, bastando o id), os **cartões** alheios com nome do banco e limite, e os **totais da
+  casa** com a quebra de dívida por pessoa. Não foi descuido pontual: eram ~15 rotas escritas
+  em momentos diferentes, cada uma copiando o filtro da vizinha.
+- **Papel e visibilidade agora são eixos separados.** `WorkspaceMembership.financial_access`
+  (`involved_only` | `full_workspace`) diz o que a pessoa VÊ; `WorkspaceRole` continua dizendo
+  o que ela FAZ. `admin` e `owner` têm acesso completo pelo cargo. A regra toda vive em
+  `app/domain/access_policy.py`, irmão do `query_policy.py` — não havia camada de acesso para
+  estender, porque `query_policy` é política de status e moeda.
+- **"Envolvido" é predicado SQL** (`involvement_filter`): criou, pagou, tem divisão direta ou
+  participa da divisão de um item. `or_` de subqueries e nunca `join` — join multiplicaria a
+  linha, e a contagem e a soma da listagem derivam da mesma statement, então herdam o recorte
+  de graça. Antes, "2 lançamentos, R$ 500 de saídas" apareceria acima de uma lista com 1 item.
+- **Invisível responde 404, não 403.** 403 confirmaria que o registro existe naquele id, e a
+  existência já é informação. (`viewer` leva 403 do `require_role` antes do corpo da rota —
+  "você não escreve nada aqui" não revela nada sobre o registro.)
+- **Número da casa suprimido vira `null`, nunca `0`.** Zero é mentira somável: o membro
+  juntaria "a casa gastou 0" com "eu gastei 300". Vale para `total_expenses`, `total_income`,
+  `net_savings`, `categories`, as barras dos 6 meses e a previsão inteira — que é projeção de
+  caixa da casa, e por isso sobra só `my_budget`. No frontend o `?? 0` do Início renderizaria
+  **"Casa R$ 0,00"** ao lado da despesa real da pessoa; agora `null` continua `null`.
+- **O ledger de dívidas é calculado inteiro e recortado na saída.** O pareamento guloso de
+  `_settle_balances` precisa de todos os saldos: filtrar antes daria outro emparelhamento e um
+  valor devido **diferente do real**. Quando há recorte, `totals` passa a ser o total do que
+  está listado.
+- **As quatro formas divergentes de trava de autoria viraram uma** (`assert_can_write`), e o
+  furo do `None` fechou. Em seis lugares a condição era
+  `created_by_user_id not in (None, membership.user_id)`, o que fazia de todo registro sem
+  autoria um registro de todo mundo. Onde o `None` significa "recurso da casa" (cartão, conta
+  de pagamento, template recorrente) isso agora é o parâmetro explícito `null_is_shared`.
+- **`CreditCard` ganhou `owner_user_id`** — era a única entidade financeira sem coluna de
+  usuário, logo sem trava nenhuma: qualquer member mudava o limite do cartão de outro. A
+  migração atribui o dono só onde o workspace tem um único membro; com vários, fica
+  "compartilhado legado" (adivinhar esconderia da pessoa o cartão que ela usa todo dia).
+- **Convites nascem fechados.** `financial_access` viaja no convite (quem convida decide, não
+  o convidado) com default `involved_only`; `max_uses` do convite por link passa de `None`
+  (ilimitado por 7 dias) para **1**; e o convite por e-mail passou a honrar `expires_days`, que
+  era ignorado em favor de 7 dias fixos no braço.
+- `member.updated` entrou nos eventos de **resync completo** (`lib/ws-events.ts`): rebaixar o
+  acesso de alguém tem de esvaziar a tela dele na hora, não no próximo F5.
+- `canWrite` de `TransactionItem`/`TransactionDetailDialog` era `true` por default, então todo
+  ledger renderizado sem a prop mostrava editar/excluir habilitados a um viewer — era o caso do
+  Início. Agora é **fail-closed**.
+- Testes: `tests/security/test_privacy_matrix.py` cobre
+  `papel × acesso × envolvido/não-envolvido` em todas as leituras (o `test_idor_scan.py` cobria
+  isolamento *entre* workspaces e nada de privacidade *dentro* de um), e
+  `test_read_policy_coverage.py` percorre o router e falha quando aparece um `GET` novo sem
+  política — com dispensas explícitas e justificadas, para ignorar ser decisão e não
+  esquecimento.
+
+### Corrigido — o cron de câmbio morria na primeira query
+
+- **`scripts/backfill_rates.py` estourava `InvalidRequestError: expression 'RecurringExpense'
+  failed to locate a name` no container `cron`** — ou seja, o store de câmbio nunca era
+  alimentado pelo agendador, e cada conversão dependia da busca preguiçosa na fonte externa.
+  A mensagem culpa a recorrência, mas o script não toca em recorrência: os `Relationship` do
+  SQLModel referenciam as classes por **nome (string)**, e o SQLAlchemy resolve esses nomes
+  configurando **todos** os mappers do registry na primeira query — não só o da tabela
+  consultada. O script importava o `ExchangeRate` e, por tabela, o `Transaction` (via
+  `app.domain.query_policy`), mas nada importava o `RecurringExpense`; o `select(ExchangeRate)`
+  então tentava resolver `Transaction.recurring_expense` contra um registry incompleto.
+- A lista de models virou **uma só**, em `app/models/__init__.py`: importar qualquer model
+  registra todos. Antes ela existia copiada em quatro lugares (`app/main.py`, `alembic/env.py`,
+  `tests/conftest.py` e o script de migração de anexos) — e os entrypoints que não tinham cópia,
+  como os dois scripts de cron, ficavam com o registry pela metade. `tests/test_model_registry.py`
+  fecha a porta: um teste falha se um model novo ficar fora da lista, e outro sobe um processo
+  limpo (como o cron) e exige que os mappers configurem.
+
+### Corrigido — tempo real na troca de workspace (item aberto da 4ª rodada)
+
+- **Trocar de workspace pelo switcher deixava o tempo real mudo até um F5.** O relato era
+  "o socket novo recebe o `hello` e nenhum evento depois", e o diagnóstico apontava o
+  *rewire* do socket. Não era isso: o socket reconecta certo. O defeito estava na **janela
+  do handshake**, e em duas pontas ao mesmo tempo.
+  - No servidor, a ordem era: ler o `event_seq` → mandar o `hello` → **entrar na sala**.
+    Toda mutação commitada nessa janela era publicada para uma sala que ainda não continha
+    o socket — evento perdido.
+  - No cliente, o `hello.seq` era adotado como marco **sem qualquer garantia de que o cache
+    correspondia a ele**. O cache é preenchido por HTTP: uma mutação commitada entre o `GET`
+    e a entrada na sala já vem contada no `hello.seq` sem estar nos dados. E aí nada
+    conserta — o evento seguinte chega **em ordem**, então não há lacuna de `seq` para
+    detectar, e o lançamento do outro membro fica invisível para sempre.
+
+  Trocar de workspace batia nisso quase sempre porque o switcher refaz todas as queries no
+  clique enquanto o handshake ainda leva centenas de ms. A mesma janela existia (mais
+  estreita) na carga da página. Agora o socket entra na sala **antes** de o `seq` do `hello`
+  ser lido, e o **primeiro `hello`** de um workspace força resync total; o `hello` nunca
+  regride o marco, porque nessa ordem um evento pode chegar antes dele.
+
+  Gates: `test_evento_na_janela_do_handshake_nao_e_perdido` (backend), quatro casos novos em
+  `use-workspace-events.test.tsx` e o e2e `realtime_switch.spec.ts`, que amplia a janela de
+  propósito (`routeWebSocket`) em vez de depender de timing. O `reload()` que existia no
+  meio de `realtime.spec.ts` era maquiagem do sintoma e saiu.
+
 ### Corrigido — auditoria 2026-07-29 (4ª rodada)
 
 - **O onboarding gravava renda e cartão fora da moeda-base.** `POST /auth/onboarding`

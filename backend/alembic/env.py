@@ -12,26 +12,8 @@ from alembic import context
 sys.path.append(str(Path(__file__).resolve().parent.parent))
 
 from app.core.config import settings
-# Importar todos os modelos aqui para o autogenerate detectá-los
-from app.models.user import User  # noqa: F401,E402
-from app.models.workspace import Workspace, WorkspaceMembership, WorkspaceInvite  # noqa: F401,E402
-from app.models.transaction import Transaction, TransactionPayer, TransactionSplit, TransactionItem, TransactionItemShare  # noqa: F401,E402
-from app.models.recurring import RecurringExpense, RecurringIncome  # noqa: F401,E402
-from app.models.audit import AuditLog  # noqa: F401,E402
-from app.models.income import Income  # noqa: F401,E402
-from app.models.credit_card import CreditCard, CardStatement  # noqa: F401,E402
-from app.models.estimate import MonthlyEstimate  # noqa: F401,E402
-from app.models.financing import Financing, AmortizationInstallment  # noqa: F401,E402
-from app.models.category import Category  # noqa: F401,E402
-from app.models.sync_event import SyncEvent  # noqa: F401,E402
-from app.models.settlement import Settlement  # noqa: F401,E402
-from app.models.attachment import Attachment  # noqa: F401,E402
-from app.models.tag import Tag, TransactionTagLink  # noqa: F401,E402
-from app.models.payment_account import PaymentAccount  # noqa: F401,E402
-from app.models.import_batch import ImportBatch, ImportRow  # noqa: F401,E402
-from app.models.refresh_session import RefreshSession  # noqa: F401,E402
-from app.models.exchange_rate import ExchangeRate  # noqa: F401,E402
-from app.models.notification import Notification  # noqa: F401,E402
+# Todos os models, para o autogenerate detectá-los (a lista vive em app/models/__init__.py)
+from app import models  # noqa: F401,E402
 
 # this is the Alembic Config object, which provides
 # access to the values within the .ini file in use.

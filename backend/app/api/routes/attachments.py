@@ -12,8 +12,9 @@ from app.core.config import settings
 from app.db.session import get_session
 from app.models.attachment import Attachment
 from app.models.transaction import Transaction
-from app.models.workspace import WorkspaceMembership, WorkspaceRole, role_level
+from app.models.workspace import WorkspaceMembership, WorkspaceRole
 from app.api.deps import get_workspace_membership, require_role
+from app.domain.access_policy import assert_can_write, get_visible_transaction
 from app.services.attachment_storage import (
     AttachmentStorage,
     AttachmentStorageError,
@@ -78,11 +79,18 @@ class AttachmentRead(BaseModel):
     created_at: datetime
 
 
-def _get_transaction_or_404(session: Session, workspace_id: int, transaction_id: int) -> Transaction:
-    tx = session.get(Transaction, transaction_id)
-    if not tx or tx.workspace_id != workspace_id or tx.deleted_at:
-        raise HTTPException(status_code=404, detail="Lançamento não encontrado")
-    return tx
+def _get_transaction_or_404(
+    session: Session,
+    workspace_id: int,
+    transaction_id: int,
+    membership: WorkspaceMembership,
+) -> Transaction:
+    """Anexo herda a visibilidade do LANÇAMENTO (ADR 0018).
+
+    Antes resolvia só por workspace, e com isso o recibo de uma despesa alheia —
+    o arquivo, não só o metadado — era servido a qualquer membro.
+    """
+    return get_visible_transaction(session, workspace_id, transaction_id, membership)
 
 
 def _ensure_quota(session: Session, workspace_id: int, incoming_bytes: int) -> None:
@@ -121,7 +129,7 @@ async def upload_attachment(
     session: Session = Depends(get_session),
     membership: WorkspaceMembership = Depends(require_role(WorkspaceRole.member)),
 ):
-    _get_transaction_or_404(session, workspace_id, transaction_id)
+    _get_transaction_or_404(session, workspace_id, transaction_id, membership)
 
     content_type = (file.content_type or "").lower()
     if content_type not in ALLOWED_CONTENT_TYPES:
@@ -180,7 +188,7 @@ def list_attachments(
     session: Session = Depends(get_session),
     membership: WorkspaceMembership = Depends(get_workspace_membership),
 ):
-    _get_transaction_or_404(session, workspace_id, transaction_id)
+    _get_transaction_or_404(session, workspace_id, transaction_id, membership)
     return session.exec(
         select(Attachment)
         .where(Attachment.transaction_id == transaction_id)
@@ -210,6 +218,10 @@ def download_attachment(
     attachment = session.get(Attachment, attachment_id)
     if not attachment or attachment.workspace_id != workspace_id:
         raise HTTPException(status_code=404, detail="Anexo não encontrado")
+
+    # O ARQUIVO só sai se o lançamento for visível. Este era o vazamento de pior
+    # consequência: bastava o id do anexo para baixar o recibo de outro membro.
+    _get_transaction_or_404(session, workspace_id, attachment.transaction_id, membership)
 
     content = read_attachment_bytes(attachment)
     if content is None:
@@ -250,12 +262,16 @@ def delete_attachment(
     if not attachment or attachment.workspace_id != workspace_id:
         raise HTTPException(status_code=404, detail="Anexo não encontrado")
 
+    # Invisível responde 404 antes de qualquer coisa: um 403 aqui confirmaria que
+    # o anexo existe naquele id
+    _get_transaction_or_404(session, workspace_id, attachment.transaction_id, membership)
+
     # Member remove apenas os próprios anexos; admin+ remove qualquer um
-    if (
-        role_level(membership.role) < role_level(WorkspaceRole.admin)
-        and attachment.uploaded_by_user_id not in (None, membership.user_id)
-    ):
-        raise HTTPException(status_code=403, detail="Você só pode remover os próprios anexos")
+    assert_can_write(
+        attachment.uploaded_by_user_id,
+        membership,
+        detail="Você só pode remover os próprios anexos",
+    )
 
     # Quais objetos ficarão sem referência (o armazenamento dedupica por
     # conteúdo). Calculado ANTES de remover a linha; aplicado DEPOIS do commit.

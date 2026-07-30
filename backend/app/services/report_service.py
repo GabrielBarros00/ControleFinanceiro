@@ -3,6 +3,7 @@ from decimal import Decimal
 from datetime import date, datetime
 from typing import List, Dict, Any, Optional
 from sqlmodel import Session, select, func
+from app.domain.access_policy import income_of_workspace, involvement_filter
 from app.domain.dates import add_months, month_key
 from app.domain.query_policy import REALIZED_STATUSES, workspace_base_currency
 from app.models.transaction import (
@@ -24,7 +25,15 @@ class ReportService:
         workspace_id: int,
         target_month: date,
         user_id: Optional[int] = None,
+        full_access: bool = True,
     ) -> Dict[str, Any]:
+        """Resumo do mês: números da CASA + o recorte do usuário (`my_*`).
+
+        `full_access=False` (ADR 0018) suprime os números da casa, devolvendo
+        `None` — não `0`. Zero seria uma mentira aritmética: o membro somaria
+        "a casa gastou 0" com "eu gastei 300" e concluiria coisa errada. `None`
+        diz "você não tem acesso a isto", e a tela sabe não desenhar o comparativo.
+        """
         base_currency = workspace_base_currency(db, workspace_id)
         first_day = date(target_month.year, target_month.month, 1)
         last_day_num = calendar.monthrange(target_month.year, target_month.month)[1]
@@ -37,26 +46,34 @@ class ReportService:
 
         # Total de despesas — política única de status/moeda (ADR 0003/0006).
         # Tudo em Decimal: float() perdia centavos (REL-001).
-        expenses = db.exec(
-            select(func.sum(Transaction.total_amount))
-            .where(Transaction.workspace_id == workspace_id)
-            .where(Transaction.billing_month == mes)
-            .where(Transaction.deleted_at.is_(None))
-            .where(Transaction.status.in_(REALIZED_STATUSES))
-            .where(Transaction.currency == base_currency)
-        ).one() or Decimal("0.00")
+        # Sem acesso completo nem chega a consultar: o número seria descartado no
+        # return, e consultar de graça é o tipo de desperdício que passa despercebido.
+        expenses = Decimal("0.00")
+        income = Decimal("0.00")
+        if full_access:
+            expenses = db.exec(
+                select(func.sum(Transaction.total_amount))
+                .where(Transaction.workspace_id == workspace_id)
+                .where(Transaction.billing_month == mes)
+                .where(Transaction.deleted_at.is_(None))
+                .where(Transaction.status.in_(REALIZED_STATUSES))
+                .where(Transaction.currency == base_currency)
+            ).one() or Decimal("0.00")
 
-        income = db.exec(
-            select(func.sum(Income.amount))
-            .where(Income.workspace_id == workspace_id)
-            .where(Income.received_at >= start)
-            .where(Income.received_at <= end)
-            .where(Income.deleted_at.is_(None))
-            # Mesma política de moeda da despesa (ADR 0006). Sem este filtro a
-            # renda era o ÚNICO somatório que ignorava a moeda-base: uma renda
-            # legada em USD entrava somada a despesas em BRL.
-            .where(Income.currency == base_currency)
-        ).one() or Decimal("0.00")
+            income = db.exec(
+                select(func.sum(Income.amount))
+                # Renda DA CASA: a do workspace + a pessoal que alguém compartilhou
+                # com ele (ADR 0019). Renda pessoal não compartilhada fica de fora —
+                # é do dono, não do orçamento comum.
+                .where(income_of_workspace(workspace_id))
+                .where(Income.received_at >= start)
+                .where(Income.received_at <= end)
+                .where(Income.deleted_at.is_(None))
+                # Mesma política de moeda da despesa (ADR 0006). Sem este filtro a
+                # renda era o ÚNICO somatório que ignorava a moeda-base: uma renda
+                # legada em USD entrava somada a despesas em BRL.
+                .where(Income.currency == base_currency)
+            ).one() or Decimal("0.00")
 
         # "Minha parte": recorte por usuário reusando a MESMA política do total.
         # Gasto do usuário = soma dos splits dele (mesma fonte de verdade das
@@ -76,9 +93,20 @@ class ReportService:
                 .where(TransactionSplit.user_id == user_id)
             ).one() or Decimal("0.00")
 
+            # "Minha renda" é GLOBAL: sem filtro de workspace (ADR 0019).
+            #
+            # Era aqui que o salário não seguia a pessoa. Renda pertence a quem
+            # recebe, não a um espaço de colaboração — mas a query filtrava
+            # `Income.workspace_id == workspace_id`, então quem criava um workspace
+            # novo via a própria receita zerada e precisava recadastrar o salário.
+            # Agora a identidade é só `user_id`, e o mesmo salário aparece em
+            # todos os meus workspaces.
+            #
+            # O filtro de moeda continua sendo o da BASE DESTE workspace (ADR 0006):
+            # renda em moeda diferente fica de fora do recorte daqui, e é a visão
+            # global (`/me/overview`) que faz a conversão cruzada.
             my_income = db.exec(
                 select(func.sum(Income.amount))
-                .where(Income.workspace_id == workspace_id)
                 .where(Income.received_at >= start)
                 .where(Income.received_at <= end)
                 .where(Income.deleted_at.is_(None))
@@ -89,17 +117,19 @@ class ReportService:
         # Distribuição por categoria: soma dos itens COM categoria. Itens sem
         # categoria E transações sem item nenhum entram em "Sem categoria" — que
         # é exatamente (total − categorizado), então nada some do gráfico (REL-001).
-        categorized = db.exec(
-            select(TransactionItem.category_id, func.sum(TransactionItem.amount))
-            .join(Transaction)
-            .where(Transaction.workspace_id == workspace_id)
-            .where(Transaction.billing_month == mes)
-            .where(Transaction.deleted_at.is_(None))
-            .where(Transaction.status.in_(REALIZED_STATUSES))
-            .where(Transaction.currency == base_currency)
-            .where(TransactionItem.category_id.is_not(None))
-            .group_by(TransactionItem.category_id)
-        ).all()
+        categorized = []
+        if full_access:
+            categorized = db.exec(
+                select(TransactionItem.category_id, func.sum(TransactionItem.amount))
+                .join(Transaction)
+                .where(Transaction.workspace_id == workspace_id)
+                .where(Transaction.billing_month == mes)
+                .where(Transaction.deleted_at.is_(None))
+                .where(Transaction.status.in_(REALIZED_STATUSES))
+                .where(Transaction.currency == base_currency)
+                .where(TransactionItem.category_id.is_not(None))
+                .group_by(TransactionItem.category_id)
+            ).all()
 
         category_names = {
             c.id: c.name
@@ -164,24 +194,31 @@ class ReportService:
 
         # Lançamentos em moeda diferente da base ficam FORA dos totais (ADR 0006).
         # Expor a contagem deixa o usuário saber que "sumiram" de propósito (E5/F-04).
-        excluded_foreign_count = db.exec(
+        # A contagem também é escopada: senão ela virava um oráculo — "existem 3
+        # lançamentos que você não pode ver" é informação sobre dado alheio.
+        excluded_stmt = (
             select(func.count(Transaction.id))
             .where(Transaction.workspace_id == workspace_id)
             .where(Transaction.billing_month == mes)
             .where(Transaction.deleted_at.is_(None))
             .where(Transaction.status.in_(REALIZED_STATUSES))
             .where(Transaction.currency != base_currency)
-        ).one() or 0
+        )
+        if not full_access and user_id is not None:
+            excluded_stmt = excluded_stmt.where(involvement_filter(user_id))
+        excluded_foreign_count = db.exec(excluded_stmt).one() or 0
 
         return {
-            "total_expenses": expenses,
-            "total_income": income,
-            "net_savings": income - expenses,
-            # Recorte do usuário logado (a parte dele, não o valor cheio da casa)
+            # Números da CASA: None sem acesso completo (ADR 0018)
+            "total_expenses": expenses if full_access else None,
+            "total_income": income if full_access else None,
+            "net_savings": (income - expenses) if full_access else None,
+            "categories": category_data if full_access else None,
+            # Recorte do usuário logado (a parte dele, não o valor cheio da casa).
+            # Estes NUNCA são suprimidos: são os dados do próprio usuário.
             "my_expenses": my_expenses,
             "my_income": my_income,
             "my_net": my_income - my_expenses,
-            "categories": category_data,
             # Mesma composição, recortada na parte do usuário (meta pessoal)
             "my_categories": my_category_data,
             "base_currency": base_currency,
@@ -284,12 +321,17 @@ class ReportService:
         workspace_id: int,
         user_id: Optional[int] = None,
         ref_month: Optional[date] = None,
+        full_access: bool = True,
     ) -> List[Dict[str, Any]]:
         """6 meses terminando em `ref_month` (padrão: mês corrente).
 
         Uma query por MÉTRICA agrupando os 6 meses de uma vez, em vez de um
         get_summary completo por mês (que fazia ~5 queries × 6 = 30 idas ao
         banco só para desenhar as barras).
+
+        `full_access=False` (ADR 0018): as barras da casa saem `None` e sobra a
+        série pessoal. Suprimir só o resumo e deixar o histórico passar seria pior
+        que não suprimir nada — daria o total da casa mês a mês na mesma resposta.
         """
         base_currency = workspace_base_currency(db, workspace_id)
         first_of_month = (ref_month or date.today()).replace(day=1)
@@ -306,33 +348,34 @@ class ReportService:
         # Despesa agrupa por billing_month (mesma definição de mês do resto do
         # app); o SQL só filtra os 6 meses e a soma sai em Python — assim não
         # dependemos de strftime (SQLite) nem to_char (Postgres).
-        expense_rows = db.exec(
-            select(Transaction.billing_month, Transaction.total_amount)
-            .where(Transaction.workspace_id == workspace_id)
-            .where(Transaction.billing_month.in_(month_keys))
-            .where(Transaction.deleted_at.is_(None))
-            .where(Transaction.status.in_(REALIZED_STATUSES))
-            .where(Transaction.currency == base_currency)
-        ).all()
         expenses_by_month: Dict[str, Decimal] = {}
-        for key, amount in expense_rows:
-            expenses_by_month[key] = expenses_by_month.get(key, Decimal("0.00")) + amount
-
-        income_rows = db.exec(
-            select(Income.received_at, Income.amount)
-            .where(Income.workspace_id == workspace_id)
-            .where(Income.received_at >= window_start)
-            .where(Income.received_at <= window_end)
-            .where(Income.deleted_at.is_(None))
-            # MESMA política de moeda do get_summary (ADR 0006). Sem este filtro
-            # o histórico somava renda legada em outra moeda e o card "Receita"
-            # divergia da barra do mesmo mês — na MESMA tela de Relatórios.
-            .where(Income.currency == base_currency)
-        ).all()
         income_by_month: Dict[str, Decimal] = {}
-        for dt, amount in income_rows:
-            key = dt.strftime("%Y-%m")
-            income_by_month[key] = income_by_month.get(key, Decimal("0.00")) + amount
+        if full_access:
+            expense_rows = db.exec(
+                select(Transaction.billing_month, Transaction.total_amount)
+                .where(Transaction.workspace_id == workspace_id)
+                .where(Transaction.billing_month.in_(month_keys))
+                .where(Transaction.deleted_at.is_(None))
+                .where(Transaction.status.in_(REALIZED_STATUSES))
+                .where(Transaction.currency == base_currency)
+            ).all()
+            for key, amount in expense_rows:
+                expenses_by_month[key] = expenses_by_month.get(key, Decimal("0.00")) + amount
+
+            income_rows = db.exec(
+                select(Income.received_at, Income.amount)
+                .where(income_of_workspace(workspace_id))
+                .where(Income.received_at >= window_start)
+                .where(Income.received_at <= window_end)
+                .where(Income.deleted_at.is_(None))
+                # MESMA política de moeda do get_summary (ADR 0006). Sem este filtro
+                # o histórico somava renda legada em outra moeda e o card "Receita"
+                # divergia da barra do mesmo mês — na MESMA tela de Relatórios.
+                .where(Income.currency == base_currency)
+            ).all()
+            for dt, amount in income_rows:
+                key = dt.strftime("%Y-%m")
+                income_by_month[key] = income_by_month.get(key, Decimal("0.00")) + amount
 
         my_by_month: Dict[str, Decimal] = {}
         if user_id is not None:
@@ -358,8 +401,9 @@ class ReportService:
             {
                 "month": key,
                 "name": d.strftime("%b"),
-                "expenses": expenses_by_month.get(key, Decimal("0.00")),
-                "income": income_by_month.get(key, Decimal("0.00")),
+                # Barras da casa: None sem acesso completo (ADR 0018)
+                "expenses": expenses_by_month.get(key, Decimal("0.00")) if full_access else None,
+                "income": income_by_month.get(key, Decimal("0.00")) if full_access else None,
                 "my_expenses": my_by_month.get(key, Decimal("0.00")),
             }
             for d, key in zip(months, month_keys)

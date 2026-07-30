@@ -111,7 +111,10 @@ services:
     # É o ÚNICO container exposto ao host: sem healthcheck, um nginx que subiu
     # mas não serve deixa o stack "up" e o usuário sem app, sem sinal nenhum.
     healthcheck:
-      test: ["CMD-SHELL", "wget -q -O /dev/null http://localhost/ || exit 1"]
+      # 127.0.0.1, não `localhost`: o nginx da imagem escuta `listen 80` (IPv4) e
+      # não `listen [::]:80`. Com IPv6 no container, `localhost` resolve para ::1
+      # primeiro, o wget falha e o serviço saudável aparece como `unhealthy`.
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1/ || exit 1"]
       interval: 10s
       timeout: 5s
       retries: 5

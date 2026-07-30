@@ -2,7 +2,7 @@ import * as React from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { apiClient } from '@/api/client';
 import { getApiErrorMessage } from '@/lib/api-error';
-import { useUIStore } from '@/stores';
+import { useWorkspaceId } from './use-workspace-id';
 
 export interface AttachmentMeta {
   id: number;
@@ -48,7 +48,7 @@ async function postAttachment(
 
 export function useAttachments(transactionId: number | null) {
   const queryClient = useQueryClient();
-  const { currentWorkspaceId } = useUIStore();
+  const currentWorkspaceId = useWorkspaceId();
 
   const listQuery = useQuery({
     queryKey: ['attachments', currentWorkspaceId, transactionId],
@@ -113,7 +113,7 @@ export interface AttachmentUploadFailure {
  * não erro de submit. */
 export function useAttachmentUploader() {
   const queryClient = useQueryClient();
-  const { currentWorkspaceId } = useUIStore();
+  const currentWorkspaceId = useWorkspaceId();
 
   return React.useCallback(
     async (transactionId: number, files: File[]): Promise<AttachmentUploadFailure[]> => {

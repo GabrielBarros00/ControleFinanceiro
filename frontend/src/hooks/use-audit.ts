@@ -1,6 +1,6 @@
 import { useQuery } from '@tanstack/react-query';
 import { apiClient } from '@/api/client';
-import { useUIStore } from '@/stores';
+import { useWorkspaceId } from './use-workspace-id';
 
 export type AuditAction = 'create' | 'update' | 'delete' | 'login' | 'logout';
 
@@ -17,7 +17,7 @@ export interface AuditEntry {
 // Trilha de auditoria do workspace (admin+). `enabled` deixa o chamador segurar
 // a consulta até a aba estar ativa — evita 403 desnecessário para não-admin.
 export function useAudit(enabled = true) {
-  const { currentWorkspaceId } = useUIStore();
+  const currentWorkspaceId = useWorkspaceId();
 
   const query = useQuery({
     queryKey: ['audit', currentWorkspaceId],

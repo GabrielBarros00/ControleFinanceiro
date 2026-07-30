@@ -69,7 +69,9 @@ class Transaction(TransactionBase, table=True):
 
     id: Optional[int] = Field(default=None, primary_key=True)
     workspace_id: int = Field(foreign_key="workspace.id", index=True)
-    created_by_user_id: Optional[int] = Field(default=None, foreign_key="user.id")
+    # Indexado porque entra no predicado de envolvimento (ADR 0018), que agora
+    # roda em TODA listagem de lançamento
+    created_by_user_id: Optional[int] = Field(default=None, foreign_key="user.id", index=True)
     recurring_expense_id: Optional[int] = Field(default=None, foreign_key="recurringexpense.id", index=True)
     occurrence_date: Optional[date] = Field(default=None)
     # Despesa gerada ao PAGAR uma parcela de financiamento. O vínculo era o
@@ -173,7 +175,8 @@ class TransactionPayer(SQLModel, table=True):
     """
     id: Optional[int] = Field(default=None, primary_key=True)
     transaction_id: int = Field(foreign_key="transaction.id", index=True)
-    user_id: int = Field(foreign_key="user.id")
+    # Indexado pelo predicado de envolvimento (ADR 0018)
+    user_id: int = Field(foreign_key="user.id", index=True)
     amount: Decimal = Field(decimal_places=2, max_digits=20)
     payment_method: Optional[PaymentMethod] = Field(default=None)
     account_id: Optional[int] = Field(default=None, foreign_key="paymentaccount.id", index=True)
@@ -186,7 +189,8 @@ class TransactionPayer(SQLModel, table=True):
 class TransactionSplit(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
     transaction_id: int = Field(foreign_key="transaction.id", index=True)
-    user_id: int = Field(foreign_key="user.id")
+    # Indexado pelo predicado de envolvimento (ADR 0018)
+    user_id: int = Field(foreign_key="user.id", index=True)
     split_method: SplitMethod = Field(default=SplitMethod.equal)
     input_value: Decimal = Field(decimal_places=2, max_digits=20) # Porcentagem ou Valor fixo
     computed_amount: Decimal = Field(decimal_places=2, max_digits=20) # Valor real em dinheiro

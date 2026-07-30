@@ -330,7 +330,7 @@ export function RecurringTransactionsPage() {
                     </div>
                   </TableCell>
                   <TableCell className="text-right">
-                    <span className="font-black text-foreground">
+                    <span className="font-semibold text-foreground">
                       {formatCurrency(parseFloat(item.base_amount), item.currency ?? baseCurrency)}
                     </span>
                   </TableCell>

@@ -37,3 +37,22 @@ class PaymentAccount(PaymentAccountBase, table=True):
     created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
     updated_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
     deleted_at: Optional[datetime] = Field(default=None)
+
+
+class PaymentAccountWorkspaceShare(SQLModel, table=True):
+    """Conta de pagamento pessoal oferecida a um workspace (ADR 0019).
+
+    Mesma forma da renda: a conta é da pessoa, e aparecer nos formulários de outro
+    workspace é decisão dela. Sem isto, "conta global" significaria expor a conta
+    bancária a toda casa de que o dono participa.
+    """
+    __table_args__ = (
+        UniqueConstraint(
+            "account_id", "workspace_id", name="uq_account_share_account_workspace"
+        ),
+    )
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    account_id: int = Field(foreign_key="paymentaccount.id", index=True)
+    workspace_id: int = Field(foreign_key="workspace.id", index=True)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))

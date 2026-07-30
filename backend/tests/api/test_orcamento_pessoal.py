@@ -161,11 +161,17 @@ def test_previsao_separa_meta_da_casa_da_meta_pessoal(client, casa):
     assert Decimal(para_ana["total_budget"]) == Decimal("1000.00")
     assert Decimal(para_ana["my_budget"]) == Decimal("500.00")
 
+    # Bia é `member` → involved_only (ADR 0018). A previsão é projeção de CAIXA DA
+    # CASA inteira, então nada dela sai para quem não tem acesso completo: só a
+    # meta PESSOAL, que é a que o Início compara com "sua despesa". `None` e não
+    # zero — zero seria uma mentira aritmética.
     para_bia = client.get(
         f"/api/v1/workspaces/{casa['ws'].id}/analytics/forecast?month={MES}",
         headers=casa["h_bia"],
     ).json()
-    assert Decimal(para_bia["total_budget"]) == Decimal("1000.00")
+    assert para_bia["total_budget"] is None
+    assert para_bia["actual_spent"] is None
+    assert para_bia["projected_net"] is None
     assert Decimal(para_bia["my_budget"]) == Decimal("300.00")
 
 

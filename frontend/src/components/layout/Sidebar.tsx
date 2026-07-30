@@ -5,7 +5,8 @@ import { cn } from '@/lib/utils';
 import { useWorkspaces, type Workspace } from '@/hooks/use-workspaces';
 import { useAuth } from '@/hooks/use-auth';
 import { WorkspaceCreateDialog } from '@/components/workspace/WorkspaceCreateDialog';
-import { NAV_SECTIONS } from './nav-items';
+import { navSections } from './nav-items';
+import { useWorkspaceId, workspacePath } from '@/hooks/use-workspace-id';
 
 function useOnClickOutside(ref: React.RefObject<HTMLElement | null>, handler: () => void) {
   React.useEffect(() => {
@@ -19,6 +20,8 @@ function useOnClickOutside(ref: React.RefObject<HTMLElement | null>, handler: ()
 
 function WorkspaceSwitcher() {
   const { workspaces, currentWorkspace, switchWorkspace } = useWorkspaces();
+  const navigate = useNavigate();
+  const location = useLocation();
   const { user } = useAuth();
   const [open, setOpen] = React.useState(false);
   const [createOpen, setCreateOpen] = React.useState(false);
@@ -63,6 +66,9 @@ function WorkspaceSwitcher() {
                 type="button"
                 onClick={() => {
                   switchWorkspace(ws.id);
+                  // Trocar de casa é NAVEGAR (ADR 0020): entra no histórico, o
+                  // botão "voltar" funciona e o link é compartilhável.
+                  navigate(workspacePath(ws.id, location.pathname));
                   setOpen(false);
                 }}
                 className={cn(
@@ -126,13 +132,14 @@ function UserMenu() {
 
 export function Sidebar() {
   const location = useLocation();
+  const workspaceIdAtual = useWorkspaceId();
   const isActive = (to: string) =>
-    to === '/' ? location.pathname === '/' : location.pathname === to || location.pathname.startsWith(`${to}/`);
+    location.pathname === to || location.pathname.startsWith(`${to}/`);
 
   return (
     <aside className="sticky top-0 hidden h-screen w-[240px] shrink-0 flex-col border-r border-border bg-card md:flex">
       <div className="px-5 py-5">
-        <Link to="/" className="flex items-center gap-2 text-lg font-semibold tracking-tight text-foreground">
+        <Link to="/overview" className="flex items-center gap-2 text-lg font-semibold tracking-tight text-foreground">
           <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-brand text-primary-foreground">
             <Landmark className="h-5 w-5" />
           </span>
@@ -145,7 +152,7 @@ export function Sidebar() {
       </div>
 
       <nav className="flex-1 space-y-5 overflow-y-auto px-3 py-5">
-        {NAV_SECTIONS.map((section) => (
+        {navSections(workspaceIdAtual).map((section) => (
           <div key={section.label} className="space-y-1">
             <p className="px-3 pb-1 text-[11px] font-medium uppercase tracking-wide text-muted-foreground/70">
               {section.label}

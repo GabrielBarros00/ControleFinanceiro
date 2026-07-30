@@ -5,6 +5,7 @@ from sqlmodel import Session
 
 from app.api.deps import get_workspace_membership
 from app.db.session import get_session
+from app.domain.access_policy import has_full_access
 from app.domain.dates import InvalidMonth, parse_month
 from app.models.workspace import WorkspaceMembership
 from app.services.liability_service import LiabilityService
@@ -25,4 +26,9 @@ def get_liabilities_overview(
         ref = parse_month(month)
     except InvalidMonth as exc:
         raise HTTPException(status_code=400, detail=str(exc))
-    return LiabilityService.get_overview(session, workspace_id, ref.strftime("%Y-%m"))
+    return LiabilityService.get_overview(
+        session,
+        workspace_id,
+        ref.strftime("%Y-%m"),
+        viewer_user_id=None if has_full_access(membership) else membership.user_id,
+    )

@@ -41,7 +41,9 @@ export function InviteAcceptPage() {
       const workspaceId = response.data.workspace_id as number;
       setCurrentWorkspaceId(workspaceId);
       queryClient.invalidateQueries();
-      navigate('/');
+      // Direto para o workspace que acabou de aceitar (ADR 0020) — antes ia para
+      // `/`, que dependia do estado guardado e podia abrir na casa errada.
+      navigate(`/w/${workspaceId}`);
     } catch (err) {
       setError(getApiErrorMessage(err, 'Erro ao aceitar o convite.'));
     } finally {

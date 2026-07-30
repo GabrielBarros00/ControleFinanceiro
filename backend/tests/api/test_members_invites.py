@@ -382,11 +382,31 @@ def test_registro_sem_o_token_do_convite_nao_entra_no_workspace(team):
 
 # --- Convites por link ---
 
-def test_invite_link_flow(team):
-    ws, users, db = team["ws"], team["users"], team["db"]
+def test_invite_link_default_e_um_uso_so(team):
+    """`max_uses` default é 1, não ilimitado (ADR 0018).
+
+    Link é a via menos controlada que existe: qualquer usuário logado com o token
+    entra. `None` durante 7 dias significava "quantas pessoas quiserem" para quem
+    só queria convidar uma — e o convidado nasce `involved_only`.
+    """
+    ws, users = team["ws"], team["users"]
     res = client.post(
         f"/api/v1/workspaces/{ws.id}/invites/link",
         json={"role": "member", "expires_days": 7},
+        headers=_headers(users["owner"]),
+    )
+    assert res.status_code == 200
+    assert res.json()["max_uses"] == 1
+    assert res.json()["financial_access"] == "involved_only"
+
+
+def test_invite_link_flow(team):
+    ws, users, db = team["ws"], team["users"], team["db"]
+    # max_uses=2 explícito: o default virou 1, e este teste precisa de um convite
+    # ainda VÁLIDO no segundo aceite para exercitar o ramo "já é membro"
+    res = client.post(
+        f"/api/v1/workspaces/{ws.id}/invites/link",
+        json={"role": "member", "expires_days": 7, "max_uses": 2},
         headers=_headers(users["owner"]),
     )
     assert res.status_code == 200

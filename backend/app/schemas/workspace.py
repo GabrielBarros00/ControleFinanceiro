@@ -4,7 +4,7 @@ from pydantic import BaseModel, Field
 
 from app.schemas.common import NormalizedEmail, OptionalCurrencyCode
 
-from app.models.workspace import WorkspaceRole, InviteStatus
+from app.models.workspace import FinancialAccess, WorkspaceRole, InviteStatus
 
 
 class WorkspaceBase(BaseModel):
@@ -45,6 +45,7 @@ class WorkspaceRead(WorkspaceBase):
 class MemberRead(BaseModel):
     user_id: int
     role: WorkspaceRole
+    financial_access: FinancialAccess
     user_name: str
     user_email: str
     joined_at: datetime
@@ -52,20 +53,34 @@ class MemberRead(BaseModel):
 
 class MemberUpdate(BaseModel):
     role: WorkspaceRole
+    # Visibilidade financeira é separada do papel (ADR 0018). Ausente = não mexe,
+    # para o PATCH de papel não redefinir o acesso sem querer.
+    financial_access: Optional[FinancialAccess] = None
 
 
 class InviteCreate(BaseModel):
     email: NormalizedEmail
     role: WorkspaceRole = WorkspaceRole.member
+    # Default FECHADO (ADR 0018): quem entra vê o que o envolve, e abrir para os
+    # números da casa é ato explícito de quem convida. O papel `member` continua
+    # sendo o default porque `viewer` deixaria o convidado sem poder lançar a
+    # própria parte — inútil num app colaborativo.
+    financial_access: FinancialAccess = FinancialAccess.involved_only
+    expires_days: int = Field(default=7, ge=1, le=30)
 
 
 class InviteLinkCreate(BaseModel):
     role: WorkspaceRole = WorkspaceRole.member
+    financial_access: FinancialAccess = FinancialAccess.involved_only
     # Validação no SCHEMA (antes `expires_days` era conferido na rota e
     # `max_uses` não era conferido em lugar nenhum: `max_uses=0` criava um link
     # JÁ esgotado, porque o gate é `uses >= max_uses` → 0 >= 0).
     expires_days: int = Field(default=7, ge=1, le=30)
-    max_uses: Optional[int] = Field(default=None, ge=1)
+    # Default 1, não ilimitado. Link é a via menos controlada que existe aqui
+    # (qualquer usuário logado com o token entra), e `None` durante 7 dias
+    # significava "quantas pessoas quiserem" para quem só queria convidar uma.
+    # Quem precisa de vários usos pede explicitamente.
+    max_uses: Optional[int] = Field(default=1, ge=1)
 
 
 class InviteRead(BaseModel):
@@ -73,6 +88,7 @@ class InviteRead(BaseModel):
     workspace_id: int
     email: Optional[str]
     role: WorkspaceRole
+    financial_access: FinancialAccess
     status: InviteStatus
     expires_at: datetime
     max_uses: Optional[int]

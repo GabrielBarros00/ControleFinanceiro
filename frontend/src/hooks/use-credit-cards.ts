@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { apiClient } from '@/api/client';
 import { invalidateForEvent } from '@/lib/ws-events';
-import { useUIStore } from '@/stores';
+import { useWorkspaceId } from './use-workspace-id';
 
 export interface CardStatement {
   id: number;
@@ -63,7 +63,7 @@ export interface StatementTarget {
  * primeira mudança; a rota é só leitura e não cria fatura nenhuma.
  */
 export function useStatementTarget(cardId?: number | null, date?: string | null) {
-  const { currentWorkspaceId } = useUIStore();
+  const currentWorkspaceId = useWorkspaceId();
   const query = useQuery({
     queryKey: ['statement-target', currentWorkspaceId, cardId, date],
     queryFn: async (): Promise<StatementTarget> => {
@@ -80,7 +80,7 @@ export function useStatementTarget(cardId?: number | null, date?: string | null)
 
 export function useCreditCards() {
   const queryClient = useQueryClient();
-  const { currentWorkspaceId } = useUIStore();
+  const currentWorkspaceId = useWorkspaceId();
 
   const listQuery = useQuery({
     queryKey: ['credit-cards', currentWorkspaceId],
@@ -138,7 +138,7 @@ export function useCreditCards() {
 }
 
 export function useCardStatements(cardId: number | null) {
-  const { currentWorkspaceId } = useUIStore();
+  const currentWorkspaceId = useWorkspaceId();
 
   const statementsQuery = useQuery({
     queryKey: ['statements', currentWorkspaceId, cardId],
@@ -158,7 +158,7 @@ export function useCardStatements(cardId: number | null) {
 }
 
 export function useStatementDetail(cardId: number | null, statementId: number | null) {
-  const { currentWorkspaceId } = useUIStore();
+  const currentWorkspaceId = useWorkspaceId();
 
   const detailQuery = useQuery({
     queryKey: ['statements', currentWorkspaceId, cardId, statementId],
@@ -187,7 +187,7 @@ export interface PayStatementInput {
 // Todas invalidam faturas E cartões (o limite disponível muda quando paga).
 export function useStatementActions(cardId: number | null) {
   const queryClient = useQueryClient();
-  const { currentWorkspaceId } = useUIStore();
+  const currentWorkspaceId = useWorkspaceId();
 
   const base = `/workspaces/${currentWorkspaceId}/credit-cards/${cardId}/statements`;
 

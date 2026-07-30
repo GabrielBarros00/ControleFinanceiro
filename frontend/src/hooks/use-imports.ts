@@ -1,6 +1,6 @@
 import { useMutation } from '@tanstack/react-query';
 import { apiClient } from '@/api/client';
-import { useUIStore } from '@/stores';
+import { useWorkspaceId } from './use-workspace-id';
 
 export interface CsvMapping {
   date_column: string;
@@ -54,7 +54,7 @@ export interface CommitImportResult {
 }
 
 export function useImports() {
-  const { currentWorkspaceId } = useUIStore();
+  const currentWorkspaceId = useWorkspaceId();
 
   const parseMutation = useMutation({
     mutationFn: async ({ file, mapping }: { file: File; mapping: CsvMapping }): Promise<ParseCsvResult> => {

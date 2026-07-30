@@ -13,8 +13,41 @@ API REST versionada sob **`/api/v1`**. Esta página cobre as convenções; o con
 ### Autenticação
 Sessão em **cookies HttpOnly** (`access_token` + `refresh_token`) — definidos por `POST /auth/login`, `/auth/register`, callback do Google, e renovados por `POST /auth/refresh`. Não há header `Authorization`; o navegador envia os cookies automaticamente. `POST /auth/logout` revoga a sessão.
 
-### Autorização (RBAC)
-Rotas de workspace exigem papel mínimo: `viewer < member < admin < owner`. Leitura costuma exigir `viewer`/membro; escrita, `member`; ações administrativas (membros, auditoria), `admin`+. Sem permissão → `403`.
+### Autorização — dois eixos (ADR 0018)
+
+**Papel** diz o que você FAZ; **acesso financeiro** diz o que você VÊ. São independentes.
+
+| Eixo | Valores | Onde vive |
+|---|---|---|
+| Papel (`WorkspaceRole`) | `viewer < member < admin < owner` | `deps.require_role` |
+| Acesso (`FinancialAccess`) | `involved_only`, `full_workspace` | `domain/access_policy.py` |
+
+- **Papel**: escrita exige `member`; ações administrativas (membros, convites, auditoria), `admin`+. Sem permissão → `403`.
+- **Acesso**: com `involved_only`, cada leitura devolve só o que **envolve** você — criou, pagou, tem divisão direta, ou participa da divisão de um item. `admin` e `owner` têm acesso completo pelo cargo, independente do valor gravado.
+
+Duas consequências que mudam o contrato das respostas:
+
+1. **Registro invisível responde `404`, não `403`** — um `403` confirmaria que ele existe naquele id.
+2. **Campo da casa suprimido vem `null`, nunca `0`.** Afeta `total_expenses`, `total_income`, `net_savings`, `categories` (em `/analytics/summary` e `/analytics/reports`), as barras de `monthly_history`, e praticamente toda a `/analytics/forecast` — que é projeção de caixa da casa e, sem acesso completo, devolve apenas `my_budget`. Os campos `my_*` **nunca** são suprimidos: são dados do próprio usuário. Clientes devem tratar `null` como "sem acesso" e não coagir para zero.
+
+Em `/debts`, `/debts/monthly` e `/liabilities/overview` o recorte acontece na **saída**: o ledger é calculado inteiro (o pareamento de dívidas precisa de todos os saldos para dar o valor certo) e depois filtrado nas linhas que envolvem você — com `totals` acompanhando o que ficou listado.
+
+### Escopo pessoal × workspace (ADR 0019)
+
+Renda, cartão, conta de pagamento e financiamento pertencem à **pessoa**, não ao workspace.
+
+- `Income.workspace_id` / `RecurringIncome.workspace_id` são **anuláveis**: `null` = renda
+  pessoal (aparece em todos os workspaces do dono, cadastrada uma vez); preenchido = renda
+  **da casa** daquele workspace. `IncomeCreate.scope` (`personal` | `workspace`) escolhe, e
+  o default é `personal`.
+- `shared_with_workspace_ids` diz a quais orçamentos uma renda pessoal **contribui**. Vazio
+  = privada. A lista enviada é o **estado final** (revogar é a mesma chamada), e só aceita
+  workspaces de que o usuário participa.
+- Cartão, conta e financiamento usam `PUT /{recurso}/{id}/shares`. No cartão, cada vínculo
+  tem `access`: `use` (lançar compras e ver o subtotal daqui) ou `full` (fatura inteira).
+- `PATCH /me/report-currency` define a moeda dos números pessoais — o que não pertence a um
+  workspace não tem moeda-base de onde herdar, e a visão global soma casas que podem ter
+  bases diferentes (ADR 0006).
 
 ### Envelope de erro
 **Toda** resposta de erro (401/403/404/409/422/500) usa:
@@ -52,6 +85,7 @@ Base: `/api/v1`. `{ws}` = `workspaces/{workspace_id}`.
 | **Workspaces** | `/workspaces` | `GET/POST/PUT/DELETE`; `GET /{id}/base-currency/preview?to=XXX` (dry-run da troca de moeda-base) |
 | **Membros / convites** | `/{ws}/members`, `/{ws}/invites` | listar/alterar papel/remover; criar/revogar convite (e-mail e link); `POST /{ws}/leave` |
 | **Convites (aceite)** | `/invites` | `GET /info/{token}`, `POST /accept/{token}`, `POST /decline/{token}` — fora do escopo de workspace: quem recebe ainda não é membro |
+| **Pessoal (global)** | `/me/overview`, `/me/commitments`, `/me/activity`, `/me/report-currency` | O mês da PESSOA somando todos os workspaces (ADR 0020). Sem `workspace_id` no caminho: o gate é só a sessão, e cada consulta filtra por `user_id`. Devolve **consumo** (minha parte), **saída de caixa** (o que saiu do meu bolso), **a pagar/receber** (por workspace, nunca compensados entre eles) e **resultado** (renda − consumo) |
 | **Notificações** | `/notifications` | `GET` (as suas + contagem de não lidas), `POST /{id}/read`, `POST /read-all` — escopo PESSOAL, sem `require_role` |
 | **Transações** | `/{ws}/transactions` | `GET` (filtros: mês, busca, categoria, método, tag), `POST`, `PUT`, `DELETE`; `POST /preview` (dry-run da divisão); `POST /bulk`; compra parcelada: `GET/PUT/DELETE /{id}/installment-group` (editar/excluir o grupo inteiro) + `POST /{id}/installment-group/cancel` |
 | **Anexos** | `/{ws}/transactions/{id}/attachments`, `/{ws}/attachments/{id}` | upload (magic bytes + hash), listar, download, excluir. O conteúdo fica fora do banco (ADR 0007); `404` no download significa objeto ausente no armazenamento, não anexo inexistente |
@@ -76,5 +110,7 @@ Base: `/api/v1`. `{ws}` = `workspaces/{workspace_id}`.
 - `GET /api/v1/ws/workspaces/{id}` — autenticado pelo cookie no handshake.
 - Códigos de fechamento: `4401` (token expirado → o cliente renova e reconecta), `4403` (sem permissão → não reconecta).
 - Mensagens: `hello` (com `seq` atual), eventos `{type, seq, ...}` e `ping/pong`. O cliente invalida as *query keys* correspondentes; lacuna de `seq` → resync total.
+- O socket entra na sala **antes** de o servidor ler o `seq` do `hello`: nenhum evento com `seq` maior é publicado para uma sala sem ele. Em troca, um evento pode chegar **antes** do `hello` (com `seq` ≤ o dele) — o cliente nunca regride o marco.
+- O `hello` é marco de sincronismo, não garantia de dados: na **primeira** conexão com um workspace o cliente faz resync total, porque o cache veio por HTTP sem correlação com o `seq`.
 
 Detalhes de projeto em [ARCHITECTURE.md](ARCHITECTURE.md).

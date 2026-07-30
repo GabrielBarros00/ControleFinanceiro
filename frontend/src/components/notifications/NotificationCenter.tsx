@@ -88,7 +88,7 @@ export function NotificationCenter() {
       >
         <Bell className={cn('h-5 w-5', unread > 0 && 'animate-in zoom-in-50')} />
         {unread > 0 && (
-          <span className="absolute -right-0.5 -top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-destructive px-1 text-[10px] font-black text-destructive-foreground ring-2 ring-background">
+          <span className="absolute -right-0.5 -top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-destructive px-1 text-[10px] font-semibold text-destructive-foreground ring-2 ring-background">
             {unread > 9 ? '9+' : unread}
           </span>
         )}

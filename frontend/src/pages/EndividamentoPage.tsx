@@ -71,8 +71,8 @@ export function EndividamentoPage() {
   return (
     <div className="space-y-6">
       <PageHeader
-        title="Endividamento"
-        subtitle="Quanto você deve a bancos e cartões — no total, neste mês e por pessoa."
+        title="Compromissos financeiros"
+        subtitle="Quanto esta casa deve a bancos e cartões — no total, neste mês e por pessoa."
         action={
           <Button variant="outline" onClick={() => refetch()} className="gap-2">
             <RefreshCcw className="h-4 w-4" /> Atualizar
@@ -131,7 +131,7 @@ export function EndividamentoPage() {
                   <ChevronLeft className="h-4 w-4" />
                 </Button>
                 <div className="flex flex-col items-center">
-                  <span className="text-sm font-black capitalize text-foreground">{monthLabel(month)}</span>
+                  <span className="text-sm font-semibold capitalize text-foreground">{monthLabel(month)}</span>
                   {!isCurrentMonth && (
                     <button
                       type="button"
@@ -151,15 +151,15 @@ export function EndividamentoPage() {
               <div className="grid grid-cols-3 gap-2 text-center">
                 <div className="rounded-lg bg-accent/20 p-3">
                   <p className="text-[10px] font-semibold uppercase text-muted-foreground">Financiamento</p>
-                  <p className="mt-0.5 text-sm font-black text-foreground">{fmt(month_due.financing_due)}</p>
+                  <p className="mt-0.5 text-sm font-semibold text-foreground">{fmt(month_due.financing_due)}</p>
                 </div>
                 <div className="rounded-lg bg-accent/20 p-3">
                   <p className="text-[10px] font-semibold uppercase text-muted-foreground">Cartão</p>
-                  <p className="mt-0.5 text-sm font-black text-foreground">{fmt(month_due.cards_due)}</p>
+                  <p className="mt-0.5 text-sm font-semibold text-foreground">{fmt(month_due.cards_due)}</p>
                 </div>
                 <div className="rounded-lg bg-amber-500/10 p-3">
                   <p className="text-[10px] font-semibold uppercase text-muted-foreground">Total do mês</p>
-                  <p className="mt-0.5 text-sm font-black text-amber-500">{fmt(month_due.total)}</p>
+                  <p className="mt-0.5 text-sm font-semibold text-amber-500">{fmt(month_due.total)}</p>
                 </div>
               </div>
             </CardContent>
@@ -195,7 +195,7 @@ export function EndividamentoPage() {
                           </p>
                         </div>
                       </div>
-                      <p className="text-lg font-black text-foreground">{fmt(p.total)}</p>
+                      <p className="text-lg font-semibold text-foreground">{fmt(p.total)}</p>
                     </div>
                   );
                 })}
@@ -233,7 +233,7 @@ export function EndividamentoPage() {
                           {f.remaining_installments} de {f.installments_count} restantes
                         </TableCell>
                         <TableCell className="text-muted-foreground">{formatDay(f.next_due_date)}</TableCell>
-                        <TableCell className="text-right font-black text-foreground">{fmt(f.outstanding)}</TableCell>
+                        <TableCell className="text-right font-semibold text-foreground">{fmt(f.outstanding)}</TableCell>
                       </TableRow>
                     ))}
                   </TableBody>
@@ -267,7 +267,7 @@ export function EndividamentoPage() {
                       <TableRow key={c.id} className="border-border hover:bg-accent/30">
                         <TableCell className="font-bold">{c.name}</TableCell>
                         <TableCell className="text-muted-foreground">{fmt(c.month_due)}</TableCell>
-                        <TableCell className="text-right font-black text-foreground">{fmt(c.committed)}</TableCell>
+                        <TableCell className="text-right font-semibold text-foreground">{fmt(c.committed)}</TableCell>
                         <TableCell className="text-right">
                           <Link to="/cards" className="inline-flex items-center gap-1 text-xs font-bold text-primary hover:underline">
                             Ver <ArrowRight className="h-3 w-3" />

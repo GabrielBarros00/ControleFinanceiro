@@ -29,15 +29,8 @@ from sqlmodel import Session, select  # noqa: E402
 from app.core.config import settings  # noqa: E402
 from app.db.engine import engine  # noqa: E402
 
-# Registrar TODOS os models: `attachment` tem FK para `transaction`, `workspace` e
-# `user`, e o SQLAlchemy resolve essas referências no flush — importar só o
-# Attachment estoura com NoReferencedTableError na hora de gravar.
-from app.models import (  # noqa: E402, F401
-    user, workspace, transaction, recurring, credit_card, audit,
-    income, estimate, financing, category, sync_event, payment_account,
-    import_batch, refresh_session, attachment, exchange_rate, settlement, tag,
-    notification,
-)
+# Um import de model registra TODOS (ver app/models/__init__.py): `attachment` tem
+# FK para `transaction`, `workspace` e `user`, resolvidas só no flush.
 from app.models.attachment import Attachment  # noqa: E402
 from app.services.attachment_storage import (  # noqa: E402
     AttachmentStorage,

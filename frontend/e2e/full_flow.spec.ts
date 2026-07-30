@@ -14,7 +14,10 @@ test.describe('Full User Flow', () => {
     await page.getByLabel('Confirmar', { exact: true }).fill(password);
     await page.getByRole('button', { name: 'Cadastrar', exact: true }).click();
 
-    await expect(page).toHaveURL('http://localhost:5173/');
+    // `/` leva ao Início GLOBAL (ADR 0020): a tela pessoal que soma todos os
+    // workspaces. Criar despesa é ato de UM workspace, então o fluxo entra
+    // num deles logo abaixo.
+    await expect(page).toHaveURL(/\/overview$/);
 
     // 2. Onboarding (modal de boas-vindas em 3 passos). É um Dialog: enquanto
     // aberto, o resto da página fica inerte e o "Início" atrás dele não é
@@ -29,6 +32,10 @@ test.describe('Full User Flow', () => {
       page.getByRole('button', { name: 'Pular esta etapa' }).click(),
     ]);
     await expect(page.getByRole('heading', { name: 'Início' })).toBeVisible({ timeout: 15_000 });
+
+    // Entra no workspace: o painel da casa é onde se lança despesa.
+    await page.getByRole('link', { name: 'Painel' }).click();
+    await expect(page).toHaveURL(/\/w\/\d+$/);
 
     // 3. Cria transação pelo modal Nova Despesa
     await page.locator('header').getByRole('button', { name: 'Nova despesa' }).click();

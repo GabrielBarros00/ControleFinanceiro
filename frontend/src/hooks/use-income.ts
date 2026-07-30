@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { apiClient } from '@/api/client';
-import { useUIStore } from '@/stores';
+import { useWorkspaceId } from './use-workspace-id';
 
 export interface Income {
   id: number;
@@ -21,7 +21,7 @@ export interface Income {
 
 export function useIncome(month?: string) {
   const queryClient = useQueryClient();
-  const { currentWorkspaceId } = useUIStore();
+  const currentWorkspaceId = useWorkspaceId();
 
   const listQuery = useQuery({
     queryKey: ['income', currentWorkspaceId, month],

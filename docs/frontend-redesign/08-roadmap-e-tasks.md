@@ -54,6 +54,11 @@ telas podem ser paralelizadas por pessoa, pois todas dependem só de 1 e 2.
 - [x] **F1.3 — Tipografia.** Classe `.tabular` (tabular-nums); escala de tipos (03 §2.2)
   como utilitários/config; remover `font-black` default (buscar e substituir por 600).
   <br>_Aceite:_ nenhum `font-black`/`uppercase tracking-widest` como rótulo padrão.
+  <br>_Corrigido em 2026-07-30:_ o item estava marcado como concluído, mas 24
+  ocorrências de `font-black` sobreviveram em Acertos, Compromissos, Importar,
+  Recorrência, Financiamentos e no centro de notificações — as telas que não
+  foram migradas junto com o `PageHeader`. Agora são `font-semibold`, e o
+  aceite vale de verdade.
 - [x] **F1.4 — `formatMoney` + `MoneyText`.** Implementar (05 §0/§1) com testes unitários
   (positivo, negativo, string, sinal, hideCents).
   <br>_Aceite:_ `MoneyText kind="expense"` renderiza "−R$ 80,00" em `--expense`.
@@ -134,8 +139,11 @@ telas podem ser paralelizadas por pessoa, pois todas dependem só de 1 e 2.
   remover "pulos" de hover.
 - [x] **F5.2 — QA de temas.** Varrer todas as telas em claro e escuro (script de screenshots
   deste estudo serve de baseline) — zero cor hardcoded, zero contraste ruim.
-- [ ] **F5.3 — Acessibilidade.** Foco visível em tudo; alvos ≥40px no mobile; auditar com
+- [x] **F5.3 — Acessibilidade.** Foco visível em tudo; alvos ≥40px no mobile; auditar com
   axe; navegação por teclado no ledger/tabelas.
+  <br>_Feito:_ `frontend/e2e/a11y.spec.ts` roda no gate de e2e sobre onboarding,
+  Início global, painel do workspace, o formulário de Nova Despesa (com as opções
+  avançadas abertas) e Relatórios. _Aceite:_ zero violações WCAG 2 A/AA nessas telas.
 - [ ] **F5.4 — Densidade compacta** (opcional) em tabelas longas (faturas/parcelas).
 - [ ] **F5.5 — ⌘K command palette** (nice-to-have): navegar + "nova despesa".
 - [x] **F5.6 — Microcópia.** Revisar textos (sentence case, tom calmo, empty states que
@@ -154,7 +162,6 @@ custo de mudar de ideia depois.
 | **F1.7** — consolidar UI kit (Base UI → Radix) | Rework grande e transversal, com risco de regressão em toda tela, para ganho estético | **É o custo mais real da lista.** Sobrevive o padrão "`<select>` nativo dentro de modal" (o popup do Base UI Select escapa do focus-trap do Radix Dialog), e as variantes `data-*` precisam da forma com colchete no Tailwind v3. Duas convenções a lembrar em cada componente novo |
 | **F4.3** — Orçamento como rota `/budget` | Redundante com a aba de Relatórios, que já mostra meta × gasto por categoria | Um clique a mais para chegar ao orçamento |
 | **F4.7** — wizard de importação em 3 passos | O formulário atual de Importar funciona ponta a ponta (mapeia colunas, marca duplicata, decide por linha) | Primeira importação é mais árida que poderia ser |
-| **F5.3** — auditoria de acessibilidade (axe) | Nunca foi executada; foco visível e navegação por teclado foram feitos por inspeção, não medidos | **Não sabemos o que não sabemos** aqui — é o candidato natural à próxima rodada |
 | **F5.4** — densidade compacta | Só compensa em tabelas muito longas (faturas/parcelas), que hoje cabem na tela | Nenhum |
 | **F5.5** — ⌘K command palette | Nice-to-have declarado no próprio plano | Nenhum |
 

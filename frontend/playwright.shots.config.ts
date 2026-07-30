@@ -1,14 +1,16 @@
 import { defineConfig, devices } from '@playwright/test';
+import path from 'node:path';
 
-/**
- * Config dedicada ao roteiro de CAPTURA DE TELAS (docs/frontend-redesign).
- * Fica fora da suíte e2e normal (testDir próprio) para não deixar o
- * `npm run test:e2e` lento. Sobe backend (SQLite descartável, sem rate limit)
- * e o dev server, igual à config e2e.
- *
- *   npm run shots            # ou: npx playwright test --config=playwright.shots.config.ts
- *   -> frontend/screenshots/*.png
- */
+// Mesmo motivo (e mesmo cuidado com o cmd.exe) do playwright.config.ts.
+// `import.meta.dirname` (não `__dirname`): o package é `"type": "module"`.
+const VENV_PYTHON = path.resolve(
+  import.meta.dirname,
+  '..',
+  '.venv',
+  process.platform === 'win32' ? 'Scripts/python.exe' : 'bin/python',
+);
+const PYTHON = JSON.stringify(process.env.E2E_PYTHON ?? VENV_PYTHON);
+
 export default defineConfig({
   testDir: './e2e-shots',
   fullyParallel: false,
@@ -21,7 +23,7 @@ export default defineConfig({
   projects: [{ name: 'chromium', use: { ...devices['Desktop Chrome'] } }],
   webServer: [
     {
-      command: 'python -m uvicorn app.main:app --port 8000',
+      command: `${PYTHON} -m uvicorn app.main:app --port 8000`,
       cwd: '../backend',
       url: 'http://localhost:8000/api/v1/health',
       reuseExistingServer: true,

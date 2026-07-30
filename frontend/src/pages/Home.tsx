@@ -13,6 +13,7 @@ import { StatTile } from '@/components/ui/stat-tile';
 import { HeroBalance } from '@/components/dashboard/HeroBalance';
 import { ExcludedForeignNotice } from '@/components/money/ExcludedForeignNotice';
 import { useBaseCurrency } from '@/hooks/use-base-currency';
+import { useWorkspaceRole } from '@/hooks/use-workspace-role';
 import { TransactionLedger } from '@/components/money/TransactionLedger';
 import { formatMoney, sameMoney } from '@/lib/money';
 import { currentMonthLocal } from '@/lib/date';
@@ -34,15 +35,26 @@ export function Home() {
   const { forecast, isLoading: forecastLoading } = useAnalytics(month);
   const { transactions, isLoading: txLoading } = useTransactions({ page: 1, limit: 6, month });
   const setNewTxOpen = useNewTxStore((s) => s.setOpen);
+  // O Início era a tela que renderizava o ledger SEM `canWrite`, e o default
+  // permissivo mostrava editar/excluir a um viewer. `isLoading` importa: o hook
+  // devolve 'viewer' enquanto carrega, então esperar evita o piscar ao contrário
+  // (botão habilitado por um instante para quem não pode escrever).
+  const { canWrite, isLoading: roleLoading } = useWorkspaceRole();
   const openDetail = useTxDetailStore((s) => s.open);
 
-  const loading = reportsLoading || forecastLoading;
+  const loading = reportsLoading || forecastLoading || roleLoading;
   const summary = reports?.current_summary;
   const myIncome = Number(summary?.my_income ?? 0);
   const myExpenses = Number(summary?.my_expenses ?? 0);
-  const myNet = myIncome - myExpenses;
-  const houseIncome = Number(summary?.total_income ?? 0);
-  const houseExpenses = Number(summary?.total_expenses ?? 0);
+  // `my_net` vem do backend; recalcular aqui era uma segunda definição do
+  // mesmo número esperando divergir.
+  const myNet = summary?.my_net == null ? myIncome - myExpenses : Number(summary.my_net);
+  // Números da CASA vêm `null` para quem não tem acesso financeiro completo
+  // (ADR 0018). `?? 0` aqui era um erro esperando acontecer: a dica renderizaria
+  // "Casa R$ 0,00" ao lado da despesa real do membro — um número inventado na
+  // tela. `null` tem de continuar `null` até a decisão de exibir.
+  const houseIncome = summary?.total_income == null ? null : Number(summary.total_income);
+  const houseExpenses = summary?.total_expenses == null ? null : Number(summary.total_expenses);
   // Meta PESSOAL — o card mostra "sua despesa", então o orçamento ao lado tem
   // que ser o seu. Com `total_budget` (a meta da CASA) a barra marcava ~50% num
   // workspace de duas pessoas com rateio igual, enquanto Relatórios, que compara
@@ -50,8 +62,11 @@ export function Home() {
   const budget = parseFloat(forecast?.my_budget ?? '0') || 0;
   // "Casa X" só quando o total do workspace DIFERE da sua parte. Sozinho no
   // workspace (ou num mês em que tudo foi só seu) ele repetia o número de cima.
-  const casa = (mine: number, house: number) =>
-    sameMoney(mine, house) ? undefined : `Casa ${formatMoney(house, { currency: baseCurrency })}`;
+  // Sem acesso completo (house === null) a dica simplesmente não existe.
+  const casa = (mine: number, house: number | null) =>
+    house == null || sameMoney(mine, house)
+      ? undefined
+      : `Casa ${formatMoney(house, { currency: baseCurrency })}`;
   const firstName = user?.name?.split(' ')[0];
 
   return (
@@ -60,9 +75,11 @@ export function Home() {
         title="Início"
         subtitle={firstName ? `Olá, ${firstName} — aqui está seu mês.` : 'Aqui está seu mês.'}
         action={
-          <Button onClick={() => setNewTxOpen(true)} className="gap-2">
-            <Plus className="h-4 w-4" /> Nova despesa
-          </Button>
+          canWrite ? (
+            <Button onClick={() => setNewTxOpen(true)} className="gap-2">
+              <Plus className="h-4 w-4" /> Nova despesa
+            </Button>
+          ) : undefined
         }
       />
 
@@ -108,7 +125,9 @@ export function Home() {
                 hint={casa(myExpenses, houseExpenses)}
               />
               <StatTile
-                label="Seu saldo"
+                // "Saldo" sugeria saldo bancário; é renda menos consumo do
+                // PERÍODO (ADR 0020)
+                label="Resultado do mês"
                 value={myNet}
                 kind={myNet >= 0 ? 'income' : 'expense'}
                 icon={Wallet}
@@ -144,13 +163,20 @@ export function Home() {
                   title="Nenhum lançamento ainda"
                   description="Registre seu primeiro gasto para começar a acompanhar seu mês."
                   action={
-                    <Button onClick={() => setNewTxOpen(true)} className="gap-2">
-                      <Plus className="h-4 w-4" /> Nova despesa
-                    </Button>
+                    canWrite ? (
+                      <Button onClick={() => setNewTxOpen(true)} className="gap-2">
+                        <Plus className="h-4 w-4" /> Nova despesa
+                      </Button>
+                    ) : undefined
                   }
                 />
               ) : (
-                <TransactionLedger transactions={transactions} showDayTotals={false} onSelect={(tx) => openDetail(tx.id)} />
+                <TransactionLedger
+                  transactions={transactions}
+                  showDayTotals={false}
+                  canWrite={canWrite}
+                  onSelect={(tx) => openDetail(tx.id)}
+                />
               )}
             </div>
           </section>

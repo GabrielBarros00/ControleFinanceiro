@@ -27,7 +27,10 @@ export function TransactionItem({
   tx,
   category,
   memberName,
-  canWrite = true,
+  // Fail-CLOSED: o default era `true`, então qualquer ledger renderizado sem a
+  // prop mostrava editar/excluir habilitados para um viewer (era o caso do
+  // Início). Esquecer de passar agora desabilita — o erro seguro.
+  canWrite = false,
   onEdit,
   onDelete,
   onSelect,

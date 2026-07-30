@@ -1,12 +1,14 @@
 import * as React from 'react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom';
-import { Home } from './pages/Home';
+import { OverviewPage } from './pages/OverviewPage';
+import { WorkspaceGuard } from './components/layout/WorkspaceGuard';
+import { useLastWorkspaceId, useWorkspaceId } from './hooks/use-workspace-id';
 import { registerQueryClient } from './api/client';
 import { Layout } from './components/layout/Layout';
 import { useAuth } from './hooks/use-auth';
 import { useTheme } from './hooks/use-theme';
-import { useAuthStore, useUIStore } from './stores';
+import { useAuthStore } from './stores';
 import { Toaster } from './components/ui/toaster';
 import { ConfirmProvider } from './components/ui/confirm';
 
@@ -28,6 +30,8 @@ const RegisterPage = React.lazy(() => import('./pages/Auth/RegisterPage').then(m
 const ForgotPasswordPage = React.lazy(() => import('./pages/Auth/ForgotPasswordPage').then(m => ({ default: m.ForgotPasswordPage })));
 const ResetPasswordPage = React.lazy(() => import('./pages/Auth/ResetPasswordPage').then(m => ({ default: m.ResetPasswordPage })));
 const InviteAcceptPage = React.lazy(() => import('./pages/InviteAcceptPage').then(m => ({ default: m.InviteAcceptPage })));
+const WorkspaceHome = React.lazy(() => import('./pages/Home').then(m => ({ default: m.Home })));
+const CommitmentsPage = React.lazy(() => import('./pages/CommitmentsPage').then(m => ({ default: m.CommitmentsPage })));
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -88,7 +92,7 @@ const ProtectedRoute = ({ children }: ProtectedRouteProps) => {
 
 function CardsPage() {
   const [selectedCardId, setSelectedCardId] = React.useState<number | null>(null);
-  const { currentWorkspaceId } = useUIStore();
+  const currentWorkspaceId = useWorkspaceId();
 
   // Cartão selecionado não sobrevive à troca de workspace
   React.useEffect(() => {
@@ -104,6 +108,16 @@ function CardsPage() {
       </div>
     </div>
   );
+}
+
+/**
+ * Rotas ANTIGAS (`/transactions`, `/income`, …) caem no último workspace
+ * visitado; sem nenhum, na visão global. É o que mantém link velho e favorito
+ * funcionando depois de o workspace ter ido para a URL (ADR 0020).
+ */
+function RedirectParaWorkspace({ sub = '' }: { sub?: string }) {
+  const ultimo = useLastWorkspaceId();
+  return <Navigate to={ultimo ? `/w/${ultimo}${sub}` : '/overview'} replace />;
 }
 
 function AppContent() {
@@ -123,104 +137,55 @@ function AppContent() {
           <Route path="/forgot-password" element={<ForgotPasswordPage />} />
           <Route path="/reset-password" element={<ResetPasswordPage />} />
           
-          {/* Protected Routes */}
-          <Route path="/" element={
-            <ProtectedRoute>
-              <Layout>
-                <Home />
-              </Layout>
-            </ProtectedRoute>
+          {/* ---- PESSOAL: sem workspace no caminho (ADR 0020) ---- */}
+          <Route path="/overview" element={
+            <ProtectedRoute><Layout><OverviewPage /></Layout></ProtectedRoute>
           } />
-
-          <Route path="/transactions" element={
+          <Route path="/me/commitments" element={
             <ProtectedRoute>
-              <Layout>
-                <TransactionsPage />
-              </Layout>
-            </ProtectedRoute>
-          } />
-
-          <Route path="/income" element={
-            <ProtectedRoute>
-              <Layout>
-                <IncomePage />
-              </Layout>
-            </ProtectedRoute>
-          } />
-
-          <Route path="/cards" element={
-            <ProtectedRoute>
-              <Layout title="Cartões de Crédito" subtitle="Gerencie seus limites e faturas em um só lugar.">
-                <CardsPage />
+              <Layout title="Compromissos financeiros" subtitle="Faturas e financiamentos a vencer — seus, em todos os workspaces.">
+                <CommitmentsPage />
               </Layout>
             </ProtectedRoute>
           } />
 
           <Route path="/invite/:token" element={
-            <ProtectedRoute>
-              <InviteAcceptPage />
-            </ProtectedRoute>
+            <ProtectedRoute><InviteAcceptPage /></ProtectedRoute>
           } />
 
-          <Route path="/financing" element={
-            <ProtectedRoute>
-              <Layout title="Financiamentos" subtitle="Amortizações, simulações e quitações antecipadas.">
-                <AmortizationTable />
-              </Layout>
-            </ProtectedRoute>
-          } />
+          {/* ---- WORKSPACE: o id vive na URL ---- */}
+          <Route path="/w/:workspaceId" element={
+            <ProtectedRoute><Layout><WorkspaceGuard /></Layout></ProtectedRoute>
+          }>
+            <Route index element={<WorkspaceHome />} />
+            <Route path="transactions" element={<TransactionsPage />} />
+            <Route path="income" element={<IncomePage />} />
+            <Route path="cards" element={<CardsPage />} />
+            <Route path="financing" element={<AmortizationTable />} />
+            <Route path="reports" element={<ReportsPage />} />
+            <Route path="settings" element={<SettingsPage />} />
+            <Route path="recurring" element={<RecurringTransactionsPage />} />
+            <Route path="debts" element={<DebtsPage />} />
+            <Route path="liabilities" element={<EndividamentoPage />} />
+            <Route path="import" element={<ImportPage />} />
+          </Route>
 
-          <Route path="/reports" element={
-            <ProtectedRoute>
-              {/* Sem title: a ReportsPage tem PageHeader próprio (carrega o
-                  seletor de período), senão o cabeçalho sai duplicado */}
-              <Layout>
-                <ReportsPage />
-              </Layout>
-            </ProtectedRoute>
-          } />
+          {/* ---- Rotas antigas: redirecionam para o último workspace ---- */}
+          {/* `/` é o Início GLOBAL (ADR 0020) — não o painel de um workspace.
+              Só as rotas ANTIGAS, que eram de workspace, caem na última casa. */}
+          <Route path="/" element={<Navigate to="/overview" replace />} />
+          {[
+            'transactions', 'income', 'cards', 'financing', 'reports',
+            'settings', 'recurring', 'debts', 'liabilities', 'import',
+          ].map((rota) => (
+            <Route
+              key={rota}
+              path={`/${rota}`}
+              element={<ProtectedRoute><RedirectParaWorkspace sub={`/${rota}`} /></ProtectedRoute>}
+            />
+          ))}
 
-          <Route path="/settings" element={
-            <ProtectedRoute>
-              <Layout title="Configurações" subtitle="Gerencie seu perfil e preferências do workspace.">
-                <SettingsPage />
-              </Layout>
-            </ProtectedRoute>
-          } />
-
-          <Route path="/recurring" element={
-            <ProtectedRoute>
-              <Layout title="Recorrência" subtitle="Gerencie seus gastos fixos e automáticos.">
-                <RecurringTransactionsPage />
-              </Layout>
-            </ProtectedRoute>
-          } />
-
-          <Route path="/debts" element={
-            <ProtectedRoute>
-              <Layout>
-                <DebtsPage />
-              </Layout>
-            </ProtectedRoute>
-          } />
-
-          <Route path="/liabilities" element={
-            <ProtectedRoute>
-              <Layout>
-                <EndividamentoPage />
-              </Layout>
-            </ProtectedRoute>
-          } />
-
-          <Route path="/import" element={
-            <ProtectedRoute>
-              <Layout title="Importar" subtitle="Carregue transações via arquivo CSV.">
-                <ImportPage />
-              </Layout>
-            </ProtectedRoute>
-          } />
-
-          <Route path="*" element={<Navigate to="/" replace />} />
+          <Route path="*" element={<Navigate to="/overview" replace />} />
         </Routes>
         </React.Suspense>
         </ConfirmProvider>

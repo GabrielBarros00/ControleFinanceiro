@@ -1,7 +1,8 @@
 import * as React from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { apiClient } from '@/api/client';
-import { useAuthStore, useUIStore } from '@/stores';
+import { useAuthStore } from '@/stores';
+import { useWorkspaceId } from './use-workspace-id';
 
 export type WorkspaceRole = 'owner' | 'admin' | 'member' | 'viewer';
 
@@ -25,7 +26,7 @@ export interface Invite {
 
 export function useMembers() {
   const queryClient = useQueryClient();
-  const { currentWorkspaceId } = useUIStore();
+  const currentWorkspaceId = useWorkspaceId();
   const currentUserId = useAuthStore((s) => s.user?.id);
 
   const membersQuery = useQuery({

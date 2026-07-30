@@ -99,8 +99,8 @@ export function DebtsPage() {
   return (
     <div className="space-y-6">
       <PageHeader
-        title="Dívidas & acertos"
-        subtitle="Quem deve para quem — e os acertos já feitos."
+        title="Acertos entre pessoas"
+        subtitle="Quem deve para quem no rateio — e os acertos já feitos."
         action={
           <Button variant="outline" onClick={() => refetch()} className="gap-2">
             <RefreshCcw className="h-4 w-4" /> Atualizar
@@ -159,11 +159,11 @@ export function DebtsPage() {
                       </div>
                       <div>
                         <p className="text-sm font-bold">{memberName(debt.creditor_id)}</p>
-                        <p className="text-[10px] text-muted-foreground uppercase font-black">Credor</p>
+                        <p className="text-[10px] text-muted-foreground uppercase font-semibold">Credor</p>
                       </div>
                     </div>
                     <div className="flex items-center gap-3">
-                      <p className="text-lg font-black text-destructive">{formatBRL(debt.amount)}</p>
+                      <p className="text-lg font-semibold text-destructive">{formatBRL(debt.amount)}</p>
                       <Button size="sm" disabled={!canWrite} onClick={() => openSettlement(debt)} className="gap-1.5 bg-primary text-primary-foreground font-bold">
                         <HandCoins className="h-3.5 w-3.5" /> Paguei
                       </Button>
@@ -198,11 +198,11 @@ export function DebtsPage() {
                       </div>
                       <div>
                         <p className="text-sm font-bold">{memberName(debt.debtor_id)}</p>
-                        <p className="text-[10px] text-muted-foreground uppercase font-black">Devedor</p>
+                        <p className="text-[10px] text-muted-foreground uppercase font-semibold">Devedor</p>
                       </div>
                     </div>
                     <div className="flex items-center gap-3">
-                      <p className="text-lg font-black text-emerald-500">{formatBRL(debt.amount)}</p>
+                      <p className="text-lg font-semibold text-emerald-500">{formatBRL(debt.amount)}</p>
                       <Button size="sm" variant="outline" disabled={!canWrite} onClick={() => openSettlement(debt)} className="gap-1.5 border-emerald-500/40 text-emerald-500 font-bold hover:bg-emerald-500/10">
                         <HandCoins className="h-3.5 w-3.5" /> Recebi
                       </Button>
@@ -243,7 +243,7 @@ export function DebtsPage() {
                       <ArrowRight className="h-4 w-4 text-muted-foreground inline" />
                     </TableCell>
                     <TableCell className="font-bold">{memberName(debt.creditor_id)}</TableCell>
-                    <TableCell className="text-right font-black">{formatBRL(debt.amount)}</TableCell>
+                    <TableCell className="text-right font-semibold">{formatBRL(debt.amount)}</TableCell>
                     <TableCell className="text-right">
                       <Button size="sm" variant="ghost" disabled={!canWrite} onClick={() => openSettlement(debt)} className="gap-1.5 text-primary hover:bg-primary/10 font-bold">
                         <HandCoins className="h-3.5 w-3.5" /> Registrar
@@ -287,7 +287,7 @@ export function DebtsPage() {
                     <TableCell className="font-bold">{memberName(s.from_user_id)}</TableCell>
                     <TableCell className="font-bold">{memberName(s.to_user_id)}</TableCell>
                     <TableCell className="text-xs text-muted-foreground">{s.note || '—'}</TableCell>
-                    <TableCell className="text-right font-black text-emerald-500">{formatBRL(s.amount)}</TableCell>
+                    <TableCell className="text-right font-semibold text-emerald-500">{formatBRL(s.amount)}</TableCell>
                     <TableCell className="text-center">
                       <Button
                         size="sm"

@@ -6,7 +6,12 @@ from sqlmodel import Session, select, func
 
 from app.db.session import get_session
 from app.models.user import User
-from app.models.workspace import Workspace, WorkspaceMembership, WorkspaceRole
+from app.models.workspace import (
+    FinancialAccess,
+    Workspace,
+    WorkspaceMembership,
+    WorkspaceRole,
+)
 from app.schemas.workspace import WorkspaceCreate, WorkspaceRead, WorkspaceUpdate
 from app.api.routes.auth import get_current_user
 from app.api.deps import get_workspace_membership, require_role
@@ -96,7 +101,10 @@ def create_workspace(
     membership = WorkspaceMembership(
         workspace_id=workspace.id,
         user_id=current_user.id,
-        role=WorkspaceRole.owner
+        role=WorkspaceRole.owner,
+        # Explícito para a linha não mentir sobre si mesma: `effective_access` já
+        # daria acesso completo pelo cargo, mas o banco fica coerente com isso.
+        financial_access=FinancialAccess.full_workspace,
     )
     session.add(membership)
     seed_default_categories(session, workspace.id)

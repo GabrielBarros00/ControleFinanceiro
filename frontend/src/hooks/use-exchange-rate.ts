@@ -1,7 +1,7 @@
 import { useQuery } from '@tanstack/react-query';
 import { apiClient } from '@/api/client';
-import { useUIStore } from '@/stores';
 import { useBaseCurrency } from './use-base-currency';
+import { useWorkspaceId } from './use-workspace-id';
 
 /*
  * Taxa de câmbio de REFERÊNCIA para a dica "≈ tanto" do formulário.
@@ -15,7 +15,7 @@ import { useBaseCurrency } from './use-base-currency';
  * e congelado no servidor).
  */
 export function useExchangeRate(from: string, to?: string) {
-  const { currentWorkspaceId } = useUIStore();
+  const currentWorkspaceId = useWorkspaceId();
   const baseCurrency = useBaseCurrency();
   const target = to ?? baseCurrency;
 

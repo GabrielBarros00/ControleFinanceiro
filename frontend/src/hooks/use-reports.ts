@@ -1,10 +1,10 @@
 import { useQuery } from '@tanstack/react-query';
 import { apiClient } from '@/api/client';
-import { useUIStore } from '@/stores';
+import { useWorkspaceId } from './use-workspace-id';
 
 /** Relatórios do mês pedido (YYYY-MM). Sem `month`, o back usa o mês corrente. */
 export function useReports(month?: string) {
-  const { currentWorkspaceId } = useUIStore();
+  const currentWorkspaceId = useWorkspaceId();
 
   const reportsQuery = useQuery({
     queryKey: ['reports', currentWorkspaceId, month],

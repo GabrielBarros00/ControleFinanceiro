@@ -86,8 +86,11 @@ export function ReportsPage() {
     (m: { income?: number | string; expenses?: number | string }) =>
       (Number(m.income) || 0) + (Number(m.expenses) || 0) > 0,
   ).length;
-  const currentSummary = data?.current_summary || { total_expenses: 0, total_income: 0, net_savings: 0, my_expenses: 0, my_income: 0, my_net: 0, categories: [] };
-  const categoryData = currentSummary.categories || [];
+  // Números da casa vêm `null` sem acesso financeiro completo (ADR 0018), então
+  // o fallback deles é `null` e não 0 — 0 viraria "Casa R$ 0,00" na dica e um
+  // gráfico de pizza vazio apresentado como se a casa não tivesse gastado nada.
+  const currentSummary = data?.current_summary || { total_expenses: null, total_income: null, net_savings: null, my_expenses: 0, my_income: 0, my_net: 0, categories: null };
+  const categoryDataCasa = currentSummary.categories || [];
   // Mesma composição, recortada na sua parte — é o par de `categories` para a
   // meta pessoal (a da casa compara com o total; a sua, com a sua fatia)
   const myCategoryData = currentSummary.my_categories || [];
@@ -95,9 +98,19 @@ export function ReportsPage() {
   const myExpenses = Number(currentSummary.my_expenses ?? 0);
   const myIncome = Number(currentSummary.my_income ?? 0);
   const myNet = Number(currentSummary.my_net ?? 0);
-  // Ver Home: o hint da casa é redundante quando bate com a sua parte
-  const casa = (mine: number, house: number) =>
-    sameMoney(mine, house) ? undefined : `Casa ${formatMoney(house, { currency: baseCurrency })}`;
+  // Ver Home: o hint da casa é redundante quando bate com a sua parte — e não
+  // existe quando o acesso é restrito (`house` nulo).
+  const numeroDaCasa = (valor: unknown): number | null =>
+    valor == null ? null : Number(valor);
+  const casa = (mine: number, house: number | null) =>
+    house == null || sameMoney(mine, house)
+      ? undefined
+      : `Casa ${formatMoney(house, { currency: baseCurrency })}`;
+  // Sem acesso completo não há composição da casa: a pizza e o ranking passam a
+  // mostrar a SUA parte (`my_categories`, que o backend continua devolvendo). É
+  // melhor que uma tela vazia — e é o número que a pessoa pode conferir.
+  const temVisaoDaCasa = currentSummary.total_expenses != null;
+  const categoryData = temVisaoDaCasa ? categoryDataCasa : myCategoryData;
 
   return (
     <div className="space-y-8 animate-in fade-in duration-700">
@@ -108,14 +121,14 @@ export function ReportsPage() {
           value={myExpenses}
           kind="expense"
           currency={baseCurrency}
-          hint={casa(myExpenses, Number(currentSummary.total_expenses))}
+          hint={casa(myExpenses, numeroDaCasa(currentSummary.total_expenses))}
         />
         <StatTile
           label="Sua receita (mês)"
           value={myIncome}
           kind="income"
           currency={baseCurrency}
-          hint={casa(myIncome, Number(currentSummary.total_income))}
+          hint={casa(myIncome, numeroDaCasa(currentSummary.total_income))}
         />
         <div className="rounded-xl border border-border bg-card p-4">
           <p className="text-sm text-muted-foreground">Maior categoria</p>
@@ -130,7 +143,7 @@ export function ReportsPage() {
           value={myNet}
           kind={myNet >= 0 ? 'income' : 'expense'}
           currency={baseCurrency}
-          hint={casa(myNet, Number(currentSummary.net_savings))}
+          hint={casa(myNet, numeroDaCasa(currentSummary.net_savings))}
         />
       </div>
 
@@ -144,7 +157,7 @@ export function ReportsPage() {
 
         <TabsContent value="budget" className="animate-in slide-in-from-bottom-4 duration-500">
           <BudgetPanel
-            spentByCategory={categoryData}
+            spentByCategory={categoryDataCasa}
             totalExpenses={currentSummary.total_expenses}
             // Recorte pessoal: é contra ele que a meta pessoal é comparada
             mySpentByCategory={myCategoryData}
@@ -192,7 +205,7 @@ export function ReportsPage() {
               <CardHeader>
                 <CardTitle className="flex items-center gap-2">
                   <PieChartIcon className="h-5 w-5 text-primary" />
-                  Distribuição por Categoria
+                  {temVisaoDaCasa ? 'Distribuição por Categoria' : 'Sua distribuição por categoria'}
                 </CardTitle>
               </CardHeader>
               <CardContent className="h-[350px]">

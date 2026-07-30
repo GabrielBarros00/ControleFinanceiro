@@ -75,32 +75,38 @@ test.describe('Tempo real entre dois usuários', () => {
     await pageB.goto('/');
     await expect(pageB.getByRole('heading', { name: 'Início' })).toBeVisible();
 
-    // B troca para o workspace compartilhado pelo switcher do sidebar
+    // B troca para o workspace compartilhado pelo switcher do sidebar — SEM
+    // reload. O `reload()` que ficava aqui era maquiagem: escondia o defeito de
+    // o socket novo adotar `hello.seq` como marco sem saber se o cache
+    // correspondia a ele (mutação publicada na janela do handshake sumia até o
+    // F5, e parecia "socket que recebe o hello e mais nada"). A janela em si tem
+    // gate próprio em realtime_switch.spec.ts.
+    const socketCompartilhado = pageB.waitForEvent('websocket', {
+      predicate: (w) => w.url().includes(`/ws/workspaces/${wsA.id}`),
+      timeout: 20_000,
+    });
     await pageB.getByRole('button', { name: /Workspace/i }).click();
     await pageB.getByRole('button', { name: sharedWsName }).click();
     await expect(pageB.getByRole('button', { name: new RegExp(sharedWsName) })).toBeVisible();
 
-    // Recarrega DEPOIS de trocar. Não é maquiagem do teste: trocar de workspace
-    // sem recarregar abre um socket no workspace novo que recebe o `hello` e
-    // NENHUM evento depois (reproduzido; ver o item aberto na auditoria). Este
-    // spec cobre entrega ao vivo e resync — o rewire do socket na troca é outro
-    // defeito, e misturar os dois deixaria os dois sem gate.
-    await pageB.reload();
-    await expect(pageB.getByRole('heading', { name: 'Início' })).toBeVisible();
-    // Espera o handshake do WebSocket: a página pinta antes de o socket abrir, e
-    // um evento publicado nessa janela não chega a ninguém (não é perda — o
-    // cliente só passa a ouvir depois do `hello`).
-    await pageB.waitForEvent('websocket', {
-      predicate: (w) => w.url().includes(`/ws/workspaces/${wsA.id}`),
-      timeout: 15_000,
-    }).catch(() => undefined);
-    await pageB.waitForTimeout(1000);
+    // Este spec mede ENTREGA AO VIVO, então espera o socket do workspace novo
+    // abrir (a página pinta antes do handshake; o cliente só ouve depois do
+    // `hello`). Se a mutação caísse na janela, quem cobre é o outro spec.
+    await socketCompartilhado;
+    await pageB.waitForTimeout(500);
 
     // --- Tempo real: A cria transação via API; B vê SEM reload ---
     const titleLive = `Jantar Tempo Real ${ts}`;
 
-    // Descobre o id do usuário A para payers/splits
+    // Ids dos dois: A paga e a despesa é DIVIDIDA com B.
+    //
+    // O split de B não é detalhe do cenário, é o que torna a despesa visível a
+    // ele: B entrou como `member` + `involved_only` (ADR 0018), então uma despesa
+    // só de A é invisível para B — e este spec mede ENTREGA AO VIVO, não
+    // privacidade. Rateando, o que se testa continua sendo o WebSocket.
+    // A privacidade em si tem gate próprio em `test_privacy_matrix.py`.
     const meA = await (await contextA.request.get(`${API}/auth/me`)).json();
+    const meB = await (await contextB.request.get(`${API}/auth/me`)).json();
     const createTxAs = (title: string) =>
       contextA.request.post(`${API}/workspaces/${wsA.id}/transactions/`, {
         data: {
@@ -108,7 +114,10 @@ test.describe('Tempo real entre dois usuários', () => {
           total_amount: '90.00',
           transaction_date: new Date().toISOString(),
           payers: [{ user_id: meA.id, amount: '90.00' }],
-          splits: [{ user_id: meA.id, split_method: 'equal', input_value: '100' }],
+          splits: [
+            { user_id: meA.id, split_method: 'equal', input_value: '0' },
+            { user_id: meB.id, split_method: 'equal', input_value: '0' },
+          ],
         },
       });
 

@@ -20,7 +20,9 @@ test.describe('Dashboard and Split Entry Form', () => {
     });
 
     const page = await context.newPage();
-    await page.goto('/');
+    // Painel DO WORKSPACE: o workspace vive na URL (ADR 0020), e é aqui que se
+    // lança despesa — `/` leva ao Início global, que é só leitura.
+    await page.goto(`/w/${ws.id}`);
 
     // Dashboard renderizado
     await expect(page.getByRole('heading', { name: 'Início' })).toBeVisible();

@@ -72,10 +72,17 @@ def test_member_deletes_own_transaction(ws_team):
 
 
 def test_member_cannot_delete_others_transaction(ws_team):
+    """404, não 403 (ADR 0018): o lançamento de outro member, que não envolve
+    quem pede, é INVISÍVEL — e um 403 confirmaria que ele existe naquele id."""
     ws, users = ws_team["ws"], ws_team["users"]
     tx = _create_tx_via_api(ws.id, users["member"])
     res = client.delete(f"/api/v1/workspaces/{ws.id}/transactions/{tx['id']}", headers=_headers(users["member2"]))
-    assert res.status_code == 403
+    assert res.status_code == 404
+    # E não aparece na listagem dele, que é o vazamento de fato
+    lista = client.get(
+        f"/api/v1/workspaces/{ws.id}/transactions/", headers=_headers(users["member2"])
+    ).json()
+    assert tx["id"] not in [t["id"] for t in lista["items"]]
 
 
 def test_admin_can_delete_any_transaction(ws_team):
@@ -120,13 +127,20 @@ def test_income_update_and_delete(ws_team):
     )
     income_id = res.json()["id"]
 
-    # Outro member não altera renda alheia
+    # Outro member não altera renda alheia — e nem sabe que ela existe (ADR 0018):
+    # salário é o dado mais sensível do sistema, então responde 404
     res = client.put(
         f"/api/v1/workspaces/{ws.id}/income/{income_id}",
         json={"amount": "1"},
         headers=_headers(users["member2"]),
     )
-    assert res.status_code == 403
+    assert res.status_code == 404
+
+    # Nem na listagem
+    alheia = client.get(
+        f"/api/v1/workspaces/{ws.id}/income/", headers=_headers(users["member2"])
+    ).json()
+    assert income_id not in [i["id"] for i in alheia]
 
     # Dono altera
     res = client.put(
@@ -137,8 +151,45 @@ def test_income_update_and_delete(ws_team):
     assert res.status_code == 200
     assert Decimal(str(res.json()["amount"])) == Decimal("6000")
 
-    # Admin exclui (soft)
-    res = client.delete(f"/api/v1/workspaces/{ws.id}/income/{income_id}", headers=_headers(users["admin"]))
+    # Admin NÃO manda em renda pessoal alheia (ADR 0019). Renda pessoal não
+    # pertence ao workspace — o admin administra a casa, não o salário de quem
+    # mora nela. Antes admin+ excluía qualquer renda, porque toda renda era do
+    # workspace.
+    res = client.delete(
+        f"/api/v1/workspaces/{ws.id}/income/{income_id}", headers=_headers(users["admin"])
+    )
+    assert res.status_code == 404
+    assert db.get(Income, income_id).deleted_at is None
+
+    # O dono exclui a própria (soft)
+    res = client.delete(
+        f"/api/v1/workspaces/{ws.id}/income/{income_id}", headers=_headers(users["member"])
+    )
+    assert res.status_code == 200
+    assert db.get(Income, income_id).deleted_at is not None
+
+
+def test_admin_administra_renda_da_casa(ws_team):
+    """A contrapartida: renda DA CASA (`scope="workspace"`) é do workspace, e aí o
+    admin manda mesmo — é o aluguel do imóvel comum, não o salário de ninguém."""
+    ws, users, db = ws_team["ws"], ws_team["users"], ws_team["db"]
+    res = client.post(
+        f"/api/v1/workspaces/{ws.id}/income/",
+        json={
+            "title": "Aluguel do imóvel",
+            "amount": "2000",
+            "received_at": datetime.now(UTC).isoformat(),
+            "scope": "workspace",
+        },
+        headers=_headers(users["member"]),
+    )
+    assert res.status_code == 200
+    assert res.json()["scope"] == "workspace"
+    income_id = res.json()["id"]
+
+    res = client.delete(
+        f"/api/v1/workspaces/{ws.id}/income/{income_id}", headers=_headers(users["admin"])
+    )
     assert res.status_code == 200
     assert db.get(Income, income_id).deleted_at is not None
 

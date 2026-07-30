@@ -336,7 +336,7 @@ export function AmortizationTable() {
               }`}
             >
               {f.title}
-              {f.status === 'settled' && <span className="ml-2 text-[10px] text-emerald-500 font-black">QUITADO</span>}
+              {f.status === 'settled' && <span className="ml-2 text-[10px] text-emerald-500 font-semibold">QUITADO</span>}
             </button>
           ))}
         </div>

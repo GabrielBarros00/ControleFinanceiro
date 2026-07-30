@@ -65,7 +65,14 @@ def _create_income_template(solo, *, months_back: int, materialize: str | None =
 
 
 def _income_months(db: Session, ws_id: int) -> set[str]:
-    rows = db.exec(select(Income).where(Income.workspace_id == ws_id)).all()
+    """Meses materializados a partir de um TEMPLATE recorrente.
+
+    Filtrar por `Income.workspace_id` deixou de servir: renda é da pessoa e nasce
+    com workspace nulo (ADR 0019). A origem recorrente é o vínculo estável.
+    """
+    rows = db.exec(
+        select(Income).where(Income.recurring_income_id.is_not(None))
+    ).all()
     return {r.billing_month for r in rows}
 
 

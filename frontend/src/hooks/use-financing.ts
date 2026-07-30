@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { apiClient } from '@/api/client';
 import { invalidateForEvent } from '@/lib/ws-events';
-import { useUIStore } from '@/stores';
+import { useWorkspaceId } from './use-workspace-id';
 
 export interface Financing {
   id: number;
@@ -28,7 +28,7 @@ export interface Installment {
 
 export function useFinancing() {
   const queryClient = useQueryClient();
-  const { currentWorkspaceId } = useUIStore();
+  const currentWorkspaceId = useWorkspaceId();
 
   const listQuery = useQuery({
     queryKey: ['financing', currentWorkspaceId],
@@ -77,7 +77,7 @@ export function useFinancing() {
 }
 
 export function useFinancingSchedule(financingId: number | null) {
-  const { currentWorkspaceId } = useUIStore();
+  const currentWorkspaceId = useWorkspaceId();
 
   const scheduleQuery = useQuery({
     queryKey: ['financing', currentWorkspaceId, financingId, 'schedule'],

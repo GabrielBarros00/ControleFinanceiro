@@ -1,3 +1,5 @@
+import animate from 'tailwindcss-animate';
+
 /** @type {import('tailwindcss').Config} */
 export default {
   darkMode: ["class"],
@@ -81,5 +83,9 @@ export default {
       }
     }
   },
-  plugins: [],
+  // Plugin NATIVO do Tailwind 3 para animate-in/fade-in/slide-in-from-*
+  // Plugin NATIVO do Tailwind 3 para animate-in/fade-in/slide-in-from-*.
+  // Import ESM porque o arquivo é ESM (`export default`) — `require` aqui
+  // depende do interop do carregador de config.
+  plugins: [animate],
 }

@@ -13,6 +13,7 @@ from app.db.session import get_session
 from app.models.user import User
 from datetime import datetime, UTC
 from app.models.workspace import (
+    FinancialAccess,
     Workspace,
     WorkspaceMembership,
     WorkspaceRole,
@@ -116,7 +117,8 @@ def _setup_default_workspace(db: Session, user: User) -> Workspace:
     membership = WorkspaceMembership(
         user_id=user.id,
         workspace_id=workspace.id,
-        role=WorkspaceRole.owner
+        role=WorkspaceRole.owner,
+        financial_access=FinancialAccess.full_workspace,
     )
     db.add(membership)
     seed_default_categories(db, workspace.id)
@@ -160,7 +162,13 @@ def _resolve_pending_invites(
             continue
 
         if accept_token and invite.token == accept_token:
-            if ensure_membership(db, invite.workspace_id, user.id, invite.role):
+            if ensure_membership(
+                db,
+                invite.workspace_id,
+                user.id,
+                invite.role,
+                financial_access=invite.financial_access,
+            ):
                 publish_event(db, invite.workspace_id, "member.added", "member", user.id, user.id)
             invite.status = InviteStatus.accepted
             db.add(invite)

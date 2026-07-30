@@ -17,7 +17,8 @@ const selectClass =
 
 interface BudgetPanelProps {
   spentByCategory: { category_id?: number | null; name: string; value: number }[];
-  totalExpenses: number;
+  /** Gasto total da CASA — `null` quando o acesso é `involved_only` (ADR 0018). */
+  totalExpenses: number | null;
   /** Mesma composição, recortada na parte do usuário (meta pessoal). */
   mySpentByCategory?: { category_id?: number | null; name: string; value: number }[];
   /** Soma dos splits do usuário no mês — o total contra a meta pessoal. */
@@ -55,10 +56,14 @@ export function BudgetPanel({
   const [newAmount, setNewAmount] = React.useState(0);
   const [error, setError] = React.useState<string | null>(null);
 
-  const pessoal = scope === 'personal';
-  const estimates = estimatesByScope(scope);
+  // Sem acesso completo o gasto da casa não vem (ADR 0018), então a visão da
+  // casa não tem denominador: o escopo pessoal passa a ser o único. Deixar o
+  // usuário alternar mostraria barras contra `null` — 0%, ou NaN.
+  const semVisaoDaCasa = totalExpenses == null;
+  const pessoal = semVisaoDaCasa || scope === 'personal';
+  const estimates = estimatesByScope(pessoal ? 'personal' : scope);
   const gastoPorCategoria = pessoal ? mySpentByCategory : spentByCategory;
-  const gastoTotal = pessoal ? myExpenses : totalExpenses;
+  const gastoTotal = pessoal ? myExpenses : (totalExpenses ?? 0);
 
   const spentFor = (estimate: Estimate): number => {
     if (estimate.category === 'Geral') return gastoTotal;
@@ -132,8 +137,13 @@ export function BudgetPanel({
       </CardHeader>
       <CardContent className="space-y-6">
         {/* Duas perguntas diferentes — "quanto a casa pode gastar" e "quanto eu
-            posso" — e por isso duas listas de metas. */}
-        <div role="tablist" aria-label="Escopo do orçamento" className="inline-flex rounded-lg bg-accent p-1">
+            posso" — e por isso duas listas de metas. Com acesso restrito só a
+            segunda faz sentido, então o seletor nem aparece. */}
+        <div
+          role="tablist"
+          aria-label="Escopo do orçamento"
+          className={`inline-flex rounded-lg bg-accent p-1 ${semVisaoDaCasa ? 'hidden' : ''}`}
+        >
           {([
             ['workspace', 'Da casa'],
             ['personal', 'Minha'],

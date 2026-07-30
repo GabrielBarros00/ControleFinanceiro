@@ -3,12 +3,19 @@ from datetime import datetime, date
 from typing import Any, Dict, Optional
 from sqlmodel import Session, select, func
 from app.domain.dates import month_key
+from app.domain.access_policy import cards_of_workspace, income_of_workspace
 from app.domain.query_policy import (
     FORECAST_STATUSES,
     workspace_base_currency,
 )
 from app.models.transaction import Transaction
-from app.models.recurring import RecurringExpense, RecurringIncome, RecurrenceFrequency
+from sqlalchemy import or_
+from app.models.recurring import (
+    RecurrenceFrequency,
+    RecurringExpense,
+    RecurringIncome,
+    RecurringIncomeWorkspaceShare,
+)
 from app.models.estimate import MonthlyEstimate
 from app.models.income import Income
 from app.models.credit_card import CreditCard, CardStatement, StatementStatus
@@ -53,9 +60,15 @@ class ForecastService:
         workspace_id: int,
         target_month: date,
         user_id: Optional[int] = None,
+        full_access: bool = True,
     ) -> Dict[str, Any]:
         """
         Calculates a predictive forecast for the end of the month.
+
+        A previsão é, por natureza, projeção de CAIXA DA CASA: gasto do mês,
+        média diária, fixos a vencer, faturas pendentes, renda e sobra. Nada disso
+        é recorte pessoal. Sem acesso completo (ADR 0018) sobra o que é do próprio
+        usuário — a meta pessoal — e o resto sai `None`.
         """
         base_currency = workspace_base_currency(db, workspace_id)
         # 1. Current spent (Transactions in the month)
@@ -64,6 +77,38 @@ class ForecastService:
         last_day = date(target_month.year, target_month.month, last_day_num)
         # Mesma definição de mês do resto do app (ver domain.dates.month_key)
         billing_month = month_key(target_month)
+
+        if not full_access:
+            # Saída curta: a projeção da casa inteira não é computada nem em parte.
+            # A meta pessoal é a única coisa que o membro restrito tem aqui, e é
+            # dela que o Início monta a barra de "sua despesa × seu orçamento".
+            my_budget = Decimal("0.00")
+            if user_id is not None:
+                my_budget = db.exec(
+                    select(func.coalesce(func.sum(MonthlyEstimate.amount), 0))
+                    .where(MonthlyEstimate.workspace_id == workspace_id)
+                    .where(MonthlyEstimate.month == billing_month)
+                    .where(MonthlyEstimate.deleted_at.is_(None))
+                    .where(MonthlyEstimate.owner_user_id == user_id)
+                ).one() or Decimal("0.00")
+            return {
+                "month": target_month.strftime("%Y-%m"),
+                "base_currency": base_currency,
+                "my_budget": my_budget,
+                "excluded_foreign_count": None,
+                "actual_spent": None,
+                "projected_eom": None,
+                "daily_average": None,
+                "remaining_days": None,
+                "fixed_costs_pending": None,
+                "card_statements_pending": None,
+                "total_budget": None,
+                "is_over_budget": None,
+                "income_actual": None,
+                "income_pending": None,
+                "projected_income": None,
+                "projected_net": None,
+            }
 
         # Gastos em dinheiro do mês. Transações vinculadas a fatura de cartão
         # (statement_id) ficam FORA do fluxo de caixa: o evento de caixa é a
@@ -103,7 +148,8 @@ class ForecastService:
         card_statements_due = db.exec(
             select(CardStatement)
             .join(CreditCard, CreditCard.id == CardStatement.card_id)
-            .where(CreditCard.workspace_id == workspace_id)
+            # Cartões deste workspace + os compartilhados (ADR 0019)
+            .where(cards_of_workspace(workspace_id))
             .where(CreditCard.deleted_at.is_(None))
             .where(CardStatement.status != StatementStatus.paid)
             .where(CardStatement.due_date >= datetime.combine(first_day, datetime.min.time()))
@@ -209,7 +255,7 @@ class ForecastService:
         # sobra projetada = renda recebida no mês − gasto projetado
         income_actual = db.exec(
             select(func.sum(Income.amount))
-            .where(Income.workspace_id == workspace_id)
+            .where(income_of_workspace(workspace_id))
             .where(Income.received_at >= datetime.combine(first_day, datetime.min.time()))
             .where(Income.received_at <= datetime.combine(last_day, datetime.max.time()))
             .where(Income.deleted_at.is_(None))
@@ -223,14 +269,26 @@ class ForecastService:
         # income_actual; as pendentes (sem instância) entram como renda esperada.
         income_pending = Decimal("0.00")
         if is_current or target_month > today:
+            # Templates da CASA + os PESSOAIS já compartilhados com ela: a
+            # previsão é caixa da casa, então salário pessoal só entra depois de o
+            # dono compartilhar (ADR 0019).
             recurring_incomes = db.exec(
                 select(RecurringIncome)
-                .where(RecurringIncome.workspace_id == workspace_id)
+                .where(
+                    or_(
+                        RecurringIncome.workspace_id == workspace_id,
+                        RecurringIncome.id.in_(
+                            select(RecurringIncomeWorkspaceShare.recurring_income_id).where(
+                                RecurringIncomeWorkspaceShare.workspace_id == workspace_id
+                            )
+                        ),
+                    )
+                )
                 .where(RecurringIncome.is_active.is_(True))
             ).all()
             materialized_income = db.exec(
                 select(Income.recurring_income_id, Income.received_at)
-                .where(Income.workspace_id == workspace_id)
+                .where(income_of_workspace(workspace_id))
                 .where(Income.billing_month == billing_month)
                 .where(Income.recurring_income_id.is_not(None))
                 .where(Income.deleted_at.is_(None))

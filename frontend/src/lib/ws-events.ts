@@ -118,6 +118,11 @@ const BY_PREFIX: Record<string, string[]> = {
 const FULL_RESYNC_TYPES = new Set<string>([
   // Trocar a moeda-base reescreve TODA agregação do workspace
   'workspace.currency_changed',
+  // Mudar papel ou ACESSO FINANCEIRO muda o que o servidor devolve em toda
+  // consulta (ADR 0018). Invalidar só ['members'] deixaria em cache o extrato, os
+  // relatórios e as dívidas que a pessoa acabou de perder o direito de ver — e
+  // ela seguiria vendo até um F5. Rebaixar acesso tem de esvaziar a tela na hora.
+  'member.updated',
 ]);
 
 /**

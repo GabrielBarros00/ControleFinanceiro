@@ -1,12 +1,12 @@
 import { useQuery } from '@tanstack/react-query';
 import { apiClient } from '@/api/client';
-import { useUIStore } from '@/stores';
+import { useWorkspaceId } from './use-workspace-id';
 
 /** Previsão do mês pedido (YYYY-MM). O backend sempre aceitou `?month`, mas o
  *  hook nunca o enviava — a previsão ficava presa ao mês do SERVIDOR mesmo
  *  com outro período selecionado na tela. */
 export function useAnalytics(month?: string) {
-  const { currentWorkspaceId } = useUIStore();
+  const currentWorkspaceId = useWorkspaceId();
 
   const forecastQuery = useQuery({
     queryKey: ['analytics-forecast', currentWorkspaceId, month],

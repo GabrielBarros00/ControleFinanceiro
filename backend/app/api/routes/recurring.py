@@ -3,11 +3,12 @@ from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlmodel import Session, select
 from app.db.session import get_session
+from app.domain.access_policy import assert_can_read, assert_can_write, shared_or_mine_scope
 from app.domain.query_policy import resolve_currency
 from app.domain.recurrence_rules import validate_frequency_fields as _validate_frequency_fields
 from app.models.category import Category
 from app.models.credit_card import CreditCard
-from app.models.workspace import WorkspaceMembership, WorkspaceRole, role_level
+from app.models.workspace import WorkspaceMembership, WorkspaceRole
 from app.models.recurring import RecurringExpense, RecurrenceFrequency
 from app.models.transaction import Transaction, PaymentMethod, SplitMethod
 from app.api.deps import get_workspace_membership, require_role
@@ -73,10 +74,19 @@ class RecurringUpdate(BaseModel):
 
 
 
-def _get_recurring_or_404(session: Session, workspace_id: int, recurring_id: int) -> RecurringExpense:
+def _get_recurring_or_404(
+    session: Session, workspace_id: int, recurring_id: int, membership: WorkspaceMembership
+) -> RecurringExpense:
     db_recurring = session.get(RecurringExpense, recurring_id)
     if not db_recurring or db_recurring.workspace_id != workspace_id:
         raise HTTPException(status_code=404, detail="Despesa recorrente não encontrada")
+    # Template sem criador é da casa e todos veem; com criador, só o dono
+    if db_recurring.created_by_user_id is not None:
+        assert_can_read(
+            db_recurring.created_by_user_id,
+            membership,
+            detail="Despesa recorrente não encontrada",
+        )
     return db_recurring
 
 
@@ -86,13 +96,14 @@ def _check_ownership(membership: WorkspaceMembership, template: RecurringExpense
     Mesmo gate de transações, rendas, acertos e anexos — a recorrência era a
     única entidade em que qualquer member editava ou apagava template alheio.
     """
-    if (
-        role_level(membership.role) < role_level(WorkspaceRole.admin)
-        and template.created_by_user_id not in (None, membership.user_id)
-    ):
-        raise HTTPException(
-            status_code=403, detail="Você só pode alterar as próprias despesas recorrentes"
-        )
+    assert_can_write(
+        template.created_by_user_id,
+        membership,
+        detail="Você só pode alterar as próprias despesas recorrentes",
+        # Template sem criador é o gasto fixo da casa (aluguel, luz), não autoria
+        # perdida de um lançamento pessoal
+        null_is_shared=True,
+    )
 
 
 def _validate_snapshot(
@@ -205,7 +216,14 @@ def list_recurring(
     session: Session = Depends(get_session),
     membership: WorkspaceMembership = Depends(get_workspace_membership)
 ):
-    return session.exec(select(RecurringExpense).where(RecurringExpense.workspace_id == workspace_id)).all()
+    return session.exec(
+        select(RecurringExpense).where(
+            RecurringExpense.workspace_id == workspace_id,
+            # Recorrência sem criador é da casa (aluguel que todos rateiam);
+            # com criador, só a minha (ADR 0018)
+            shared_or_mine_scope(RecurringExpense.created_by_user_id, membership),
+        )
+    ).all()
 
 
 @router.get("/{recurring_id}", response_model=RecurringExpense)
@@ -215,7 +233,7 @@ def get_recurring(
     session: Session = Depends(get_session),
     membership: WorkspaceMembership = Depends(get_workspace_membership)
 ):
-    return _get_recurring_or_404(session, workspace_id, recurring_id)
+    return _get_recurring_or_404(session, workspace_id, recurring_id, membership)
 
 
 @router.put("/{recurring_id}", response_model=RecurringExpense)
@@ -238,7 +256,7 @@ def update_recurring(
         raise HTTPException(status_code=400, detail=f"scope deve ser um de {list(EDIT_SCOPES)}")
     if materialize not in MATERIALIZE_SCOPES:
         raise HTTPException(status_code=400, detail=f"materialize deve ser um de {list(MATERIALIZE_SCOPES)}")
-    db_recurring = _get_recurring_or_404(session, workspace_id, recurring_id)
+    db_recurring = _get_recurring_or_404(session, workspace_id, recurring_id, membership)
     _check_ownership(membership, db_recurring)
 
     update_data = recurring_in.model_dump(exclude_unset=True)
@@ -283,7 +301,7 @@ def delete_recurring(
     session: Session = Depends(get_session),
     membership: WorkspaceMembership = Depends(require_role(WorkspaceRole.member))
 ):
-    db_recurring = _get_recurring_or_404(session, workspace_id, recurring_id)
+    db_recurring = _get_recurring_or_404(session, workspace_id, recurring_id, membership)
     _check_ownership(membership, db_recurring)
 
     # Desvincula instâncias já geradas antes de excluir o template — sem isso

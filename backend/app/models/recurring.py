@@ -3,7 +3,7 @@ from enum import Enum
 from typing import Optional, List, TYPE_CHECKING
 from decimal import Decimal
 from sqlalchemy import JSON, Column
-from sqlmodel import SQLModel, Field, Relationship
+from sqlmodel import SQLModel, Field, Relationship, UniqueConstraint
 
 from app.models.transaction import PaymentMethod
 
@@ -76,10 +76,31 @@ class RecurringIncome(RecurringIncomeBase, table=True):
     (RecurringIncomeService.generate_due_income), espelhando RecurringExpense
     mas sem divisão/pagador (renda é pessoal)."""
     id: Optional[int] = Field(default=None, primary_key=True)
-    workspace_id: int = Field(foreign_key="workspace.id", index=True)
+    # NULL = salário PESSOAL, cadastrado uma vez e válido em todos os workspaces
+    # do dono (ADR 0019). É o caso mais comum: salário é da pessoa, não da casa.
+    workspace_id: Optional[int] = Field(default=None, foreign_key="workspace.id", index=True)
     created_by_user_id: Optional[int] = Field(default=None, foreign_key="user.id")
     # Destinatário da renda (quem recebe); default = criador
     user_id: int = Field(foreign_key="user.id", index=True)
 
     created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
     updated_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+
+
+class RecurringIncomeWorkspaceShare(SQLModel, table=True):
+    """Compartilhamento do TEMPLATE — cada ocorrência materializada herda estas
+    linhas (ADR 0019).
+
+    Sem isto, compartilhar um salário recorrente exigiria repetir o gesto todo mês,
+    numa renda que por definição se repete.
+    """
+    __table_args__ = (
+        UniqueConstraint(
+            "recurring_income_id", "workspace_id", name="uq_recincome_share_template_workspace"
+        ),
+    )
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    recurring_income_id: int = Field(foreign_key="recurringincome.id", index=True)
+    workspace_id: int = Field(foreign_key="workspace.id", index=True)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))

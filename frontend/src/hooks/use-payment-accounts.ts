@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { apiClient } from '@/api/client';
-import { useUIStore } from '@/stores';
 import type { components } from '@/types/api.gen';
+import { useWorkspaceId } from './use-workspace-id';
 
 // Tipos GERADOS do OpenAPI (npm run typegen) — nunca espelhados à mão
 export type PaymentAccountRead = components['schemas']['PaymentAccountRead'];
@@ -21,7 +21,7 @@ export function accountTypeLabel(type: PaymentAccountType): string {
 
 export function usePaymentAccounts() {
   const queryClient = useQueryClient();
-  const { currentWorkspaceId } = useUIStore();
+  const currentWorkspaceId = useWorkspaceId();
 
   const listQuery = useQuery({
     queryKey: ['payment-accounts', currentWorkspaceId],

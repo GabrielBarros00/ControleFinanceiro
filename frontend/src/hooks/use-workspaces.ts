@@ -1,3 +1,4 @@
+import * as React from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { apiClient } from '@/api/client';
 import { useUIStore } from '@/stores';
@@ -25,6 +26,17 @@ export function useWorkspaces() {
       return response.data;
     },
   });
+
+  // Semente do "último visitado": sem ela, quem acabou de se cadastrar cai em
+  // /overview com a barra lateral só com a camada global — e não teria como
+  // entrar no próprio workspace sem abrir o seletor. Só preenche quando está
+  // vazio; nunca sobrescreve uma escolha do usuário.
+  const primeiro = listQuery.data?.[0]?.id ?? null;
+  React.useEffect(() => {
+    if (currentWorkspaceId == null && primeiro != null) {
+      setCurrentWorkspaceId(primeiro);
+    }
+  }, [currentWorkspaceId, primeiro, setCurrentWorkspaceId]);
 
   const createMutation = useMutation({
     mutationFn: async (data: { name: string; description?: string; base_currency?: string }) => {
@@ -67,6 +79,13 @@ export function useWorkspaces() {
     },
   });
 
+  /**
+   * Troca o workspace CORRENTE (estado + cache). A NAVEGAÇÃO fica com quem
+   * chama: o workspace vive na URL (ADR 0020), mas embutir `useNavigate` aqui
+   * obrigaria todo consumidor deste hook — inclusive `useBaseCurrency`, usado em
+   * componentes testados isoladamente — a existir dentro de um `<Router>`.
+   * `workspacePath` monta o destino para quem navega.
+   */
   const switchWorkspace = (id: number) => {
     setCurrentWorkspaceId(id);
     // Dados de todos os hooks são keyed por workspaceId; invalidar garante refetch limpo

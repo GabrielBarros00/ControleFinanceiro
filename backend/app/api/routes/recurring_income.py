@@ -1,18 +1,25 @@
 from datetime import date, datetime, UTC
 from decimal import Decimal
-from typing import List, Optional
+from typing import List, Literal, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 
 from app.schemas.common import DESCRIPTION_MAX, MAX_MONEY, NAME_MAX, OptionalCurrencyCode, TITLE_MAX
+from sqlalchemy import and_, or_
 from sqlmodel import Session, select
 
 from app.db.session import get_session
+from app.domain.access_policy import assert_can_write, owner_scope
+from app.services.sharing_service import set_shares
 from app.domain.query_policy import resolve_currency
 from app.domain.recurrence_rules import validate_frequency_fields as _validate_frequency_fields
-from app.models.workspace import WorkspaceMembership, WorkspaceRole, role_level
-from app.models.recurring import RecurringIncome, RecurrenceFrequency
+from app.models.workspace import WorkspaceMembership, WorkspaceRole
+from app.models.recurring import (
+    RecurrenceFrequency,
+    RecurringIncome,
+    RecurringIncomeWorkspaceShare,
+)
 from app.models.income import Income
 from app.api.deps import get_workspace_membership, require_role
 from app.services.event_service import publish_event
@@ -39,9 +46,17 @@ class RecurringIncomeCreate(BaseModel):
     day_of_week: Optional[int] = Field(default=None, ge=0, le=6)
     month_of_year: Optional[int] = Field(default=None, ge=1, le=12)
     is_active: bool = True
+    # Escopo (ADR 0019): `personal` é o default porque salário é da pessoa e vale
+    # em todos os workspaces dela — era isto que faltava para a renda ser global.
+    scope: Literal["personal", "workspace"] = "personal"
+    # Workspaces para cujo orçamento este salário CONTRIBUI. Cada ocorrência
+    # materializada herda esta lista.
+    shared_with_workspace_ids: list[int] = Field(default_factory=list)
 
 
 class RecurringIncomeUpdate(BaseModel):
+    scope: Optional[Literal["personal", "workspace"]] = None
+    shared_with_workspace_ids: Optional[list[int]] = None
     title: Optional[str] = Field(default=None, min_length=1, max_length=TITLE_MAX)
     description: Optional[str] = Field(default=None, max_length=DESCRIPTION_MAX)
     base_amount: Optional[Decimal] = Field(default=None, gt=0, le=MAX_MONEY)
@@ -58,19 +73,28 @@ class RecurringIncomeUpdate(BaseModel):
 
 
 
-def _get_or_404(session: Session, workspace_id: int, recurring_id: int) -> RecurringIncome:
+def _get_or_404(
+    session: Session, workspace_id: int, recurring_id: int, membership: WorkspaceMembership = None
+) -> RecurringIncome:
     rec = session.get(RecurringIncome, recurring_id)
-    if not rec or rec.workspace_id != workspace_id:
+    if not rec:
+        raise HTTPException(status_code=404, detail="Renda recorrente não encontrada")
+    # Template PESSOAL não pertence a workspace: o gate é a propriedade (ADR 0019)
+    if rec.workspace_id is None:
+        if membership is not None and rec.user_id != membership.user_id:
+            raise HTTPException(status_code=404, detail="Renda recorrente não encontrada")
+        return rec
+    if rec.workspace_id != workspace_id:
         raise HTTPException(status_code=404, detail="Renda recorrente não encontrada")
     return rec
 
 
 def _check_ownership(membership: WorkspaceMembership, rec: RecurringIncome) -> None:
-    if (
-        role_level(membership.role) < role_level(WorkspaceRole.admin)
-        and rec.user_id != membership.user_id
-    ):
-        raise HTTPException(status_code=403, detail="Você só pode alterar as próprias rendas recorrentes")
+    assert_can_write(
+        rec.user_id,
+        membership,
+        detail="Você só pode alterar as próprias rendas recorrentes",
+    )
 
 
 @router.post("", response_model=RecurringIncome)
@@ -93,14 +117,28 @@ def create_recurring_income(
     data = recurring_in.model_dump()
     # Moeda ausente = a do workspace (nunca "BRL" fixo — ver resolve_currency)
     data["currency"] = resolve_currency(session, workspace_id, recurring_in.currency)
+    # Salário recorrente nasce PESSOAL (ADR 0019): vale em todos os workspaces do
+    # dono, cadastrado uma vez. `scope="workspace"` é a exceção — renda recorrente
+    # da casa, como o aluguel que o casal recebe de um imóvel.
+    escopo = data.pop("scope", "personal")
+    destinos = data.pop("shared_with_workspace_ids", [])
     db_rec = RecurringIncome(
         **data,
-        workspace_id=workspace_id,
+        workspace_id=workspace_id if escopo == "workspace" else None,
         created_by_user_id=membership.user_id,
         user_id=membership.user_id,
     )
     session.add(db_rec)
     session.flush()
+    if escopo == "personal":
+        set_shares(
+            session,
+            RecurringIncomeWorkspaceShare,
+            "recurring_income_id",
+            db_rec.id,
+            destinos,
+            user_id=membership.user_id,
+        )
     RecurringMaterializationService.apply_scope(
         session, workspace_id, db_rec, materialize, is_income=True
     )
@@ -117,7 +155,9 @@ def generate_recurring_income(
     membership: WorkspaceMembership = Depends(require_role(WorkspaceRole.member)),
 ):
     """Materializa as rendas recorrentes vencidas do mês corrente (idempotente)."""
-    created = RecurringIncomeService.generate_due_income(session, workspace_id, date.today())
+    created = RecurringIncomeService.generate_due_income(
+        session, workspace_id, date.today(), user_id=membership.user_id
+    )
     if created:
         publish_event(session, workspace_id, "income.bulk_created", "income", None, membership.user_id)
     session.commit()
@@ -131,7 +171,19 @@ def list_recurring_income(
     membership: WorkspaceMembership = Depends(get_workspace_membership),
 ):
     return session.exec(
-        select(RecurringIncome).where(RecurringIncome.workspace_id == workspace_id)
+        select(RecurringIncome).where(
+            # Os MEUS templates (pessoais, sem workspace — ADR 0019) + os da casa
+            # deste workspace. `user_id` = quem RECEBE: salário recorrente é o dado
+            # mais sensível que existe aqui, então sem acesso completo só o meu
+            # aparece (ADR 0018).
+            or_(
+                RecurringIncome.user_id == membership.user_id,
+                and_(
+                    RecurringIncome.workspace_id == workspace_id,
+                    owner_scope(RecurringIncome.user_id, membership),
+                ),
+            )
+        )
     ).all()
 
 
@@ -149,11 +201,29 @@ def update_recurring_income(
 ):
     if materialize not in MATERIALIZE_SCOPES:
         raise HTTPException(status_code=400, detail=f"materialize deve ser um de {list(MATERIALIZE_SCOPES)}")
-    db_rec = _get_or_404(session, workspace_id, recurring_id)
+    db_rec = _get_or_404(session, workspace_id, recurring_id, membership)
     _check_ownership(membership, db_rec)
 
-    for key, value in recurring_in.model_dump(exclude_unset=True).items():
+    campos = recurring_in.model_dump(exclude_unset=True)
+    escopo = campos.pop("scope", None)
+    destinos = campos.pop("shared_with_workspace_ids", None)
+    for key, value in campos.items():
         setattr(db_rec, key, value)
+    if escopo is not None:
+        # Virar renda da casa desfaz os compartilhamentos: contar as duas coisas
+        # somaria a renda duas vezes no total do workspace.
+        db_rec.workspace_id = workspace_id if escopo == "workspace" else None
+        if escopo == "workspace":
+            destinos = []
+    if destinos is not None:
+        set_shares(
+            session,
+            RecurringIncomeWorkspaceShare,
+            "recurring_income_id",
+            db_rec.id,
+            destinos,
+            user_id=db_rec.user_id,
+        )
     _validate_frequency_fields(
         db_rec.frequency, db_rec.day_of_week, db_rec.month_of_year,
         db_rec.interval, db_rec.start_date,
@@ -183,7 +253,7 @@ def delete_recurring_income(
     session: Session = Depends(get_session),
     membership: WorkspaceMembership = Depends(require_role(WorkspaceRole.member)),
 ):
-    db_rec = _get_or_404(session, workspace_id, recurring_id)
+    db_rec = _get_or_404(session, workspace_id, recurring_id, membership)
     _check_ownership(membership, db_rec)
 
     # Desvincula rendas já geradas antes de excluir o template (evita violar FK)
@@ -193,6 +263,14 @@ def delete_recurring_income(
     for inc in instances:
         inc.recurring_income_id = None
         session.add(inc)
+
+    # Compartilhamentos do template saem junto (FK real, não órfã)
+    for vinculo in session.exec(
+        select(RecurringIncomeWorkspaceShare).where(
+            RecurringIncomeWorkspaceShare.recurring_income_id == recurring_id
+        )
+    ).all():
+        session.delete(vinculo)
 
     session.delete(db_rec)
     publish_event(session, workspace_id, "recurring_income.deleted", "recurring_income", recurring_id, membership.user_id)

@@ -241,7 +241,7 @@ export function ImportPage() {
                           )}
                         </span>
                       </TableCell>
-                      <TableCell className="text-right font-black">
+                      <TableCell className="text-right font-semibold">
                         {formatMoney(tx.total_amount, { currency: baseCurrency })}
                       </TableCell>
                     </TableRow>

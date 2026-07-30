@@ -9,7 +9,8 @@ async function registerAndOnboard(page: Page, name: string, email: string) {
   await page.getByLabel('Confirmar', { exact: true }).fill('password123');
   await page.getByRole('button', { name: 'Cadastrar', exact: true }).click();
 
-  await expect(page).toHaveURL('http://localhost:5173/');
+  // `/` leva ao Início GLOBAL (ADR 0020)
+  await expect(page).toHaveURL(/\/overview$/);
   // O onboarding virou um Dialog de verdade: enquanto ele está aberto, o resto
   // da página fica inerte (aria-hidden) — o cabeçalho "Início" atrás dele deixa
   // de ser alcançável por role, que é justamente o comportamento correto.
@@ -22,6 +23,10 @@ async function registerAndOnboard(page: Page, name: string, email: string) {
     page.getByRole('button', { name: 'Pular esta etapa' }).click(),
   ]);
   await expect(page.getByRole('heading', { name: 'Início' })).toBeVisible({ timeout: 15_000 });
+
+  // Entra no workspace: o painel da casa é onde se lança despesa.
+  await page.getByRole('link', { name: 'Painel' }).click();
+  await expect(page).toHaveURL(/\/w\/\d+$/);
 }
 
 test.describe('Divisão por item e edição completa', () => {

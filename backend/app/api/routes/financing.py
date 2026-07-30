@@ -10,9 +10,16 @@ from sqlmodel import Session, select
 
 from app.api.deps import get_workspace_membership, require_role
 from app.db.session import get_session
+from app.domain.access_policy import (
+    assert_can_read,
+    assert_can_write,
+    financings_of_workspace,
+    owner_scope,
+)
 from app.domain.query_policy import resolve_currency
 from app.models.financing import (
     Financing,
+    FinancingWorkspaceShare,
     AmortizationInstallment,
     AmortizationMethod,
     FinancingStatus,
@@ -24,8 +31,9 @@ from app.models.transaction import (
     TransactionStatus,
     SplitMethod,
 )
-from app.models.workspace import WorkspaceMembership, WorkspaceRole, role_level
+from app.models.workspace import WorkspaceMembership, WorkspaceRole
 from app.services.event_service import publish_event
+from app.services.sharing_service import set_shares, share_ids
 from app.services.financing_service import FinancingService
 
 router = APIRouter(prefix="/workspaces/{workspace_id}/financing", tags=["financing"])
@@ -67,10 +75,22 @@ class FinancingUpdate(BaseModel):
 _SCHEDULE_KEYS = {"total_amount", "interest_rate", "start_date", "installments_count", "method"}
 
 
-def _get_financing_or_404(session: Session, workspace_id: int, financing_id: int) -> Financing:
-    financing = session.get(Financing, financing_id)
-    if not financing or financing.workspace_id != workspace_id or financing.deleted_at:
+def _get_financing_or_404(
+    session: Session, workspace_id: int, financing_id: int, membership: WorkspaceMembership
+) -> Financing:
+    financing = session.exec(
+        select(Financing).where(
+            Financing.id == financing_id,
+            # Deste workspace OU compartilhado com ele (ADR 0019)
+            financings_of_workspace(workspace_id),
+            Financing.deleted_at.is_(None),
+        )
+    ).first()
+    if not financing:
         raise HTTPException(status_code=404, detail="Financiamento não encontrado")
+    assert_can_read(
+        financing.created_by_user_id, membership, detail="Financiamento não encontrado"
+    )
     return financing
 
 
@@ -81,13 +101,11 @@ def _check_ownership(membership: WorkspaceMembership, financing: Financing) -> N
     financiamento era a única entidade em que qualquer member pagava (e gerava
     despesa no nome de) o financiamento de outro.
     """
-    if (
-        role_level(membership.role) < role_level(WorkspaceRole.admin)
-        and financing.created_by_user_id not in (None, membership.user_id)
-    ):
-        raise HTTPException(
-            status_code=403, detail="Você só pode alterar os próprios financiamentos"
-        )
+    assert_can_write(
+        financing.created_by_user_id,
+        membership,
+        detail="Você só pode alterar os próprios financiamentos",
+    )
 
 
 @router.post("", response_model=Financing)
@@ -140,8 +158,11 @@ def list_financing(
 ):
     return session.exec(
         select(Financing).where(
-            Financing.workspace_id == workspace_id,
+            # Deste workspace + os pessoais compartilhados com ele (ADR 0019)
+            financings_of_workspace(workspace_id),
             Financing.deleted_at.is_(None),
+            # Sem acesso completo, só os meus financiamentos (ADR 0018)
+            owner_scope(Financing.created_by_user_id, membership),
         )
     ).all()
 
@@ -153,7 +174,7 @@ def get_financing(
     session: Session = Depends(get_session),
     membership: WorkspaceMembership = Depends(get_workspace_membership),
 ):
-    return _get_financing_or_404(session, workspace_id, financing_id)
+    return _get_financing_or_404(session, workspace_id, financing_id, membership)
 
 
 @router.get("/{financing_id}/schedule", response_model=List[AmortizationInstallment])
@@ -163,7 +184,7 @@ def get_financing_schedule(
     session: Session = Depends(get_session),
     membership: WorkspaceMembership = Depends(get_workspace_membership),
 ):
-    financing = _get_financing_or_404(session, workspace_id, financing_id)
+    financing = _get_financing_or_404(session, workspace_id, financing_id, membership)
     return session.exec(
         select(AmortizationInstallment)
         .where(AmortizationInstallment.financing_id == financing.id)
@@ -179,7 +200,7 @@ def simulate_early_settlement(
     session: Session = Depends(get_session),
     membership: WorkspaceMembership = Depends(get_workspace_membership),
 ):
-    financing = _get_financing_or_404(session, workspace_id, financing_id)
+    financing = _get_financing_or_404(session, workspace_id, financing_id, membership)
     settlement_date = data.settlement_date or date.today()
 
     remaining = session.exec(
@@ -207,7 +228,7 @@ def pay_installment(
     session: Session = Depends(get_session),
     membership: WorkspaceMembership = Depends(require_role(WorkspaceRole.member)),
 ):
-    financing = _get_financing_or_404(session, workspace_id, financing_id)
+    financing = _get_financing_or_404(session, workspace_id, financing_id, membership)
     _check_ownership(membership, financing)
     # Só financiamento ATIVO gera despesa. Um `simulated` é plano, não dívida
     # contratada: pagar parcela dele criava gasto real a partir de uma simulação
@@ -299,7 +320,7 @@ def update_financing(
     Alterar valor/taxa/prazo/método regenera o cronograma, então é recusado se
     já houver parcela paga (o pagamento virou despesa real e o plano não pode
     mudar debaixo dela)."""
-    financing = _get_financing_or_404(session, workspace_id, financing_id)
+    financing = _get_financing_or_404(session, workspace_id, financing_id, membership)
     _check_ownership(membership, financing)
 
     update_data = data.model_dump(exclude_unset=True)
@@ -380,7 +401,7 @@ def unpay_installment(
     `is_paid` era irreversível: um clique errado não tinha desfazer, e a despesa
     gerada ficava para sempre no caixa. Aqui a parcela volta a aberta, a despesa
     correspondente é soft-deletada e o financiamento sai de `settled`."""
-    financing = _get_financing_or_404(session, workspace_id, financing_id)
+    financing = _get_financing_or_404(session, workspace_id, financing_id, membership)
     _check_ownership(membership, financing)
 
     installment = session.exec(
@@ -442,10 +463,54 @@ def delete_financing(
     session: Session = Depends(get_session),
     membership: WorkspaceMembership = Depends(require_role(WorkspaceRole.member)),
 ):
-    financing = _get_financing_or_404(session, workspace_id, financing_id)
+    financing = _get_financing_or_404(session, workspace_id, financing_id, membership)
     _check_ownership(membership, financing)
     financing.deleted_at = datetime.now(UTC)
     session.add(financing)
     publish_event(session, workspace_id, "financing.deleted", "financing", financing.id, membership.user_id)
     session.commit()
     return {"status": "ok"}
+
+
+@router.put("/{financing_id}/shares")
+def set_financing_shares(
+    workspace_id: int,
+    financing_id: int,
+    workspace_ids: List[int],
+    session: Session = Depends(get_session),
+    membership: WorkspaceMembership = Depends(require_role(WorkspaceRole.member)),
+):
+    """Workspaces cujo endividamento este financiamento compõe (ADR 0019).
+
+    O caso que motiva: o imóvel do casal é financiado no nome de um, mas o
+    compromisso é da casa.
+    """
+    financing = _get_financing_or_404(session, workspace_id, financing_id, membership)
+    _check_ownership(membership, financing)
+    set_shares(
+        session,
+        FinancingWorkspaceShare,
+        "financing_id",
+        financing.id,
+        workspace_ids,
+        user_id=membership.user_id,
+    )
+    publish_event(
+        session, workspace_id, "financing.updated", "financing",
+        financing.id, membership.user_id,
+    )
+    session.commit()
+    return {"status": "ok", "shared_with_workspace_ids": workspace_ids}
+
+
+@router.get("/{financing_id}/shares", response_model=List[int])
+def list_financing_shares(
+    workspace_id: int,
+    financing_id: int,
+    session: Session = Depends(get_session),
+    membership: WorkspaceMembership = Depends(get_workspace_membership),
+):
+    financing = _get_financing_or_404(session, workspace_id, financing_id, membership)
+    return share_ids(
+        session, FinancingWorkspaceShare, FinancingWorkspaceShare.financing_id, financing.id
+    )

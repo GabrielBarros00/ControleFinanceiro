@@ -25,7 +25,21 @@ test.describe('Stack de produção: tempo real e convite por link', () => {
     const invite = await contextA.request.post(`${API}/workspaces/${wsA.id}/invites`, {
       data: { email: `rt_b_${ts}@teste.com`, role: 'member' },
     });
-    expect((await invite.json()).status).toBe('member_added');
+    // `invite_sent`, não `member_added`: convidar por e-mail deixou de adicionar
+    // ninguém direto (consentimento no convite). O spec ficou preso na resposta
+    // antiga e falhava AQUI, antes de chegar em qualquer asserção de WebSocket —
+    // que é o que ele existe para testar.
+    expect((await invite.json()).status).toBe('invite_sent');
+
+    // E, por consequência, é preciso ACEITAR: sem isto B nunca vira membro e o
+    // switcher do sidebar não teria o workspace compartilhado para escolher.
+    // O token chega na notificação dentro do app.
+    const avisos = await (await contextB.request.get(`${API}/notifications`)).json();
+    const convite = avisos.items.find((n: { invite_token?: string }) => n.invite_token);
+    expect(convite, 'B recebeu a notificação do convite').toBeTruthy();
+    expect(
+      (await contextB.request.post(`${API}/invites/accept/${convite.invite_token}`)).ok(),
+    ).toBeTruthy();
 
     const pageA = await contextA.newPage();
     const pageB = await contextB.newPage();
@@ -38,7 +52,10 @@ test.describe('Stack de produção: tempo real e convite por link', () => {
     await pageB.getByRole('button', { name: sharedWsName }).click();
     await expect(pageB.getByRole('button', { name: new RegExp(sharedWsName) })).toBeVisible();
 
+    // Rateado com B: como `member` + `involved_only` (ADR 0018), B não vê despesa
+    // que é só de A — e este spec mede entrega ao vivo, não privacidade.
     const meA = await (await contextA.request.get(`${API}/auth/me`)).json();
+    const meB = await (await contextB.request.get(`${API}/auth/me`)).json();
     const createTxAs = (title: string) =>
       contextA.request.post(`${API}/workspaces/${wsA.id}/transactions/`, {
         data: {
@@ -46,7 +63,10 @@ test.describe('Stack de produção: tempo real e convite por link', () => {
           total_amount: '90.00',
           transaction_date: new Date().toISOString(),
           payers: [{ user_id: meA.id, amount: '90.00' }],
-          splits: [{ user_id: meA.id, split_method: 'equal', input_value: '100' }],
+          splits: [
+            { user_id: meA.id, split_method: 'equal', input_value: '0' },
+            { user_id: meB.id, split_method: 'equal', input_value: '0' },
+          ],
         },
       });
 

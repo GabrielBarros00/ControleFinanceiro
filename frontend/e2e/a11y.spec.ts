@@ -14,7 +14,25 @@ import { test, expect, type Page } from '@playwright/test';
 const API = 'http://localhost:8000/api/v1';
 const PADRAO = ['wcag2a', 'wcag2aa'];
 
+/**
+ * Espera as animações de entrada TERMINAREM antes de medir.
+ *
+ * Sem isto o axe fotografa a tela no meio do `fade-in` — com o elemento ainda
+ * semitransparente — e reporta falha de contraste em texto que, parado, passa
+ * folgado. O sintoma só apareceu quando as animações voltaram a funcionar: o
+ * `tw-animate-css` era escrito em sintaxe Tailwind v4 num projeto v3 e não
+ * gerava CSS nenhum, então nada animava e a corrida não existia.
+ */
+async function aguardarAnimacoes(page: Page) {
+  await page.waitForFunction(
+    () => document.getAnimations().every((a) => a.playState !== 'running'),
+    undefined,
+    { timeout: 5_000 },
+  );
+}
+
 async function analisar(page: Page, seletor?: string) {
+  await aguardarAnimacoes(page);
   let builder = new AxeBuilder({ page }).withTags(PADRAO);
   if (seletor) builder = builder.include(seletor);
   return builder.analyze();
@@ -55,16 +73,24 @@ test.describe('Acessibilidade (axe · WCAG 2 A/AA)', () => {
     await context.close();
   });
 
-  test('Início e Nova Despesa', async ({ browser }) => {
+  test('Início global, painel do workspace e Nova Despesa', async ({ browser }) => {
     const context = await contaNova(browser);
     const [ws] = await (await context.request.get(`${API}/workspaces/`)).json();
     await context.request.post(`${API}/auth/onboarding`, { data: { salary: 4000 } });
     expect(ws.id).toBeTruthy();
 
     const page = await context.newPage();
-    await page.goto('/');
-    await expect(page.getByRole('heading', { name: 'Início' })).toBeVisible();
 
+    // Início GLOBAL (ADR 0020): soma todos os workspaces, e é só leitura —
+    // lançar despesa é ato de UMA casa, então o botão não mora aqui.
+    await page.goto('/overview');
+    await expect(page.getByRole('heading', { name: 'Início' })).toBeVisible();
+    const global = await analisar(page);
+    expect(resumir(global.violations)).toBe('');
+
+    // Painel do workspace: é onde se lança
+    await page.goto(`/w/${ws.id}`);
+    await expect(page.getByRole('heading', { name: 'Início' })).toBeVisible();
     const inicio = await analisar(page);
     expect(resumir(inicio.violations)).toBe('');
 

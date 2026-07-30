@@ -319,6 +319,56 @@ def test_troca_de_moeda_base_emite_evento_de_resync(rt):
             assert sock.receive_json()["type"] == "workspace.currency_changed"
 
 
+def test_evento_na_janela_do_handshake_nao_e_perdido(rt, monkeypatch):
+    """Mutação commitada DURANTE o handshake chega no socket que está entrando.
+
+    A ordem da rota é o contrato: o socket entra na sala ANTES de o servidor ler
+    o `event_seq` que vai no `hello`. Antes era o inverso (lê o seq → manda o
+    hello → entra na sala) e a mutação commitada nessa janela era publicada para
+    uma sala sem este socket: evento perdido em silêncio, porque o `hello` já
+    vinha com o seq contando o evento e o cliente se dava por sincronizado (o
+    próximo evento chega em ordem, sem lacuna para detectar). Era o que fazia a
+    troca de workspace parecer "socket novo que recebe o hello e mais nada".
+
+    Aqui a janela é simulada pelo seam da leitura do seq: uma mutação commita
+    exatamente entre a entrada na sala e a leitura.
+    """
+    import app.ws.routes as ws_routes
+    from app.services.event_service import publish_event
+
+    ws, users = rt["ws"], rt["users"]
+    real_current_seq = ws_routes._current_seq
+
+    def seq_com_mutacao_no_meio(workspace_id: int):
+        # Outro membro commita algo enquanto este socket ainda faz handshake
+        with ws_routes.session_scope() as session:
+            publish_event(
+                session,
+                workspace_id=workspace_id,
+                event_type="transaction.created",
+                resource_type="transaction",
+                resource_id=999,
+                actor_user_id=users["owner"].id,
+            )
+            session.commit()
+        return real_current_seq(workspace_id)
+
+    monkeypatch.setattr(ws_routes, "_current_seq", seq_com_mutacao_no_meio)
+
+    with TestClient(app) as client:
+        with client.websocket_connect(
+            f"/api/v1/ws/workspaces/{ws.id}", headers=_headers(users["member"])
+        ) as sock:
+            # O `hello` e o evento da janela chegam nos dois primeiros frames (em
+            # qualquer ordem: o evento pode ser transmitido antes do hello).
+            frames = [sock.receive_json(), sock.receive_json()]
+            por_tipo = {f["type"]: f for f in frames}
+            assert set(por_tipo) == {"hello", "transaction.created"}
+            # O evento não é "futuro": o hello já conta com ele, e é justamente
+            # por isso que perdê-lo era invisível para o cliente.
+            assert por_tipo["transaction.created"]["seq"] == por_tipo["hello"]["seq"]
+
+
 def test_socket_nao_segura_sessao_de_banco(rt, monkeypatch):
     """A sessão do WS tem de ser CURTA (A3).
 
@@ -326,7 +376,9 @@ def test_socket_nao_segura_sessao_de_banco(rt, monkeypatch):
     socket caía — uma conexão do pool presa por aba aberta. Com o pool padrão
     (5 + 10) bastavam ~15 abas para esgotar o pool e travar a API inteira.
     Aqui contamos entradas/saídas do `session_scope`: com o socket ABERTO e já
-    autenticado, a sessão precisa estar fechada.
+    autenticado, nenhuma sessão pode estar aberta. São DUAS sessões curtas no
+    handshake (autorizar e, depois de entrar na sala, ler o seq do `hello`) —
+    o que importa é que as duas já tenham fechado.
     """
     import app.ws.routes as ws_routes
     from contextlib import contextmanager
@@ -349,6 +401,6 @@ def test_socket_nao_segura_sessao_de_banco(rt, monkeypatch):
             f"/api/v1/ws/workspaces/{ws.id}", headers=_headers(users["member"])
         ) as sock:
             assert sock.receive_json()["type"] == "hello"
-            # Socket vivo, sessão já devolvida ao pool
-            assert stats["enter"] == 1
-            assert stats["exit"] == 1
+            # Socket vivo, conexões já devolvidas ao pool
+            assert stats["enter"] == 2
+            assert stats["exit"] == stats["enter"]

@@ -55,3 +55,22 @@ class AmortizationInstallment(AmortizationInstallmentBase, table=True):
     paid_at: Optional[datetime] = None
     
     financing: Financing = Relationship(back_populates="schedule")
+
+
+class FinancingWorkspaceShare(SQLModel, table=True):
+    """Financiamento pessoal que compõe o endividamento de um workspace (ADR 0019).
+
+    O caso que motiva: o imóvel do casal é financiado no nome de um, mas o
+    compromisso é da casa. Compartilhar coloca o saldo devedor no painel do
+    workspace sem duplicar o financiamento em dois cadastros.
+    """
+    __table_args__ = (
+        UniqueConstraint(
+            "financing_id", "workspace_id", name="uq_financing_share_financing_workspace"
+        ),
+    )
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    financing_id: int = Field(foreign_key="financing.id", index=True)
+    workspace_id: int = Field(foreign_key="workspace.id", index=True)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))

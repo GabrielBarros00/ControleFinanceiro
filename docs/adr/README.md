@@ -23,6 +23,9 @@ Cada ADR registra **uma decisão** relevante do projeto: o contexto, a decisão 
 | [0015](0015-conversao-na-entrada-e-taxa-cruzada.md) | Conversão na entrada pela taxa cruzada da moeda-base (supersede 0006) | Consultas / moeda |
 | [0016](0016-armazenamento-de-anexos-em-volume.md) | Armazenamento de anexos em volume: endereçado por conteúdo, com dedup (implementa 0007) | Anexos |
 | [0017](0017-orcamento-com-escopo-casa-ou-pessoal.md) | Orçamento tem escopo: meta da casa ou meta pessoal (privada) | Orçamento / UX |
+| [0018](0018-privacidade-papel-e-acesso-financeiro.md) | Papel (o que faço) separado de acesso financeiro (o que vejo); invisível responde 404 | Privacidade / segurança |
+| [0019](0019-propriedade-pessoal-com-compartilhamento.md) | Renda/cartão/conta/financiamento são da PESSOA; workspace só por compartilhamento explícito | Propriedade / privacidade |
+| [0020](0020-visao-global-e-quatro-numeros.md) | Início global e pessoal; consumo × caixa × a pagar × resultado; workspace na URL | Informação / navegação |
 
 ## Escrevendo um novo ADR
 

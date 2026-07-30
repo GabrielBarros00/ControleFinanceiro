@@ -2,7 +2,7 @@ from datetime import datetime, UTC
 from typing import Optional
 from decimal import Decimal
 from sqlalchemy import Index
-from sqlmodel import SQLModel, Field
+from sqlmodel import SQLModel, Field, UniqueConstraint
 
 class IncomeBase(SQLModel):
     title: str = Field(index=True)
@@ -25,7 +25,16 @@ class Income(IncomeBase, table=True):
     )
 
     id: Optional[int] = Field(default=None, primary_key=True)
-    workspace_id: int = Field(foreign_key="workspace.id", index=True)
+    # NULL = renda PESSOAL (global): não pertence a workspace nenhum, aparece como
+    # "minha renda" em todos os meus workspaces e é registrada uma única vez
+    # (ADR 0019). Preenchido = renda DA CASA daquele workspace (aluguel de imóvel
+    # compartilhado, receita conjunta).
+    #
+    # Antes era NOT NULL, e por isso o salário tinha de ser recadastrado em cada
+    # workspace: quem criava um workspace novo via a própria renda zerada.
+    workspace_id: Optional[int] = Field(default=None, foreign_key="workspace.id", index=True)
+    # Dono/destinatário — é a identidade GLOBAL da renda, o que permite somá-la
+    # por pessoa através dos workspaces.
     user_id: int = Field(foreign_key="user.id", index=True)
 
     # Origem recorrente (quando materializada por RecurringIncome) + mês de
@@ -43,3 +52,24 @@ class Income(IncomeBase, table=True):
     created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
     updated_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
     deleted_at: Optional[datetime] = Field(default=None)
+
+
+class IncomeWorkspaceShare(SQLModel, table=True):
+    """Renda PESSOAL que o dono decidiu somar ao orçamento de um workspace (ADR 0019).
+
+    Compartilhar é ato explícito e reversível: por padrão a renda é privada e só
+    entra no recorte pessoal do dono. Sem esta tabela, "renda global" significaria
+    ou expor o salário de todo mundo em todo workspace, ou nunca poder compor a
+    renda da casa — os dois extremos errados.
+
+    A unique impede a linha duplicada que faria a renda ser contada duas vezes no
+    total da casa.
+    """
+    __table_args__ = (
+        UniqueConstraint("income_id", "workspace_id", name="uq_income_share_income_workspace"),
+    )
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    income_id: int = Field(foreign_key="income.id", index=True)
+    workspace_id: int = Field(foreign_key="workspace.id", index=True)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))

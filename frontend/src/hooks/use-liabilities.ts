@@ -1,6 +1,6 @@
 import { useQuery } from '@tanstack/react-query';
 import { apiClient } from '@/api/client';
-import { useUIStore } from '@/stores';
+import { useWorkspaceId } from './use-workspace-id';
 
 // Valores vêm de rota Dict[str, Any] (jsonable_encoder → número); coagimos com
 // Number() na exibição para robustez a número OU string.
@@ -40,7 +40,7 @@ export interface LiabilityOverview {
 }
 
 export function useLiabilities(month: string) {
-  const { currentWorkspaceId } = useUIStore();
+  const currentWorkspaceId = useWorkspaceId();
 
   const query = useQuery({
     queryKey: ['liabilities', currentWorkspaceId, month],

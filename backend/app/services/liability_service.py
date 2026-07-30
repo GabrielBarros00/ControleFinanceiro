@@ -1,8 +1,14 @@
 from decimal import Decimal
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 from sqlmodel import Session, select, func
 
+from app.domain.access_policy import (
+    cards_of_workspace,
+    financings_of_workspace,
+    involvement_filter,
+    owner_scope_for,
+)
 from app.domain.query_policy import REALIZED_STATUSES, workspace_base_currency
 from app.models.credit_card import CreditCard, StatementStatus
 from app.models.financing import (
@@ -31,17 +37,32 @@ class LiabilityService:
     """
 
     @staticmethod
-    def get_overview(db: Session, workspace_id: int, month: str) -> Dict[str, Any]:
+    def get_overview(
+        db: Session, workspace_id: int, month: str, viewer_user_id: Optional[int] = None
+    ) -> Dict[str, Any]:
+        """Panorama de endividamento da casa.
+
+        `viewer_user_id` preenchido (sem acesso completo, ADR 0018): sobram os
+        financiamentos dele e os cartões em que ele tem compra, e os totais passam
+        a ser desse recorte — nunca o endividamento da casa inteira.
+        """
         base_currency = workspace_base_currency(db, workspace_id)
 
         financing_outstanding, financing_due, by_person_financing, financings_out = (
-            LiabilityService._financings(db, workspace_id, base_currency, month)
+            LiabilityService._financings(
+                db, workspace_id, base_currency, month, viewer_user_id
+            )
         )
         cards_committed, cards_due, by_person_cards, cards_out = (
-            LiabilityService._cards(db, workspace_id, base_currency, month)
+            LiabilityService._cards(
+                db, workspace_id, base_currency, month, viewer_user_id
+            )
         )
 
         all_users = set(by_person_financing) | set(by_person_cards)
+        if viewer_user_id is not None:
+            # A quebra por pessoa é o "quanto cada um deve" da casa
+            all_users &= {viewer_user_id}
         by_person = [
             {
                 "user_id": uid,
@@ -72,16 +93,27 @@ class LiabilityService:
         }
 
     @staticmethod
-    def _financings(db: Session, workspace_id: int, base_currency: str, month: str):
+    def _financings(
+        db: Session,
+        workspace_id: int,
+        base_currency: str,
+        month: str,
+        viewer_user_id: Optional[int] = None,
+    ):
         """Saldo devedor = principal ainda não pago (juros futuros não são dívida
         até a parcela cair). Simulados/quitados ficam de fora. Cada financiamento
         vai inteiro para o dono."""
         financings = db.exec(
             select(Financing).where(
-                Financing.workspace_id == workspace_id,
+                # Deste workspace + os compartilhados com ele (ADR 0019): o
+                # financiamento do imóvel do casal compõe o endividamento da casa
+                # sem precisar de um segundo cadastro.
+                financings_of_workspace(workspace_id),
                 Financing.deleted_at.is_(None),
                 Financing.status == FinancingStatus.active,
                 Financing.currency == base_currency,
+                # Mesmo recorte da listagem de financiamentos (ADR 0018)
+                owner_scope_for(Financing.created_by_user_id, viewer_user_id),
             )
         ).all()
 
@@ -128,18 +160,38 @@ class LiabilityService:
         return total_outstanding, total_due, by_person, out
 
     @staticmethod
-    def _cards(db: Session, workspace_id: int, base_currency: str, month: str):
+    def _cards(
+        db: Session,
+        workspace_id: int,
+        base_currency: str,
+        month: str,
+        viewer_user_id: Optional[int] = None,
+    ):
         """Dívida do cartão = faturas ainda não pagas (card_committed já soma
         aberta=calculada + fechada=congelada). O que vence no mês são as faturas
         com due_date no mês. Por pessoa vem dos splits das compras — pode divergir
         alguns centavos do congelado numa fatura fechada e reeditada; o total
         autoritativo continua sendo o comprometido."""
-        cards = db.exec(
-            select(CreditCard).where(
-                CreditCard.workspace_id == workspace_id,
-                CreditCard.deleted_at.is_(None),
+        cards_stmt = select(CreditCard).where(
+            # Cartão compartilhado entra UMA vez, no workspace que o compartilha —
+            # antes, usar o mesmo cartão em dois lugares exigia dois cadastros e a
+            # MESMA fatura era contada duas vezes aqui (ADR 0019).
+            cards_of_workspace(workspace_id),
+            CreditCard.deleted_at.is_(None),
+        )
+        if viewer_user_id is not None:
+            # Mesmo recorte de `access_policy.card_scope`: o cartão em que eu tenho
+            # compra. Sem isto o painel devolvia o limite comprometido de todos os
+            # cartões da casa — inclusive os que a listagem de cartões já esconde.
+            cards_stmt = cards_stmt.where(
+                CreditCard.id.in_(
+                    select(Transaction.credit_card_id)
+                    .where(Transaction.workspace_id == workspace_id)
+                    .where(Transaction.credit_card_id.is_not(None))
+                    .where(involvement_filter(viewer_user_id))
+                )
             )
-        ).all()
+        cards = db.exec(cards_stmt).all()
 
         total_committed = ZERO
         total_due = ZERO

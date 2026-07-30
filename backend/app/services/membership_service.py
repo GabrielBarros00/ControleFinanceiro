@@ -14,7 +14,7 @@ from typing import Optional
 from sqlalchemy.exc import IntegrityError
 from sqlmodel import Session, select
 
-from app.models.workspace import WorkspaceMembership, WorkspaceRole
+from app.models.workspace import FinancialAccess, WorkspaceMembership, WorkspaceRole
 
 
 def find_membership(
@@ -29,7 +29,11 @@ def find_membership(
 
 
 def ensure_membership(
-    db: Session, workspace_id: int, user_id: int, role: WorkspaceRole
+    db: Session,
+    workspace_id: int,
+    user_id: int,
+    role: WorkspaceRole,
+    financial_access: FinancialAccess = FinancialAccess.involved_only,
 ) -> bool:
     """Garante que o usuário seja membro. Devolve True se ESTA chamada criou.
 
@@ -47,6 +51,10 @@ def ensure_membership(
                 workspace_id=workspace_id,
                 user_id=user_id,
                 role=role,
+                # Default FECHADO (ADR 0018): os três caminhos que criam
+                # membership passam por aqui, então o valor seguro é o padrão e
+                # abrir tem de ser explícito no convite.
+                financial_access=financial_access,
             ))
     except IntegrityError:
         # Corrida perdida: o outro caminho já criou a membership

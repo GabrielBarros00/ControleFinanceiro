@@ -8,11 +8,22 @@ from app.schemas.common import NAME_MAX, OptionalCurrencyCode
 from sqlmodel import Session, select
 
 from app.db.session import get_session
+from app.domain.access_policy import (
+    accounts_of_workspace,
+    assert_can_read,
+    assert_can_write,
+    shared_or_mine_scope,
+)
 from app.domain.query_policy import resolve_currency
-from app.models.payment_account import PaymentAccount, PaymentAccountType
+from app.models.payment_account import (
+    PaymentAccount,
+    PaymentAccountType,
+    PaymentAccountWorkspaceShare,
+)
 from app.models.workspace import WorkspaceMembership, WorkspaceRole
 from app.api.deps import get_workspace_membership, require_role
 from app.services.event_service import publish_event
+from app.services.sharing_service import set_shares, share_ids
 
 router = APIRouter(prefix="/workspaces/{workspace_id}/payment-accounts", tags=["payment-accounts"])
 
@@ -41,10 +52,23 @@ class PaymentAccountRead(BaseModel):
     owner_user_id: Optional[int]
 
 
-def _get_account_or_404(session: Session, workspace_id: int, account_id: int) -> PaymentAccount:
-    account = session.get(PaymentAccount, account_id)
-    if not account or account.workspace_id != workspace_id or account.deleted_at:
+def _get_account_or_404(
+    session: Session, workspace_id: int, account_id: int, membership: WorkspaceMembership
+) -> PaymentAccount:
+    account = session.exec(
+        select(PaymentAccount).where(
+            PaymentAccount.id == account_id,
+            # Desta casa OU compartilhada com ela (ADR 0019)
+            accounts_of_workspace(workspace_id),
+            PaymentAccount.deleted_at.is_(None),
+        )
+    ).first()
+    if not account:
         raise HTTPException(status_code=404, detail="Conta não encontrada")
+    # `owner_user_id` existia desde sempre e nunca era consultado: qualquer member
+    # lia E editava a conta bancária pessoal de outro. Dono NULL = conta da casa.
+    if account.owner_user_id is not None:
+        assert_can_read(account.owner_user_id, membership, detail="Conta não encontrada")
     return account
 
 
@@ -69,8 +93,11 @@ def list_payment_accounts(
 ):
     return session.exec(
         select(PaymentAccount)
-        .where(PaymentAccount.workspace_id == workspace_id)
+        # Deste workspace + as pessoais compartilhadas com ele (ADR 0019)
+        .where(accounts_of_workspace(workspace_id))
         .where(PaymentAccount.deleted_at.is_(None))
+        # Conta sem dono é da casa; com dono, só a minha (ADR 0018)
+        .where(shared_or_mine_scope(PaymentAccount.owner_user_id, membership))
         .order_by(PaymentAccount.name)
     ).all()
 
@@ -134,7 +161,16 @@ def update_payment_account(
     session: Session = Depends(get_session),
     membership: WorkspaceMembership = Depends(require_role(WorkspaceRole.member)),
 ):
-    account = _get_account_or_404(session, workspace_id, account_id)
+    account = _get_account_or_404(session, workspace_id, account_id, membership)
+    # Não havia trava NENHUMA aqui: qualquer member reapontava (ou desativava) a
+    # conta bancária pessoal de outro, e os pagamentos de fatura seguiam saindo
+    # dela. Conta da casa (dono NULL) continua exigindo admin+.
+    assert_can_write(
+        account.owner_user_id,
+        membership,
+        detail="Você só pode alterar as próprias contas",
+        null_is_shared=True,
+    )
     update_data = account_in.model_dump(exclude_unset=True)
 
     if "name" in update_data:
@@ -175,10 +211,64 @@ def delete_payment_account(
 ):
     """Soft delete: pagamentos antigos continuam apontando para a conta
     (histórico explicável); para sumir do formulário basta desativar."""
-    account = _get_account_or_404(session, workspace_id, account_id)
+    account = _get_account_or_404(session, workspace_id, account_id, membership)
+    assert_can_write(
+        account.owner_user_id,
+        membership,
+        detail="Você só pode excluir as próprias contas",
+        null_is_shared=True,
+    )
     account.deleted_at = datetime.now(UTC)
     account.active = False
     session.add(account)
     publish_event(session, workspace_id, "payment_account.deleted", "payment_account", account.id, membership.user_id)
     session.commit()
     return {"status": "ok"}
+
+
+@router.put("/{account_id}/shares")
+def set_account_shares(
+    workspace_id: int,
+    account_id: int,
+    workspace_ids: List[int],
+    session: Session = Depends(get_session),
+    membership: WorkspaceMembership = Depends(require_role(WorkspaceRole.member)),
+):
+    """Workspaces com que esta conta é compartilhada — a lista é o estado final."""
+    account = _get_account_or_404(session, workspace_id, account_id, membership)
+    assert_can_write(
+        account.owner_user_id,
+        membership,
+        detail="Só o dono da conta pode compartilhá-la",
+        null_is_shared=True,
+    )
+    set_shares(
+        session,
+        PaymentAccountWorkspaceShare,
+        "account_id",
+        account.id,
+        workspace_ids,
+        user_id=membership.user_id,
+    )
+    publish_event(
+        session, workspace_id, "payment_account.updated", "payment_account",
+        account.id, membership.user_id,
+    )
+    session.commit()
+    return {"status": "ok", "shared_with_workspace_ids": workspace_ids}
+
+
+@router.get("/{account_id}/shares", response_model=List[int])
+def list_account_shares(
+    workspace_id: int,
+    account_id: int,
+    session: Session = Depends(get_session),
+    membership: WorkspaceMembership = Depends(get_workspace_membership),
+):
+    account = _get_account_or_404(session, workspace_id, account_id, membership)
+    return share_ids(
+        session,
+        PaymentAccountWorkspaceShare,
+        PaymentAccountWorkspaceShare.account_id,
+        account.id,
+    )

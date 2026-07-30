@@ -5,6 +5,7 @@ from typing import List, Any, Dict, Optional
 from datetime import date
 
 from app.db.session import get_session
+from app.domain.access_policy import has_full_access
 from app.domain.dates import InvalidMonth, parse_month
 from app.models.workspace import WorkspaceMembership, WorkspaceRole
 from app.models.estimate import MonthlyEstimate
@@ -46,9 +47,15 @@ def get_summary(
     # Recorrências vencidas do mês corrente entram sozinhas (lazy accrual),
     # sempre no mês real — visualizar outro mês não materializa retroativo.
     RecurringMaterializationService.ensure_and_commit(
-        session, workspace_id, role=membership.role
+        session, workspace_id, role=membership.role, user_id=membership.user_id
     )
-    return ReportService.get_summary(session, workspace_id, target_date, user_id=membership.user_id)
+    return ReportService.get_summary(
+        session,
+        workspace_id,
+        target_date,
+        user_id=membership.user_id,
+        full_access=has_full_access(membership),
+    )
 
 
 @router.get("/reports", response_model=Dict[str, Any])
@@ -62,15 +69,24 @@ def get_reports(
     é o dele. Sem o parâmetro, o mês corrente (comportamento antigo)."""
     target_date = _parse_month(month)
     RecurringMaterializationService.ensure_and_commit(
-        session, workspace_id, role=membership.role
+        session, workspace_id, role=membership.role, user_id=membership.user_id
     )
+    acesso_completo = has_full_access(membership)
     return {
         "monthly_history": ReportService.get_last_6_months(
-            session, workspace_id, user_id=membership.user_id, ref_month=target_date
+            session,
+            workspace_id,
+            user_id=membership.user_id,
+            ref_month=target_date,
+            full_access=acesso_completo,
         ),
         "current_summary": ReportService.get_summary(
-            session, workspace_id, target_date, user_id=membership.user_id
-        )
+            session,
+            workspace_id,
+            target_date,
+            user_id=membership.user_id,
+            full_access=acesso_completo,
+        ),
     }
 
 
@@ -86,7 +102,11 @@ def get_forecast(
     # user_id: a previsão devolve TAMBÉM a meta pessoal de quem pediu (my_budget),
     # que é a que o Início compara com "sua despesa". Os totais seguem sendo da casa.
     projection = ForecastService.get_monthly_projection(
-        session, workspace_id, target_date, user_id=membership.user_id
+        session,
+        workspace_id,
+        target_date,
+        user_id=membership.user_id,
+        full_access=has_full_access(membership),
     )
     return projection
 
@@ -259,6 +279,11 @@ def list_estimates(
     # Metas da CASA + as PESSOAIS de quem está pedindo. A meta pessoal de outro
     # membro nunca sai daqui: é o gasto que ele planeja para si, não um número do
     # workspace (mesma linha do e-mail mascarado em `members.list_members`).
+    #
+    # NÃO trocar por `shared_or_mine_scope`: este filtro é INCONDICIONAL, mais
+    # estrito que a política de ADR 0018 de propósito — nem owner nem admin veem
+    # a meta pessoal de outro membro (ADR 0017). Unificar aqui abriria um
+    # vazamento em nome da consistência.
     statement = (
         select(MonthlyEstimate)
         .where(MonthlyEstimate.workspace_id == workspace_id)

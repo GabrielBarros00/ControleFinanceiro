@@ -859,6 +859,33 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/workspaces/{workspace_id}/credit-cards/{card_id}/shares": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Card Shares
+         * @description Com quais workspaces este cartão está compartilhado (ADR 0019).
+         */
+        get: operations["list_card_shares_api_v1_workspaces__workspace_id__credit_cards__card_id__shares_get"];
+        /**
+         * Set Card Shares
+         * @description Define o compartilhamento do cartão — a lista enviada é o estado final.
+         *
+         *     Só o DONO compartilha: oferecer o próprio cartão a um workspace é decisão
+         *     dele, não de quem administra a casa.
+         */
+        put: operations["set_card_shares_api_v1_workspaces__workspace_id__credit_cards__card_id__shares_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/workspaces/{workspace_id}/recurring": {
         parameters: {
             query?: never;
@@ -1260,6 +1287,30 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/workspaces/{workspace_id}/financing/{financing_id}/shares": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Financing Shares */
+        get: operations["list_financing_shares_api_v1_workspaces__workspace_id__financing__financing_id__shares_get"];
+        /**
+         * Set Financing Shares
+         * @description Workspaces cujo endividamento este financiamento compõe (ADR 0019).
+         *
+         *     O caso que motiva: o imóvel do casal é financiado no nome de um, mas o
+         *     compromisso é da casa.
+         */
+        put: operations["set_financing_shares_api_v1_workspaces__workspace_id__financing__financing_id__shares_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/workspaces/{workspace_id}/tags": {
         parameters: {
             query?: never;
@@ -1372,6 +1423,27 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/workspaces/{workspace_id}/payment-accounts/{account_id}/shares": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Account Shares */
+        get: operations["list_account_shares_api_v1_workspaces__workspace_id__payment_accounts__account_id__shares_get"];
+        /**
+         * Set Account Shares
+         * @description Workspaces com que esta conta é compartilhada — a lista é o estado final.
+         */
+        put: operations["set_account_shares_api_v1_workspaces__workspace_id__payment_accounts__account_id__shares_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/workspaces/{workspace_id}/audit": {
         parameters: {
             query?: never;
@@ -1438,6 +1510,94 @@ export interface paths {
         options?: never;
         head?: never;
         patch?: never;
+        trace?: never;
+    };
+    "/api/v1/me/overview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Overview
+         * @description O mês da pessoa somando TODOS os workspaces dela.
+         *
+         *     Distingue consumo (minha parte), saída de caixa (o que saiu do meu bolso),
+         *     a pagar/receber (a diferença, por workspace) e resultado (renda − consumo) —
+         *     quatro números que o Início antigo colapsava num só.
+         */
+        get: operations["get_overview_api_v1_me_overview_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/me/commitments": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Commitments
+         * @description Faturas e financiamentos MEUS a vencer, em todos os workspaces.
+         */
+        get: operations["get_commitments_api_v1_me_commitments_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/me/activity": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Activity
+         * @description Lançamentos recentes em que eu estou envolvido, em qualquer workspace.
+         */
+        get: operations["get_activity_api_v1_me_activity_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/me/report-currency": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /**
+         * Set Report Currency
+         * @description Moeda em que os números pessoais são expressos.
+         *
+         *     Existe porque o que é da pessoa não tem workspace de onde herdar a moeda-base,
+         *     e a visão global soma workspaces que podem ter bases diferentes — somar sem
+         *     uma moeda de destino declarada é o que o ADR 0006 proíbe.
+         */
+        patch: operations["set_report_currency_api_v1_me_report_currency_patch"];
         trace?: never;
     };
     "/api/v1/health": {
@@ -1604,6 +1764,25 @@ export interface components {
             /** File */
             file: string;
         };
+        /** CardShareItem */
+        CardShareItem: {
+            /** Workspace Id */
+            workspace_id: number;
+            /**
+             * Access
+             * @default use
+             * @enum {string}
+             */
+            access: "use" | "full";
+        };
+        /**
+         * CardShareUpdate
+         * @description Com que workspaces este cartão é compartilhado, e em que nível (ADR 0019).
+         */
+        CardShareUpdate: {
+            /** Shares */
+            shares?: components["schemas"]["CardShareItem"][];
+        };
         /** Category */
         Category: {
             /** Name */
@@ -1715,6 +1894,16 @@ export interface components {
             /** Settlement Date */
             settlement_date?: string | null;
         };
+        /**
+         * FinancialAccess
+         * @description O que o membro pode VER — ortogonal ao papel, que diz o que ele pode FAZER.
+         *
+         *     Mora aqui, junto de `WorkspaceRole`, porque é valor PERSISTIDO: a política que
+         *     o interpreta (`app.domain.access_policy`) importa os models, então definir o
+         *     enum lá tornaria o import circular. Semântica e regras: ADR 0018.
+         * @enum {string}
+         */
+        FinancialAccess: "involved_only" | "full_workspace";
         /** Financing */
         Financing: {
             /** Title */
@@ -1837,6 +2026,14 @@ export interface components {
             received_at: string;
             /** Category */
             category?: string | null;
+            /**
+             * Scope
+             * @default personal
+             * @enum {string}
+             */
+            scope: "personal" | "workspace";
+            /** Shared With Workspace Ids */
+            shared_with_workspace_ids?: number[];
         };
         /** IncomeRead */
         IncomeRead: {
@@ -1861,9 +2058,17 @@ export interface components {
             /** Id */
             id: number;
             /** Workspace Id */
-            workspace_id: number;
+            workspace_id?: number | null;
             /** User Id */
             user_id: number;
+            /**
+             * Scope
+             * @default personal
+             * @enum {string}
+             */
+            scope: "personal" | "workspace";
+            /** Shared With Workspace Ids */
+            shared_with_workspace_ids?: number[];
             /** Recurring Income Id */
             recurring_income_id?: number | null;
             /** Billing Month */
@@ -1889,6 +2094,10 @@ export interface components {
         };
         /** IncomeUpdate */
         IncomeUpdate: {
+            /** Scope */
+            scope?: ("personal" | "workspace") | null;
+            /** Shared With Workspace Ids */
+            shared_with_workspace_ids?: number[] | null;
             /** Title */
             title?: string | null;
             /** Description */
@@ -1911,6 +2120,13 @@ export interface components {
             email: string;
             /** @default member */
             role: components["schemas"]["WorkspaceRole"];
+            /** @default involved_only */
+            financial_access: components["schemas"]["FinancialAccess"];
+            /**
+             * Expires Days
+             * @default 7
+             */
+            expires_days: number;
         };
         /**
          * InviteInfoRead
@@ -1931,13 +2147,18 @@ export interface components {
         InviteLinkCreate: {
             /** @default member */
             role: components["schemas"]["WorkspaceRole"];
+            /** @default involved_only */
+            financial_access: components["schemas"]["FinancialAccess"];
             /**
              * Expires Days
              * @default 7
              */
             expires_days: number;
-            /** Max Uses */
-            max_uses?: number | null;
+            /**
+             * Max Uses
+             * @default 1
+             */
+            max_uses: number | null;
         };
         /** InviteLinkRead */
         InviteLinkRead: {
@@ -1948,6 +2169,7 @@ export interface components {
             /** Email */
             email: string | null;
             role: components["schemas"]["WorkspaceRole"];
+            financial_access: components["schemas"]["FinancialAccess"];
             status: components["schemas"]["InviteStatus"];
             /**
              * Expires At
@@ -1977,6 +2199,7 @@ export interface components {
             /** Email */
             email: string | null;
             role: components["schemas"]["WorkspaceRole"];
+            financial_access: components["schemas"]["FinancialAccess"];
             status: components["schemas"]["InviteStatus"];
             /**
              * Expires At
@@ -2010,6 +2233,7 @@ export interface components {
             /** User Id */
             user_id: number;
             role: components["schemas"]["WorkspaceRole"];
+            financial_access: components["schemas"]["FinancialAccess"];
             /** User Name */
             user_name: string;
             /** User Email */
@@ -2023,6 +2247,7 @@ export interface components {
         /** MemberUpdate */
         MemberUpdate: {
             role: components["schemas"]["WorkspaceRole"];
+            financial_access?: components["schemas"]["FinancialAccess"] | null;
         };
         /** MonthlyEstimateCreate */
         MonthlyEstimateCreate: {
@@ -2325,7 +2550,7 @@ export interface components {
             /** Id */
             id?: number | null;
             /** Workspace Id */
-            workspace_id: number;
+            workspace_id?: number | null;
             /** Created By User Id */
             created_by_user_id?: number | null;
             /** User Id */
@@ -2376,9 +2601,21 @@ export interface components {
              * @default true
              */
             is_active: boolean;
+            /**
+             * Scope
+             * @default personal
+             * @enum {string}
+             */
+            scope: "personal" | "workspace";
+            /** Shared With Workspace Ids */
+            shared_with_workspace_ids?: number[];
         };
         /** RecurringIncomeUpdate */
         RecurringIncomeUpdate: {
+            /** Scope */
+            scope?: ("personal" | "workspace") | null;
+            /** Shared With Workspace Ids */
+            shared_with_workspace_ids?: number[] | null;
             /** Title */
             title?: string | null;
             /** Description */
@@ -2461,6 +2698,11 @@ export interface components {
             password: string;
             /** Invite Token */
             invite_token?: string | null;
+        };
+        /** ReportCurrencyUpdate */
+        ReportCurrencyUpdate: {
+            /** Report Currency */
+            report_currency?: string | null;
         };
         /** ResetPasswordRequest */
         ResetPasswordRequest: {
@@ -5140,6 +5382,78 @@ export interface operations {
             };
         };
     };
+    list_card_shares_api_v1_workspaces__workspace_id__credit_cards__card_id__shares_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                workspace_id: number;
+                card_id: number;
+            };
+            cookie?: {
+                access_token?: string | null;
+            };
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    set_card_shares_api_v1_workspaces__workspace_id__credit_cards__card_id__shares_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                workspace_id: number;
+                card_id: number;
+            };
+            cookie?: {
+                access_token?: string | null;
+            };
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CardShareUpdate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     list_recurring_api_v1_workspaces__workspace_id__recurring_get: {
         parameters: {
             query?: never;
@@ -6289,6 +6603,78 @@ export interface operations {
             };
         };
     };
+    list_financing_shares_api_v1_workspaces__workspace_id__financing__financing_id__shares_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                workspace_id: number;
+                financing_id: number;
+            };
+            cookie?: {
+                access_token?: string | null;
+            };
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": number[];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    set_financing_shares_api_v1_workspaces__workspace_id__financing__financing_id__shares_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                workspace_id: number;
+                financing_id: number;
+            };
+            cookie?: {
+                access_token?: string | null;
+            };
+        };
+        requestBody: {
+            content: {
+                "application/json": number[];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     list_tags_api_v1_workspaces__workspace_id__tags_get: {
         parameters: {
             query?: never;
@@ -6713,6 +7099,78 @@ export interface operations {
             };
         };
     };
+    list_account_shares_api_v1_workspaces__workspace_id__payment_accounts__account_id__shares_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                workspace_id: number;
+                account_id: number;
+            };
+            cookie?: {
+                access_token?: string | null;
+            };
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": number[];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    set_account_shares_api_v1_workspaces__workspace_id__payment_accounts__account_id__shares_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                workspace_id: number;
+                account_id: number;
+            };
+            cookie?: {
+                access_token?: string | null;
+            };
+        };
+        requestBody: {
+            content: {
+                "application/json": number[];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     list_audit_api_v1_workspaces__workspace_id__audit_get: {
         parameters: {
             query?: {
@@ -6833,6 +7291,149 @@ export interface operations {
                 };
                 content: {
                     "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_overview_api_v1_me_overview_get: {
+        parameters: {
+            query?: {
+                month?: string | null;
+                currency?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: {
+                access_token?: string | null;
+            };
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_commitments_api_v1_me_commitments_get: {
+        parameters: {
+            query?: {
+                currency?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: {
+                access_token?: string | null;
+            };
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_activity_api_v1_me_activity_get: {
+        parameters: {
+            query?: {
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: {
+                access_token?: string | null;
+            };
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    }[];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    set_report_currency_api_v1_me_report_currency_patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: {
+                access_token?: string | null;
+            };
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ReportCurrencyUpdate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
                 };
             };
             /** @description Validation Error */

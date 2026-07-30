@@ -1,5 +1,5 @@
 from decimal import Decimal
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 from sqlmodel import Session, select, func
 from app.domain.query_policy import REALIZED_STATUSES, workspace_base_currency
 from app.models.settlement import Settlement
@@ -10,12 +10,30 @@ from app.models.transaction import (
     TransactionStatus,
 )
 
+def _only_involving(rows: List[Dict[str, Any]], user_id: Optional[int]) -> List[Dict[str, Any]]:
+    """Recorta o pareamento de dívidas nas linhas em que `user_id` é uma das pontas.
+
+    Filtra a SAÍDA, nunca a entrada. O pareamento em `_settle_balances` é guloso
+    sobre o conjunto INTEIRO de saldos: tirar membros antes de parear produziria
+    outro emparelhamento — e um valor devido diferente do real. Então calcula-se o
+    ledger completo e só depois se esconde o que não é meu (ADR 0018).
+    """
+    if user_id is None:
+        return rows
+    return [r for r in rows if user_id in (r["debtor_id"], r["creditor_id"])]
+
+
 class DebtService:
     @staticmethod
-    def get_workspace_debts(db: Session, workspace_id: int) -> List[Dict[str, Any]]:
+    def get_workspace_debts(
+        db: Session, workspace_id: int, viewer_user_id: Optional[int] = None
+    ) -> List[Dict[str, Any]]:
         """
         Calcula o balanço líquido de dívidas entre todos os usuários de um workspace.
         Retorna uma lista simplificada de quem deve quanto para quem.
+
+        `viewer_user_id` preenchido (membro sem acesso completo) recorta o
+        resultado nas dívidas em que ele é devedor ou credor.
         """
         base_currency = workspace_base_currency(db, workspace_id)
         # 1. Calcular quanto cada usuário PAGOU no workspace
@@ -79,8 +97,9 @@ class DebtService:
                 - settled_in.get(user_id, Decimal("0.00"))
             )
 
-        # 4. Resolver as dívidas (simplificação de balanços)
-        return DebtService._settle_balances(balances)
+        # 4. Resolver as dívidas (simplificação de balanços) e recortar na visão
+        # de quem pediu
+        return _only_involving(DebtService._settle_balances(balances), viewer_user_id)
 
     @staticmethod
     def _settle_balances(balances: Dict[int, Decimal]) -> List[Dict[str, Any]]:
@@ -122,13 +141,21 @@ class DebtService:
         return final_debts
 
     @staticmethod
-    def get_monthly_ledger(db: Session, workspace_id: int, month: str) -> Dict[str, Any]:
+    def get_monthly_ledger(
+        db: Session, workspace_id: int, month: str, viewer_user_id: Optional[int] = None
+    ) -> Dict[str, Any]:
         """Fotografia das dívidas de UM mês (por billing_month).
 
         Diferente do balanço global (settlement-aware), aqui é o retrato do mês:
         quem pagou, quanto cada um deve e o status de cada despesa. Parcelas
         aparecem só no seu mês — é o que dá a visão "dívida por mês". Acertos
         (settlements) são globais e não entram nesta conta.
+
+        `viewer_user_id` preenchido (membro sem acesso completo, ADR 0018) recorta
+        TUDO na visão dele: só as despesas em que ele entra, só a linha dele em
+        `members`, só as dívidas e acertos que o envolvem — e `totals` passa a ser
+        o total do que ele vê, para os números da tela fecharem entre si (mesmo
+        princípio da soma do extrato em `transactions.list_transactions`).
         """
         base_currency = workspace_base_currency(db, workspace_id)
 
@@ -165,6 +192,13 @@ class DebtService:
             uid: paid_by_user.get(uid, Decimal("0.00")) - owed_by_user.get(uid, Decimal("0.00"))
             for uid in all_users
         }
+        # A quebra por membro é o dado mais revelador do ledger ("quanto cada um
+        # pagou e deve no mês"). Sem acesso completo, sobra a linha de quem pediu.
+        visiveis = (
+            sorted(all_users)
+            if viewer_user_id is None
+            else [uid for uid in sorted(all_users) if uid == viewer_user_id]
+        )
         members = [
             {
                 "user_id": uid,
@@ -172,7 +206,7 @@ class DebtService:
                 "owed": owed_by_user.get(uid, Decimal("0.00")),
                 "balance": balances[uid],
             }
-            for uid in sorted(all_users)
+            for uid in visiveis
         ]
 
         # Acertos vinculados a ESTE mês (billing_month) abatem a dívida do mês.
@@ -190,10 +224,23 @@ class DebtService:
             balances[s.to_user_id] = balances.get(s.to_user_id, Decimal("0.00")) - s.amount
             settled_total += s.amount
 
+        def _envolvido(t: Transaction) -> bool:
+            """Envolvimento com os dados JÁ carregados — mesma definição de
+            `access_policy.involvement_filter`, sem uma ida a mais ao banco."""
+            if viewer_user_id is None:
+                return True
+            if t.created_by_user_id == viewer_user_id:
+                return True
+            if any(p.user_id == viewer_user_id for p in payers_by_tx.get(t.id, [])):
+                return True
+            return any(s.user_id == viewer_user_id for s in splits_by_tx.get(t.id, []))
+
         total = Decimal("0.00")
         paid_total = Decimal("0.00")
         expenses = []
         for t in txs:
+            if not _envolvido(t):
+                continue
             total += t.total_amount
             if t.status == TransactionStatus.paid:
                 paid_total += t.total_amount
@@ -216,11 +263,25 @@ class DebtService:
                 ],
             })
 
+        # Acertos: os de TODOS já entraram em `balances` acima (o pareamento
+        # precisa deles), mas só aparecem os que me envolvem — e `settled_total`
+        # acompanha o que está listado, senão a tela mostra "acertado R$ X" com
+        # uma lista que não soma X.
+        acertos_visiveis = [
+            s for s in month_settlements
+            if viewer_user_id is None
+            or viewer_user_id in (s.from_user_id, s.to_user_id)
+        ]
+        if viewer_user_id is not None:
+            settled_total = sum((s.amount for s in acertos_visiveis), Decimal("0.00"))
+
         return {
             "month": month,
             "base_currency": base_currency,
             "members": members,
-            "net_debts": DebtService._settle_balances(balances),
+            "net_debts": _only_involving(
+                DebtService._settle_balances(balances), viewer_user_id
+            ),
             "expenses": expenses,
             "settled_total": settled_total,
             "settlements": [
@@ -232,7 +293,7 @@ class DebtService:
                     "note": s.note,
                     "settled_at": s.settled_at,
                 }
-                for s in month_settlements
+                for s in acertos_visiveis
             ],
             "totals": {
                 "total": total,

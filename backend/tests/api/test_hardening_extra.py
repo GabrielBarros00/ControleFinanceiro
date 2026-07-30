@@ -101,17 +101,20 @@ def test_member_nao_edita_recorrente_alheia(client, db_session, setup_data):
     db_session.commit()
     db_session.refresh(template)
 
+    # 404, não 403 (ADR 0018): o template TEM dono (created_by_user_id), então
+    # para outro member ele é invisível. Recorrência sem dono seria da casa e
+    # continuaria visível/editável por todos.
     res = client.put(
         f"/api/v1/workspaces/{ws.id}/recurring/{template.id}",
         json={"base_amount": "1.00"},
         headers=headers_outro,
     )
-    assert res.status_code == 403
+    assert res.status_code == 404
 
     res = client.delete(
         f"/api/v1/workspaces/{ws.id}/recurring/{template.id}", headers=headers_outro
     )
-    assert res.status_code == 403
+    assert res.status_code == 404
 
     # O dono continua podendo
     res = client.put(

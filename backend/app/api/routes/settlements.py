@@ -9,9 +9,10 @@ from app.schemas.common import DESCRIPTION_MAX, MAX_MONEY
 from sqlmodel import Session, select
 
 from app.db.session import get_session
+from app.domain.access_policy import assert_can_write, can_write, participant_scope
 from app.domain.query_policy import workspace_base_currency
 from app.models.settlement import Settlement
-from app.models.workspace import WorkspaceMembership, WorkspaceRole, role_level
+from app.models.workspace import WorkspaceMembership, WorkspaceRole
 from app.api.deps import get_workspace_membership, require_role
 from app.services.debt_service import DebtService
 from app.services.event_service import publish_event
@@ -67,10 +68,7 @@ def create_settlement(
 
     # Autorização (ADR 0009): member registra apenas acertos em que ELE é o
     # pagador; registrar por terceiros exige admin/owner
-    if (
-        role_level(membership.role) < role_level(WorkspaceRole.admin)
-        and settlement_in.from_user_id != membership.user_id
-    ):
+    if not can_write(settlement_in.from_user_id, membership):
         raise HTTPException(
             status_code=403,
             detail="Você só pode registrar acertos em que você é o pagador",
@@ -143,6 +141,10 @@ def list_settlements(
         select(Settlement)
         .where(Settlement.workspace_id == workspace_id)
         .where(Settlement.deleted_at.is_(None))
+        # Acerto tem DOIS lados: vejo aquele em que eu pago ou recebo (ADR 0018)
+        .where(participant_scope(
+            (Settlement.from_user_id, Settlement.to_user_id), membership
+        ))
         .order_by(Settlement.settled_at.desc())
     ).all()
 
@@ -159,11 +161,11 @@ def delete_settlement(
         raise HTTPException(status_code=404, detail="Acerto não encontrado")
 
     # Member desfaz apenas os próprios registros; admin+ desfaz qualquer um
-    if (
-        role_level(membership.role) < role_level(WorkspaceRole.admin)
-        and db_settlement.created_by_user_id not in (None, membership.user_id)
-    ):
-        raise HTTPException(status_code=403, detail="Você só pode desfazer os próprios acertos")
+    assert_can_write(
+        db_settlement.created_by_user_id,
+        membership,
+        detail="Você só pode desfazer os próprios acertos",
+    )
 
     db_settlement.deleted_at = datetime.now(UTC)
     session.add(db_settlement)

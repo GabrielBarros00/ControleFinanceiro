@@ -291,7 +291,46 @@ def test_recorrente_materializa_na_moeda_base(client, db_session, ws_usd):
     assert instancia.original_currency == "EUR"
 
 
-def test_renda_recorrente_materializa_na_moeda_base(client, db_session, ws_usd):
+def test_renda_recorrente_da_casa_materializa_na_moeda_base(client, db_session, ws_usd):
+    """Renda DA CASA (`scope="workspace"`) converte pela base do workspace.
+
+    Renda pessoal não passa por aqui: ela não pertence a workspace nenhum, então
+    converte pela moeda de RELATÓRIO do dono — ver o teste seguinte. Antes desta
+    onda toda renda era da casa e este era o único caminho (ADR 0019).
+    """
+    ws = ws_usd["ws"]
+    hoje = date.today()
+
+    res = client.post(
+        f"/api/v1/workspaces/{ws.id}/recurring-income",
+        json={
+            "title": "Aluguel do imóvel", "base_amount": "100.00", "currency": "EUR",
+            "frequency": "monthly", "day_of_month": hoje.day,
+            "scope": "workspace",
+        },
+        headers=ws_usd["headers"],
+    )
+    assert res.status_code == 200, res.text
+
+    entrada = db_session.exec(
+        select(Income).where(
+            Income.workspace_id == ws.id, Income.recurring_income_id.is_not(None)
+        )
+    ).first()
+    assert entrada is not None, "a renda recorrente não materializou"
+    assert entrada.currency == "USD"
+    assert entrada.amount == Decimal("120.00")
+    assert entrada.original_currency == "EUR"
+
+
+def test_renda_recorrente_pessoal_converte_pela_moeda_do_dono(client, db_session, ws_usd):
+    """Salário PESSOAL converte para `User.report_currency`, não para a base do
+    workspace que por acaso disparou a leitura (ADR 0019).
+
+    Sem isto, o MESMO salário valeria números diferentes conforme a tela aberta —
+    e é justamente por ser o mesmo salário em todos os workspaces que ele precisa
+    de uma moeda de destino própria.
+    """
     ws = ws_usd["ws"]
     hoje = date.today()
 
@@ -307,12 +346,12 @@ def test_renda_recorrente_materializa_na_moeda_base(client, db_session, ws_usd):
 
     entrada = db_session.exec(
         select(Income).where(
-            Income.workspace_id == ws.id, Income.recurring_income_id.is_not(None)
+            Income.workspace_id.is_(None), Income.recurring_income_id.is_not(None)
         )
     ).first()
-    assert entrada is not None, "a renda recorrente não materializou"
-    assert entrada.currency == "USD"
-    assert entrada.amount == Decimal("120.00")
+    assert entrada is not None, "a renda pessoal não materializou"
+    # report_currency default = BRL, e o fixture tem taxa EUR→BRL
+    assert entrada.currency == "BRL"
     assert entrada.original_currency == "EUR"
 
 
@@ -367,9 +406,11 @@ def test_onboarding_nasce_na_moeda_base(client, db_session, ws_usd):
     )
     assert res.status_code == 200, res.text
 
-    renda = db_session.exec(select(Income).where(Income.workspace_id == ws.id)).first()
+    # O salário do onboarding nasce PESSOAL (workspace nulo) — ADR 0019
+    renda = db_session.exec(
+        select(Income).where(Income.user_id == ws_usd["user"].id)
+    ).first()
     assert renda is not None
-    assert renda.currency == "USD"
 
     from app.models.credit_card import CreditCard
 

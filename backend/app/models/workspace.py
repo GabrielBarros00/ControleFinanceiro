@@ -14,6 +14,18 @@ class WorkspaceRole(str, Enum):
     viewer = "viewer"
 
 
+class FinancialAccess(str, Enum):
+    """O que o membro pode VER — ortogonal ao papel, que diz o que ele pode FAZER.
+
+    Mora aqui, junto de `WorkspaceRole`, porque é valor PERSISTIDO: a política que
+    o interpreta (`app.domain.access_policy`) importa os models, então definir o
+    enum lá tornaria o import circular. Semântica e regras: ADR 0018.
+    """
+
+    involved_only = "involved_only"      # só o que me envolve
+    full_workspace = "full_workspace"    # números da casa inteira
+
+
 _ROLE_LEVELS = {"viewer": 0, "member": 1, "admin": 2, "owner": 3}
 
 
@@ -71,6 +83,15 @@ class WorkspaceMembership(SQLModel, table=True):
         default=WorkspaceRole.member,
         sa_column=Column(String(20), nullable=False, server_default="member"),
     )
+    # Visibilidade dos dados financeiros, separada do papel (ADR 0018). O
+    # server_default é o valor FECHADO: linha nova — venha de convite, registro,
+    # aceite de link ou import — nasce privada, e abrir é ato explícito. Owner e
+    # admin têm acesso completo pelo cargo (ver `access_policy.effective_access`),
+    # independente do que estiver gravado aqui.
+    financial_access: FinancialAccess = Field(
+        default=FinancialAccess.involved_only,
+        sa_column=Column(String(20), nullable=False, server_default="involved_only"),
+    )
 
     created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
     updated_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
@@ -86,6 +107,13 @@ class WorkspaceInvite(SQLModel, table=True):
     role: WorkspaceRole = Field(
         default=WorkspaceRole.member,
         sa_column=Column(String(20), nullable=False, server_default="member"),
+    )
+    # Acesso financeiro que o convidado receberá ao aceitar (ADR 0018): a decisão
+    # é de quem convida e viaja NO convite — decidir no aceite deixaria a escolha
+    # com o convidado.
+    financial_access: FinancialAccess = Field(
+        default=FinancialAccess.involved_only,
+        sa_column=Column(String(20), nullable=False, server_default="involved_only"),
     )
     token: str = Field(
         default_factory=lambda: secrets.token_urlsafe(32),

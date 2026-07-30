@@ -1,4 +1,11 @@
-@import "tw-animate-css";
+/* As utilidades de animação (animate-in, fade-in, slide-in-from-*) vêm do
+   plugin `tailwindcss-animate`, declarado em tailwind.config.js.
+
+   Aqui havia `@import "tw-animate-css"`, que na v1.4 é escrito INTEIRAMENTE
+   em sintaxe Tailwind v4 (`@utility`, `@theme inline`). Este projeto é TW
+   3.4, que não conhece essas at-rules: elas não viravam CSS nenhum, e todas
+   as animações do app estavam mortas em silêncio — o build passava, só não
+   animava nada. */
 @import "@fontsource-variable/geist";
 @tailwind base;
 @tailwind components;
@@ -43,9 +50,15 @@
     --brand-border: oklch(0.88 0.06 275);
 
     /* ---- Dinheiro (semântico) ---- */
-    --income: oklch(0.55 0.15 152);
+    /* L=0.47, não 0.55: em 0.55 o verde dava 4,35:1 sobre `--background` e
+       3,74:1 sobre `--expense-subtle` — abaixo dos 4,5:1 do WCAG AA para texto
+       normal. Passava despercebido porque os valores de dinheiro eram
+       `font-black`, e o axe aplica o limiar frouxo de 3:1 a negrito grande.
+       Ao alinhar a tipografia ao design system (peso 600), o limiar real
+       apareceu. Agora ≥5,1:1 em TODA superfície do tema. */
+    --income: oklch(0.47 0.15 152);
     --income-subtle: oklch(0.955 0.04 152);
-    --expense: oklch(0.55 0.19 27);
+    --expense: oklch(0.47 0.19 27);
     --expense-subtle: oklch(0.955 0.05 27);
 
     /* ---- Feedback / status ---- */
