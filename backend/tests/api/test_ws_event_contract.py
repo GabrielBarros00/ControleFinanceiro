@@ -39,6 +39,11 @@ SEM_EVENTO_ESPERADO = {
     # WORKSPACE — não existe sala para a qual transmitir. Quem mudou já recebe o
     # valor novo na resposta.
     "set_report_currency",
+    # Onboarding cria a renda e o cartão do próprio usuário, que são recursos
+    # PESSOAIS (ADR 0021) — não pertencem a workspace nenhum e não há sala para
+    # a qual transmitir. Quem acabou de preencher o formulário é a única pessoa
+    # a quem esse dado interessa, e ele já chega na resposta.
+    "finish_onboarding",
 }
 
 
@@ -74,9 +79,23 @@ def test_frontend_nao_lista_evento_inexistente():
     assert not orfaos, f"Eventos listados no frontend que o backend não publica: {sorted(orfaos)}"
 
 
+# Módulos de RECURSO PESSOAL (ADR 0021): renda, cartão, conta e financiamento
+# são de uma pessoa só e não moram em workspace nenhum. O canal de tempo real é
+# por SALA DE WORKSPACE — não existe sala para a qual transmitir, e inventar uma
+# seria transmitir dado pessoal a uma sala de outras pessoas. Quem mudou já
+# recebe o valor novo na resposta, e é a única pessoa a quem isso interessa.
+#
+# `me_financing.py` publica evento no caso em que a mudança TOCA um workspace
+# (pagar a parcela criando a despesa lá), então não está isento por inteiro — as
+# rotas dele que não publicam são as que só mexem no cadastro pessoal.
+MODULOS_PESSOAIS = {"me_income.py", "me_cards.py", "me_accounts.py", "me_financing.py"}
+
+
 def _mutating_routes_without_event() -> list[str]:
     achados = []
     for py in sorted((APP / "api" / "routes").glob("*.py")):
+        if py.name in MODULOS_PESSOAIS:
+            continue
         tree = ast.parse(py.read_text(encoding="utf-8"))
         for node in ast.walk(tree):
             if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):

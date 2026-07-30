@@ -21,6 +21,16 @@ Um `member` que lança as próprias despesas não precisa ver o extrato inteiro 
 casa; um `viewer` contador pode precisar. As duas dimensões não se derivam uma da
 outra, então são colunas distintas.
 
+**E os dois só governam dado DO WORKSPACE** (ADR 0021). Cartão, conta,
+financiamento e renda são da PESSOA: não têm `workspace_id`, não aparecem em
+consulta escopada por workspace e o único gate deles é `personal_scope` —
+`full_workspace` não os alcança em papel nenhum. A Onda 2 tentou o meio-termo
+(recurso no workspace + tabela de compartilhamento com nível `use`/`full`) e o
+nível `full` nunca chegou a ser consultado: todo cartão compartilhado entregava
+limite e fatura inteira a quem tivesse acesso completo no destino. Privacidade que
+depende de cada endpoint lembrar de filtrar é privacidade que uma auditoria
+encontra quebrada.
+
 Regra de resposta: o que não é visível responde **404**, não 403. 403 confirmaria
 que o registro existe — e a existência já é informação (quantos lançamentos o
 outro tem, se aquele cartão é dele).
@@ -44,23 +54,18 @@ from app.models.workspace import FinancialAccess, WorkspaceRole, role_level
 __all__ = [
     "FinancialAccess",
     "assert_can_read",
-    "accounts_of_workspace",
     "assert_can_write",
+    "assert_owns",
     "can_write",
-    "card_full_access_here",
-    "card_scope",
-    "cards_of_workspace",
-    "financings_of_workspace",
     "effective_access",
     "get_visible_transaction",
     "has_full_access",
-    "income_of_workspace",
-    "income_visible_to",
     "involved_transaction_ids",
     "involvement_filter",
     "owner_scope",
     "owner_scope_for",
     "participant_scope",
+    "personal_scope",
     "scope_transactions",
     "shared_or_mine_scope",
     "transaction_scope",
@@ -157,18 +162,24 @@ def owner_scope_for(column, user_id: Optional[int]):
 
 
 def owner_scope(column, membership):
-    """Predicado de leitura para recurso com dono único (renda, cartão, conta,
-    financiamento, recorrência): tudo com acesso completo, só o meu sem ele."""
+    """Predicado de leitura para recurso DO WORKSPACE com dono declarado: tudo com
+    acesso completo, só o meu sem ele.
+
+    Vale para o que continua morando no workspace — recorrência de despesa e meta
+    de orçamento. **Não** vale para recurso pessoal: use `personal_scope`, que não
+    abre para `full_workspace` (ADR 0021).
+    """
     return owner_scope_for(column, None if has_full_access(membership) else membership.user_id)
 
 
 def shared_or_mine_scope(column, membership):
-    """Predicado para recurso cujo dono `NULL` significa "da casa".
+    """Predicado para recurso DO WORKSPACE cujo dono `NULL` significa "da casa".
 
-    Conta de pagamento e recorrência têm dono OPCIONAL: sem dono, a linha é da
-    casa e todo mundo precisa vê-la (é a conta de onde saem as despesas comuns, é
-    o aluguel que todos rateiam). É a mesma forma que `/estimates` já usava à mão
-    para separar meta da casa de meta pessoal (ADR 0017).
+    Sobrou um caso depois do ADR 0021: `RecurringExpense`. O aluguel que todos
+    rateiam é da casa e nasce sem dono; a assinatura que só uma pessoa paga tem
+    dono. Cartão e conta também tinham dono opcional e NÃO estão mais aqui — o
+    `None` deles significava "conta bancária de todo mundo", que era a modelagem
+    dizendo o contrário do que o usuário esperava.
 
     Note a assimetria deliberada com `can_write`: a linha sem dono é VISÍVEL a
     todos e alterável só por `admin+`. Ver é inofensivo; mexer no que não tem dono
@@ -179,138 +190,24 @@ def shared_or_mine_scope(column, membership):
     return or_(column.is_(None), column == membership.user_id)
 
 
-def income_of_workspace(workspace_id: int):
-    """Renda que compõe o orçamento DAQUELE workspace (ADR 0019).
+def personal_scope(column, user_id: int):
+    """Predicado de leitura de RECURSO PESSOAL: só o dono, e ponto (ADR 0021).
 
-    Duas origens: a renda da CASA (`workspace_id` preenchido — aluguel de imóvel
-    compartilhado, receita conjunta) e a renda PESSOAL que o dono compartilhou
-    explicitamente. Renda pessoal não compartilhada nunca entra: ela é do dono e
-    aparece só no recorte pessoal dele.
+    Renda, cartão, conta e financiamento não têm `workspace_id` e não são
+    alcançáveis por consulta de workspace nenhuma. Este predicado é o único gate
+    deles, e **não consulta `financial_access`** — a assimetria é a lição da
+    auditoria da Onda 4:
 
-    Subquery, não join — o join com a tabela de compartilhamento duplicaria a
-    linha e a renda seria somada duas vezes no total da casa.
+        `financial_access=full_workspace` governa dado DO WORKSPACE
+        (total da casa, lançamento alheio, composição por categoria).
+        Recurso pessoal ele NÃO alcança, em nenhum papel.
+
+    A versão anterior (`owner_scope`) devolvia `true()` para quem tinha acesso
+    completo, e era assim que um `admin` continuava lendo limite, fatura e compras
+    do cartão de outra pessoa. Trocar o modelo sem trocar o predicado teria
+    reaberto o vazamento por baixo.
     """
-    from app.models.income import Income, IncomeWorkspaceShare
-
-    return or_(
-        Income.workspace_id == workspace_id,
-        Income.id.in_(
-            select(IncomeWorkspaceShare.income_id).where(
-                IncomeWorkspaceShare.workspace_id == workspace_id
-            )
-        ),
-    )
-
-
-def income_visible_to(workspace_id: int, membership):
-    """Renda que ESTE membro pode ler na tela de um workspace.
-
-    A minha (global, venha de onde vier — é o ponto da renda pessoal) mais, com
-    acesso completo, a da casa. Sem acesso completo, a renda dos outros não existe:
-    salário é o dado mais sensível do sistema.
-    """
-    from app.models.income import Income
-
-    minha = Income.user_id == membership.user_id
-    if not has_full_access(membership):
-        return minha
-    return or_(minha, income_of_workspace(workspace_id))
-
-
-def cards_of_workspace(workspace_id: int):
-    """Cartões disponíveis NESTE workspace: os dele + os pessoais compartilhados.
-
-    O cartão continua morando num workspace (`CreditCard.workspace_id`), e o
-    compartilhamento estende o alcance sem duplicar o cadastro — que era o que
-    fazia a MESMA fatura ser contada duas vezes no Endividamento (ADR 0019).
-    """
-    from app.models.credit_card import CardWorkspaceAccess, CreditCard
-
-    return or_(
-        CreditCard.workspace_id == workspace_id,
-        CreditCard.id.in_(
-            select(CardWorkspaceAccess.card_id).where(
-                CardWorkspaceAccess.workspace_id == workspace_id
-            )
-        ),
-    )
-
-
-def card_full_access_here(workspace_id: int):
-    """Cartões cuja FATURA INTEIRA este workspace pode ver.
-
-    O cartão da casa e o compartilhado com `access='full'`. Compartilhado como
-    `use` fica de fora: o workspace lança compras nele e vê o próprio subtotal,
-    mas limite e fatura continuam sendo do dono.
-    """
-    from app.models.credit_card import CardAccessLevel, CardWorkspaceAccess, CreditCard
-
-    return or_(
-        CreditCard.workspace_id == workspace_id,
-        CreditCard.id.in_(
-            select(CardWorkspaceAccess.card_id)
-            .where(CardWorkspaceAccess.workspace_id == workspace_id)
-            .where(CardWorkspaceAccess.access == CardAccessLevel.full)
-        ),
-    )
-
-
-def accounts_of_workspace(workspace_id: int):
-    """Contas de pagamento disponíveis neste workspace: as dele + as compartilhadas."""
-    from app.models.payment_account import PaymentAccount, PaymentAccountWorkspaceShare
-
-    return or_(
-        PaymentAccount.workspace_id == workspace_id,
-        PaymentAccount.id.in_(
-            select(PaymentAccountWorkspaceShare.account_id).where(
-                PaymentAccountWorkspaceShare.workspace_id == workspace_id
-            )
-        ),
-    )
-
-
-def financings_of_workspace(workspace_id: int):
-    """Financiamentos que compõem o endividamento deste workspace."""
-    from app.models.financing import Financing, FinancingWorkspaceShare
-
-    return or_(
-        Financing.workspace_id == workspace_id,
-        Financing.id.in_(
-            select(FinancingWorkspaceShare.financing_id).where(
-                FinancingWorkspaceShare.workspace_id == workspace_id
-            )
-        ),
-    )
-
-
-def card_scope(workspace_id: int, membership):
-    """Predicado de leitura de cartões: o meu, o da casa, ou aquele em que eu comprei.
-
-    Três ramos, cada um por um motivo:
-
-    1. `owner_user_id == eu` — é meu cartão.
-    2. `owner_user_id IS NULL` — cartão compartilhado legado (ver `CreditCard`):
-       esconder o que sempre foi de todos quebraria workspace em uso.
-    3. tenho compra nele — caso legítimo de precisar achar em que fatura caiu a
-       minha despesa, mesmo sendo cartão de outra pessoa.
-
-    O ramo 3 ainda expõe limite e total comprometido do dono; separar "usar" de
-    "ver a fatura inteira" é o que `CardWorkspaceAccess` resolve na Onda 2.
-    """
-    if has_full_access(membership):
-        return true()
-    from app.models.credit_card import CreditCard
-
-    return or_(
-        CreditCard.owner_user_id == membership.user_id,
-        CreditCard.owner_user_id.is_(None),
-        CreditCard.id.in_(
-            select(Transaction.credit_card_id)
-            .where(Transaction.workspace_id == workspace_id)
-            .where(Transaction.credit_card_id.is_not(None))
-            .where(involvement_filter(membership.user_id))
-        ),
-    )
+    return column == user_id
 
 
 def participant_scope(columns: Iterable, membership):
@@ -370,6 +267,19 @@ def get_visible_transaction(
 # ---------------------------------------------------------------------------
 # Guardas de registro único
 # ---------------------------------------------------------------------------
+
+def assert_owns(owner_user_id: Optional[int], user_id: int, *, detail: str = "Não encontrado"):
+    """404 quando o RECURSO PESSOAL não é meu (ADR 0021).
+
+    Par de `personal_scope` para o acesso por id. Não recebe `membership` de
+    propósito: não há papel nem acesso financeiro que responda por recurso pessoal,
+    e aceitar o parâmetro convidaria a consultá-lo.
+
+    404 e não 403 — 403 confirmaria que o cartão existe, e a existência já vaza.
+    """
+    if owner_user_id != user_id:
+        raise HTTPException(status_code=404, detail=detail)
+
 
 def assert_can_read(owner_user_id: Optional[int], membership, *, detail: str = "Não encontrado"):
     """404 quando o registro existe mas não é meu e eu não tenho acesso completo.

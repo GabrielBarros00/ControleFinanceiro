@@ -43,7 +43,7 @@ def test_unique_bloqueia_renda_recorrente_duplicada(db_session: Session):
     user, ws = _setup(db_session, "race1")
     tmpl = RecurringIncome(
         title="Salário", base_amount=Decimal("5000.00"), day_of_month=5,
-        workspace_id=ws.id, user_id=user.id,
+        user_id=user.id,
     )
     db_session.add(tmpl)
     db_session.flush()
@@ -51,14 +51,14 @@ def test_unique_bloqueia_renda_recorrente_duplicada(db_session: Session):
     occ = datetime(2026, 7, 5, tzinfo=UTC)
     db_session.add(Income(
         title="Salário", amount=Decimal("5000.00"), received_at=occ,
-        workspace_id=ws.id, user_id=user.id,
+        user_id=user.id,
         recurring_income_id=tmpl.id, billing_month="2026-07",
     ))
     db_session.commit()
 
     db_session.add(Income(
         title="Salário", amount=Decimal("5000.00"), received_at=occ,
-        workspace_id=ws.id, user_id=user.id,
+        user_id=user.id,
         recurring_income_id=tmpl.id, billing_month="2026-07",
     ))
     with pytest.raises(IntegrityError):
@@ -73,11 +73,11 @@ def test_renda_avulsa_nao_colide(db_session: Session):
     for _ in range(3):
         db_session.add(Income(
             title="Bico", amount=Decimal("100.00"), received_at=occ,
-            workspace_id=ws.id, user_id=user.id,
+            user_id=user.id,
         ))
     db_session.commit()
 
-    rows = db_session.exec(select(Income).where(Income.workspace_id == ws.id)).all()
+    rows = db_session.exec(select(Income).where(Income.user_id == user.id)).all()
     assert len(rows) == 3
 
 
@@ -93,11 +93,11 @@ def test_materializacao_absorve_colisao_e_segue_o_lote(db_session: Session):
     user, ws = _setup(db_session, "race3")
     ocupado = RecurringIncome(
         title="Salário", base_amount=Decimal("5000.00"), day_of_month=5,
-        workspace_id=ws.id, user_id=user.id,
+        user_id=user.id,
     )
     livre = RecurringIncome(
         title="Aluguel recebido", base_amount=Decimal("1200.00"), day_of_month=20,
-        workspace_id=ws.id, user_id=user.id,
+        user_id=user.id,
     )
     db_session.add_all([ocupado, livre])
     db_session.flush()
@@ -106,12 +106,12 @@ def test_materializacao_absorve_colisao_e_segue_o_lote(db_session: Session):
     db_session.add(Income(
         title="Salário", amount=Decimal("5000.00"),
         received_at=datetime(2026, 7, 5, tzinfo=UTC),
-        workspace_id=ws.id, user_id=user.id,
+        user_id=user.id,
         recurring_income_id=ocupado.id, billing_month="2026-06",
     ))
     db_session.commit()
 
-    created = RecurringIncomeService.generate_due_income(db_session, ws.id, date(2026, 7, 15))
+    created = RecurringIncomeService.generate_due_income(db_session, user.id, date(2026, 7, 15))
     db_session.commit()
 
     # A ocorrência em colisão é pulada; a outra é criada normalmente

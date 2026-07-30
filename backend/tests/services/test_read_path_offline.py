@@ -89,17 +89,16 @@ def test_materializacao_de_leitura_nao_toca_a_rede(db_session: Session, no_netwo
     user, ws = _workspace(db_session, "offline1")
     db_session.add(RecurringIncome(
         title="Freela em dólar", base_amount=Decimal("1000.00"), currency="USD",
-        day_of_month=5, workspace_id=ws.id, user_id=user.id,
+        day_of_month=5, user_id=user.id,
     ))
     db_session.commit()
 
-    result = RecurringMaterializationService.ensure_current_month(
-        db_session, ws.id, date(2026, 7, 15)
+    criadas = RecurringMaterializationService.ensure_income_and_commit(
+        db_session, user.id, date(2026, 7, 15)
     )
-    db_session.commit()
 
-    assert result == {"expenses": 0, "income": 0, "promoted": 0}
-    assert db_session.exec(select(Income).where(Income.workspace_id == ws.id)).all() == []
+    assert criadas == 0
+    assert db_session.exec(select(Income).where(Income.user_id == user.id)).all() == []
 
 
 def test_materializacao_de_leitura_usa_taxa_do_store(db_session: Session, no_network):
@@ -107,7 +106,7 @@ def test_materializacao_de_leitura_usa_taxa_do_store(db_session: Session, no_net
     user, ws = _workspace(db_session, "offline2")
     db_session.add(RecurringIncome(
         title="Freela em dólar", base_amount=Decimal("1000.00"), currency="USD",
-        day_of_month=5, workspace_id=ws.id, user_id=user.id,
+        day_of_month=5, user_id=user.id,
     ))
     db_session.add(ExchangeRate(
         currency="USD", rate_date=date(2026, 7, 5),
@@ -115,13 +114,12 @@ def test_materializacao_de_leitura_usa_taxa_do_store(db_session: Session, no_net
     ))
     db_session.commit()
 
-    result = RecurringMaterializationService.ensure_current_month(
-        db_session, ws.id, date(2026, 7, 15)
+    criadas = RecurringMaterializationService.ensure_income_and_commit(
+        db_session, user.id, date(2026, 7, 15)
     )
-    db_session.commit()
 
-    assert result["income"] == 1
-    inc = db_session.exec(select(Income).where(Income.workspace_id == ws.id)).one()
+    assert criadas == 1
+    inc = db_session.exec(select(Income).where(Income.user_id == user.id)).one()
     assert inc.amount == Decimal("5000.00")
     assert inc.original_amount == Decimal("1000.00")
     assert inc.original_currency == "USD"

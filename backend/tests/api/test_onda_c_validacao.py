@@ -17,7 +17,6 @@ from app.models.user import User
 from app.models.workspace import Workspace, WorkspaceMembership, WorkspaceRole
 from app.services.currency_service import CurrencyService
 from app.services.forecast_service import ForecastService
-from app.services.report_service import ReportService
 
 
 @pytest.fixture(autouse=True)
@@ -88,24 +87,30 @@ def test_previsao_exclui_recorrencia_sem_cotacao(db_session: Session, ws):
 # --- C2: moeda da renda no resumo ------------------------------------------
 
 
-def test_resumo_ignora_renda_fora_da_moeda_base(db_session: Session, ws):
-    """A renda era o ÚNICO somatório sem o filtro de moeda (ADR 0006)."""
+def test_renda_sem_cotacao_fica_de_fora_e_e_contada(db_session: Session, ws):
+    """A renda era o ÚNICO somatório sem filtro de moeda (ADR 0006).
+
+    O filtro saiu do resumo do workspace junto com a renda (ADR 0021), e a regra
+    passou para `/me/overview`: lá a soma é feita na moeda de relatório do dono e
+    o que não tem cotação fica FORA — mas contado, para o usuário saber que
+    sumiu de propósito, em vez de entrar com uma conversão inventada.
+    """
+    from app.services.overview_service import OverviewService
+
     agora = datetime.now(UTC)
     db_session.add(Income(
         title="BRL", amount=Decimal("1000.00"), currency="BRL",
-        received_at=agora, workspace_id=ws["ws"].id, user_id=ws["user"].id,
+        received_at=agora, user_id=ws["user"].id,
     ))
     db_session.add(Income(
-        title="USD legada", amount=Decimal("500.00"), currency="USD",
-        received_at=agora, workspace_id=ws["ws"].id, user_id=ws["user"].id,
+        title="USD sem cotação", amount=Decimal("500.00"), currency="USD",
+        received_at=agora, user_id=ws["user"].id,
     ))
     db_session.commit()
 
-    resumo = ReportService.get_summary(
-        db_session, ws["ws"].id, date.today(), user_id=ws["user"].id
-    )
-    assert resumo["total_income"] == Decimal("1000.00")
-    assert resumo["my_income"] == Decimal("1000.00")
+    corpo = OverviewService.get_overview(db_session, ws["user"].id, date.today())
+    assert corpo["income"] == Decimal("1000.00")
+    assert corpo["excluded_foreign_count"] == 1
 
 
 # --- C3: orçamento chaveado por category_id --------------------------------
@@ -148,25 +153,32 @@ def test_orcamento_idempotente_por_category_id(db_session: Session, ws, override
 def test_renda_recusa_valor_e_texto_fora_do_limite(ws, payload, caso, override_get_session):
     """Sem teto, 1e30 estourava NUMERIC(20,2) → 500 no Postgres, enquanto o
     SQLite de dev aceitava calado. Erro de cliente tem de ser 422."""
-    url = "/api/v1/workspaces/" + str(ws["ws"].id) + "/income/"
     with TestClient(app) as client:
-        resposta = client.post(url, headers=ws["headers"], json=payload)
+        resposta = client.post("/api/v1/me/income", headers=ws["headers"], json=payload)
     assert resposta.status_code == 422, caso
 
 
 # --- C8: mês inválido é erro, não "sem filtro" ------------------------------
 
 
-@pytest.mark.parametrize("rota", [
-    "income/", "analytics/summary", "debts/monthly", "liabilities/overview",
-])
+@pytest.mark.parametrize("rota", ["analytics/summary", "debts/monthly"])
 @pytest.mark.parametrize("mes", ["lixo", "2026-13", "2026"])
 def test_mes_invalido_devolve_400(ws, rota, mes, override_get_session):
-    """`/income` engolia o erro e devolvia o histórico INTEIRO como se fosse o
-    mês pedido; as outras três já devolviam 400."""
     url = "/api/v1/workspaces/" + str(ws["ws"].id) + "/" + rota
     with TestClient(app) as client:
         resposta = client.get(url, headers=ws["headers"], params={"month": mes})
+    assert resposta.status_code == 400
+
+
+@pytest.mark.parametrize("rota", ["income", "overview"])
+@pytest.mark.parametrize("mes", ["lixo", "2026-13", "2026"])
+def test_mes_invalido_devolve_400_nas_rotas_pessoais(ws, rota, mes, override_get_session):
+    """`/income` engolia o erro e devolvia o histórico INTEIRO como se fosse o
+    mês pedido — com o total do cabeçalho errado e nenhum sinal ao usuário."""
+    with TestClient(app) as client:
+        resposta = client.get(
+            f"/api/v1/me/{rota}", headers=ws["headers"], params={"month": mes}
+        )
     assert resposta.status_code == 400
 
 
@@ -174,13 +186,14 @@ def test_income_nao_devolve_tudo_com_mes_invalido(db_session: Session, ws, overr
     db_session.add(Income(
         title="Antiga", amount=Decimal("999.00"), currency="BRL",
         received_at=datetime(2020, 1, 5, tzinfo=UTC),
-        workspace_id=ws["ws"].id, user_id=ws["user"].id,
+        user_id=ws["user"].id,
     ))
     db_session.commit()
 
-    url = "/api/v1/workspaces/" + str(ws["ws"].id) + "/income/"
     with TestClient(app) as client:
-        resposta = client.get(url, headers=ws["headers"], params={"month": "agosto"})
+        resposta = client.get(
+            "/api/v1/me/income", headers=ws["headers"], params={"month": "agosto"}
+        )
     assert resposta.status_code == 400
 
 

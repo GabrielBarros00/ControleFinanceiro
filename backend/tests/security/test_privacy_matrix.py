@@ -132,30 +132,32 @@ def casa_fixture(db_session: Session, override_get_session):
     # Renda: uma de cada, para provar que some a do outro e fica a própria
     renda_dono = Income(
         title="Salário do dono", amount=Decimal("9000.00"), currency="BRL",
-        received_at=QUANDO, billing_month=MES, workspace_id=ws.id, user_id=dono.id,
+        received_at=QUANDO, billing_month=MES, user_id=dono.id,
     )
     renda_restrito = Income(
         title="Salário do restrito", amount=Decimal("3000.00"), currency="BRL",
-        received_at=QUANDO, billing_month=MES, workspace_id=ws.id, user_id=restrito.id,
+        received_at=QUANDO, billing_month=MES, user_id=restrito.id,
     )
     # Cartão do dono (o restrito não tem compra nele)
     cartao = CreditCard(
         name="Cartão do dono", limit=Decimal("10000.00"), closing_day=1, due_day=10,
-        currency="BRL", workspace_id=ws.id, owner_user_id=dono.id,
+        currency="BRL", owner_user_id=dono.id,
     )
     # Financiamento do dono
     fin = Financing(
         title="Carro do dono", total_amount=Decimal("50000.00"),
         interest_rate=Decimal("0.01"), installments_count=48,
         start_date=datetime.date(2026, 1, 1), currency="BRL",
-        workspace_id=ws.id, created_by_user_id=dono.id,
+        owner_user_id=dono.id,
     )
-    # Conta pessoal do dono × conta da CASA (dono NULL = compartilhada)
+    # Duas contas pessoais: a do dono e a do restrito. "Conta da casa"
+    # (`owner_user_id=None`) deixou de existir no ADR 0021 — conta bancária é de
+    # uma pessoa, e o `None` fazia o extrato de alguém virar recurso coletivo.
     conta_dono = PaymentAccount(
-        name="Conta do dono", currency="BRL", workspace_id=ws.id, owner_user_id=dono.id
+        name="Conta do dono", currency="BRL", owner_user_id=dono.id
     )
-    conta_casa = PaymentAccount(
-        name="Conta da casa", currency="BRL", workspace_id=ws.id, owner_user_id=None
+    conta_restrito = PaymentAccount(
+        name="Conta do restrito", currency="BRL", owner_user_id=restrito.id
     )
     # Recorrência do dono × da casa (sem criador)
     # `is_active=False` nas recorrências: a materialização preguiçosa roda em
@@ -173,7 +175,7 @@ def casa_fixture(db_session: Session, override_get_session):
     )
     rec_renda_dono = RecurringIncome(
         title="Salário recorrente do dono", base_amount=Decimal("9000.00"),
-        day_of_month=5, workspace_id=ws.id, user_id=dono.id, is_active=False,
+        day_of_month=5, user_id=dono.id, is_active=False,
     )
     # Acerto entre dono e admin: não envolve o restrito
     acerto = Settlement(
@@ -181,12 +183,27 @@ def casa_fixture(db_session: Session, override_get_session):
         amount=Decimal("50.00"), billing_month=MES, created_by_user_id=dono.id,
     )
     db_session.add_all([
-        renda_dono, renda_restrito, cartao, fin, conta_dono, conta_casa,
+        renda_dono, renda_restrito, cartao, fin, conta_dono, conta_restrito,
         rec_dono, rec_casa, rec_renda_dono, acerto,
     ])
     db_session.commit()
+
+    # Cronograma do financiamento: sem parcela em aberto ele não é compromisso
+    # nenhum, e `/me/commitments` (com razão) o ignoraria.
+    from app.services.financing_service import FinancingService
+
+    for parcela in FinancingService.calculate_amortization_schedule(
+        total_amount=fin.total_amount,
+        interest_rate=fin.interest_rate,
+        installments_count=fin.installments_count,
+        start_date=fin.start_date,
+        method=fin.method,
+    ):
+        parcela.financing_id = fin.id
+        db_session.add(parcela)
+    db_session.commit()
     for obj in (solo, compartilhada, renda_dono, renda_restrito, cartao, fin,
-                conta_dono, conta_casa, rec_dono, rec_casa, acerto):
+                conta_dono, conta_restrito, rec_dono, rec_casa, acerto):
         db_session.refresh(obj)
 
     return {
@@ -199,7 +216,7 @@ def casa_fixture(db_session: Session, override_get_session):
         "cartao": cartao,
         "fin": fin,
         "conta_dono": conta_dono,
-        "conta_casa": conta_casa,
+        "conta_restrito": conta_restrito,
         "rec_dono": rec_dono,
         "rec_casa": rec_casa,
         "acerto": acerto,
@@ -210,6 +227,11 @@ def _get(casa, perfil: str, caminho: str):
     return client.get(
         f"/api/v1/workspaces/{casa['ws'].id}{caminho}", headers=_h(casa["u"][perfil])
     )
+
+
+def _get_me(casa, perfil: str, caminho: str):
+    """GET numa rota PESSOAL — sem workspace no caminho (ADR 0021)."""
+    return client.get(f"/api/v1/me{caminho}", headers=_h(casa["u"][perfil]))
 
 
 # ---------------------------------------------------------------------------
@@ -322,71 +344,114 @@ def test_acesso_completo_baixa_qualquer_anexo(casa):
 
 
 # ---------------------------------------------------------------------------
-# Renda — o dado mais sensível
+# Recurso PESSOAL: só o dono, em papel nenhum (ADR 0021)
+#
+# Esta seção mudou de forma na Onda 5, e a mudança é a correção do P0 da
+# auditoria. Antes, renda/cartão/conta/financiamento moravam no workspace e a
+# visibilidade deles seguia `financial_access`: quem tinha `full_workspace` via
+# o salário, o limite e a fatura de todo mundo — e o cartão "compartilhado" com
+# nível `use` entregava a fatura inteira, com as compras privadas de outro
+# workspace dentro, porque o predicado que implementava o nível `full`
+# (`card_full_access_here`) não era chamado por rota nenhuma.
+#
+# Agora o eixo `financial_access` **não alcança recurso pessoal**. Por isso os
+# testes abaixo são parametrizados por TODOS os perfis, e não só pelos restritos:
+# o ponto é justamente que `dono`, `admin` e `member_completo` também não veem.
 # ---------------------------------------------------------------------------
 
-def test_restrito_ve_a_propria_renda_e_nao_a_alheia(casa):
-    corpo = _get(casa, "member_restrito", "/income/").json()
-    ids = [i["id"] for i in corpo]
-    assert casa["renda_dono"].id not in ids
-    assert casa["renda_restrito"].id in ids
+TODOS_MENOS_DONO = ["admin", "member_completo", "member_restrito", "viewer_restrito"]
 
 
-def test_viewer_restrito_nao_ve_renda_de_ninguem(casa):
-    """O viewer restrito não tem renda própria neste workspace: lista vazia."""
-    assert _get(casa, "viewer_restrito", "/income/").json() == []
+@pytest.mark.parametrize("perfil", TODOS_MENOS_DONO)
+def test_renda_alheia_e_invisivel_em_qualquer_papel(casa, perfil):
+    ids = [i["id"] for i in _get_me(casa, perfil, "/income").json()]
+    assert casa["renda_dono"].id not in ids, (
+        f"{perfil} não pode ver o salário do dono — nem com full_workspace"
+    )
 
 
-@pytest.mark.parametrize("perfil", COMPLETOS)
-def test_acesso_completo_ve_todas_as_rendas(casa, perfil):
-    ids = [i["id"] for i in _get(casa, perfil, "/income/").json()]
-    assert casa["renda_dono"].id in ids
-    assert casa["renda_restrito"].id in ids
+def test_cada_um_ve_a_propria_renda(casa):
+    meus = [i["id"] for i in _get_me(casa, "member_restrito", "/income").json()]
+    assert casa["renda_restrito"].id in meus
+    assert casa["renda_dono"].id not in meus
+
+    do_dono = [i["id"] for i in _get_me(casa, "dono", "/income").json()]
+    assert casa["renda_dono"].id in do_dono
+    assert casa["renda_restrito"].id not in do_dono
 
 
 def test_renda_recorrente_alheia_nao_aparece(casa):
-    assert _get(casa, "member_restrito", "/recurring-income").json() == []
-    assert len(_get(casa, "dono", "/recurring-income").json()) == 1
+    assert _get_me(casa, "member_restrito", "/recurring-income").json() == []
+    assert len(_get_me(casa, "dono", "/recurring-income").json()) == 1
 
 
-# ---------------------------------------------------------------------------
-# Cartões, financiamentos, contas, recorrências
-# ---------------------------------------------------------------------------
-
-@pytest.mark.parametrize("perfil", RESTRITOS)
-def test_cartao_de_outro_sem_compra_minha_nao_aparece(casa, perfil):
-    ids = [c["id"] for c in _get(casa, perfil, "/credit-cards/").json()]
+@pytest.mark.parametrize("perfil", TODOS_MENOS_DONO)
+def test_cartao_alheio_e_invisivel_em_qualquer_papel(casa, perfil):
+    """O P0: limite, comprometido e fatura do dono não vazam para ninguém."""
+    ids = [c["id"] for c in _get_me(casa, perfil, "/credit-cards/").json()]
     assert casa["cartao"].id not in ids
-    assert _get(casa, perfil, f"/credit-cards/{casa['cartao'].id}/statements").status_code == 404
+    assert _get_me(casa, perfil, f"/credit-cards/{casa['cartao'].id}/statements").status_code == 404
 
 
-def test_cartao_aparece_para_quem_tem_compra_nele(casa, db_session):
-    """Ramo legítimo do `card_scope`: preciso achar em que fatura caiu MINHA despesa."""
+@pytest.mark.parametrize("perfil", TODOS_MENOS_DONO)
+def test_ter_compra_no_cartao_alheio_nao_abre_a_fatura(casa, perfil, db_session):
+    """O ramo que o modelo antigo considerava legítimo ("preciso achar em que
+    fatura caiu minha despesa") entregava junto o limite e as demais compras do
+    dono. Ver o LANÇAMENTO no workspace continua valendo; ver o CARTÃO, não."""
     casa["compartilhada"].credit_card_id = casa["cartao"].id
     db_session.add(casa["compartilhada"])
     db_session.commit()
 
-    ids = [c["id"] for c in _get(casa, "member_restrito", "/credit-cards/").json()]
-    assert casa["cartao"].id in ids
+    ids = [c["id"] for c in _get_me(casa, perfil, "/credit-cards/").json()]
+    assert casa["cartao"].id not in ids
 
 
-@pytest.mark.parametrize("perfil", RESTRITOS)
+@pytest.mark.parametrize("perfil", TODOS_MENOS_DONO)
+def test_ciclo_da_fatura_alheia_responde_404(casa, perfil, db_session):
+    """Fechar/pagar/reabrir não tinham guarda de dono: pediam só
+    `require_role(member)` no workspace, então quem enxergasse o cartão
+    controlava o ciclo da fatura de outra pessoa."""
+    from app.models.credit_card import CardStatement
+
+    fatura = CardStatement(
+        card_id=casa["cartao"].id, month=MES,
+        closing_date=QUANDO, due_date=QUANDO,
+    )
+    db_session.add(fatura)
+    db_session.commit()
+    db_session.refresh(fatura)
+
+    base = f"/api/v1/me/credit-cards/{casa['cartao'].id}/statements/{fatura.id}"
+    for acao, corpo in (("close", None), ("pay", {}), ("reopen", None)):
+        res = client.post(
+            f"{base}/{acao}", json=corpo, headers=_h(casa["u"][perfil])
+        )
+        assert res.status_code == 404, f"{perfil} não pode {acao} fatura alheia"
+
+
+@pytest.mark.parametrize("perfil", TODOS_MENOS_DONO)
 def test_financiamento_alheio_invisivel(casa, perfil):
-    assert _get(casa, perfil, "/financing").json() == []
-    assert _get(casa, perfil, f"/financing/{casa['fin'].id}").status_code == 404
-    assert _get(casa, perfil, f"/financing/{casa['fin'].id}/schedule").status_code == 404
+    assert _get_me(casa, perfil, "/financing").json() == []
+    assert _get_me(casa, perfil, f"/financing/{casa['fin'].id}").status_code == 404
+    assert _get_me(casa, perfil, f"/financing/{casa['fin'].id}/schedule").status_code == 404
 
 
-@pytest.mark.parametrize("perfil", RESTRITOS)
-def test_conta_da_casa_sim_conta_pessoal_alheia_nao(casa, perfil):
-    """Dono NULL significa "da casa" e continua visível; com dono, é privada."""
-    ids = [c["id"] for c in _get(casa, perfil, "/payment-accounts").json()]
-    assert casa["conta_casa"].id in ids
+@pytest.mark.parametrize("perfil", TODOS_MENOS_DONO)
+def test_conta_alheia_invisivel(casa, perfil):
+    ids = [c["id"] for c in _get_me(casa, perfil, "/payment-accounts").json()]
     assert casa["conta_dono"].id not in ids
+
+
+def test_cada_um_ve_a_propria_conta(casa):
+    minhas = [c["id"] for c in _get_me(casa, "member_restrito", "/payment-accounts").json()]
+    assert casa["conta_restrito"].id in minhas
+    assert casa["conta_dono"].id not in minhas
 
 
 @pytest.mark.parametrize("perfil", RESTRITOS)
 def test_recorrencia_da_casa_sim_pessoal_alheia_nao(casa, perfil):
+    """Recorrência de DESPESA continua no workspace, com dono opcional: o aluguel
+    que todos rateiam é da casa e o `None` ali é modelagem, não dado faltando."""
     ids = [r["id"] for r in _get(casa, perfil, "/recurring").json()]
     assert casa["rec_casa"].id in ids
     assert casa["rec_dono"].id not in ids
@@ -394,29 +459,44 @@ def test_recorrencia_da_casa_sim_pessoal_alheia_nao(casa, perfil):
     assert _get(casa, perfil, f"/recurring/{casa['rec_casa'].id}").status_code == 200
 
 
-def test_member_nao_altera_cartao_de_outro(casa):
-    """Cartão não tinha trava de autoria NENHUMA: qualquer member mudava o limite
-    do cartão alheio. Com dono, some da vista → 404."""
+@pytest.mark.parametrize("perfil", TODOS_MENOS_DONO)
+def test_ninguem_altera_cartao_de_outro(casa, perfil):
+    """404, não 403: 403 confirmaria que o cartão existe, e a existência já vaza."""
     res = client.put(
-        f"/api/v1/workspaces/{casa['ws'].id}/credit-cards/{casa['cartao'].id}",
+        f"/api/v1/me/credit-cards/{casa['cartao'].id}",
         json={"limit": "1.00"},
-        headers=_h(casa["u"]["member_restrito"]),
+        headers=_h(casa["u"][perfil]),
     )
     assert res.status_code == 404
 
 
-def test_member_completo_ve_o_cartao_mas_nao_o_altera(casa):
-    """Aqui os dois eixos se separam: com `full_workspace` ele VÊ o cartão, e
-    ainda assim não pode ESCREVER nele, porque o dono é outro (403, não 404)."""
-    ids = [c["id"] for c in _get(casa, "member_completo", "/credit-cards/").json()]
-    assert casa["cartao"].id in ids
-
-    res = client.put(
-        f"/api/v1/workspaces/{casa['ws'].id}/credit-cards/{casa['cartao'].id}",
-        json={"limit": "1.00"},
-        headers=_h(casa["u"]["member_completo"]),
+def test_lancar_com_cartao_alheio_e_recusado(casa):
+    """A outra metade do P0: o cartão compartilhado aparecia na listagem do
+    workspace de destino e o lançamento nele respondia 400 — vazava e não servia.
+    Agora o cartão nem aparece, e usá-lo continua recusado."""
+    res = client.post(
+        f"/api/v1/workspaces/{casa['ws'].id}/transactions/",
+        json={
+            "title": "Compra no cartão do outro",
+            "total_amount": "100.00",
+            "transaction_date": QUANDO.isoformat(),
+            "payment_method": "credit_card",
+            "credit_card_id": casa["cartao"].id,
+            "payers": [{
+                "user_id": casa["u"]["member_restrito"].id,
+                "amount": "100.00",
+                "payment_method": "credit_card",
+            }],
+            "splits": [{
+                "user_id": casa["u"]["member_restrito"].id,
+                "split_method": "fixed",
+                "input_value": "100.00",
+            }],
+        },
+        headers=_h(casa["u"]["member_restrito"]),
     )
-    assert res.status_code == 403
+    assert res.status_code == 400
+    assert "Cartão" in res.json()["error"]["message"]
 
 
 # ---------------------------------------------------------------------------
@@ -443,25 +523,46 @@ def test_resumo_suprime_a_casa_e_mantem_a_minha_parte(casa, perfil):
     corpo = _get(casa, perfil, f"/analytics/summary?month={MES}").json()
     # None, não 0: zero seria mentira aritmética somável
     assert corpo["total_expenses"] is None
-    assert corpo["total_income"] is None
-    assert corpo["net_savings"] is None
     assert corpo["categories"] is None
     # O recorte pessoal NUNCA é suprimido — é dado do próprio usuário
     assert corpo["my_expenses"] is not None
-    assert corpo["my_income"] is not None
+    assert corpo["paid_by_me"] is not None
+
+
+def test_resumo_do_workspace_nao_fala_de_renda(casa):
+    """`my_income`/`my_net` saíram do resumo (ADR 0021).
+
+    `my_net` era renda GLOBAL menos despesa DESTE workspace: quem participa de
+    dois workspaces via o mesmo salário combinado com um subconjunto diferente
+    das despesas em cada um, e as duas "sobras" eram maiores que a real. O número
+    certo existe num lugar só — `/me/overview`.
+    """
+    corpo = _get(casa, "dono", f"/analytics/summary?month={MES}").json()
+    for campo in ("my_income", "my_net", "total_income", "net_savings"):
+        assert campo not in corpo, f"{campo} mistura escopo pessoal com o do workspace"
 
 
 def test_minha_parte_do_restrito_conta_so_o_split_dele(casa):
     corpo = _get(casa, "member_restrito", f"/analytics/summary?month={MES}").json()
     assert Decimal(str(corpo["my_expenses"])) == Decimal("100.00")
-    assert Decimal(str(corpo["my_income"])) == Decimal("3000.00")
+    # Ele consumiu 100 e não pagou nada → deve 100 (saldo negativo)
+    assert Decimal(str(corpo["paid_by_me"])) == Decimal("0.00")
+    assert Decimal(str(corpo["my_balance"])) == Decimal("-100.00")
+
+
+def test_quem_pagou_tudo_tem_saldo_a_receber(casa):
+    """O par que faltava no Painel: consumo × caixa. O dono pagou as duas
+    despesas (600) e consumiu 400 → tem 200 a receber."""
+    corpo = _get(casa, "dono", f"/analytics/summary?month={MES}").json()
+    assert Decimal(str(corpo["paid_by_me"])) == Decimal("600.00")
+    assert Decimal(str(corpo["my_expenses"])) == Decimal("400.00")
+    assert Decimal(str(corpo["my_balance"])) == Decimal("200.00")
 
 
 @pytest.mark.parametrize("perfil", COMPLETOS)
 def test_acesso_completo_recebe_os_totais_da_casa(casa, perfil):
     corpo = _get(casa, perfil, f"/analytics/summary?month={MES}").json()
     assert Decimal(str(corpo["total_expenses"])) == Decimal("600.00")
-    assert Decimal(str(corpo["total_income"])) == Decimal("12000.00")
     assert corpo["categories"] is not None
 
 
@@ -473,18 +574,14 @@ def test_historico_de_6_meses_tambem_suprime_a_casa(casa, perfil):
     assert corpo["current_summary"]["total_expenses"] is None
     for barra in corpo["monthly_history"]:
         assert barra["expenses"] is None
-        assert barra["income"] is None
         assert barra["my_expenses"] is not None
 
 
 @pytest.mark.parametrize("perfil", RESTRITOS)
 def test_previsao_deixa_so_a_meta_pessoal(casa, perfil):
     corpo = _get(casa, perfil, f"/analytics/forecast?month={MES}").json()
-    for campo in (
-        "actual_spent", "projected_eom", "total_budget", "income_actual",
-        "projected_net", "card_statements_pending", "fixed_costs_pending",
-    ):
-        assert corpo[campo] is None, f"{campo} é projeção de caixa da CASA"
+    for campo in ("actual_spent", "projected_eom", "total_budget", "fixed_costs_pending"):
+        assert corpo[campo] is None, f"{campo} é projeção de gasto da CASA"
     assert corpo["my_budget"] is not None
 
 
@@ -517,20 +614,25 @@ def test_ledger_mensal_completo_mostra_a_casa(casa):
     assert len(corpo["settlements"]) == 1
 
 
-@pytest.mark.parametrize("perfil", RESTRITOS)
-def test_endividamento_nao_expoe_compromisso_alheio(casa, perfil):
-    corpo = _get(casa, perfil, f"/liabilities/overview?month={MES}").json()
+@pytest.mark.parametrize("perfil", TODOS_MENOS_DONO)
+def test_compromissos_nao_expoem_dividas_alheias(casa, perfil):
+    """O painel de endividamento do workspace deixou de existir (ADR 0021): a
+    dívida com banco e cartão é de quem assinou, e agora vive em
+    `/me/commitments`, que só enxerga os compromissos de quem pergunta."""
+    corpo = _get_me(casa, perfil, "/commitments").json()
     assert corpo["financings"] == []
-    assert Decimal(str(corpo["totals"]["financing_outstanding"])) == Decimal("0.00")
-    assert [c["id"] for c in corpo["cards"]] == []
-    for pessoa in corpo["by_person"]:
-        assert pessoa["user_id"] == casa["u"][perfil].id
+    assert corpo["cards"] == []
+    assert Decimal(str(corpo["outstanding_total"])) == Decimal("0.00")
 
 
-def test_endividamento_completo_ve_tudo(casa):
-    corpo = _get(casa, "member_completo", f"/liabilities/overview?month={MES}").json()
-    assert [f["id"] for f in corpo["financings"]] == [casa["fin"].id]
-    assert casa["cartao"].id in [c["id"] for c in corpo["cards"]]
+def test_compromissos_do_dono_mostram_o_que_e_dele(casa):
+    corpo = _get_me(casa, "dono", "/commitments").json()
+    assert [f["financing_id"] for f in corpo["financings"]] == [casa["fin"].id]
+    # Saldo devedor é o PRINCIPAL em aberto — juros são custo futuro, não dívida
+    assert Decimal(str(corpo["outstanding_total"])) > Decimal("0.00")
+    # E os prazos vêm separados, em vez de somados num "Total a pagar" só
+    for campo in ("overdue", "due_this_month", "monthly_commitment", "next_installments"):
+        assert campo in corpo
 
 
 # ---------------------------------------------------------------------------
@@ -576,15 +678,25 @@ def test_member_report_da_matriz_de_leitura(casa):
     Existe como rede de segurança contra endpoint novo que esqueça a política —
     a lista de caminhos aqui é o inventário do que precisa estar escopado.
     """
-    proibidos = {
-        "/income/": casa["renda_dono"].id,
-        "/financing": casa["fin"].id,
-        "/credit-cards/": casa["cartao"].id,
+    do_workspace = {
         "/settlements": casa["acerto"].id,
-        "/payment-accounts": casa["conta_dono"].id,
         "/recurring": casa["rec_dono"].id,
     }
-    for caminho, id_proibido in proibidos.items():
-        corpo = _get(casa, "member_restrito", caminho).json()
-        ids = [item["id"] for item in corpo]
+    for caminho, id_proibido in do_workspace.items():
+        ids = [item["id"] for item in _get(casa, "member_restrito", caminho).json()]
         assert id_proibido not in ids, f"{caminho} vazou o registro do dono"
+
+    # Recurso pessoal: a varredura roda para TODO perfil, inclusive os de acesso
+    # completo — é o que distingue os dois eixos depois do ADR 0021.
+    pessoais = {
+        "/income": casa["renda_dono"].id,
+        "/financing": casa["fin"].id,
+        "/credit-cards/": casa["cartao"].id,
+        "/payment-accounts": casa["conta_dono"].id,
+    }
+    for perfil in TODOS_MENOS_DONO:
+        for caminho, id_proibido in pessoais.items():
+            ids = [item["id"] for item in _get_me(casa, perfil, caminho).json()]
+            assert id_proibido not in ids, (
+                f"{caminho} vazou o recurso pessoal do dono para {perfil}"
+            )

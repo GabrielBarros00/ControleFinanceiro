@@ -1,25 +1,18 @@
 from decimal import Decimal, ROUND_HALF_UP
-from datetime import datetime, date
+from datetime import date
 from typing import Any, Dict, Optional
 from sqlmodel import Session, select, func
 from app.domain.dates import month_key
-from app.domain.access_policy import cards_of_workspace, income_of_workspace
 from app.domain.query_policy import (
     FORECAST_STATUSES,
     workspace_base_currency,
 )
 from app.models.transaction import Transaction
-from sqlalchemy import or_
 from app.models.recurring import (
     RecurrenceFrequency,
     RecurringExpense,
-    RecurringIncome,
-    RecurringIncomeWorkspaceShare,
 )
 from app.models.estimate import MonthlyEstimate
-from app.models.income import Income
-from app.models.credit_card import CreditCard, CardStatement, StatementStatus
-from app.services.credit_card_service import CreditCardService
 from app.services.currency_service import ExchangeRateUnavailable
 from app.services.exchange_rate_store import ExchangeRateStore
 from app.services.recurring_service import RecurringService
@@ -72,9 +65,7 @@ class ForecastService:
         """
         base_currency = workspace_base_currency(db, workspace_id)
         # 1. Current spent (Transactions in the month)
-        first_day = date(target_month.year, target_month.month, 1)
         last_day_num = calendar.monthrange(target_month.year, target_month.month)[1]
-        last_day = date(target_month.year, target_month.month, last_day_num)
         # Mesma definição de mês do resto do app (ver domain.dates.month_key)
         billing_month = month_key(target_month)
 
@@ -140,29 +131,11 @@ class ForecastService:
             Decimal("0.00"),
         )
 
-        # Faturas de cartão com vencimento neste mês (ainda não pagas) são caixa a sair.
-        # `deleted_at` no filtro: sem ele, a fatura de um cartão EXCLUÍDO seguia
-        # sendo somada aqui enquanto o Endividamento (LiabilityService._cards, que
-        # filtra) a ignorava — as duas telas mostravam dívidas diferentes para o
-        # mesmo mês, sem nada por onde reconciliar. As duas leem o mesmo universo.
-        card_statements_due = db.exec(
-            select(CardStatement)
-            .join(CreditCard, CreditCard.id == CardStatement.card_id)
-            # Cartões deste workspace + os compartilhados (ADR 0019)
-            .where(cards_of_workspace(workspace_id))
-            .where(CreditCard.deleted_at.is_(None))
-            .where(CardStatement.status != StatementStatus.paid)
-            .where(CardStatement.due_date >= datetime.combine(first_day, datetime.min.time()))
-            .where(CardStatement.due_date <= datetime.combine(last_day, datetime.max.time()))
-        ).all()
-        # Fatura ABERTA soma em tempo real; FECHADA usa o total CONGELADO no
-        # fechamento (ADR 0011) — a MESMA definição de card_committed/effective_total.
-        # Recomputar aqui divergia do valor faturado se uma transação de fatura já
-        # fechada fosse editada depois (F-06).
-        statements_pending = Decimal("0.00")
-        for stmt in card_statements_due:
-            statements_pending += CreditCardService.effective_total(db, stmt)
-        
+        # A fatura de cartão NÃO entra mais aqui (ADR 0021). Cartão é pessoal: a
+        # fatura a vencer é caixa a sair DO DONO, não do workspace, e somá-la à
+        # projeção da casa colocava a dívida de uma pessoa no orçamento de todas.
+        # Esse número agora vive em `/me/commitments`, separado por prazo.
+
         # 2. Daily Average (Trend-based)
         today = date.today()
         if today.month == target_month.month and today.year == target_month.year:
@@ -222,9 +195,9 @@ class ForecastService:
                         else:
                             excluded_recurring += 1
 
-        # 4. Projected Total (caixa: gastos + tendência + fixos pendentes + faturas a vencer)
-        projected_total = total_spent + (daily_avg * remaining_days) + remaining_fixed + statements_pending
-        
+        # 4. Projected Total (gasto do workspace: realizado + tendência + fixos pendentes)
+        projected_total = total_spent + (daily_avg * remaining_days) + remaining_fixed
+
         # 5. Budget Comparison (Monthly Estimates) — excluídas ficam fora.
         # `total_budget` é a meta da CASA (owner_user_id IS NULL): a previsão é
         # projeção de CAIXA do workspace, não de consumo de uma pessoa — por isso
@@ -251,66 +224,14 @@ class ForecastService:
                 .where(MonthlyEstimate.owner_user_id == user_id)
             ).one() or Decimal("0.00")
 
-        # 6. Renda do mês (INC-001): a previsão precisa do outro lado do caixa —
-        # sobra projetada = renda recebida no mês − gasto projetado
-        income_actual = db.exec(
-            select(func.sum(Income.amount))
-            .where(income_of_workspace(workspace_id))
-            .where(Income.received_at >= datetime.combine(first_day, datetime.min.time()))
-            .where(Income.received_at <= datetime.combine(last_day, datetime.max.time()))
-            .where(Income.deleted_at.is_(None))
-            # Mesma política de moeda da despesa (ADR 0006). Sem este filtro, uma
-            # renda legada em USD era somada a despesas em BRL.
-            .where(Income.currency == base_currency)
-        ).one() or Decimal("0.00")
-
-        # 6b. Rendas recorrentes ainda NÃO materializadas no mês → projeção.
-        # Simétrico ao remaining_fixed das despesas: já materializadas contam em
-        # income_actual; as pendentes (sem instância) entram como renda esperada.
-        income_pending = Decimal("0.00")
-        if is_current or target_month > today:
-            # Templates da CASA + os PESSOAIS já compartilhados com ela: a
-            # previsão é caixa da casa, então salário pessoal só entra depois de o
-            # dono compartilhar (ADR 0019).
-            recurring_incomes = db.exec(
-                select(RecurringIncome)
-                .where(
-                    or_(
-                        RecurringIncome.workspace_id == workspace_id,
-                        RecurringIncome.id.in_(
-                            select(RecurringIncomeWorkspaceShare.recurring_income_id).where(
-                                RecurringIncomeWorkspaceShare.workspace_id == workspace_id
-                            )
-                        ),
-                    )
-                )
-                .where(RecurringIncome.is_active.is_(True))
-            ).all()
-            materialized_income = db.exec(
-                select(Income.recurring_income_id, Income.received_at)
-                .where(income_of_workspace(workspace_id))
-                .where(Income.billing_month == billing_month)
-                .where(Income.recurring_income_id.is_not(None))
-                .where(Income.deleted_at.is_(None))
-            ).all()
-            mat_income_dates = {(rid, dt.date()) for rid, dt in materialized_income}
-            mat_income_templates = {rid for rid, _ in materialized_income}
-            for ri in recurring_incomes:
-                for occ in RecurringService.occurrences_in_month(
-                    ri, target_month.year, target_month.month
-                ):
-                    if ri.frequency in per_occurrence:
-                        already = (ri.id, occ) in mat_income_dates
-                    else:
-                        already = ri.id in mat_income_templates
-                    if not already:
-                        valor, ok = _template_amount_in_base(db, ri, occ, base_currency)
-                        if ok:
-                            income_pending += valor
-                        else:
-                            excluded_recurring += 1
-
-        projected_income = income_actual + income_pending
+        # 6. Renda NÃO entra na previsão do workspace (ADR 0021).
+        #
+        # Ela é pessoal, e "renda − gasto do workspace" era exatamente o número
+        # enganoso que a auditoria encontrou no Painel: um numerador global menos
+        # um denominador local. Quem participa de dois workspaces via o mesmo
+        # salário combinado com um subconjunto diferente das despesas em cada um,
+        # e as duas "sobras" eram maiores que a real. A previsão da casa projeta
+        # GASTO; renda e resultado vivem em `/me/overview`, que soma tudo.
 
         # Lançamentos em moeda estrangeira ficam fora da projeção (ADR 0006);
         # a contagem sinaliza isso ao usuário (E5/F-04).
@@ -332,13 +253,8 @@ class ForecastService:
             "daily_average": daily_avg,
             "remaining_days": remaining_days,
             "fixed_costs_pending": remaining_fixed,
-            "card_statements_pending": statements_pending,
             "total_budget": total_budget,
             "is_over_budget": projected_total > total_budget if total_budget > 0 else False,
-            # Meta pessoal de quem pediu (o Início compara com "sua despesa")
+            # Meta pessoal de quem pediu (o Painel compara com "sua parte")
             "my_budget": my_budget,
-            "income_actual": income_actual,
-            "income_pending": income_pending,
-            "projected_income": projected_income,
-            "projected_net": (projected_income - projected_total).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP),
         }

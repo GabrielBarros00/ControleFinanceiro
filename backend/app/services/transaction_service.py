@@ -89,14 +89,27 @@ def _validate_categories(
 def _validate_payer_accounts(
     session: Session, workspace_id: int, payers: List[TransactionPayerBase]
 ) -> None:
-    """Conta informada por um pagador precisa existir, ser deste workspace e
-    estar ativa (ADR 0004). Cartão de crédito não usa conta — validado no
-    schema (validate_payer_origins)."""
-    account_ids = {p.account_id for p in payers if p.account_id is not None}
-    for account_id in sorted(account_ids):
-        account = session.get(PaymentAccount, account_id)
-        if not account or account.workspace_id != workspace_id or account.deleted_at:
-            raise ValueError("Conta inválida para este workspace")
+    """A conta informada por um pagador tem de existir, estar ativa e ser **dele**
+    (ADR 0004 + ADR 0021). Cartão de crédito não usa conta — validado no schema
+    (validate_payer_origins).
+
+    Duas correções em relação à versão anterior:
+
+    1. O gate era `account.workspace_id == workspace_id`, que num modelo de conta
+       pessoal não quer dizer nada — e era o que impedia usar no workspace de
+       destino a conta que a listagem de lá já mostrava.
+    2. A função nunca olhava `p.user_id`: bastava conhecer o id para declarar que
+       a despesa saiu da conta bancária de outra pessoa. Agora o par
+       (pagador, conta) precisa bater.
+    """
+    for payer in payers:
+        if payer.account_id is None:
+            continue
+        account = session.get(PaymentAccount, payer.account_id)
+        if not account or account.deleted_at:
+            raise ValueError("Conta inválida")
+        if account.owner_user_id != payer.user_id:
+            raise ValueError("A conta informada não pertence a quem pagou")
         if not account.active:
             raise ValueError(f"Conta '{account.name}' está desativada")
 

@@ -67,7 +67,7 @@ def test_zero_transaction_rejected(solo):
 
 def test_negative_income_rejected(solo):
     res = client.post(
-        f"/api/v1/workspaces/{solo['ws'].id}/income/",
+        "/api/v1/me/income/",
         json={"title": "Anti-renda", "amount": "-100", "received_at": datetime.now(UTC).isoformat()},
         headers=_headers(solo["user"]),
     )
@@ -128,7 +128,7 @@ def test_fixed_split_mismatch_returns_400(solo):
 
 def test_statement_closing_day_31_in_february(solo):
     res = client.post(
-        f"/api/v1/workspaces/{solo['ws'].id}/credit-cards/",
+        "/api/v1/me/credit-cards/",
         json={"name": "Dia 31", "limit": "1000", "closing_day": 31, "due_day": 10},
         headers=_headers(solo["user"]),
     )
@@ -146,7 +146,7 @@ def test_statement_closing_day_31_in_february(solo):
     assert res.json()["statement_id"] is not None
 
     res = client.get(
-        f"/api/v1/workspaces/{solo['ws'].id}/credit-cards/{card_id}/statements",
+        f"/api/v1/me/credit-cards/{card_id}/statements",
         headers=_headers(solo["user"]),
     )
     # A listagem também materializa a fatura do ciclo corrente, então a de
@@ -158,7 +158,7 @@ def test_statement_closing_day_31_in_february(solo):
 
 def test_card_day_out_of_bounds_rejected(solo):
     res = client.post(
-        f"/api/v1/workspaces/{solo['ws'].id}/credit-cards/",
+        "/api/v1/me/credit-cards/",
         json={"name": "Dia 45", "limit": "1000", "closing_day": 45, "due_day": 10},
         headers=_headers(solo["user"]),
     )

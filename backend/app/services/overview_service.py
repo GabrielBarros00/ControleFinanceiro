@@ -36,7 +36,7 @@ from sqlmodel import Session, func, select
 from app.domain.access_policy import involvement_filter
 from app.domain.dates import month_key
 from app.domain.query_policy import REALIZED_STATUSES, workspace_base_currency
-from app.models.credit_card import CardStatement, CreditCard, StatementStatus
+from app.models.credit_card import CreditCard, StatementStatus
 from app.models.financing import AmortizationInstallment, Financing, FinancingStatus
 from app.models.income import Income
 from app.models.transaction import Transaction, TransactionPayer, TransactionSplit
@@ -104,8 +104,10 @@ class OverviewService:
         workspaces = OverviewService._workspaces_do_usuario(db, user_id)
         excluidos = 0
 
-        # --- Renda: GLOBAL por pessoa, sem passar por workspace nenhum ---------
-        # É a consulta que prova a renda pessoal: `Income.user_id` e mais nada.
+        # --- Renda: da PESSOA, sem passar por workspace nenhum -----------------
+        # `Income.user_id` e mais nada — e depois do ADR 0021 isso é correto por
+        # construção, não por sorte: não existe mais renda "da casa" para ser
+        # creditada inteira a quem por acaso a cadastrou.
         rendas = db.exec(
             select(Income.amount, Income.currency)
             .where(Income.user_id == user_id)
@@ -209,54 +211,88 @@ class OverviewService:
     # ------------------------------------------------------------------
     @staticmethod
     def get_commitments(db: Session, user_id: int, currency: Optional[str] = None) -> Dict[str, Any]:
-        """Compromissos financeiros da PESSOA: faturas e financiamentos a vencer.
+        """Compromissos financeiros da PESSOA, **separados por prazo**.
 
-        Cartão compartilhado entre workspaces aparece UMA vez — é o cartão, não a
-        cópia por workspace, que era o defeito antigo (ADR 0019).
+        O "Total a pagar" antigo somava a próxima fatura do cartão com o principal
+        INTEIRO em aberto de cada financiamento. Um número que junta o que vence em
+        cinco dias com o que vence em quinze anos não responde a nenhuma pergunta:
+        não é o que preciso ter em caixa este mês nem o quanto devo ao todo.
+
+        Os cinco números que substituem aquele um:
+
+        | Campo                | Responde                                          |
+        |----------------------|---------------------------------------------------|
+        | `overdue`            | o que já venceu e não foi pago                    |
+        | `due_this_month`     | o que preciso pagar ainda neste mês               |
+        | `next_installments`  | o que vem nos próximos meses, parcela a parcela   |
+        | `outstanding_total`  | o tamanho da dívida (principal em aberto + fatura)|
+        | `monthly_commitment` | quanto do meu mês já está comprometido            |
+
+        O recorte é `owner_user_id == eu`, sem passar por workspace nenhum
+        (ADR 0021) — antes o filtro era `workspace_id.in_(meus workspaces)` E o
+        dono, e sair de um workspace tirava o próprio cartão da lista.
         """
         destino = currency or OverviewService.report_currency(db, user_id)
         hoje = date.today()
-        workspaces = OverviewService._workspaces_do_usuario(db, user_id)
-        ids = [ws.id for ws in workspaces]
-        if not ids:
-            return {"currency": destino, "cards": [], "financings": [], "total": ZERO}
+        fim_do_mes = date(
+            hoje.year, hoje.month, calendar.monthrange(hoje.year, hoje.month)[1]
+        )
+        excluidos = 0
 
+        def _conv(valor: Decimal, de: str) -> Optional[Decimal]:
+            return OverviewService._converte(db, valor, de, destino, hoje)
+
+        # --- Faturas de cartão -------------------------------------------------
         cartoes = db.exec(
             select(CreditCard)
-            .where(CreditCard.workspace_id.in_(ids))
-            .where(CreditCard.deleted_at.is_(None))
             .where(CreditCard.owner_user_id == user_id)
+            .where(CreditCard.deleted_at.is_(None))
         ).all()
         faturas: List[Dict[str, Any]] = []
-        total = ZERO
+        vencido = ZERO
+        vence_no_mes = ZERO
+        saldo_devedor = ZERO
         for card in cartoes:
             overview = CreditCardService.card_overview(db, card)
-            atencao: Optional[CardStatement] = overview["attention"]
-            if atencao is None or atencao.status == StatementStatus.paid:
-                continue
-            valor = overview["attention_total"]
-            convertido = OverviewService._converte(db, valor, card.currency, destino, hoje)
-            if convertido is None:
-                continue
-            total += convertido
-            faturas.append({
-                "card_id": card.id,
-                "card_name": card.name,
-                "statement_id": atencao.id,
-                "month": atencao.month,
-                "due_date": atencao.due_date,
-                "amount": convertido,
-                "is_overdue": CreditCardService.is_overdue(atencao),
-            })
+            # TODA fatura não paga com valor, não só a "que pede atenção": duas
+            # faturas em aberto (a vencida e a do ciclo) são duas obrigações.
+            for stmt in overview["statements"]:
+                if stmt.status == StatementStatus.paid:
+                    continue
+                valor = CreditCardService.effective_total(db, stmt)
+                if valor <= ZERO:
+                    continue
+                convertido = _conv(valor, card.currency)
+                if convertido is None:
+                    excluidos += 1
+                    continue
+                atrasada = CreditCardService.is_overdue(stmt)
+                vencimento = stmt.due_date.date() if hasattr(stmt.due_date, "date") else stmt.due_date
+                saldo_devedor += convertido
+                if atrasada:
+                    vencido += convertido
+                elif vencimento <= fim_do_mes:
+                    vence_no_mes += convertido
+                faturas.append({
+                    "card_id": card.id,
+                    "card_name": card.name,
+                    "statement_id": stmt.id,
+                    "month": stmt.month,
+                    "due_date": stmt.due_date,
+                    "amount": convertido,
+                    "is_overdue": atrasada,
+                })
 
+        # --- Financiamentos ----------------------------------------------------
         financiamentos = db.exec(
             select(Financing)
-            .where(Financing.workspace_id.in_(ids))
+            .where(Financing.owner_user_id == user_id)
             .where(Financing.deleted_at.is_(None))
             .where(Financing.status == FinancingStatus.active)
-            .where(Financing.created_by_user_id == user_id)
         ).all()
         fins: List[Dict[str, Any]] = []
+        proximas: List[Dict[str, Any]] = []
+        comprometimento = ZERO
         for fin in financiamentos:
             em_aberto = db.exec(
                 select(AmortizationInstallment)
@@ -266,22 +302,60 @@ class OverviewService:
             ).all()
             if not em_aberto:
                 continue
-            saldo = sum((i.principal_amount for i in em_aberto), ZERO)
-            convertido = OverviewService._converte(db, saldo, fin.currency, destino, hoje)
-            if convertido is None:
+            # Saldo devedor = PRINCIPAL em aberto (o que se deve hoje); a parcela
+            # inclui juros, que são custo futuro e não dívida atual.
+            saldo = _conv(sum((i.principal_amount for i in em_aberto), ZERO), fin.currency)
+            if saldo is None:
+                excluidos += 1
                 continue
-            total += convertido
+            saldo_devedor += saldo
+
+            for parcela in em_aberto:
+                valor = _conv(parcela.total_amount, fin.currency)
+                if valor is None:
+                    continue
+                if parcela.due_date < hoje:
+                    vencido += valor
+                elif parcela.due_date <= fim_do_mes:
+                    vence_no_mes += valor
+                else:
+                    proximas.append({
+                        "financing_id": fin.id,
+                        "title": fin.title,
+                        "installment_number": parcela.installment_number,
+                        "due_date": parcela.due_date,
+                        "amount": valor,
+                    })
+            # Comprometimento mensal: a próxima parcela de cada financiamento ativo
+            # é o que se repete todo mês.
+            proxima = _conv(em_aberto[0].total_amount, fin.currency)
+            if proxima is not None:
+                comprometimento += proxima
+
             fins.append({
                 "financing_id": fin.id,
                 "title": fin.title,
-                "outstanding": convertido,
+                "outstanding": saldo,
                 "next_due_date": em_aberto[0].due_date,
                 "remaining_installments": len(em_aberto),
             })
 
         faturas.sort(key=lambda f: f["due_date"])
         fins.sort(key=lambda f: f["outstanding"], reverse=True)
-        return {"currency": destino, "cards": faturas, "financings": fins, "total": total}
+        proximas.sort(key=lambda p: p["due_date"])
+
+        return {
+            "currency": destino,
+            "cards": faturas,
+            "financings": fins,
+            "overdue": vencido,
+            "due_this_month": vence_no_mes,
+            # Teto para a tela não virar um extrato: o resto está em Financiamentos.
+            "next_installments": proximas[:12],
+            "outstanding_total": saldo_devedor,
+            "monthly_commitment": comprometimento,
+            "excluded_foreign_count": excluidos,
+        }
 
     # ------------------------------------------------------------------
     @staticmethod

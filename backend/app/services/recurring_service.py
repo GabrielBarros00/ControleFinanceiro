@@ -4,7 +4,6 @@ from decimal import Decimal, ROUND_HALF_UP
 from typing import List, Optional, Tuple
 
 import structlog
-from sqlalchemy import and_, or_
 from sqlalchemy.exc import IntegrityError
 from sqlmodel import Session, select
 
@@ -12,12 +11,11 @@ from app.core.config import settings
 from app.domain.query_policy import BASE_CURRENCY, workspace_base_currency
 from app.models.category import Category
 from app.models.credit_card import CreditCard
-from app.models.income import Income, IncomeWorkspaceShare
+from app.models.income import Income
 from app.models.recurring import (
     RecurrenceFrequency,
     RecurringExpense,
     RecurringIncome,
-    RecurringIncomeWorkspaceShare,
 )
 from app.models.workspace import WorkspaceRole, role_level
 from app.models.transaction import (
@@ -88,7 +86,11 @@ def _statement_for(db: Session, template: RecurringExpense, occ: date) -> Option
     if template.credit_card_id is None:
         return None
     card = db.get(CreditCard, template.credit_card_id)
-    if not card or card.workspace_id != template.workspace_id or card.deleted_at:
+    # O gate é a PROPRIEDADE (ADR 0021): o cartão tem de ser de quem paga a
+    # recorrência — o pagador declarado, ou quem a cadastrou quando não há um.
+    # A checagem antiga era `card.workspace_id != template.workspace_id`.
+    dono_esperado = template.payer_user_id or template.created_by_user_id
+    if not card or card.deleted_at or card.owner_user_id != dono_esperado:
         return None
     statement = CreditCardService.get_or_create_statement(
         db, card, datetime(occ.year, occ.month, occ.day, tzinfo=UTC)
@@ -631,10 +633,9 @@ class RecurringIncomeService:
     @staticmethod
     def generate_due_income(
         db: Session,
-        workspace_id: int,
+        user_id: int,
         today: date,
         *,
-        user_id: Optional[int] = None,
         year: Optional[int] = None,
         month: Optional[int] = None,
         template_id: Optional[int] = None,
@@ -648,6 +649,11 @@ class RecurringIncomeService:
         Income não tem status — a data futura em `received_at` já se explica
         sozinha na lista ("recebe 30/07").
 
+        O recorte é o DONO e mais nada (ADR 0021): renda não tem workspace, então
+        não há um "workspace de origem" a partir do qual materializar. Antes o
+        escopo era `workspace OU (pessoal E meu)`, e a metade `workspace` só existia
+        para a renda da casa que deixou de existir.
+
         year/month materializam um mês específico (backfill retroativo);
         template_id restringe a um template. Dedup por (recurring_income,
         occurrence) — instância excluída deixa tombstone e não ressuscita.
@@ -657,36 +663,17 @@ class RecurringIncomeService:
         month = month or today.month
         billing_month = f"{year:04d}-{month:02d}"
 
-        # Templates da CASA + os PESSOAIS de quem está lendo (ADR 0019). Salário
-        # pessoal não pertence a workspace nenhum, então precisa ser materializado
-        # pela leitura de QUALQUER workspace do dono — senão a renda global só
-        # apareceria no workspace em que por acaso foi cadastrada, que é justamente
-        # o problema que ela veio resolver.
         stmt = select(RecurringIncome).where(RecurringIncome.is_active.is_(True))
         if template_id is not None:
-            # Template identificado por id: o escopo é redundante — e nocivo, porque
-            # o template PESSOAL não casa com nenhum `workspace_id` e o chamador
-            # (`apply_scope`) ficaria sem materializar nada.
             stmt = stmt.where(RecurringIncome.id == template_id)
         else:
-            escopo = RecurringIncome.workspace_id == workspace_id
-            if user_id is not None:
-                escopo = or_(
-                    escopo,
-                    and_(
-                        RecurringIncome.workspace_id.is_(None),
-                        RecurringIncome.user_id == user_id,
-                    ),
-                )
-            stmt = stmt.where(escopo)
+            stmt = stmt.where(RecurringIncome.user_id == user_id)
         templates = db.exec(stmt).all()
         if not templates:
             return 0
 
-        # Dedup pelos IDS DOS TEMPLATES, não por workspace: renda pessoal tem
-        # `workspace_id` NULL e o filtro antigo nunca a encontraria — o salário
-        # seria recriado a cada GET.
-        # Inclui excluídas de propósito: tombstone bloqueia recriação.
+        # Dedup pelos IDS DOS TEMPLATES. Inclui excluídas de propósito: o
+        # tombstone é o que bloqueia a recriação do que o usuário apagou.
         ids_templates = [t.id for t in templates]
         existing = db.exec(
             select(Income.recurring_income_id, Income.received_at)
@@ -697,7 +684,6 @@ class RecurringIncomeService:
         existing_templates = {rid for rid, _ in existing}
 
         per_occurrence = (RecurrenceFrequency.daily, RecurrenceFrequency.weekly)
-        base_currency = workspace_base_currency(db, workspace_id)
 
         created = 0
         for template in templates:
@@ -708,67 +694,25 @@ class RecurringIncomeService:
                 elif template.id in existing_templates:
                     continue
 
-                # Template PESSOAL não pertence a workspace, então a moeda de
-                # destino é a de RELATÓRIO DO DONO (`User.report_currency`), não a
-                # base de um workspace: converter pela base de quem por acaso
-                # disparou a leitura faria o MESMO salário virar valores diferentes
-                # conforme a tela aberta (ADR 0019).
-                if template.workspace_id is None:
-                    destino = _moeda_do_usuario(db, template.user_id)
-                    try:
-                        converted, rate, _iof, source, _factor = _conversao_para(
-                            db, destino, template.base_amount, template.currency, occ,
-                            allow_fetch=allow_fetch,
-                        )
-                    except ExchangeRateUnavailable:
-                        logger.warning(
-                            "recurring_income_pessoal_skip_sem_taxa",
-                            template_id=template.id, user_id=template.user_id,
-                            currency=template.currency, occurrence=occ.isoformat(),
-                        )
-                        continue
-                    estrangeira = rate is not None
-                    try:
-                        with db.begin_nested():
-                            ocorrencia = Income(
-                                title=template.title,
-                                description=template.description,
-                                amount=converted,
-                                currency=destino if estrangeira else template.currency,
-                                original_amount=template.base_amount if estrangeira else None,
-                                original_currency=template.currency if estrangeira else None,
-                                exchange_rate=rate if estrangeira else None,
-                                rate_source=source if estrangeira else None,
-                                category=template.category,
-                                received_at=datetime(occ.year, occ.month, occ.day, tzinfo=UTC),
-                                workspace_id=None,
-                                user_id=template.user_id,
-                                recurring_income_id=template.id,
-                                billing_month=billing_month,
-                            )
-                            db.add(ocorrencia)
-                            db.flush()
-                            RecurringIncomeService._propagar_shares(db, template, ocorrencia)
-                    except IntegrityError:
-                        continue
-                    created += 1
-                    continue
-
-                # Renda estrangeira: converte na data da ocorrência (sem IOF)
+                # A moeda de destino é a de RELATÓRIO DO DONO
+                # (`User.report_currency`), nunca a base de um workspace:
+                # converter pela base de quem por acaso disparou a leitura fazia o
+                # MESMO salário virar valores diferentes conforme a tela aberta.
+                destino = _moeda_do_usuario(db, template.user_id)
                 try:
-                    converted, rate, _iof, source, _factor = _recurring_conversion(
-                        db, template.workspace_id, template.base_amount,
-                        template.currency, occ, None, allow_fetch=allow_fetch,
+                    converted, rate, _iof, source, _factor = _conversao_para(
+                        db, destino, template.base_amount, template.currency, occ,
+                        allow_fetch=allow_fetch,
                     )
                 except ExchangeRateUnavailable:
                     # Sem taxa para a data: espera o backfill em vez de inventar valor
                     logger.warning(
                         "recurring_income_skip_sem_taxa",
-                        template_id=template.id, workspace_id=workspace_id,
+                        template_id=template.id, user_id=template.user_id,
                         currency=template.currency, occurrence=occ.isoformat(),
                     )
                     continue
-                is_foreign = rate is not None
+                estrangeira = rate is not None
                 # Savepoint por ocorrência: o dedup acima é lê-depois-escreve e não
                 # sobrevive a duas requisições simultâneas (a materialização roda em
                 # ROTAS DE LEITURA). A unique uq_recurring_income_occurrence é a
@@ -780,45 +724,22 @@ class RecurringIncomeService:
                             title=template.title,
                             description=template.description,
                             amount=converted,
-                            currency=base_currency if is_foreign else template.currency,
+                            currency=destino if estrangeira else template.currency,
+                            original_amount=template.base_amount if estrangeira else None,
+                            original_currency=template.currency if estrangeira else None,
+                            exchange_rate=rate if estrangeira else None,
+                            rate_source=source if estrangeira else None,
                             category=template.category,
                             received_at=datetime(occ.year, occ.month, occ.day, tzinfo=UTC),
-                            workspace_id=template.workspace_id,
                             user_id=template.user_id,
                             recurring_income_id=template.id,
                             billing_month=billing_month,
-                            original_amount=template.base_amount if is_foreign else None,
-                            original_currency=template.currency if is_foreign else None,
-                            exchange_rate=rate if is_foreign else None,
-                            rate_source=source if is_foreign else None,
                         ))
                 except IntegrityError:
                     # Outra requisição materializou esta mesma ocorrência primeiro
                     continue
                 created += 1
         return created
-
-    @staticmethod
-    def _propagar_shares(
-        db: Session, template: RecurringIncome, ocorrencia: Income
-    ) -> None:
-        """A ocorrência herda os compartilhamentos do TEMPLATE (ADR 0019).
-
-        Sem isto, compartilhar um salário recorrente com a casa valeria só para o
-        mês em que o gesto foi feito, e o orçamento da casa perderia a renda no mês
-        seguinte sem ninguém mexer em nada.
-        """
-        destinos = db.exec(
-            select(RecurringIncomeWorkspaceShare.workspace_id).where(
-                RecurringIncomeWorkspaceShare.recurring_income_id == template.id
-            )
-        ).all()
-        for workspace_id in destinos:
-            db.add(
-                IncomeWorkspaceShare(
-                    income_id=ocorrencia.id, workspace_id=workspace_id
-                )
-            )
 
     @staticmethod
     def sync_current_month_income(db: Session, template: RecurringIncome, today: date) -> None:
@@ -833,43 +754,23 @@ class RecurringIncomeService:
             .where(Income.billing_month == billing_month)
             .where(Income.deleted_at.is_(None))
         ).all()
-        # Template PESSOAL converte para a moeda de RELATÓRIO do dono — mesma
-        # regra da materialização (ADR 0019).
-        if template.workspace_id is None:
-            destino = _moeda_do_usuario(db, template.user_id)
-            for inc in rows:
-                occ = inc.received_at.date() if hasattr(inc.received_at, "date") else inc.received_at
-                converted, rate, _iof, source, _factor = _conversao_para(
-                    db, destino, template.base_amount, template.currency, occ,
-                )
-                estrangeira = rate is not None
-                inc.title = template.title
-                inc.description = template.description
-                inc.amount = converted
-                inc.currency = destino if estrangeira else template.currency
-                inc.category = template.category
-                inc.original_amount = template.base_amount if estrangeira else None
-                inc.original_currency = template.currency if estrangeira else None
-                inc.exchange_rate = rate if estrangeira else None
-                inc.rate_source = source if estrangeira else None
-                db.add(inc)
-            return
-
-        base_currency = workspace_base_currency(db, template.workspace_id)
+        # Mesma regra da materialização: destino é a moeda de relatório do dono.
+        destino = _moeda_do_usuario(db, template.user_id)
         for inc in rows:
             occ = inc.received_at.date() if hasattr(inc.received_at, "date") else inc.received_at
-            converted, rate, _iof, source, _factor = _recurring_conversion(
-                db, template.workspace_id, template.base_amount, template.currency, occ, None
+            converted, rate, _iof, source, _factor = _conversao_para(
+                db, destino, template.base_amount, template.currency, occ,
             )
-            is_foreign = rate is not None
+            estrangeira = rate is not None
             inc.title = template.title
+            inc.description = template.description
             inc.amount = converted
-            inc.currency = base_currency if is_foreign else template.currency
+            inc.currency = destino if estrangeira else template.currency
             inc.category = template.category
-            inc.original_amount = template.base_amount if is_foreign else None
-            inc.original_currency = template.currency if is_foreign else None
-            inc.exchange_rate = rate if is_foreign else None
-            inc.rate_source = source if is_foreign else None
+            inc.original_amount = template.base_amount if estrangeira else None
+            inc.original_currency = template.currency if estrangeira else None
+            inc.exchange_rate = rate if estrangeira else None
+            inc.rate_source = source if estrangeira else None
             db.add(inc)
 
 
@@ -881,26 +782,24 @@ class RecurringMaterializationService:
     então nunca cria retroativo em mês fechado."""
 
     @staticmethod
-    def ensure_current_month(
-        db: Session, workspace_id: int, today: date, *, user_id: Optional[int] = None
-    ) -> dict:
+    def ensure_current_month(db: Session, workspace_id: int, today: date) -> dict:
+        """Só DESPESA: a renda recorrente é pessoal e não passa por workspace
+        nenhum (ADR 0021) — ela é materializada por `ensure_income_and_commit`,
+        chamada nas rotas `/me`."""
         # allow_fetch=False: este é o caminho de LEITURA (GET). Buscar cotação
         # aqui bloqueava a resposta por até ~50s contra uma fonte externa.
         exp = RecurringService.generate_due_instances(
             db, workspace_id, today, allow_fetch=False
         )
         promovidas = RecurringService.promote_due_instances(db, workspace_id, today)
-        inc = RecurringIncomeService.generate_due_income(
-            db, workspace_id, today, user_id=user_id, allow_fetch=False
-        )
-        return {"expenses": exp, "income": inc, "promoted": promovidas}
+        return {"expenses": exp, "promoted": promovidas}
 
     # ---- Escopo retroativo (start_date no passado) ---------------------------
 
     @staticmethod
     def apply_scope(
         db: Session,
-        workspace_id: int,
+        workspace_id: Optional[int],
         template,
         scope: str,
         *,
@@ -936,8 +835,11 @@ class RecurringMaterializationService:
         created = 0
         for year, month in months:
             if is_income:
+                # Renda: o recorte é o dono do template, não `workspace_id` (que
+                # vem `None` das rotas pessoais).
                 created += RecurringIncomeService.generate_due_income(
-                    db, workspace_id, today, year=year, month=month, template_id=template.id
+                    db, template.user_id, today,
+                    year=year, month=month, template_id=template.id,
                 )
             elif (year, month) == (today.year, today.month):
                 created += RecurringService.generate_due_instances(
@@ -951,41 +853,51 @@ class RecurringMaterializationService:
     _MIN_ROLE = WorkspaceRole.member
 
     @staticmethod
-    def _tem_template_ativo(
-        db: Session, workspace_id: int, user_id: Optional[int] = None
-    ) -> bool:
-        """Existe alguma recorrência ativa a materializar? Consultas baratas
-        (EXISTS por índice) antes de qualquer escrita.
-
-        Inclui os templates PESSOAIS do usuário (ADR 0019): num workspace recém-
-        criado não há recorrência própria nenhuma, e o curto-circuito devolveria
-        `False` — o salário global nunca seria materializado ali, que é exatamente
-        o sintoma de "criei um workspace novo e a renda não contou".
-        """
+    def _tem_template_ativo(db: Session, workspace_id: int) -> bool:
+        """Existe alguma recorrência de DESPESA ativa a materializar? Consulta
+        barata (EXISTS por índice) antes de qualquer escrita."""
         despesa = db.exec(
             select(RecurringExpense.id)
             .where(RecurringExpense.workspace_id == workspace_id)
             .where(RecurringExpense.is_active.is_(True))
             .limit(1)
         ).first()
-        if despesa is not None:
-            return True
-        escopo = RecurringIncome.workspace_id == workspace_id
-        if user_id is not None:
-            escopo = or_(
-                escopo,
-                and_(
-                    RecurringIncome.workspace_id.is_(None),
-                    RecurringIncome.user_id == user_id,
-                ),
+        return despesa is not None
+
+    @staticmethod
+    def ensure_income_and_commit(
+        db: Session, user_id: int, today: Optional[date] = None
+    ) -> int:
+        """Materialização preguiçosa da renda recorrente PESSOAL (ADR 0021).
+
+        Par de `ensure_and_commit` para o lado pessoal: chamada nas rotas de
+        leitura de `/me`, sem workspace nenhum no caminho. Antes isto viajava de
+        carona na materialização do workspace, e a carona era a razão de o
+        salário só aparecer depois de abrir a tela de um workspace — num usuário
+        recém-criado, nenhuma.
+
+        Best-effort e sem eventos, pelas mesmas razões de `ensure_and_commit`.
+        """
+        today = today or date.today()
+        try:
+            ativo = db.exec(
+                select(RecurringIncome.id)
+                .where(RecurringIncome.user_id == user_id)
+                .where(RecurringIncome.is_active.is_(True))
+                .limit(1)
+            ).first()
+            if ativo is None:
+                return 0
+            criadas = RecurringIncomeService.generate_due_income(
+                db, user_id, today, allow_fetch=False
             )
-        renda = db.exec(
-            select(RecurringIncome.id)
-            .where(escopo)
-            .where(RecurringIncome.is_active.is_(True))
-            .limit(1)
-        ).first()
-        return renda is not None
+            if criadas:
+                db.commit()
+            return criadas
+        except Exception:
+            db.rollback()
+            logger.exception("materializacao_renda_falhou", user_id=user_id)
+            return 0
 
     @staticmethod
     def ensure_and_commit(
@@ -994,12 +906,14 @@ class RecurringMaterializationService:
         today: Optional[date] = None,
         *,
         role=None,
-        user_id: Optional[int] = None,
     ) -> dict:
         """Conveniência para o caminho de leitura: materializa e comita. Best-effort
         — nunca propaga erro para não derrubar um GET (a materialização é acessória
         à resposta). Não emite eventos: o próprio refetch já traz os dados novos e
         publicar aqui provocaria tempestade de refetch (WS/seq).
+
+        Cuida só da DESPESA recorrente, que é do workspace; a renda tem o caminho
+        próprio em `ensure_income_and_commit` (ADR 0021).
 
         Dois curto-circuitos, ambos ANTES de escrever qualquer coisa:
 
@@ -1012,17 +926,16 @@ class RecurringMaterializationService:
            materializar na maioria dos GETs, e mesmo assim pagava as consultas de
            dedup e um commit por requisição.
         """
+        vazio = {"expenses": 0, "promoted": 0}
         if role is not None and role_level(role) < role_level(
             RecurringMaterializationService._MIN_ROLE
         ):
-            return {"expenses": 0, "income": 0, "promoted": 0}
+            return vazio
         try:
-            if not RecurringMaterializationService._tem_template_ativo(
-                db, workspace_id, user_id
-            ):
-                return {"expenses": 0, "income": 0, "promoted": 0}
+            if not RecurringMaterializationService._tem_template_ativo(db, workspace_id):
+                return vazio
             result = RecurringMaterializationService.ensure_current_month(
-                db, workspace_id, today or date.today(), user_id=user_id
+                db, workspace_id, today or date.today()
             )
             # Nada mudou: o commit era puro custo (a sessão está limpa)
             if any(result.values()):
@@ -1034,4 +947,4 @@ class RecurringMaterializationService:
             # (snapshot inválido, taxa ausente, IntegrityError) desaparecia sem
             # rastro e o usuário só via "a recorrência não apareceu".
             logger.exception("materializacao_falhou", workspace_id=workspace_id)
-            return {"expenses": 0, "income": 0, "promoted": 0}
+            return vazio

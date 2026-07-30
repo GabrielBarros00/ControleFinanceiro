@@ -36,61 +36,70 @@ def income_setup(db_session: Session):
     }
 
 def test_create_income_success(income_setup, override_get_session):
-    ws_id = income_setup["ws1"].id
+    income_setup["ws1"].id
     payload = {
         "title": "Salary",
         "amount": 5000.0,
         "category": "Salary",
         "received_at": "2026-05-10T10:00:00"
     }
-    response = client.post(f"/api/v1/workspaces/{ws_id}/income/", json=payload, headers=income_setup["headers1"])
+    response = client.post("/api/v1/me/income/", json=payload, headers=income_setup["headers1"])
     assert response.status_code == 200
     assert response.json()["title"] == "Salary"
 
-def test_create_income_forbidden(income_setup, override_get_session):
-    ws_id = income_setup["ws1"].id
-    payload = {"title": "Hack", "amount": 100, "category": "X", "received_at": "2026-05-10T10:00:00"}
-    # User 2 is not in WS 1
-    response = client.post(f"/api/v1/workspaces/{ws_id}/income/", json=payload, headers=income_setup["headers2"])
-    assert response.status_code == 403
+def test_renda_criada_pertence_a_quem_criou(income_setup, override_get_session):
+    """Rota pessoal não tem "proibido": ela cria a renda DE QUEM PEDE (ADR 0021).
+
+    Antes o u2 levava 403 por não ser membro do ws1 — o gate era o workspace da
+    URL. Agora não há workspace na URL, e o isolamento é que a renda do u2 nasce
+    dele e nunca aparece para o u1.
+    """
+    payload = {"title": "Do u2", "amount": 100, "received_at": "2026-05-10T10:00:00"}
+    response = client.post("/api/v1/me/income", json=payload, headers=income_setup["headers2"])
+    assert response.status_code == 200
+    assert response.json()["user_id"] == income_setup["u2"].id
+
+    do_u1 = client.get("/api/v1/me/income", headers=income_setup["headers1"]).json()
+    assert response.json()["id"] not in [i["id"] for i in do_u1]
 
 def test_list_income_success(db_session: Session, income_setup, override_get_session):
-    ws_id = income_setup["ws1"].id
+    income_setup["ws1"].id
     u1_id = income_setup["u1"].id
     
     # Create one income
-    db_session.add(Income(title="I1", amount=100, category="C", workspace_id=ws_id, user_id=u1_id))
+    db_session.add(Income(title="I1", amount=100, category="C", user_id=u1_id))
     db_session.commit()
     
-    response = client.get(f"/api/v1/workspaces/{ws_id}/income/", headers=income_setup["headers1"])
+    response = client.get("/api/v1/me/income/", headers=income_setup["headers1"])
     assert response.status_code == 200
     assert len(response.json()) == 1
 
-def test_list_income_forbidden(income_setup, override_get_session):
-    ws_id = income_setup["ws1"].id
-    response = client.get(f"/api/v1/workspaces/{ws_id}/income/", headers=income_setup["headers2"])
-    assert response.status_code == 403
+def test_list_income_de_outro_usuario_vem_vazia(income_setup, override_get_session):
+    """O u2 não vê a renda do u1: a lista dele é a lista DELE."""
+    response = client.get("/api/v1/me/income", headers=income_setup["headers2"])
+    assert response.status_code == 200
+    assert response.json() == []
 
 
 def test_list_income_filtra_por_mes(db_session: Session, income_setup, override_get_session):
     from datetime import datetime
-    ws_id = income_setup["ws1"].id
+    income_setup["ws1"].id
     u1_id = income_setup["u1"].id
-    db_session.add(Income(title="Maio", amount=100, workspace_id=ws_id, user_id=u1_id,
+    db_session.add(Income(title="Maio", amount=100, user_id=u1_id,
                           received_at=datetime(2026, 5, 10, 12, 0, 0)))
-    db_session.add(Income(title="Junho", amount=200, workspace_id=ws_id, user_id=u1_id,
+    db_session.add(Income(title="Junho", amount=200, user_id=u1_id,
                           received_at=datetime(2026, 6, 10, 12, 0, 0)))
     db_session.commit()
 
-    resp = client.get(f"/api/v1/workspaces/{ws_id}/income/?month=2026-05", headers=income_setup["headers1"])
+    resp = client.get("/api/v1/me/income/?month=2026-05", headers=income_setup["headers1"])
     assert resp.status_code == 200
     assert [i["title"] for i in resp.json()] == ["Maio"]
 
-    resp = client.get(f"/api/v1/workspaces/{ws_id}/income/?month=2026-06", headers=income_setup["headers1"])
+    resp = client.get("/api/v1/me/income/?month=2026-06", headers=income_setup["headers1"])
     assert [i["title"] for i in resp.json()] == ["Junho"]
 
     # Sem mês: retorna tudo (compat. com o comportamento antigo)
-    resp = client.get(f"/api/v1/workspaces/{ws_id}/income/", headers=income_setup["headers1"])
+    resp = client.get("/api/v1/me/income/", headers=income_setup["headers1"])
     assert len(resp.json()) == 2
 
 
@@ -98,9 +107,9 @@ def test_income_estrangeira_converte(db_session: Session, income_setup, override
     from decimal import Decimal
     from app.services import currency_service as cs
     monkeypatch.setattr(cs.CurrencyService, "get_rate_sync", lambda *a, **k: (Decimal("5.00"), "ptax"))
-    ws_id = income_setup["ws1"].id
+    income_setup["ws1"].id
     resp = client.post(
-        f"/api/v1/workspaces/{ws_id}/income/",
+        "/api/v1/me/income/",
         json={"title": "Freela USD", "amount": 100.0, "currency": "USD", "received_at": "2026-05-10T10:00:00"},
         headers=income_setup["headers1"],
     )
@@ -119,9 +128,9 @@ def test_income_edicao_parcial_preserva_original(income_setup, override_get_sess
     from decimal import Decimal
     from app.services import currency_service as cs
     monkeypatch.setattr(cs.CurrencyService, "get_rate_sync", lambda *a, **k: (Decimal("5.00"), "ptax"))
-    ws_id = income_setup["ws1"].id
+    income_setup["ws1"].id
     resp = client.post(
-        f"/api/v1/workspaces/{ws_id}/income/",
+        "/api/v1/me/income/",
         json={"title": "Freela USD", "amount": 100.0, "currency": "USD", "received_at": "2026-05-10T10:00:00"},
         headers=income_setup["headers1"],
     )
@@ -129,7 +138,7 @@ def test_income_edicao_parcial_preserva_original(income_setup, override_get_sess
 
     # PUT só com o título — sem amount/currency
     resp = client.put(
-        f"/api/v1/workspaces/{ws_id}/income/{income_id}",
+        f"/api/v1/me/income/{income_id}",
         json={"title": "Freela USD (renomeado)"},
         headers=income_setup["headers1"],
     )
@@ -150,16 +159,16 @@ def test_income_edicao_para_brl_limpa_original(income_setup, override_get_sessio
     from decimal import Decimal
     from app.services import currency_service as cs
     monkeypatch.setattr(cs.CurrencyService, "get_rate_sync", lambda *a, **k: (Decimal("5.00"), "ptax"))
-    ws_id = income_setup["ws1"].id
+    income_setup["ws1"].id
     resp = client.post(
-        f"/api/v1/workspaces/{ws_id}/income/",
+        "/api/v1/me/income/",
         json={"title": "Freela USD", "amount": 100.0, "currency": "USD", "received_at": "2026-05-10T10:00:00"},
         headers=income_setup["headers1"],
     )
     income_id = resp.json()["id"]
 
     resp = client.put(
-        f"/api/v1/workspaces/{ws_id}/income/{income_id}",
+        f"/api/v1/me/income/{income_id}",
         json={"amount": 300.0, "currency": "BRL"},
         headers=income_setup["headers1"],
     )

@@ -90,7 +90,7 @@ def _despesa(ctx, workspace_id, total, pago_por_mim, minha_parte, titulo="Despes
 def test_renda_pessoal_entra_uma_vez_no_global(duas_casas):
     """A renda é da pessoa: some UMA vez, não uma por workspace."""
     client.post(
-        f"/api/v1/workspaces/{duas_casas['ws']}/income/",
+        "/api/v1/me/income/",
         json={"title": "Salário", "amount": "9000.00", "received_at": QUANDO.isoformat()},
         headers=duas_casas["headers"],
     )
@@ -110,7 +110,7 @@ def test_consumo_soma_os_dois_workspaces(duas_casas):
 def test_resultado_e_renda_menos_consumo(duas_casas):
     """"Resultado do mês" — o número que o Início chamava de "Seu saldo"."""
     client.post(
-        f"/api/v1/workspaces/{duas_casas['ws']}/income/",
+        "/api/v1/me/income/",
         json={"title": "Salário", "amount": "5000.00", "received_at": QUANDO.isoformat()},
         headers=duas_casas["headers"],
     )
@@ -195,7 +195,7 @@ def test_resultado_usa_consumo_e_nao_caixa(db_session, override_get_session):
     client.post(f"/api/v1/invites/accept/{token}", headers=colega["headers"])
 
     client.post(
-        f"/api/v1/workspaces/{dono['ws']}/income/",
+        "/api/v1/me/income/",
         json={"title": "Salário", "amount": "5000.00", "received_at": QUANDO.isoformat()},
         headers=dono["headers"],
     )

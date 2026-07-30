@@ -110,7 +110,7 @@ def test_generate_income_respects_interval(db_session: Session):
     db_session.flush()
     tmpl = RecurringIncome(
         title="Bônus", base_amount=Decimal("100.00"),
-        workspace_id=ws.id, user_id=u.id,
+        user_id=u.id,
         frequency=RecurrenceFrequency.monthly, interval=2,
         start_date=date(2026, 1, 10), day_of_month=10,
     )
@@ -118,12 +118,12 @@ def test_generate_income_respects_interval(db_session: Session):
     db_session.commit()
 
     # fevereiro está fora do ciclo (a cada 2 meses a partir de janeiro)
-    assert RecurringIncomeService.generate_due_income(db_session, ws.id, date(2026, 2, 15)) == 0
+    assert RecurringIncomeService.generate_due_income(db_session, u.id, date(2026, 2, 15)) == 0
     db_session.commit()
     # março está no ciclo
-    assert RecurringIncomeService.generate_due_income(db_session, ws.id, date(2026, 3, 15)) == 1
+    assert RecurringIncomeService.generate_due_income(db_session, u.id, date(2026, 3, 15)) == 1
     db_session.commit()
 
-    incomes = db_session.exec(select(Income).where(Income.workspace_id == ws.id)).all()
+    incomes = db_session.exec(select(Income).where(Income.user_id == u.id)).all()
     assert len(incomes) == 1
     assert incomes[0].billing_month == "2026-03"

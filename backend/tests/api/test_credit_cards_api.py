@@ -44,7 +44,7 @@ def setup_data(db_session: Session):
     }
 
 def test_create_credit_card(setup_data, override_get_session):
-    ws1 = setup_data["ws1"]
+    setup_data["ws1"]
     
     payload = {
         "name": "Nubank",
@@ -53,37 +53,39 @@ def test_create_credit_card(setup_data, override_get_session):
         "due_day": 15
     }
     
-    response = client.post(f"/api/v1/workspaces/{ws1.id}/credit-cards/", json=payload, headers=setup_data["headers1"])
+    response = client.post("/api/v1/me/credit-cards/", json=payload, headers=setup_data["headers1"])
     assert response.status_code == 200
     assert response.json()["name"] == "Nubank"
     assert float(response.json()["limit"]) == 5000.0
 
 def test_list_credit_cards_isolation(db_session: Session, setup_data, override_get_session):
-    ws1 = setup_data["ws1"]
-    ws2 = setup_data["ws2"]
-    
-    # Card in WS1
-    c1 = CreditCard(name="Card 1", limit=1000, closing_day=1, due_day=10, workspace_id=ws1.id)
-    # Card in WS2
-    c2 = CreditCard(name="Card 2", limit=2000, closing_day=1, due_day=10, workspace_id=ws2.id)
+    """O isolamento é por DONO, não por workspace (ADR 0021)."""
+    # Cartão do u1
+    c1 = CreditCard(name="Card 1", limit=1000, closing_day=1, due_day=10,
+                    owner_user_id=setup_data["u1"].id)
+    # Cartão do u2
+    c2 = CreditCard(name="Card 2", limit=2000, closing_day=1, due_day=10,
+                    owner_user_id=setup_data["u2"].id)
     db_session.add_all([c1, c2])
     db_session.commit()
-    
+
     # User 1 should only see Card 1
-    response = client.get(f"/api/v1/workspaces/{ws1.id}/credit-cards/", headers=setup_data["headers1"])
+    response = client.get("/api/v1/me/credit-cards/", headers=setup_data["headers1"])
     assert response.status_code == 200
     data = response.json()
     assert len(data) == 1
     assert data[0]["name"] == "Card 1"
 
-def test_credit_card_security_forbidden(setup_data, override_get_session):
-    ws2 = setup_data["ws2"]
-    
-    # User 1 tries to list cards in WS2 (Forbidden)
-    response = client.get(f"/api/v1/workspaces/{ws2.id}/credit-cards/", headers=setup_data["headers1"])
-    assert response.status_code == 403
-    
-    # User 1 tries to create card in WS2 (Forbidden)
-    payload = {"name": "Hacker Card", "limit": 100, "closing_day": 1, "due_day": 2}
-    response = client.post(f"/api/v1/workspaces/{ws2.id}/credit-cards/", json=payload, headers=setup_data["headers1"])
-    assert response.status_code == 403
+def test_cartao_criado_pertence_a_quem_criou(setup_data, override_get_session):
+    """Rota pessoal não tem "proibido" (ADR 0021): ela cria o cartão DE QUEM PEDE.
+
+    Antes o gate era o workspace da URL e um não-membro levava 403. Agora o
+    isolamento é que o cartão nasce do criador e nunca aparece para outro.
+    """
+    payload = {"name": "Meu cartão", "limit": 100, "closing_day": 1, "due_day": 2}
+    response = client.post("/api/v1/me/credit-cards/", json=payload, headers=setup_data["headers1"])
+    assert response.status_code == 200
+    assert response.json()["owner_user_id"] == setup_data["u1"].id
+
+    do_u2 = client.get("/api/v1/me/credit-cards/", headers=setup_data["headers2"]).json()
+    assert response.json()["id"] not in [c["id"] for c in do_u2]

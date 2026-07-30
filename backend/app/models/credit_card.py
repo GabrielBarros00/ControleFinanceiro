@@ -2,7 +2,6 @@ from datetime import datetime, UTC
 from enum import Enum
 from typing import Optional, List
 from decimal import Decimal
-from sqlalchemy import Column, String
 from sqlmodel import SQLModel, Field, Relationship, UniqueConstraint
 
 class StatementStatus(str, Enum):
@@ -24,55 +23,31 @@ class CreditCardBase(SQLModel):
     currency: str = Field(default="BRL")
 
 class CreditCard(CreditCardBase, table=True):
+    """Cartão de crédito de UMA pessoa (ADR 0021).
+
+    Não tem `workspace_id`, e a ausência é a regra de privacidade: o cartão
+    acompanha o dono em todo workspace de que ele participa, e nenhuma consulta
+    escopada por workspace consegue alcançá-lo. Ninguém além do dono vê limite,
+    fatura ou compras — nem `admin`, nem quem tem `financial_access=full_workspace`,
+    que governa dado do workspace e não recurso pessoal.
+
+    A Onda 2 tinha tentado o meio-termo: o cartão morava num workspace e uma
+    tabela `CardWorkspaceAccess` o estendia a outros com nível `use`/`full`. O
+    nível `full` nunca chegou a ser consultado por rota nenhuma, então na prática
+    todo cartão compartilhado entregava limite, comprometido e a fatura inteira
+    (com as compras privadas de outro workspace dentro) a quem tivesse acesso
+    completo no destino — e ainda assim não podia ser USADO ali, porque a criação
+    de lançamento exigia `card.workspace_id == workspace_id`. Vazava e não servia.
+    """
     id: Optional[int] = Field(default=None, primary_key=True)
-    workspace_id: int = Field(foreign_key="workspace.id", index=True)
-    # Dono do cartão. `CreditCard` era a ÚNICA entidade financeira sem nenhuma
-    # coluna de usuário — daí não haver como esconder o cartão de quem não tem
-    # nada com ele, nem como impedir que qualquer member mexesse no limite do
-    # cartão alheio (ADR 0018).
-    #
-    # NULL = cartão compartilhado legado (nasceu antes desta coluna, num workspace
-    # com vários membros): continua visível e editável por todos, como sempre foi,
-    # até alguém assumir a propriedade. A Onda 2 acrescenta `CardWorkspaceAccess`
-    # para separar "usar neste workspace" de "ver a fatura inteira".
-    owner_user_id: Optional[int] = Field(default=None, foreign_key="user.id", index=True)
+    # Dono — a identidade do cartão. NOT NULL: "cartão de todo mundo" era o que
+    # fazia qualquer member mexer no limite alheio.
+    owner_user_id: int = Field(foreign_key="user.id", index=True)
     created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
     updated_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
     deleted_at: Optional[datetime] = Field(default=None)
 
     statements: List["CardStatement"] = Relationship(back_populates="card")
-
-class CardAccessLevel(str, Enum):
-    """O que um workspace enxerga de um cartão pessoal (ADR 0019)."""
-
-    use = "use"    # lançar compras nele e ver as compras DAQUELE workspace
-    full = "full"  # tudo: limite, comprometido e a fatura inteira
-
-
-class CardWorkspaceAccess(SQLModel, table=True):
-    """Cartão pessoal disponibilizado a um workspace (ADR 0019).
-
-    Resolve a contagem dobrada: antes, usar o mesmo cartão em dois workspaces
-    exigia cadastrá-lo duas vezes, e cada cópia gerava a sua fatura — a MESMA
-    dívida aparecendo dois lugares no Endividamento.
-
-    `access` separa "usar" de "devassar": com `use`, o workspace lança compras no
-    cartão e vê o subtotal DELE; o limite e a fatura inteira continuam sendo do
-    dono. É a granularidade que faltava na Onda 1, onde quem tinha uma compra no
-    cartão alheio via o limite do dono junto.
-    """
-    __table_args__ = (
-        UniqueConstraint("card_id", "workspace_id", name="uq_card_access_card_workspace"),
-    )
-
-    id: Optional[int] = Field(default=None, primary_key=True)
-    card_id: int = Field(foreign_key="creditcard.id", index=True)
-    workspace_id: int = Field(foreign_key="workspace.id", index=True)
-    access: CardAccessLevel = Field(
-        default=CardAccessLevel.use,
-        sa_column=Column(String(10), nullable=False, server_default="use"),
-    )
-    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
 
 
 class CardStatementBase(SQLModel):
@@ -113,7 +88,8 @@ class StatementPayment(SQLModel, table=True):
     ele apenas registra origem/valor/data e libera o limite comprometido.
     """
     id: Optional[int] = Field(default=None, primary_key=True)
-    workspace_id: int = Field(foreign_key="workspace.id", index=True)
+    # Sem `workspace_id`: pagar a própria fatura é ato pessoal, e a conta de
+    # origem também é do dono (ADR 0021).
     statement_id: int = Field(foreign_key="cardstatement.id", index=True)
     account_id: Optional[int] = Field(default=None, foreign_key="paymentaccount.id", index=True)
     amount: Decimal = Field(decimal_places=2, max_digits=20)

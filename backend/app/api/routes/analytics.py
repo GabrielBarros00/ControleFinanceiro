@@ -47,7 +47,7 @@ def get_summary(
     # Recorrências vencidas do mês corrente entram sozinhas (lazy accrual),
     # sempre no mês real — visualizar outro mês não materializa retroativo.
     RecurringMaterializationService.ensure_and_commit(
-        session, workspace_id, role=membership.role, user_id=membership.user_id
+        session, workspace_id, role=membership.role
     )
     return ReportService.get_summary(
         session,
@@ -69,7 +69,7 @@ def get_reports(
     é o dele. Sem o parâmetro, o mês corrente (comportamento antigo)."""
     target_date = _parse_month(month)
     RecurringMaterializationService.ensure_and_commit(
-        session, workspace_id, role=membership.role, user_id=membership.user_id
+        session, workspace_id, role=membership.role
     )
     acesso_completo = has_full_access(membership)
     return {

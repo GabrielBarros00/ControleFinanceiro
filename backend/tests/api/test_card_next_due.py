@@ -21,9 +21,8 @@ client = TestClient(app)
 @pytest.fixture(name="card_ws")
 def card_ws_fixture(db_session: Session, setup_data):
     card = CreditCard(
-        workspace_id=setup_data["ws1"].id, name="Nubank",
-        limit=Decimal("5000.00"), closing_day=25, due_day=5,
-    )
+        name="Nubank",
+        limit=Decimal("5000.00"), closing_day=25, due_day=5, owner_user_id=setup_data["u1"].id)
     db_session.add(card)
     db_session.commit()
     db_session.refresh(card)
@@ -48,7 +47,7 @@ def _post_tx(ws_id, headers, user_id, card_id, amount, dt):
 
 
 def _cards(ws_id, headers):
-    resp = client.get(f"/api/v1/workspaces/{ws_id}/credit-cards/", headers=headers)
+    resp = client.get("/api/v1/me/credit-cards/", headers=headers)
     assert resp.status_code == 200, resp.text
     return resp.json()
 
@@ -97,7 +96,7 @@ def test_fatura_paga_sai_do_next_due(card_ws, override_get_session, db_session):
     _post_tx(ws.id, headers, u1.id, card.id, 400.0, "2026-02-10T12:00:00")
     jan = _cards(ws.id, headers)[0]["next_due"]["statement_id"]
 
-    base = f"/api/v1/workspaces/{ws.id}/credit-cards/{card.id}/statements/{jan}"
+    base = f"/api/v1/me/credit-cards/{card.id}/statements/{jan}"
     assert client.post(f"{base}/close", headers=headers).status_code == 200
     assert client.post(f"{base}/pay", json={}, headers=headers).status_code == 200
 
@@ -111,7 +110,7 @@ def test_fatura_zerada_nao_vira_alerta(card_ws, override_get_session, db_session
     sobre uma fatura de R$ 0,00 seria ruído."""
     ws, card, headers = card_ws["ws1"], card_ws["card"], card_ws["headers1"]
     resp = client.get(
-        f"/api/v1/workspaces/{ws.id}/credit-cards/{card.id}/statements", headers=headers
+        f"/api/v1/me/credit-cards/{card.id}/statements", headers=headers
     )
     assert resp.status_code == 200
     assert len(resp.json()) >= 1  # materializada
@@ -167,10 +166,10 @@ def test_mudar_dia_do_ciclo_atualiza_a_fatura_aberta(db_session, setup_data, ove
     from app.models.credit_card import CardStatement, StatementStatus
     from sqlmodel import select
 
-    ws, headers = setup_data["ws1"], setup_data["headers1"]
+    _ws, headers = setup_data["ws1"], setup_data["headers1"]
 
     resp = client.post(
-        f"/api/v1/workspaces/{ws.id}/credit-cards/",
+        "/api/v1/me/credit-cards/",
         json={"name": "Cartão", "limit": 5000, "closing_day": 5, "due_day": 15},
         headers=headers,
     )
@@ -178,12 +177,12 @@ def test_mudar_dia_do_ciclo_atualiza_a_fatura_aberta(db_session, setup_data, ove
     card_id = resp.json()["id"]
 
     # Materializa a fatura do ciclo corrente
-    resp = client.get(f"/api/v1/workspaces/{ws.id}/credit-cards/{card_id}/statements", headers=headers)
+    resp = client.get(f"/api/v1/me/credit-cards/{card_id}/statements", headers=headers)
     assert resp.status_code == 200, resp.text
     assert resp.json(), "nenhuma fatura materializada"
 
     resp = client.put(
-        f"/api/v1/workspaces/{ws.id}/credit-cards/{card_id}",
+        f"/api/v1/me/credit-cards/{card_id}",
         json={"closing_day": 20, "due_day": 28},
         headers=headers,
     )

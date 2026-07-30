@@ -13,9 +13,8 @@ from app.services.credit_card_service import CreditCardService
 @pytest.fixture(name="card")
 def card_fixture(db_session: Session, seed_ws):
     card = CreditCard(
-        workspace_id=seed_ws["ws"].id, name="Card",
-        limit=Decimal("5000.00"), closing_day=25, due_day=5,
-    )
+        name="Card",
+        limit=Decimal("5000.00"), closing_day=25, due_day=5, owner_user_id=seed_ws["user"].id)
     db_session.add(card)
     db_session.commit()
     db_session.refresh(card)
@@ -54,9 +53,8 @@ def test_due_date_no_mes_seguinte_quando_vence_antes_de_fechar(db_session, card)
 
 def test_due_date_no_mesmo_mes_quando_vence_depois_de_fechar(db_session, seed_ws):
     card = CreditCard(
-        workspace_id=seed_ws["ws"].id, name="Card2",
-        limit=Decimal("5000.00"), closing_day=5, due_day=20,
-    )
+        name="Card2",
+        limit=Decimal("5000.00"), closing_day=5, due_day=20, owner_user_id=seed_ws["user"].id)
     db_session.add(card)
     db_session.commit()
     db_session.refresh(card)
@@ -71,9 +69,8 @@ def test_due_date_no_mesmo_mes_quando_vence_depois_de_fechar(db_session, seed_ws
 
 def test_dia_31_limitado_em_fevereiro(db_session, seed_ws):
     card = CreditCard(
-        workspace_id=seed_ws["ws"].id, name="Card31",
-        limit=Decimal("5000.00"), closing_day=31, due_day=10,
-    )
+        name="Card31",
+        limit=Decimal("5000.00"), closing_day=31, due_day=10, owner_user_id=seed_ws["user"].id)
     db_session.add(card)
     db_session.commit()
     db_session.refresh(card)

@@ -5,7 +5,7 @@ from typing import Optional
 
 from sqlmodel import Session, select, func
 
-from app.domain.query_policy import REALIZED_STATUSES, workspace_base_currency
+from app.domain.query_policy import REALIZED_STATUSES
 from app.models.credit_card import (
     CreditCard,
     CardStatement,
@@ -159,25 +159,26 @@ class CreditCardService:
     @staticmethod
     def compute_statement_total(db: Session, statement_id: int) -> Decimal:
         """Soma server-side das transações realizadas da fatura (fonte de verdade
-        enquanto aberta). Ignora rascunho/cancelada e moeda diferente da base
-        do workspace (ADR 0006)."""
+        enquanto aberta). Ignora rascunho/cancelada e moeda diferente da do CARTÃO.
+
+        A moeda de referência é `card.currency`, não a base de um workspace
+        (ADR 0021). O cartão é pessoal e pode receber compras lançadas em
+        workspaces de moedas-base diferentes; a fatura é denominada na moeda do
+        cartão, e o que não bate fica de fora em vez de entrar com uma conversão
+        inventada — mesma política do `excluded_foreign_count` (ADR 0006).
+        """
         stmt = db.get(CardStatement, statement_id)
         if not stmt:
-            # Fatura inexistente não tem total — e inventar uma moeda-base aqui
-            # ("BRL" fixo) contradiz a regra de que nenhum default de moeda é
-            # literal (ADR 0015): num workspace em outra moeda o filtro abaixo
-            # casaria a moeda errada.
             return Decimal("0.00")
         card = db.get(CreditCard, stmt.card_id)
         if not card:
             return Decimal("0.00")
-        base_currency = workspace_base_currency(db, card.workspace_id)
         total = db.exec(
             select(func.sum(Transaction.total_amount)).where(
                 Transaction.statement_id == statement_id,
                 Transaction.deleted_at.is_(None),
                 Transaction.status.in_(REALIZED_STATUSES),
-                Transaction.currency == base_currency,
+                Transaction.currency == card.currency,
             )
         ).one()
         return total or Decimal("0.00")
@@ -308,7 +309,6 @@ class CreditCardService:
         db: Session,
         statement: CardStatement,
         *,
-        workspace_id: int,
         account: Optional[PaymentAccount],
         amount: Optional[Decimal],
         paid_at: Optional[datetime],
@@ -322,7 +322,6 @@ class CreditCardService:
             raise StatementStateError("Valor do pagamento deve ser positivo")
 
         payment = StatementPayment(
-            workspace_id=workspace_id,
             statement_id=statement.id,
             account_id=account.id if account else None,
             amount=pay_amount,

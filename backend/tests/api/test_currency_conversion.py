@@ -21,9 +21,8 @@ def ws_with_card_fixture(db_session: Session, setup_data):
         workspace_id=setup_data["ws1"].id, user_id=setup_data["u2"].id, role=WorkspaceRole.member,
     ))
     card = CreditCard(
-        workspace_id=setup_data["ws1"].id, name="Nubank",
-        limit=Decimal("50000.00"), closing_day=25, due_day=5,
-    )
+        name="Nubank",
+        limit=Decimal("50000.00"), closing_day=25, due_day=5, owner_user_id=setup_data["u1"].id)
     db_session.add(card)
     db_session.commit()
     db_session.refresh(card)

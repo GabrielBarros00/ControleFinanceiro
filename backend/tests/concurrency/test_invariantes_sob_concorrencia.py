@@ -102,7 +102,7 @@ def test_renda_recorrente_nao_duplica_sob_concorrencia(base):
     with Session(engine) as session:
         session.add(RecurringIncome(
             title="Salário", base_amount=Decimal("5000.00"), day_of_month=5,
-            workspace_id=base["ws_id"], user_id=base["user_id"],
+            user_id=base["user_id"],
         ))
         session.commit()
 

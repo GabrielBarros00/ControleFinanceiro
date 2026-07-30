@@ -80,3 +80,27 @@ def resolve_currency(session, workspace_id: int, currency: Optional[str]) -> str
     if not bruta:
         return workspace_base_currency(session, workspace_id)
     return normalize_currency_code(bruta)
+
+
+def user_report_currency(session, user_id: int) -> str:
+    """Moeda em que os números PESSOAIS da pessoa são expressos (ADR 0020)."""
+    from app.models.user import User
+
+    usuario = session.get(User, user_id)
+    return (usuario.report_currency if usuario and usuario.report_currency else BASE_CURRENCY)
+
+
+def resolve_personal_currency(session, user_id: int, currency: Optional[str]) -> str:
+    """Par de `resolve_currency` para RECURSO PESSOAL (ADR 0021).
+
+    Renda, cartão, conta e financiamento não têm workspace de onde herdar a moeda,
+    e usar a moeda-base do workspace ABERTO no navegador era o defeito que a
+    auditoria encontrou: a mesma renda pessoal nascia em USD ou em BRL conforme a
+    tela por onde ela foi cadastrada, e depois entrava ou não nos totais conforme
+    a moeda de quem estivesse olhando. O destino certo é a moeda de relatório da
+    PESSOA, que é a mesma em que `/me/overview` soma tudo.
+    """
+    bruta = (currency or "").strip()
+    if not bruta:
+        return user_report_currency(session, user_id)
+    return normalize_currency_code(bruta)

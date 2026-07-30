@@ -39,9 +39,11 @@ def idor_setup(db_session: Session):
     # 1. Transaction
     tx = Transaction(title="Secret Tx", total_amount=100, transaction_date=datetime.datetime.now(), workspace_id=ws2.id, created_by_user_id=u2.id)
     # 2. Income
-    inc = Income(title="Secret Pay", amount=5000, received_at=datetime.datetime.now(), workspace_id=ws2.id, user_id=u2.id)
-    # 3. Credit Card
-    card = CreditCard(name="Victim Card", limit=1000, closing_day=1, due_day=10, workspace_id=ws2.id)
+    inc = Income(title="Secret Pay", amount=5000, received_at=datetime.datetime.now(), user_id=u2.id)
+    # 3. Credit Card — pessoal da vítima (ADR 0021)
+    card = CreditCard(
+        name="Victim Card", limit=1000, closing_day=1, due_day=10, owner_user_id=u2.id
+    )
     # 4. Recurring
     rec = RecurringExpense(title="Rent", base_amount=1000, day_of_month=1, workspace_id=ws2.id)
     
@@ -81,9 +83,12 @@ def test_idor_get_transaction(idor_setup, override_get_session):
     assert response.status_code in [403, 404]
 
 def test_idor_list_income(idor_setup, override_get_session):
-    ws_id = idor_setup["victim_ws_id"]
-    response = client.get(f"/api/v1/workspaces/{ws_id}/income/", headers=idor_setup["attacker_headers"])
-    assert response.status_code in [403, 404]
+    """Rota PESSOAL não tem como ser atacada por id de workspace (ADR 0021): ela
+    responde 200 e devolve o que é de QUEM PERGUNTA. A prova de isolamento não é
+    mais o status, é o conteúdo — a renda da vítima não está lá."""
+    response = client.get("/api/v1/me/income", headers=idor_setup["attacker_headers"])
+    assert response.status_code == 200
+    assert idor_setup["victim_inc_id"] not in [i["id"] for i in response.json()]
 
 def test_idor_analytics_summary(idor_setup, override_get_session):
     ws_id = idor_setup["victim_ws_id"]
@@ -91,9 +96,20 @@ def test_idor_analytics_summary(idor_setup, override_get_session):
     assert response.status_code in [403, 404]
 
 def test_idor_list_credit_cards(idor_setup, override_get_session):
-    ws_id = idor_setup["victim_ws_id"]
-    response = client.get(f"/api/v1/workspaces/{ws_id}/credit-cards/", headers=idor_setup["attacker_headers"])
-    assert response.status_code in [403, 404]
+    response = client.get("/api/v1/me/credit-cards/", headers=idor_setup["attacker_headers"])
+    assert response.status_code == 200
+    assert idor_setup["victim_card_id"] not in [c["id"] for c in response.json()]
+
+
+def test_idor_cartao_alheio_por_id(idor_setup, override_get_session):
+    """Acesso direto ao id do cartão da vítima: 404 em todas as rotas do ciclo."""
+    card_id = idor_setup["victim_card_id"]
+    h = idor_setup["attacker_headers"]
+    assert client.get(f"/api/v1/me/credit-cards/{card_id}/statements", headers=h).status_code == 404
+    assert client.put(
+        f"/api/v1/me/credit-cards/{card_id}", json={"limit": "1.00"}, headers=h
+    ).status_code == 404
+    assert client.delete(f"/api/v1/me/credit-cards/{card_id}", headers=h).status_code == 404
 
 def test_idor_list_recurring(idor_setup, override_get_session):
     ws_id = idor_setup["victim_ws_id"]

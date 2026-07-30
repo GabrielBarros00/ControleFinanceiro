@@ -133,7 +133,7 @@ from app.models.credit_card import CreditCard
 def test_create_transaction_with_credit_card(db_session: Session, setup_data, override_get_session):
     ws1 = setup_data["ws1"]
     u1 = setup_data["u1"]
-    card = CreditCard(name="MasterCard", workspace_id=ws1.id, closing_day=25, due_day=5, limit=Decimal("10000.00"))
+    card = CreditCard(name="MasterCard", closing_day=25, due_day=5, limit=Decimal("10000.00"), owner_user_id=u1.id)
     db_session.add(card)
     db_session.commit()
     db_session.refresh(card)

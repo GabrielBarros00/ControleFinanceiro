@@ -239,8 +239,13 @@ def create_transaction(
     card = None
     if transaction_in.credit_card_id:
         card = session.get(CreditCard, transaction_in.credit_card_id)
-        if not card or card.workspace_id != workspace_id or card.deleted_at:
-            raise HTTPException(status_code=400, detail="Cartão de crédito inválido para este workspace")
+        # O gate é a PROPRIEDADE, não o workspace (ADR 0021): o cartão é meu e eu
+        # o uso em qualquer workspace de que participo. A checagem antiga
+        # (`card.workspace_id != workspace_id`) era o outro lado do defeito do
+        # compartilhamento — o cartão aparecia na listagem do workspace de destino
+        # e o lançamento nele respondia 400.
+        if not card or card.deleted_at or card.owner_user_id != membership.user_id:
+            raise HTTPException(status_code=400, detail="Cartão de crédito inválido")
 
     # Moeda ausente = a do workspace (nunca "BRL" fixo — ver resolve_currency)
     transaction_in = transaction_in.model_copy(update={
@@ -553,7 +558,7 @@ def list_transactions(
     # antes de montar o extrato — assim "tudo que é recorrente" aparece sem o botão.
     # `role`: um viewer não provoca escrita (ver ensure_and_commit).
     RecurringMaterializationService.ensure_and_commit(
-        session, workspace_id, role=membership.role, user_id=membership.user_id
+        session, workspace_id, role=membership.role
     )
 
     # Base query. O escopo de visibilidade (ADR 0018) entra ANTES de qualquer
@@ -703,8 +708,9 @@ def update_transaction(
         effective_card_id = update_data.get("credit_card_id", db_transaction.credit_card_id)
         if effective_card_id is not None:
             card = session.get(CreditCard, effective_card_id)
-            if not card or card.workspace_id != workspace_id or card.deleted_at:
-                raise HTTPException(status_code=400, detail="Cartão de crédito inválido para este workspace")
+            # Cartão é pessoal (ADR 0021): tem de ser de quem está editando.
+            if not card or card.deleted_at or card.owner_user_id != membership.user_id:
+                raise HTTPException(status_code=400, detail="Cartão de crédito inválido")
             effective_date = update_data.get("transaction_date", db_transaction.transaction_date)
             statement = CreditCardService.get_or_create_statement(session, card, effective_date)
             update_data["statement_id"] = statement.id
@@ -1363,8 +1369,8 @@ def update_installment_group(
     card = None
     if transaction_in.credit_card_id:
         card = session.get(CreditCard, transaction_in.credit_card_id)
-        if not card or card.workspace_id != workspace_id or card.deleted_at:
-            raise HTTPException(status_code=400, detail="Cartão de crédito inválido para este workspace")
+        if not card or card.deleted_at or card.owner_user_id != membership.user_id:
+            raise HTTPException(status_code=400, detail="Cartão de crédito inválido")
 
     # Moeda estrangeira: converte o total da compra para BRL (PTAX do dia + IOF)
     transaction_in, conv_meta = _convert_create_to_base(session, workspace_id, transaction_in)

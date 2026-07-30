@@ -21,15 +21,17 @@ client = TestClient(app)
 
 @pytest.fixture(name="two_ws_cards")
 def two_ws_cards_fixture(db_session: Session, setup_data):
-    """Um cartão em cada workspace + uma fatura pré-existente no ws2."""
+    """Um cartão de cada PESSOA + uma fatura pré-existente no cartão alheio.
+
+    Depois do ADR 0021 o eixo do isolamento é o dono, não o workspace: `card2` é
+    do u2 e o u1 não pode roteá-lo nem forjar a fatura dele.
+    """
     card1 = CreditCard(
-        workspace_id=setup_data["ws1"].id, name="Card WS1",
-        limit=Decimal("5000.00"), closing_day=25, due_day=5,
-    )
+        name="Card do u1",
+        limit=Decimal("5000.00"), closing_day=25, due_day=5, owner_user_id=setup_data["u1"].id)
     card2 = CreditCard(
-        workspace_id=setup_data["ws2"].id, name="Card WS2",
-        limit=Decimal("5000.00"), closing_day=25, due_day=5,
-    )
+        name="Card do u2",
+        limit=Decimal("5000.00"), closing_day=25, due_day=5, owner_user_id=setup_data["u2"].id)
     db_session.add_all([card1, card2])
     db_session.flush()
     foreign_stmt = CardStatement(
@@ -146,7 +148,7 @@ def test_remover_cartao_limpa_fatura(db_session, two_ws_cards, override_get_sess
     assert tx.credit_card_id is None
 
 
-def test_update_com_cartao_de_outro_workspace_e_rejeitado(
+def test_update_com_cartao_de_outra_pessoa_e_rejeitado(
     db_session, two_ws_cards, override_get_session
 ):
     ws1, u1 = two_ws_cards["ws1"], two_ws_cards["u1"]
@@ -181,13 +183,11 @@ def test_statement_for_anuncia_a_fatura_sem_criar_nada(
     Consultar enquanto digita não pode deixar faturas vazias para trás.
     """
     ws1, headers = two_ws_cards["ws1"], two_ws_cards["headers1"]
-    card1 = db_session.exec(
-        select(CreditCard).where(CreditCard.workspace_id == ws1.id)
-    ).first()  # closing_day=25, due_day=5
+    card1 = two_ws_cards["card1"]  # closing_day=25, due_day=5
 
     def alvo(dia_iso: str) -> dict:
         resp = client.get(
-            f"/api/v1/workspaces/{ws1.id}/credit-cards/{card1.id}/statement-for",
+            f"/api/v1/me/credit-cards/{card1.id}/statement-for",
             params={"on": dia_iso},
             headers=headers,
         )

@@ -143,7 +143,7 @@ def test_finish_onboarding_success(db_session: Session, override_get_session):
     assert income is not None
     assert income.amount == 5000.50
     
-    card = db_session.exec(select(CreditCard).where(CreditCard.workspace_id == ws.id)).first()
+    card = db_session.exec(select(CreditCard).where(CreditCard.owner_user_id == user.id)).first()
     assert card is not None
     assert card.name == "Nubank"
     assert card.limit == 2000.00
@@ -177,7 +177,7 @@ def test_finish_onboarding_minimal(db_session: Session, override_get_session):
     assert response.status_code == 200
 
     # Verify no card created
-    card = db_session.exec(select(CreditCard).where(CreditCard.workspace_id == ws.id)).first()
+    card = db_session.exec(select(CreditCard).where(CreditCard.owner_user_id == user.id)).first()
     assert card is None
 
 

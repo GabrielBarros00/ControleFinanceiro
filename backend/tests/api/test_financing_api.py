@@ -10,7 +10,7 @@ client = TestClient(app)
 
 def _create_financing(ws_id, headers):
     return client.post(
-        f"/api/v1/workspaces/{ws_id}/financing",
+        "/api/v1/me/financing",
         json={
             "title": "Carro",
             "total_amount": 1200.0,
@@ -30,11 +30,12 @@ def test_pagar_parcela_gera_transacao(db_session, setup_data, override_get_sessi
     fin_id = resp.json()["id"]
 
     # Cronograma: 1ª parcela vence em fev (mês de calendário a partir de 31/jan)
-    schedule = client.get(f"/api/v1/workspaces/{ws.id}/financing/{fin_id}/schedule", headers=headers).json()
+    schedule = client.get(f"/api/v1/me/financing/{fin_id}/schedule", headers=headers).json()
     first = schedule[0]
 
     resp = client.post(
-        f"/api/v1/workspaces/{ws.id}/financing/{fin_id}/installments/1/pay",
+        f"/api/v1/me/financing/{fin_id}/installments/1/pay",
+        json={"workspace_id": ws.id},
         headers=headers,
     )
     assert resp.status_code == 200, resp.text
@@ -55,8 +56,9 @@ def test_pagar_parcela_gera_transacao(db_session, setup_data, override_get_sessi
 def test_pagar_parcela_ja_paga_falha(db_session, setup_data, override_get_session):
     ws, headers = setup_data["ws1"], setup_data["headers1"]
     fin_id = _create_financing(ws.id, headers).json()["id"]
-    client.post(f"/api/v1/workspaces/{ws.id}/financing/{fin_id}/installments/1/pay", headers=headers)
-    resp = client.post(f"/api/v1/workspaces/{ws.id}/financing/{fin_id}/installments/1/pay", headers=headers)
+    pagar = {"workspace_id": ws.id}
+    client.post(f"/api/v1/me/financing/{fin_id}/installments/1/pay", json=pagar, headers=headers)
+    resp = client.post(f"/api/v1/me/financing/{fin_id}/installments/1/pay", json=pagar, headers=headers)
     assert resp.status_code == 400
     # Não cria uma segunda transação para a mesma parcela
     txs = db_session.exec(select(Transaction).where(Transaction.workspace_id == ws.id)).all()
@@ -83,7 +85,7 @@ def test_pagar_parcela_de_financiamento_simulado_e_recusado(
     db_session.commit()
 
     resp = client.post(
-        f"/api/v1/workspaces/{ws.id}/financing/{fin_id}/installments/1/pay", headers=headers
+        f"/api/v1/me/financing/{fin_id}/installments/1/pay", headers=headers
     )
     assert resp.status_code == 409
     assert "não está ativo" in resp.json()["error"]["message"]
@@ -103,20 +105,21 @@ def test_estorno_encontra_a_despesa_mesmo_apos_renomear(db_session, setup_data, 
     fin_id = _create_financing(ws.id, headers).json()["id"]
 
     pago = client.post(
-        f"/api/v1/workspaces/{ws.id}/financing/{fin_id}/installments/1/pay", headers=headers
+        f"/api/v1/me/financing/{fin_id}/installments/1/pay",
+        json={"workspace_id": ws.id}, headers=headers,
     )
     tx_id = pago.json()["transaction_id"]
 
     # Renomeia DEPOIS de pagar — só o título, então o cronograma não é regerado
     renomeado = client.put(
-        f"/api/v1/workspaces/{ws.id}/financing/{fin_id}",
+        f"/api/v1/me/financing/{fin_id}",
         json={"title": "Carro novo"},
         headers=headers,
     )
     assert renomeado.status_code == 200, renomeado.text
 
     estorno = client.post(
-        f"/api/v1/workspaces/{ws.id}/financing/{fin_id}/installments/1/unpay", headers=headers
+        f"/api/v1/me/financing/{fin_id}/installments/1/unpay", headers=headers
     )
     assert estorno.status_code == 200, estorno.text
 
@@ -132,7 +135,8 @@ def test_estorno_nao_apaga_despesa_homonima(db_session, setup_data, override_get
     ws, headers = setup_data["ws1"], setup_data["headers1"]
     fin_id = _create_financing(ws.id, headers).json()["id"]
     client.post(
-        f"/api/v1/workspaces/{ws.id}/financing/{fin_id}/installments/1/pay", headers=headers
+        f"/api/v1/me/financing/{fin_id}/installments/1/pay",
+        json={"workspace_id": ws.id}, headers=headers,
     )
 
     homonima = Transaction(
@@ -147,7 +151,7 @@ def test_estorno_nao_apaga_despesa_homonima(db_session, setup_data, override_get
     db_session.refresh(homonima)
 
     client.post(
-        f"/api/v1/workspaces/{ws.id}/financing/{fin_id}/installments/1/unpay", headers=headers
+        f"/api/v1/me/financing/{fin_id}/installments/1/unpay", headers=headers
     )
 
     db_session.expire_all()

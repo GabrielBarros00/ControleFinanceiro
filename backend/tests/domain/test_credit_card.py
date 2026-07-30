@@ -5,7 +5,7 @@ from app.services.credit_card_service import CreditCardService
 
 def test_get_or_create_statement_current_month(db_session: Session, seed_ws):
     # Card with closing on 25th
-    card = CreditCard(name="Test Card", limit=1000, closing_day=25, due_day=5, workspace_id=seed_ws["ws"].id)
+    card = CreditCard(name="Test Card", limit=1000, closing_day=25, due_day=5, owner_user_id=seed_ws["user"].id)
     db_session.add(card)
     db_session.commit()
 
@@ -18,7 +18,7 @@ def test_get_or_create_statement_current_month(db_session: Session, seed_ws):
     assert statement.due_date.month == 6 # Due on June 5th
 
 def test_get_or_create_statement_next_month(db_session: Session, seed_ws):
-    card = CreditCard(name="Test Card 2", limit=1000, closing_day=25, due_day=5, workspace_id=seed_ws["ws"].id)
+    card = CreditCard(name="Test Card 2", limit=1000, closing_day=25, due_day=5, owner_user_id=seed_ws["user"].id)
     db_session.add(card)
     db_session.commit()
 

@@ -29,12 +29,8 @@ from typing import Dict, List, Optional, Sequence
 
 from sqlmodel import Session, select
 
-from app.models.credit_card import CardStatement, CreditCard, StatementPayment
 from app.models.estimate import MonthlyEstimate
-from app.models.financing import AmortizationInstallment, Financing
-from app.models.income import Income
-from app.models.payment_account import PaymentAccount
-from app.models.recurring import RecurringExpense, RecurringIncome
+from app.models.recurring import RecurringExpense
 from app.models.settlement import Settlement
 from app.models.transaction import (
     SplitMethod,
@@ -63,18 +59,20 @@ class MissingRates(Exception):
 
 @dataclass
 class ConversionReport:
-    """O que a troca converteu (ou converteria, no dry-run)."""
+    """O que a troca converteu (ou converteria, no dry-run).
+
+    Só entidades DO WORKSPACE. Renda, cartão, conta e financiamento saíram da
+    lista no ADR 0021: são pessoais e seguem `User.report_currency`. Reescrevê-los
+    porque um workspace trocou de base seria um workspace mexendo no cadastro
+    pessoal de cada membro — e num usuário de dois workspaces, o segundo desfaria
+    o que o primeiro fez.
+    """
     from_currency: str
     to_currency: str
     transactions: int = 0
-    incomes: int = 0
     settlements: int = 0
-    cards: int = 0
-    statements: int = 0
-    financings: int = 0
     estimates: int = 0
     recurring: int = 0
-    accounts: int = 0
     missing_rates: List[str] = field(default_factory=list)
 
     def as_dict(self) -> Dict:
@@ -82,14 +80,9 @@ class ConversionReport:
             "from_currency": self.from_currency,
             "to_currency": self.to_currency,
             "transactions": self.transactions,
-            "incomes": self.incomes,
             "settlements": self.settlements,
-            "cards": self.cards,
-            "statements": self.statements,
-            "financings": self.financings,
             "estimates": self.estimates,
             "recurring": self.recurring,
-            "accounts": self.accounts,
             "missing_rates": self.missing_rates,
         }
 
@@ -224,53 +217,18 @@ class BaseCurrencyService:
         ).all()
         tx_pairs = [(t, resolver.factor(t.transaction_date)) for t in txs]
 
-        incomes = db.exec(
-            select(Income)
-            .where(Income.workspace_id == workspace_id)
-            .where(Income.currency == old_currency)
-        ).all()
-        income_pairs = [(i, resolver.factor(i.received_at)) for i in incomes]
+        # RECURSO PESSOAL NÃO ENTRA (ADR 0021).
+        #
+        # Renda, cartão, conta e financiamento são do usuário e seguem a moeda de
+        # relatório DELE. Reescrevê-los porque um workspace trocou de moeda-base
+        # seria um workspace mexendo no cadastro pessoal de cada membro — e num
+        # usuário de dois workspaces, o segundo desfaria o que o primeiro fez.
+        # Sobram aqui só as entidades que realmente moram no workspace.
 
         settlements = db.exec(
             select(Settlement).where(Settlement.workspace_id == workspace_id)
         ).all()
         settlement_pairs = [(s, resolver.factor(s.settled_at)) for s in settlements]
-
-        cards = db.exec(
-            select(CreditCard)
-            .where(CreditCard.workspace_id == workspace_id)
-            .where(CreditCard.currency == old_currency)
-        ).all()
-        # Limite do cartão não tem data própria: usa a taxa de hoje
-        card_pairs = [(c, resolver.factor(today)) for c in cards]
-
-        card_ids = [c.id for c in cards]
-        statements = []
-        if card_ids:
-            statements = db.exec(
-                select(CardStatement).where(CardStatement.card_id.in_(card_ids))
-            ).all()
-        statement_pairs = [(s, resolver.factor(s.closing_date)) for s in statements]
-
-        payments = db.exec(
-            select(StatementPayment).where(StatementPayment.workspace_id == workspace_id)
-        ).all()
-        payment_pairs = [(p, resolver.factor(p.paid_at)) for p in payments]
-
-        financings = db.exec(
-            select(Financing)
-            .where(Financing.workspace_id == workspace_id)
-            .where(Financing.currency == old_currency)
-        ).all()
-        fin_pairs = [(f, resolver.factor(f.start_date)) for f in financings]
-        fin_ids = [f.id for f in financings]
-        installments = []
-        if fin_ids:
-            installments = db.exec(
-                select(AmortizationInstallment)
-                .where(AmortizationInstallment.financing_id.in_(fin_ids))
-            ).all()
-        inst_pairs = [(i, resolver.factor(i.due_date)) for i in installments]
 
         estimates = db.exec(
             select(MonthlyEstimate)
@@ -290,49 +248,22 @@ class BaseCurrencyService:
             .where(RecurringExpense.workspace_id == workspace_id)
             .where(RecurringExpense.currency == old_currency)
         ).all()
-        rec_inc = db.exec(
-            select(RecurringIncome)
-            .where(RecurringIncome.workspace_id == workspace_id)
-            .where(RecurringIncome.currency == old_currency)
-        ).all()
         # Template não tem data de ocorrência: converte pela taxa de hoje
-        rec_pairs = [(r, resolver.factor(today)) for r in list(rec_exp) + list(rec_inc)]
-
-        # Conta de pagamento não guarda saldo — só o RÓTULO da moeda. Ficava para
-        # trás na troca: a criação respeita `resolve_currency` (nasce na base) mas
-        # a migração não mexia nela, então a conta seguia dizendo "BRL" numa tela
-        # em que todo o resto já estava na moeda nova.
-        accounts = db.exec(
-            select(PaymentAccount)
-            .where(PaymentAccount.workspace_id == workspace_id)
-            .where(PaymentAccount.currency == old_currency)
-        ).all()
+        rec_pairs = [(r, resolver.factor(today)) for r in rec_exp]
 
         return {
             "transactions": tx_pairs,
-            "incomes": income_pairs,
             "settlements": settlement_pairs,
-            "cards": card_pairs,
-            "statements": statement_pairs,
-            "payments": payment_pairs,
-            "financings": fin_pairs,
-            "installments": inst_pairs,
             "estimates": est_pairs,
             "recurring": rec_pairs,
-            "accounts": list(accounts),
         }
 
     @staticmethod
     def _count(work: Dict, report: ConversionReport) -> ConversionReport:
         report.transactions = len(work["transactions"])
-        report.incomes = len(work["incomes"])
         report.settlements = len(work["settlements"])
-        report.cards = len(work["cards"])
-        report.statements = len(work["statements"])
-        report.financings = len(work["financings"])
         report.estimates = len(work["estimates"])
         report.recurring = len(work["recurring"])
-        report.accounts = len(work["accounts"])
         return report
 
     @staticmethod
@@ -340,58 +271,9 @@ class BaseCurrencyService:
         for tx, factor in work["transactions"]:
             BaseCurrencyService._convert_transaction(db, tx, factor, new_currency)
 
-        for income, factor in work["incomes"]:
-            # Lançamento cuja proveniência JÁ era a nova moeda volta ao valor
-            # original exato — round-trip sem perda de centavo.
-            if income.original_currency == new_currency and income.original_amount is not None:
-                income.amount = income.original_amount
-                income.original_amount = None
-                income.original_currency = None
-                income.exchange_rate = None
-                income.rate_source = None
-            else:
-                income.amount = _convert(income.amount, factor)
-            income.currency = new_currency
-            db.add(income)
-
         for settlement, factor in work["settlements"]:
             settlement.amount = _convert(settlement.amount, factor)
             db.add(settlement)
-
-        for card, factor in work["cards"]:
-            card.limit = _convert(card.limit, factor)
-            card.currency = new_currency
-            db.add(card)
-
-        for statement, factor in work["statements"]:
-            statement.total_amount = _convert(statement.total_amount, factor)
-            db.add(statement)
-
-        for payment, factor in work["payments"]:
-            payment.amount = _convert(payment.amount, factor)
-            db.add(payment)
-
-        for financing, factor in work["financings"]:
-            financing.total_amount = _convert(financing.total_amount, factor)
-            financing.currency = new_currency
-            db.add(financing)
-
-        for inst, factor in work["installments"]:
-            # Invariante da parcela: principal + juros == total. Converter as três
-            # colunas isoladamente quebraria isso no arredondamento, então o total
-            # é convertido e as duas partes são rateadas sobre ele.
-            new_total = _convert(inst.total_amount, factor)
-            weights = {0: _cents(inst.principal_amount), 1: _cents(inst.interest_amount)}
-            if sum(weights.values()) <= 0:
-                inst.principal_amount = new_total
-                inst.interest_amount = Decimal("0.00")
-            else:
-                alloc = _allocate_proportional(_cents(new_total), weights)
-                inst.principal_amount = Decimal(alloc[0]) / Decimal("100")
-                inst.interest_amount = Decimal(alloc[1]) / Decimal("100")
-            inst.total_amount = new_total
-            inst.remaining_balance = _convert(inst.remaining_balance, factor)
-            db.add(inst)
 
         for estimate, factor in work["estimates"]:
             estimate.amount = _convert(estimate.amount, factor)
@@ -401,11 +283,6 @@ class BaseCurrencyService:
             template.base_amount = _convert(template.base_amount, factor)
             template.currency = new_currency
             db.add(template)
-
-        # Conta não tem valor a converter — só o rótulo acompanha a base
-        for account in work["accounts"]:
-            account.currency = new_currency
-            db.add(account)
 
     @staticmethod
     def _convert_transaction(db: Session, tx: Transaction, factor: Decimal, new_currency: str) -> None:

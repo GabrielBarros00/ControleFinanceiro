@@ -18,11 +18,11 @@ def ws_with_account_fixture(db_session: Session, setup_data):
         user_id=setup_data["u2"].id,
         role=WorkspaceRole.member,
     ))
-    account = PaymentAccount(workspace_id=setup_data["ws1"].id, name="Nubank", type="checking")
-    foreign = PaymentAccount(workspace_id=setup_data["ws2"].id, name="Alheia", type="checking")
+    account = PaymentAccount(name="Nubank", type="checking", owner_user_id=setup_data["u1"].id)
+    # Conta do OUTRO membro: é o que o u1 não pode declarar como origem dele
+    foreign = PaymentAccount(name="Alheia", type="checking", owner_user_id=setup_data["u2"].id)
     inactive = PaymentAccount(
-        workspace_id=setup_data["ws1"].id, name="Desativada", type="cash", active=False
-    )
+        name="Desativada", type="cash", active=False, owner_user_id=setup_data["u1"].id)
     db_session.add_all([account, foreign, inactive])
     db_session.commit()
     for obj in (account, foreign, inactive):
@@ -74,7 +74,13 @@ def test_dois_pagadores_com_metodos_e_conta_diferentes(db_session, ws_with_accou
     assert payers[u2.id]["account_id"] is None
 
 
-def test_conta_de_outro_workspace_e_rejeitada_atomicamente(db_session, ws_with_account, override_get_session):
+def test_conta_de_outra_pessoa_e_rejeitada_atomicamente(db_session, ws_with_account, override_get_session):
+    """A conta informada tem de ser DO PAGADOR (ADR 0021).
+
+    A validação antiga era `account.workspace_id == workspace_id` e nunca olhava
+    `payer.user_id`: bastava conhecer o id para declarar que a despesa saiu da
+    conta bancária de outra pessoa do mesmo workspace.
+    """
     ws1, u1 = ws_with_account["ws1"], ws_with_account["u1"]
     payload = _payload(u1.id)
     payload["payers"][0]["account_id"] = ws_with_account["foreign_account"].id
@@ -85,7 +91,7 @@ def test_conta_de_outro_workspace_e_rejeitada_atomicamente(db_session, ws_with_a
         headers=ws_with_account["headers1"],
     )
     assert resp.status_code == 400
-    assert "Conta inválida" in resp.json()["error"]["message"]
+    assert "conta" in resp.json()["error"]["message"].lower()
     db_session.expire_all()
     assert db_session.exec(
         select(Transaction).where(Transaction.workspace_id == ws1.id)

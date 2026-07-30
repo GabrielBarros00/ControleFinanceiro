@@ -1,4 +1,4 @@
-"""Renda é da PESSOA e segue a pessoa entre workspaces (ADR 0019).
+"""Renda é da PESSOA e segue a pessoa entre workspaces (ADR 0019 → ADR 0021).
 
 O sintoma relatado pelo dono: *"a renda não está global — criei um novo workspace
 e não contou"*. A causa era `Income.workspace_id NOT NULL` + o `my_income` do
@@ -6,8 +6,17 @@ e não contou"*. A causa era `Income.workspace_id NOT NULL` + o `my_income` do
 colaboração, então cada workspace novo começava com receita zerada e exigia
 recadastrar o mesmo salário — que depois divergia na primeira correção.
 
-Este arquivo é o gate dessa correção. O teste central é
-`test_salario_aparece_em_workspace_criado_depois`.
+**O requisito não mudou; o lugar de prová-lo mudou.** A Onda 4 tinha resolvido
+metade: a renda virou global, mas continuou sendo cadastrada e exibida dentro do
+workspace, e o resumo dele passou a devolver um `my_income` global ao lado de um
+`my_expenses` local. Subtrair um do outro (`my_net`) produzia uma "sobra"
+diferente e maior em cada workspace, cada uma ignorando o que a pessoa gastou nos
+outros.
+
+Na Onda 5 a renda saiu do workspace de vez: mora em `/me/income`, é expressa na
+moeda de relatório do dono, e o resultado do mês existe num lugar só —
+`/me/overview`, onde o denominador é o consumo somado de TODOS os workspaces.
+Este arquivo é o gate dessa correção.
 """
 from datetime import UTC, datetime
 from decimal import Decimal
@@ -53,11 +62,7 @@ def _cria_salario(pessoa, amount="9000.00", **extra):
         "received_at": QUANDO.isoformat(),
         **extra,
     }
-    res = client.post(
-        f"/api/v1/workspaces/{pessoa['ws1']}/income/",
-        json=payload,
-        headers=pessoa["headers"],
-    )
+    res = client.post("/api/v1/me/income", json=payload, headers=pessoa["headers"])
     assert res.status_code == 200, res.text
     return res.json()
 
@@ -66,6 +71,12 @@ def _novo_workspace(pessoa, nome="Casa nova"):
     res = client.post("/api/v1/workspaces/", json={"name": nome}, headers=pessoa["headers"])
     assert res.status_code == 200, res.text
     return res.json()["id"]
+
+
+def _overview(pessoa):
+    res = client.get(f"/api/v1/me/overview?month={MES}", headers=pessoa["headers"])
+    assert res.status_code == 200, res.text
+    return res.json()
 
 
 def _resumo(pessoa, workspace_id):
@@ -77,166 +88,161 @@ def _resumo(pessoa, workspace_id):
     return res.json()
 
 
+def _lanca(pessoa, workspace_id, valor):
+    res = client.post(
+        f"/api/v1/workspaces/{workspace_id}/transactions/",
+        json={
+            "title": "Despesa",
+            "total_amount": valor,
+            "transaction_date": QUANDO.isoformat(),
+            "payers": [{"user_id": pessoa["user"].id, "amount": valor}],
+            "splits": [{
+                "user_id": pessoa["user"].id,
+                "split_method": "fixed",
+                "input_value": valor,
+            }],
+        },
+        headers=pessoa["headers"],
+    )
+    assert res.status_code == 200, res.text
+    return res.json()
+
+
 # ---------------------------------------------------------------------------
-# O teste que prova a correção
+# O requisito do dono: cadastrar uma vez, valer em todo lugar
 # ---------------------------------------------------------------------------
 
-def test_salario_aparece_em_workspace_criado_depois(pessoa):
-    """Cadastro o salário UMA vez; crio um workspace novo; ele conta lá."""
+def test_salario_cadastrado_uma_vez_sobrevive_a_workspace_novo(pessoa):
+    """Cadastro o salário UMA vez; crio um workspace novo; a renda continua lá.
+
+    Antes o `my_income` do workspace novo vinha zerado e o dono precisava
+    recadastrar o salário. Agora a pergunta "quanto eu ganhei" não passa por
+    workspace nenhum, então criar um não muda a resposta.
+    """
     _cria_salario(pessoa)
+    assert Decimal(str(_overview(pessoa)["income"])) == Decimal("9000.00")
 
-    ws2 = _novo_workspace(pessoa)
-    resumo = _resumo(pessoa, ws2)
+    _novo_workspace(pessoa)
 
-    assert Decimal(str(resumo["my_income"])) == Decimal("9000.00"), (
-        "o salário tem de seguir a pessoa para o workspace novo"
-    )
-    # E continua contando no workspace de origem — não é uma mudança de lugar
-    assert Decimal(str(_resumo(pessoa, pessoa["ws1"])["my_income"])) == Decimal("9000.00")
-
-
-def test_renda_pessoal_nasce_sem_workspace(pessoa, db_session):
-    criada = _cria_salario(pessoa)
-    assert criada["scope"] == "personal"
-    assert criada["workspace_id"] is None
-    assert db_session.get(Income, criada["id"]).workspace_id is None
-
-
-def test_a_renda_aparece_na_listagem_do_workspace_novo(pessoa):
-    criada = _cria_salario(pessoa)
-    ws2 = _novo_workspace(pessoa)
-
-    lista = client.get(
-        f"/api/v1/workspaces/{ws2}/income/", headers=pessoa["headers"]
-    ).json()
-    assert criada["id"] in [i["id"] for i in lista], (
-        "a tela de Rendas do workspace novo precisa mostrar o salário da pessoa"
+    assert Decimal(str(_overview(pessoa)["income"])) == Decimal("9000.00"), (
+        "criar um workspace não pode mexer na renda da pessoa"
     )
 
 
-def test_editar_o_salario_vale_para_todos_os_workspaces(pessoa):
+def test_renda_nao_pertence_a_workspace_nenhum(pessoa, db_session):
+    criada = _cria_salario(pessoa)
+    assert "workspace_id" not in criada, "renda não tem workspace (ADR 0021)"
+    assert "scope" not in criada, "não existe mais renda 'da casa'"
+    assert db_session.get(Income, criada["id"]).user_id == pessoa["user"].id
+
+
+def test_a_renda_aparece_na_listagem_pessoal(pessoa):
+    criada = _cria_salario(pessoa)
+    lista = client.get("/api/v1/me/income", headers=pessoa["headers"]).json()
+    assert criada["id"] in [i["id"] for i in lista]
+
+
+def test_editar_o_salario_vale_em_todo_lugar(pessoa):
     """O ganho real de não ter cópias: corrigir num lugar corrige em todos."""
     criada = _cria_salario(pessoa)
-    ws2 = _novo_workspace(pessoa)
+    _novo_workspace(pessoa)
 
     res = client.put(
-        f"/api/v1/workspaces/{ws2}/income/{criada['id']}",
+        f"/api/v1/me/income/{criada['id']}",
         json={"amount": "10000.00"},
         headers=pessoa["headers"],
     )
     assert res.status_code == 200, res.text
-
-    for ws in (pessoa["ws1"], ws2):
-        assert Decimal(str(_resumo(pessoa, ws)["my_income"])) == Decimal("10000.00")
+    assert Decimal(str(_overview(pessoa)["income"])) == Decimal("10000.00")
 
 
 # ---------------------------------------------------------------------------
-# Renda pessoal NÃO é renda da casa até ser compartilhada
+# O que a Onda 5 corrigiu: renda não entra em número de workspace
 # ---------------------------------------------------------------------------
 
-def test_renda_pessoal_nao_entra_no_total_da_casa(pessoa):
-    """Global para MIM não significa público para a casa.
+def test_resumo_do_workspace_nao_tem_renda_nem_resultado(pessoa):
+    """A correção do "Sobra do mês" enganoso.
 
-    Sem esta separação, tornar a renda global teria transformado "meu salário
-    aparece em todo lugar" em "meu salário entra no orçamento de toda casa de que
-    eu participo" — que é o vazamento que a Onda 1 fechou, reaberto por outra porta.
+    `my_net` era `my_income` (global) − `my_expenses` (deste workspace). Com
+    salário de 9.000 e 1.150 de despesa na Casa, o Painel anunciava 7.850 de
+    sobra — ignorando os 500 gastos noutro workspace. Em um terceiro workspace o
+    MESMO salário seria combinado com outro subconjunto de despesas e daria uma
+    terceira "sobra". Nenhuma delas era o resultado da pessoa.
     """
     _cria_salario(pessoa)
     resumo = _resumo(pessoa, pessoa["ws1"])
 
-    assert Decimal(str(resumo["my_income"])) == Decimal("9000.00")
-    assert Decimal(str(resumo["total_income"])) == Decimal("0.00"), (
-        "renda pessoal só compõe o total da casa depois de compartilhada"
+    for campo in ("my_income", "my_net", "total_income", "net_savings"):
+        assert campo not in resumo, (
+            f"{campo} mistura escopo pessoal com o do workspace — ver ADR 0021"
+        )
+
+
+def test_o_resultado_desconta_o_gasto_de_todos_os_workspaces(pessoa):
+    """O cenário exato do relatório de auditoria, com o número certo no fim.
+
+    Renda 9.000; minha parte de 1.150 na Casa e 500 na outra. O resultado correto
+    é 7.350 — e é o que `/me/overview` devolve, porque soma o consumo de TODOS os
+    workspaces antes de subtrair.
+    """
+    _cria_salario(pessoa)
+    ws2 = _novo_workspace(pessoa, "Viagem")
+    _lanca(pessoa, pessoa["ws1"], "1150.00")
+    _lanca(pessoa, ws2, "500.00")
+
+    corpo = _overview(pessoa)
+    assert Decimal(str(corpo["consumption"])) == Decimal("1650.00")
+    assert Decimal(str(corpo["result"])) == Decimal("7350.00"), (
+        "o resultado tem de descontar o gasto de TODOS os workspaces"
     )
 
 
-def test_compartilhar_faz_a_renda_entrar_no_total_da_casa(pessoa):
-    criada = _cria_salario(pessoa)
-
-    res = client.put(
-        f"/api/v1/workspaces/{pessoa['ws1']}/income/{criada['id']}",
-        json={"shared_with_workspace_ids": [pessoa["ws1"]]},
-        headers=pessoa["headers"],
-    )
-    assert res.status_code == 200, res.text
-    assert res.json()["shared_with_workspace_ids"] == [pessoa["ws1"]]
+def test_o_painel_do_workspace_fala_do_workspace(pessoa):
+    """O que sobra no Painel depois da mudança: gasto da casa, minha parte, o que
+    eu paguei e o acerto — números que só dependem deste workspace."""
+    _cria_salario(pessoa)
+    _lanca(pessoa, pessoa["ws1"], "1150.00")
 
     resumo = _resumo(pessoa, pessoa["ws1"])
-    assert Decimal(str(resumo["total_income"])) == Decimal("9000.00")
+    assert Decimal(str(resumo["total_expenses"])) == Decimal("1150.00")
+    assert Decimal(str(resumo["my_expenses"])) == Decimal("1150.00")
+    assert Decimal(str(resumo["paid_by_me"])) == Decimal("1150.00")
+    assert Decimal(str(resumo["my_balance"])) == Decimal("0.00")
 
 
-def test_descompartilhar_tira_do_total_da_casa(pessoa):
-    """A lista enviada é o estado final — revogar é a mesma operação."""
-    criada = _cria_salario(pessoa)
-    ws = pessoa["ws1"]
-    client.put(
-        f"/api/v1/workspaces/{ws}/income/{criada['id']}",
-        json={"shared_with_workspace_ids": [ws]},
-        headers=pessoa["headers"],
-    )
-    assert Decimal(str(_resumo(pessoa, ws)["total_income"])) == Decimal("9000.00")
+def test_renda_pessoal_nao_aparece_para_o_outro_membro(pessoa, db_session):
+    """Global para MIM não significa público para a casa."""
+    from app.models.workspace import WorkspaceMembership, WorkspaceRole
 
-    client.put(
-        f"/api/v1/workspaces/{ws}/income/{criada['id']}",
-        json={"shared_with_workspace_ids": []},
-        headers=pessoa["headers"],
-    )
-    assert Decimal(str(_resumo(pessoa, ws)["total_income"])) == Decimal("0.00")
-
-
-def test_nao_compartilha_com_workspace_alheio(pessoa, db_session):
-    """Escrita cruzada de workspace: mandar um id arbitrário no corpo faria minha
-    renda aparecer no orçamento da casa de um desconhecido."""
-    from app.models.workspace import Workspace
-
-    alheio = Workspace(name="Casa de outro", base_currency="BRL")
-    db_session.add(alheio)
+    _cria_salario(pessoa)
+    outro = User(name="Outro", email="outro@renda.com", password_hash="h")
+    db_session.add(outro)
     db_session.commit()
-    db_session.refresh(alheio)
+    db_session.refresh(outro)
+    db_session.add(WorkspaceMembership(
+        workspace_id=pessoa["ws1"], user_id=outro.id, role=WorkspaceRole.admin
+    ))
+    db_session.commit()
 
-    criada = _cria_salario(pessoa)
-    res = client.put(
-        f"/api/v1/workspaces/{pessoa['ws1']}/income/{criada['id']}",
-        json={"shared_with_workspace_ids": [alheio.id]},
-        headers=pessoa["headers"],
-    )
-    assert res.status_code == 400
+    lista = client.get("/api/v1/me/income", headers=_h(outro)).json()
+    assert lista == [], "admin do workspace não vê o salário de quem participa"
 
 
 # ---------------------------------------------------------------------------
-# Renda da casa continua existindo
+# Recorrência
 # ---------------------------------------------------------------------------
 
-def test_renda_da_casa_fica_no_workspace(pessoa):
-    """`scope="workspace"` é a exceção deliberada: aluguel de imóvel comum
-    pertence à casa e NÃO segue a pessoa para outro workspace."""
-    criada = _cria_salario(pessoa, amount="2000.00", scope="workspace")
-    assert criada["scope"] == "workspace"
-    assert criada["workspace_id"] == pessoa["ws1"]
-
-    # Entra no total da casa de origem, sem precisar compartilhar
-    assert Decimal(str(_resumo(pessoa, pessoa["ws1"])["total_income"])) == Decimal("2000.00")
-
-    # E não vaza para o workspace novo
-    ws2 = _novo_workspace(pessoa)
-    resumo2 = _resumo(pessoa, ws2)
-    assert Decimal(str(resumo2["total_income"])) == Decimal("0.00")
-    assert Decimal(str(resumo2["my_income"])) == Decimal("2000.00"), (
-        "continua sendo renda DELE (Income.user_id), então o recorte pessoal a conta"
-    )
-
-
-def test_salario_recorrente_materializa_em_workspace_novo(pessoa, db_session):
+def test_salario_recorrente_materializa_sem_passar_por_workspace(pessoa):
     """O caminho que o dono usa de verdade: salário RECORRENTE.
 
-    A materialização preguiçosa roda nas rotas de leitura e era escopada por
-    workspace — num workspace recém-criado não há template nenhum, então o
-    curto-circuito de `_tem_template_ativo` devolvia False e o salário global nunca
-    era gerado ali. Este é o teste do sintoma exato relatado.
+    A materialização preguiçosa era escopada por workspace e rodava nas rotas de
+    leitura DELE — num workspace recém-criado não havia template nenhum, o
+    curto-circuito devolvia False e o salário global nunca era gerado ali. Agora
+    ela roda na leitura de `/me/income`, que é onde a renda vive.
     """
     hoje = datetime.now(UTC)
     res = client.post(
-        f"/api/v1/workspaces/{pessoa['ws1']}/recurring-income",
+        "/api/v1/me/recurring-income",
         json={
             "title": "Salário mensal",
             "base_amount": "9000.00",
@@ -246,8 +252,7 @@ def test_salario_recorrente_materializa_em_workspace_novo(pessoa, db_session):
         headers=pessoa["headers"],
     )
     assert res.status_code == 200, res.text
-    assert res.json()["workspace_id"] is None, "salário recorrente nasce pessoal"
 
-    ws2 = _novo_workspace(pessoa)
-    resumo = _resumo(pessoa, ws2)
-    assert Decimal(str(resumo["my_income"])) == Decimal("9000.00")
+    lista = client.get("/api/v1/me/income", headers=pessoa["headers"]).json()
+    assert [i["title"] for i in lista] == ["Salário mensal"]
+    assert Decimal(str(_overview(pessoa)["income"])) == Decimal("9000.00")

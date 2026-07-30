@@ -114,6 +114,8 @@ def _validate_snapshot(
     split_snapshot: Optional[List[RecurringSplitEntry]],
     credit_card_id: Optional[int] = None,
     payment_method: Optional[PaymentMethod] = None,
+    *,
+    actor_user_id: Optional[int] = None,
 ) -> None:
     if category_id is not None:
         category = session.get(Category, category_id)
@@ -121,8 +123,11 @@ def _validate_snapshot(
             raise HTTPException(status_code=400, detail="Categoria inválida para este workspace")
     if credit_card_id is not None:
         card = session.get(CreditCard, credit_card_id)
-        if not card or card.workspace_id != workspace_id or card.deleted_at:
-            raise HTTPException(status_code=400, detail="Cartão de crédito inválido para este workspace")
+        # Cartão é pessoal (ADR 0021): tem de ser de quem vai pagar a recorrência
+        # — o pagador declarado, ou quem está cadastrando quando não há um.
+        dono_esperado = payer_user_id if payer_user_id is not None else actor_user_id
+        if not card or card.deleted_at or card.owner_user_id != dono_esperado:
+            raise HTTPException(status_code=400, detail="Cartão de crédito inválido")
         # Mesma regra da despesa avulsa: cartão só faz sentido no crédito, senão
         # a instância cairia numa fatura sem ter sido comprada no cartão
         if payment_method != PaymentMethod.credit_card:
@@ -173,6 +178,7 @@ def create_recurring(
         session, workspace_id,
         recurring_in.category_id, recurring_in.payer_user_id, recurring_in.split_snapshot,
         recurring_in.credit_card_id, recurring_in.payment_method,
+        actor_user_id=membership.user_id,
     )
     data = recurring_in.model_dump(exclude={"split_snapshot"})
     # Moeda ausente = a do workspace (nunca "BRL" fixo — ver resolve_currency)
@@ -276,6 +282,7 @@ def update_recurring(
         session, workspace_id,
         db_recurring.category_id, db_recurring.payer_user_id, recurring_in.split_snapshot,
         db_recurring.credit_card_id, db_recurring.payment_method,
+        actor_user_id=db_recurring.created_by_user_id or membership.user_id,
     )
 
     session.add(db_recurring)

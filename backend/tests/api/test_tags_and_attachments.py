@@ -279,7 +279,7 @@ def test_excluir_grupo_de_parcelas_libera_os_anexos(db_session, setup_data, over
     ws1, u1 = setup_data["ws1"], setup_data["u1"]
     headers = setup_data["headers1"]
 
-    card = CreditCard(name="Cartão", limit=5000, closing_day=5, due_day=15, workspace_id=ws1.id)
+    card = CreditCard(name="Cartão", limit=5000, closing_day=5, due_day=15, owner_user_id=u1.id)
     db_session.add(card)
     db_session.commit()
     db_session.refresh(card)

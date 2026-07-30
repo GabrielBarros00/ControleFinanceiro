@@ -278,47 +278,42 @@ def test_lancamento_estrangeiro_volta_ao_valor_original(db_session: Session):
     assert tx.exchange_rate is None
 
 
-def test_renda_tambem_e_convertida(db_session: Session):
-    users, ws = _workspace(db_session, "bc5", n_users=1)
-    db_session.add(Income(
-        title="Salário", amount=Decimal("5000.00"), currency="BRL",
-        received_at=OCC, workspace_id=ws.id, user_id=users[0].id,
-    ))
-    db_session.commit()
+def test_recurso_pessoal_nao_e_tocado_pela_troca_de_moeda_base(db_session: Session):
+    """Trocar a moeda-base do workspace NÃO mexe em renda, conta nem cartão.
 
-    BaseCurrencyService.convert_workspace(db_session, ws.id, "USD")
-    db_session.commit()
-
-    income = db_session.exec(select(Income).where(Income.workspace_id == ws.id)).one()
-    assert income.amount == Decimal("1000.00")
-    assert income.currency == "USD"
-
-
-def test_conta_de_pagamento_acompanha_a_moeda_base(db_session: Session):
-    """A conta não tem saldo, mas tem o RÓTULO da moeda — e ele ficava para trás.
-
-    A criação já respeita `resolve_currency` (nasce na base), então depois da
-    troca a conta era a única coisa da tela ainda dizendo a moeda antiga.
+    Antes eles eram reescritos junto, porque moravam no workspace. Com recurso
+    pessoal (ADR 0021) isso passou a ser um workspace alterando o cadastro de
+    cada membro — e num usuário de dois workspaces, o segundo desfaria o que o
+    primeiro fez. Recurso pessoal segue `User.report_currency`, e só muda quando
+    o dono muda.
     """
     from app.models.payment_account import PaymentAccount
 
-    users, ws = _workspace(db_session, "bc-acc", n_users=1)
+    users, ws = _workspace(db_session, "bc5", n_users=1)
+    db_session.add(Income(
+        title="Salário", amount=Decimal("5000.00"), currency="BRL",
+        received_at=OCC, user_id=users[0].id,
+    ))
     db_session.add(PaymentAccount(
-        name="Corrente", currency="BRL", workspace_id=ws.id, owner_user_id=users[0].id
+        name="Corrente", currency="BRL", owner_user_id=users[0].id
     ))
     db_session.commit()
 
     relatorio = BaseCurrencyService.convert_workspace(db_session, ws.id, "USD")
     db_session.commit()
 
+    income = db_session.exec(select(Income).where(Income.user_id == users[0].id)).one()
+    assert income.amount == Decimal("5000.00")
+    assert income.currency == "BRL"
+
     conta = db_session.exec(
-        select(PaymentAccount).where(PaymentAccount.workspace_id == ws.id)
+        select(PaymentAccount).where(PaymentAccount.owner_user_id == users[0].id)
     ).one()
-    assert conta.currency == "USD"
-    assert relatorio.as_dict()["accounts"] == 1
+    assert conta.currency == "BRL"
 
-
-# --- tudo ou nada -----------------------------------------------------------
+    # E o relatório da troca não promete o que não faz
+    assert "incomes" not in relatorio.as_dict()
+    assert "accounts" not in relatorio.as_dict()
 
 
 def test_falta_de_cotacao_aborta_sem_escrever(db_session: Session):

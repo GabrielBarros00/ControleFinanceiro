@@ -50,7 +50,7 @@ def _create_income_template(solo, *, months_back: int, materialize: str | None =
     """Renda mensal dia 15 começando `months_back` meses atrás."""
     start = _shift_month(date.today().replace(day=15), -months_back)
     res = client.post(
-        f"/api/v1/workspaces/{solo['ws'].id}/recurring-income",
+        "/api/v1/me/recurring-income",
         json={
             "title": "Salário",
             "base_amount": "5000.00",
@@ -115,7 +115,7 @@ def test_escopo_padrao_e_o_mes_corrente(solo):
 
 def test_escopo_invalido_rejeitado(solo):
     res = client.post(
-        f"/api/v1/workspaces/{solo['ws'].id}/recurring-income",
+        "/api/v1/me/recurring-income",
         json={"title": "X", "base_amount": "10.00", "day_of_month": 1},
         params={"materialize": "tudo"},
         headers=_headers(solo["user"]),
@@ -127,7 +127,7 @@ def test_editar_data_para_tras_com_escopo_past(solo):
     """Cenário do dono: cria hoje e depois corrige a data de início para trás."""
     hoje = date.today().replace(day=15)
     res = client.post(
-        f"/api/v1/workspaces/{solo['ws'].id}/recurring-income",
+        "/api/v1/me/recurring-income",
         json={"title": "Salário", "base_amount": "5000.00", "day_of_month": 15,
               "start_date": hoje.isoformat()},
         headers=_headers(solo["user"]),
@@ -136,7 +136,7 @@ def test_editar_data_para_tras_com_escopo_past(solo):
     assert _income_months(solo["db"], solo["ws"].id) == {date.today().strftime("%Y-%m")}
 
     res = client.put(
-        f"/api/v1/workspaces/{solo['ws'].id}/recurring-income/{rec_id}",
+        f"/api/v1/me/recurring-income/{rec_id}",
         json={"start_date": _shift_month(hoje, -2).isoformat()},
         params={"materialize": "past"},
         headers=_headers(solo["user"]),
@@ -209,9 +209,8 @@ def test_categoria_de_outro_workspace_rejeitada(solo, db_session):
 # --- Cartão de crédito no modelo recorrente ---------------------------------
 
 def _create_card(ws_id: int, user: User) -> int:
-    # Barra final obrigatória: sem ela o 307 do FastAPI descarta o Cookie → 401
     res = client.post(
-        f"/api/v1/workspaces/{ws_id}/credit-cards/",
+        "/api/v1/me/credit-cards/",
         json={"name": "Nubank", "limit": "5000.00", "closing_day": 20, "due_day": 28},
         headers=_headers(user),
     )
@@ -257,15 +256,17 @@ def test_cartao_sem_credito_rejeitado(solo):
     assert solo["db"].exec(select(Transaction).where(Transaction.workspace_id == ws.id)).all() == []
 
 
-def test_cartao_de_outro_workspace_rejeitado(solo, db_session):
+def test_cartao_de_outra_pessoa_rejeitado(solo, db_session):
+    """O eixo passou a ser o dono (ADR 0021): o cartão do outro membro é recusado
+    mesmo estando os dois no mesmo workspace."""
     ws, user = solo["ws"], solo["user"]
-    outro = Workspace(name="Outro WS", created_by_user_id=user.id)
-    db_session.add(outro)
+    outra = User(name="Outra", email="outra-rec@t.com", password_hash="h")
+    db_session.add(outra)
     db_session.commit()
-    db_session.refresh(outro)
-    db_session.add(WorkspaceMembership(workspace_id=outro.id, user_id=user.id, role="owner"))
+    db_session.refresh(outra)
+    db_session.add(WorkspaceMembership(workspace_id=ws.id, user_id=outra.id, role="member"))
     db_session.commit()
-    alheio = _create_card(outro.id, user)
+    alheio = _create_card(ws.id, outra)
 
     res = client.post(
         f"/api/v1/workspaces/{ws.id}/recurring",

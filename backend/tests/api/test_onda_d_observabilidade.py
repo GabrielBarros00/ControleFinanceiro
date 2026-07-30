@@ -115,7 +115,7 @@ def test_falha_de_materializacao_e_logada(db_session: Session, ws, monkeypatch, 
         db_session, ws["ws"].id
     )
 
-    assert resultado == {"expenses": 0, "income": 0, "promoted": 0}
+    assert resultado == {"expenses": 0, "promoted": 0}
     saida = capsys.readouterr().out
     assert "materializacao_falhou" in saida
     assert "workspace_id" in saida
@@ -138,7 +138,7 @@ def test_viewer_nao_materializa_na_leitura(db_session: Session, ws):
     resultado = RecurringMaterializationService.ensure_and_commit(
         db_session, ws["ws"].id, role=WorkspaceRole.viewer
     )
-    assert resultado == {"expenses": 0, "income": 0, "promoted": 0}
+    assert resultado == {"expenses": 0, "promoted": 0}
     assert db_session.exec(
         select(Transaction).where(Transaction.workspace_id == ws["ws"].id)
     ).all() == []
@@ -162,7 +162,7 @@ def test_sem_template_ativo_nao_comita(db_session: Session, ws, monkeypatch):
     resultado = RecurringMaterializationService.ensure_and_commit(
         db_session, ws["ws"].id, role=WorkspaceRole.owner
     )
-    assert resultado == {"expenses": 0, "income": 0, "promoted": 0}
+    assert resultado == {"expenses": 0, "promoted": 0}
 
 
 # --- D9: materialização restrita ao template editado ------------------------

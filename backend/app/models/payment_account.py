@@ -23,36 +23,23 @@ class PaymentAccount(PaymentAccountBase, table=True):
     """Origem do dinheiro (ADR 0004): de qual conta/carteira saiu um pagamento.
 
     Cartão de crédito NÃO é conta — é o relacionamento próprio (CreditCard).
-    owner_user_id opcional: conta pessoal de um membro ou compartilhada (None).
+
+    Conta bancária é de UMA pessoa (ADR 0021): sem `workspace_id`, e o dono é
+    obrigatório. A conta acompanha o dono em todo workspace de que ele participa e
+    não é visível a mais ninguém. O `owner_user_id` opcional de antes significava
+    "conta da casa" e tornava o extrato bancário de alguém um recurso coletivo.
+
+    A unicidade do nome passa a ser POR DONO: duas pessoas podem ter uma conta
+    "Nubank" cada, e o mesmo dono não pode ter duas.
     """
 
     __table_args__ = (
-        UniqueConstraint("workspace_id", "name", name="uq_paymentaccount_workspace_name"),
+        UniqueConstraint("owner_user_id", "name", name="uq_paymentaccount_owner_name"),
     )
 
     id: Optional[int] = Field(default=None, primary_key=True)
-    workspace_id: int = Field(foreign_key="workspace.id", index=True)
-    owner_user_id: Optional[int] = Field(default=None, foreign_key="user.id")
+    owner_user_id: int = Field(foreign_key="user.id", index=True)
 
     created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
     updated_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
     deleted_at: Optional[datetime] = Field(default=None)
-
-
-class PaymentAccountWorkspaceShare(SQLModel, table=True):
-    """Conta de pagamento pessoal oferecida a um workspace (ADR 0019).
-
-    Mesma forma da renda: a conta é da pessoa, e aparecer nos formulários de outro
-    workspace é decisão dela. Sem isto, "conta global" significaria expor a conta
-    bancária a toda casa de que o dono participa.
-    """
-    __table_args__ = (
-        UniqueConstraint(
-            "account_id", "workspace_id", name="uq_account_share_account_workspace"
-        ),
-    )
-
-    id: Optional[int] = Field(default=None, primary_key=True)
-    account_id: int = Field(foreign_key="paymentaccount.id", index=True)
-    workspace_id: int = Field(foreign_key="workspace.id", index=True)
-    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))

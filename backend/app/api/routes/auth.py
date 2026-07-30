@@ -21,7 +21,7 @@ from app.models.workspace import (
     InviteStatus,
     role_level,
 )
-from app.domain.query_policy import resolve_currency
+from app.domain.query_policy import resolve_personal_currency
 from app.schemas.user import UserResponse
 from app.core.security import (
     verify_password,
@@ -312,42 +312,38 @@ async def finish_onboarding(
     db: Session = Depends(get_session),
     current_user: User = Depends(get_current_user)
 ):
-    # 0. Destino: workspace PRÓPRIO (anti-IDOR + não escrever na casa dos outros)
-    workspace_id = _resolve_onboarding_workspace(db, current_user, data.workspace_id)
-    # Moeda ausente = a do workspace (nunca "BRL" fixo — ver resolve_currency).
-    # Sem isto, renda e cartão nasciam com o default "BRL" do model e, num
-    # workspace em outra moeda, sumiam de TODA agregação (que filtra
-    # `currency == base_currency`) — enquanto o formulário exibia o símbolo da
-    # moeda-base. Era o único caminho de entrada ainda fora da regra.
-    moeda = resolve_currency(db, workspace_id, None)
+    # 0. Renda e cartão do onboarding são PESSOAIS (ADR 0021): não vão para
+    # workspace nenhum, então não há IDOR de workspace a evitar aqui nem evento a
+    # publicar — o canal de tempo real é por sala de workspace e isto não é dado
+    # de workspace. `data.workspace_id` continua sendo validado por compatibilidade
+    # com o formulário atual, que ainda o envia.
+    if data.workspace_id is not None:
+        _resolve_onboarding_workspace(db, current_user, data.workspace_id)
+    # Moeda ausente = a de RELATÓRIO do usuário (nunca "BRL" fixo). Antes vinha da
+    # moeda-base do workspace, e o mesmo cadastro nascia em moedas diferentes
+    # conforme o workspace por onde o onboarding passasse.
+    moeda = resolve_personal_currency(db, current_user.id, None)
 
     # 1. Create Income (Salary) — pular a etapa não cria renda de valor zero
     if data.salary and data.salary > 0:
-        income = Income(
+        db.add(Income(
             title="Salário Mensal",
             amount=data.salary,
             currency=moeda,
             category="Salary",
-            workspace_id=workspace_id,
-            user_id=current_user.id
-        )
-        db.add(income)
-        db.flush()
-        publish_event(db, workspace_id, "income.created", "income", income.id, current_user.id)
+            user_id=current_user.id,
+        ))
 
     # 2. Create Credit Card (Optional)
     if data.credit_card_name and data.credit_card_limit:
-        card = CreditCard(
+        db.add(CreditCard(
             name=data.credit_card_name,
             limit=data.credit_card_limit,
             closing_day=data.credit_card_closing_day or 5,
             due_day=((data.credit_card_closing_day or 5) + 10) % 31 or 1,
             currency=moeda,
-            workspace_id=workspace_id
-        )
-        db.add(card)
-        db.flush()
-        publish_event(db, workspace_id, "credit_card.created", "credit_card", card.id, current_user.id)
+            owner_user_id=current_user.id,
+        ))
 
     # 3. Mark as onboarded
     current_user.needs_onboarding = False

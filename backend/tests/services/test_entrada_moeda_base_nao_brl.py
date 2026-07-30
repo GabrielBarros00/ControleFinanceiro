@@ -72,8 +72,14 @@ def _seed_rates(db: Session, *days: date) -> None:
 
 @pytest.fixture(name="ws_usd")
 def ws_usd_fixture(db_session: Session):
-    """Workspace com moeda-base USD + um membro owner."""
-    user = User(name="Dono", email="usd@t.com", password_hash="h")
+    """Workspace com moeda-base USD + um membro owner que relata em USD.
+
+    `report_currency="USD"` importa desde o ADR 0021: recurso PESSOAL (renda,
+    cartão, conta, financiamento) não herda mais a moeda do workspace aberto —
+    herda a de relatório do dono. Sem isto o mesmo salário nascia em moedas
+    diferentes conforme a tela por onde foi cadastrado.
+    """
+    user = User(name="Dono", email="usd@t.com", password_hash="h", report_currency="USD")
     db_session.add(user)
     ws = Workspace(name="WS-USD", base_currency="USD")
     db_session.add(ws)
@@ -182,11 +188,11 @@ def test_despesa_em_real_num_workspace_em_dolar(client, db_session, ws_usd):
 
 
 def test_renda_segue_a_mesma_regra(client, db_session, ws_usd):
-    ws = ws_usd["ws"]
+    ws_usd["ws"]
     headers = ws_usd["headers"]
 
     nativa = client.post(
-        f"/api/v1/workspaces/{ws.id}/income/",
+        "/api/v1/me/income/",
         json={"title": "Salário", "amount": "1000.00", "received_at": OCC.isoformat()},
         headers=headers,
     )
@@ -195,7 +201,7 @@ def test_renda_segue_a_mesma_regra(client, db_session, ws_usd):
     assert Decimal(nativa.json()["amount"]) == Decimal("1000.00")
 
     estrangeira = client.post(
-        f"/api/v1/workspaces/{ws.id}/income/",
+        "/api/v1/me/income/",
         json={
             "title": "Freela", "amount": "100.00",
             "currency": "EUR", "received_at": OCC.isoformat(),
@@ -291,31 +297,27 @@ def test_recorrente_materializa_na_moeda_base(client, db_session, ws_usd):
     assert instancia.original_currency == "EUR"
 
 
-def test_renda_recorrente_da_casa_materializa_na_moeda_base(client, db_session, ws_usd):
-    """Renda DA CASA (`scope="workspace"`) converte pela base do workspace.
+def test_renda_recorrente_materializa_na_moeda_de_relatorio(client, db_session, ws_usd):
+    """Renda recorrente converte pela moeda de RELATÓRIO do dono (ADR 0021).
 
-    Renda pessoal não passa por aqui: ela não pertence a workspace nenhum, então
-    converte pela moeda de RELATÓRIO do dono — ver o teste seguinte. Antes desta
-    onda toda renda era da casa e este era o único caminho (ADR 0019).
+    Não existe mais renda "da casa" (`scope="workspace"`): sem modelo de
+    beneficiários ela era creditada 100% a quem cadastrou. Com renda estritamente
+    pessoal, a única moeda de destino possível é a da pessoa.
     """
-    ws = ws_usd["ws"]
     hoje = date.today()
 
     res = client.post(
-        f"/api/v1/workspaces/{ws.id}/recurring-income",
+        "/api/v1/me/recurring-income",
         json={
             "title": "Aluguel do imóvel", "base_amount": "100.00", "currency": "EUR",
             "frequency": "monthly", "day_of_month": hoje.day,
-            "scope": "workspace",
         },
         headers=ws_usd["headers"],
     )
     assert res.status_code == 200, res.text
 
     entrada = db_session.exec(
-        select(Income).where(
-            Income.workspace_id == ws.id, Income.recurring_income_id.is_not(None)
-        )
+        select(Income).where(Income.recurring_income_id.is_not(None))
     ).first()
     assert entrada is not None, "a renda recorrente não materializou"
     assert entrada.currency == "USD"
@@ -323,47 +325,44 @@ def test_renda_recorrente_da_casa_materializa_na_moeda_base(client, db_session, 
     assert entrada.original_currency == "EUR"
 
 
-def test_renda_recorrente_pessoal_converte_pela_moeda_do_dono(client, db_session, ws_usd):
-    """Salário PESSOAL converte para `User.report_currency`, não para a base do
-    workspace que por acaso disparou a leitura (ADR 0019).
+def test_renda_pessoal_segue_a_pessoa_e_nao_o_workspace(client, db_session, ws_usd):
+    """O teste que separa os dois escopos (ADR 0021).
 
-    Sem isto, o MESMO salário valeria números diferentes conforme a tela aberta —
-    e é justamente por ser o mesmo salário em todos os workspaces que ele precisa
-    de uma moeda de destino própria.
+    Um membro que relata em BRL, dentro de um workspace cuja base é USD: a renda
+    dele nasce em BRL. Antes ela herdava a moeda-base do workspace ABERTO, então
+    o MESMO salário valia números diferentes conforme a tela por onde foi
+    cadastrado — e entrava ou saía dos totais conforme a moeda de quem olhasse.
     """
-    ws = ws_usd["ws"]
-    hoje = date.today()
+    membro = User(name="Relata em BRL", email="brl@t.com", password_hash="h",
+                  report_currency="BRL")
+    db_session.add(membro)
+    db_session.flush()
+    db_session.add(WorkspaceMembership(
+        workspace_id=ws_usd["ws"].id, user_id=membro.id, role=WorkspaceRole.member
+    ))
+    db_session.commit()
+    headers = {"Cookie": f"access_token={create_access_token(data={'sub': str(membro.id)})}"}
 
     res = client.post(
-        f"/api/v1/workspaces/{ws.id}/recurring-income",
-        json={
-            "title": "Salário", "base_amount": "100.00", "currency": "EUR",
-            "frequency": "monthly", "day_of_month": hoje.day,
-        },
-        headers=ws_usd["headers"],
+        "/api/v1/me/income",
+        json={"title": "Salário", "amount": "1000.00", "received_at": OCC.isoformat()},
+        headers=headers,
     )
     assert res.status_code == 200, res.text
-
-    entrada = db_session.exec(
-        select(Income).where(
-            Income.workspace_id.is_(None), Income.recurring_income_id.is_not(None)
-        )
-    ).first()
-    assert entrada is not None, "a renda pessoal não materializou"
-    # report_currency default = BRL, e o fixture tem taxa EUR→BRL
-    assert entrada.currency == "BRL"
-    assert entrada.original_currency == "EUR"
+    assert res.json()["currency"] == "BRL", (
+        "a renda segue a moeda de relatório da PESSOA, não a base do workspace"
+    )
 
 
 # --- cartão e conta ---------------------------------------------------------
 
 
 def test_cartao_e_conta_nascem_na_moeda_base(client, db_session, ws_usd):
-    ws = ws_usd["ws"]
+    ws_usd["ws"]
     headers = ws_usd["headers"]
 
     cartao = client.post(
-        f"/api/v1/workspaces/{ws.id}/credit-cards/",
+        "/api/v1/me/credit-cards/",
         json={"name": "Nubank", "limit": "1000.00", "closing_day": 5, "due_day": 15},
         headers=headers,
     )
@@ -371,7 +370,7 @@ def test_cartao_e_conta_nascem_na_moeda_base(client, db_session, ws_usd):
     assert cartao.json()["currency"] == "USD"
 
     conta = client.post(
-        f"/api/v1/workspaces/{ws.id}/payment-accounts",
+        "/api/v1/me/payment-accounts",
         json={"name": "Corrente", "type": "checking"},
         headers=headers,
     )
@@ -391,7 +390,7 @@ def test_onboarding_nasce_na_moeda_base(client, db_session, ws_usd):
     formulário ainda exibia o símbolo da moeda-base — a UI prometia US$ e o banco
     gravava BRL.
     """
-    ws, user = ws_usd["ws"], ws_usd["user"]
+    _ws, user = ws_usd["ws"], ws_usd["user"]
     headers = ws_usd["headers"]
 
     res = client.post(
@@ -415,20 +414,17 @@ def test_onboarding_nasce_na_moeda_base(client, db_session, ws_usd):
     from app.models.credit_card import CreditCard
 
     cartao = db_session.exec(
-        select(CreditCard).where(CreditCard.workspace_id == ws.id)
+        select(CreditCard).where(CreditCard.owner_user_id == user.id)
     ).first()
     assert cartao is not None
     assert cartao.currency == "USD"
-
-    # E a renda aparece de fato nos totais do mês (o filtro de moeda casa)
-    mes = renda.received_at.strftime("%Y-%m")
-    resumo = client.get(
-        f"/api/v1/workspaces/{ws.id}/analytics/summary?month={mes}", headers=headers
-    )
-    assert resumo.status_code == 200, resumo.text
-    assert Decimal(resumo.json()["total_income"]) == Decimal("4000.00")
-    assert Decimal(resumo.json()["my_income"]) == Decimal("4000.00")
+    assert renda.currency == "USD"
     assert renda.user_id == user.id
+
+    # E a renda aparece de fato no painel PESSOAL — que é onde renda vive agora
+    mes = renda.received_at.strftime("%Y-%m")
+    corpo = client.get(f"/api/v1/me/overview?month={mes}", headers=headers).json()
+    assert Decimal(corpo["income"]) == Decimal("4000.00")
 
 
 def test_onboarding_recusa_workspace_compartilhado(client, db_session, ws_usd):
@@ -457,7 +453,8 @@ def test_onboarding_recusa_workspace_compartilhado(client, db_session, ws_usd):
     token = create_access_token(data={"sub": str(convidado.id)})
     headers = {"Cookie": f"access_token={token}"}
 
-    # Apontar explicitamente para o compartilhado é recusado
+    # Apontar para o workspace compartilhado continua sendo recusado (o campo
+    # ainda é validado por compatibilidade com o formulário atual)
     negado = client.post(
         "/api/v1/auth/onboarding",
         json={"workspace_id": ws_usd["ws"].id, "salary": "1000.00"},
@@ -465,7 +462,8 @@ def test_onboarding_recusa_workspace_compartilhado(client, db_session, ws_usd):
     )
     assert negado.status_code == 403, negado.text
 
-    # Sem workspace_id, cai no PRÓPRIO
+    # Sem workspace_id: a renda nasce PESSOAL e na moeda de relatório do dono —
+    # não na moeda-base de workspace nenhum (ADR 0021).
     ok = client.post(
         "/api/v1/auth/onboarding", json={"salary": "1000.00"}, headers=headers
     )
@@ -474,7 +472,7 @@ def test_onboarding_recusa_workspace_compartilhado(client, db_session, ws_usd):
         select(Income).where(Income.user_id == convidado.id)
     ).first()
     assert renda is not None
-    assert renda.workspace_id == proprio.id
+    assert renda.currency == "BRL", "report_currency default, não a base do workspace"
 
 
 # --- financiamento ----------------------------------------------------------
@@ -495,7 +493,7 @@ def test_financiamento_nasce_na_moeda_base_e_aparece_no_endividamento(
     headers = ws_usd["headers"]
 
     res = client.post(
-        f"/api/v1/workspaces/{ws.id}/financing",
+        "/api/v1/me/financing",
         json={
             "title": "Carro",
             "total_amount": "12000.00",
@@ -510,20 +508,17 @@ def test_financiamento_nasce_na_moeda_base_e_aparece_no_endividamento(
     assert res.json()["currency"] == "USD"
     fin_id = res.json()["id"]
 
-    # Visível no panorama de endividamento (o filtro de moeda passa a casar)
-    overview = client.get(
-        f"/api/v1/workspaces/{ws.id}/liabilities/overview?month={OCC.strftime('%Y-%m')}",
-        headers=headers,
-    )
+    # Visível nos Compromissos pessoais (o filtro de moeda passa a casar)
+    overview = client.get("/api/v1/me/commitments", headers=headers)
     assert overview.status_code == 200, overview.text
     corpo = overview.json()
-    assert [f["id"] for f in corpo["financings"]] == [fin_id]
-    assert Decimal(corpo["totals"]["financing_outstanding"]) > 0
+    assert [f["financing_id"] for f in corpo["financings"]] == [fin_id]
+    assert Decimal(corpo["outstanding_total"]) > 0
 
     # E a despesa gerada ao pagar entra nos totais do mês, em vez de sumir
     pago = client.post(
-        f"/api/v1/workspaces/{ws.id}/financing/{fin_id}/installments/1/pay",
-        headers=headers,
+        f"/api/v1/me/financing/{fin_id}/installments/1/pay",
+        json={"workspace_id": ws.id}, headers=headers,
     )
     assert pago.status_code == 200, pago.text
     despesa = db_session.get(Transaction, pago.json()["transaction_id"])

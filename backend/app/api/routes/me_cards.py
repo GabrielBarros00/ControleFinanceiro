@@ -1,32 +1,61 @@
+"""Cartão de crédito PESSOAL e o ciclo da fatura — sem workspace (ADR 0021).
+
+Este módulo é a correção do P0 da auditoria. O que existia antes:
+
+- `GET /workspaces/{id}/credit-cards` serializava `limit`, `available_limit`,
+  `committed_amount` e `next_due` de todo cartão alcançado por
+  `cards_of_workspace` — que incluía os compartilhados com nível `use`, cujo
+  contrato dizia justamente que limite e fatura continuavam sendo do dono. O
+  predicado que implementava esse contrato (`card_full_access_here`) existia sem
+  um único chamador.
+- `GET .../statements/{id}` devolvia as transações filtrando **só** por
+  `statement_id`: sem workspace, sem envolvimento. A fatura de um cartão trazia
+  junto as compras privadas feitas em outro workspace.
+- `close`, `pay` e `reopen` pediam apenas `require_role(member)`. Qualquer membro
+  que enxergasse o cartão controlava o ciclo da fatura do dono.
+
+Nada disso é remendável endpoint a endpoint, porque a origem era o cartão morar
+num workspace. Aqui o gate é `get_current_user` + `CreditCard.owner_user_id`, e
+não existe caminho de leitura por workspace: a fatura de outra pessoa responde
+404 em qualquer papel.
+"""
 from datetime import datetime, UTC
 from decimal import Decimal
-from typing import Literal, Optional
+from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
-
-from app.schemas.common import DESCRIPTION_MAX, MAX_MONEY, NAME_MAX, OptionalCurrencyCode
 from sqlmodel import Session, select
 
+from app.api.routes.auth import get_current_user
 from app.db.session import get_session
-from app.domain.query_policy import resolve_currency
-from app.models.workspace import WorkspaceMembership, WorkspaceRole
-from app.models.credit_card import (
-    CardAccessLevel,
-    CardStatement,
-    CardWorkspaceAccess,
-    CreditCard,
-    StatementStatus,
-)
+from app.domain.access_policy import assert_owns, personal_scope
+from app.domain.query_policy import resolve_personal_currency
+from app.models.credit_card import CardStatement, CreditCard, StatementStatus
 from app.models.payment_account import PaymentAccount
 from app.models.transaction import Transaction
-from app.api.deps import get_workspace_membership, require_role
-from app.domain.access_policy import assert_can_write, card_scope, cards_of_workspace
+from app.models.user import User
+from app.schemas.common import DESCRIPTION_MAX, MAX_MONEY, NAME_MAX, OptionalCurrencyCode
 from app.services.credit_card_service import CreditCardService, StatementStateError
-from app.services.event_service import publish_event
-from app.services.sharing_service import workspaces_do_usuario
 
-router = APIRouter(prefix="/workspaces/{workspace_id}/credit-cards", tags=["credit-cards"])
+router = APIRouter(prefix="/me/credit-cards", tags=["me-credit-cards"])
+
+
+def _colecao(metodo: str, caminho: str, **kwargs):
+    """Registra a rota de coleção COM e SEM barra final, sem redirecionar.
+
+    O redirecionamento automático de barra do Starlette responde 307, e nesse
+    salto o **cookie de sessão não acompanha** — a URL com a barra "errada"
+    devolvia 401 em vez de funcionar. Registrar os dois caminhos elimina o
+    redirecionamento em vez de tentar sobreviver a ele.
+    """
+    def decorador(func):
+        for p in (caminho, caminho + "/"):
+            getattr(router, metodo)(
+                p, **({**kwargs, "include_in_schema": False} if p.endswith("/") else kwargs)
+            )(func)
+        return func
+    return decorador
 
 
 class CreditCardCreate(BaseModel):
@@ -35,19 +64,8 @@ class CreditCardCreate(BaseModel):
     limit: Decimal = Field(gt=0, le=MAX_MONEY)
     closing_day: int = Field(ge=1, le=31)
     due_day: int = Field(ge=1, le=31)
-    # None = "não informada" → a rota resolve para a moeda-base do workspace
+    # None = "não informada" → a rota resolve para a moeda de relatório do dono
     currency: OptionalCurrencyCode = None
-
-
-class CardShareItem(BaseModel):
-    workspace_id: int
-    # `use` = lançar compras e ver o subtotal daqui; `full` = fatura inteira
-    access: Literal["use", "full"] = "use"
-
-
-class CardShareUpdate(BaseModel):
-    """Com que workspaces este cartão é compartilhado, e em que nível (ADR 0019)."""
-    shares: list[CardShareItem] = Field(default_factory=list)
 
 
 class CreditCardUpdate(BaseModel):
@@ -64,20 +82,11 @@ class StatementPayRequest(BaseModel):
     note: Optional[str] = Field(default=None, max_length=DESCRIPTION_MAX)
 
 
-def _get_card_or_404(
-    session: Session, workspace_id: int, card_id: int, membership: WorkspaceMembership
-) -> CreditCard:
-    card = session.exec(
-        select(CreditCard).where(
-            CreditCard.id == card_id,
-            # Deste workspace OU compartilhado com ele (ADR 0019)
-            cards_of_workspace(workspace_id),
-            CreditCard.deleted_at.is_(None),
-            card_scope(workspace_id, membership),
-        )
-    ).first()
-    if not card:
+def _get_card_or_404(session: Session, card_id: int, user_id: int) -> CreditCard:
+    card = session.get(CreditCard, card_id)
+    if not card or card.deleted_at:
         raise HTTPException(status_code=404, detail="Cartão não encontrado")
+    assert_owns(card.owner_user_id, user_id, detail="Cartão não encontrado")
     return card
 
 
@@ -119,38 +128,30 @@ def _serialize_card(session: Session, card: CreditCard) -> dict:
     }
 
 
-@router.get("/")
+@_colecao("get", "")
 def list_credit_cards(
-    workspace_id: int,
     session: Session = Depends(get_session),
-    membership: WorkspaceMembership = Depends(get_workspace_membership)
+    current_user: User = Depends(get_current_user),
 ):
     cards = session.exec(
         select(CreditCard).where(
-            # Cartões deste workspace + os pessoais compartilhados com ele (ADR 0019)
-            cards_of_workspace(workspace_id),
+            personal_scope(CreditCard.owner_user_id, current_user.id),
             CreditCard.deleted_at.is_(None),
-            # Sem acesso completo, só os cartões em que eu tenho compra (ADR 0018)
-            card_scope(workspace_id, membership),
-        )
+        ).order_by(CreditCard.name)
     ).all()
     return [_serialize_card(session, card) for card in cards]
 
 
-@router.post("/")
+@_colecao("post", "")
 def create_credit_card(
-    workspace_id: int,
     card_in: CreditCardCreate,
     session: Session = Depends(get_session),
-    membership: WorkspaceMembership = Depends(require_role(WorkspaceRole.member))
+    current_user: User = Depends(get_current_user),
 ):
     data = card_in.model_dump()
-    # Moeda ausente = a do workspace (nunca "BRL" fixo — ver resolve_currency)
-    data["currency"] = resolve_currency(session, workspace_id, card_in.currency)
-    card = CreditCard(**data, workspace_id=workspace_id, owner_user_id=membership.user_id)
+    data["currency"] = resolve_personal_currency(session, current_user.id, card_in.currency)
+    card = CreditCard(**data, owner_user_id=current_user.id)
     session.add(card)
-    session.flush()
-    publish_event(session, workspace_id, "credit_card.created", "credit_card", card.id, membership.user_id)
     session.commit()
     session.refresh(card)
     return _serialize_card(session, card)
@@ -158,21 +159,12 @@ def create_credit_card(
 
 @router.put("/{card_id}")
 def update_credit_card(
-    workspace_id: int,
     card_id: int,
     card_in: CreditCardUpdate,
     session: Session = Depends(get_session),
-    membership: WorkspaceMembership = Depends(require_role(WorkspaceRole.member))
+    current_user: User = Depends(get_current_user),
 ):
-    card = _get_card_or_404(session, workspace_id, card_id, membership)
-    # Não havia trava nenhuma: qualquer member mudava o limite e o ciclo do cartão
-    # de outro. `null_is_shared`: cartão legado sem dono segue de todos (ADR 0018).
-    assert_can_write(
-        card.owner_user_id,
-        membership,
-        detail="Você só pode alterar os próprios cartões",
-        null_is_shared=True,
-    )
+    card = _get_card_or_404(session, card_id, current_user.id)
     update_data = card_in.model_dump(exclude_unset=True)
     ciclo_mudou = any(
         campo in update_data and update_data[campo] != getattr(card, campo)
@@ -188,7 +180,6 @@ def update_credit_card(
     if ciclo_mudou:
         session.flush()
         CreditCardService.resync_open_statement_dates(session, card)
-    publish_event(session, workspace_id, "credit_card.updated", "credit_card", card.id, membership.user_id)
     session.commit()
     session.refresh(card)
     return _serialize_card(session, card)
@@ -196,19 +187,17 @@ def update_credit_card(
 
 @router.delete("/{card_id}")
 def delete_credit_card(
-    workspace_id: int,
     card_id: int,
     session: Session = Depends(get_session),
-    membership: WorkspaceMembership = Depends(require_role(WorkspaceRole.member))
+    current_user: User = Depends(get_current_user),
 ):
-    card = _get_card_or_404(session, workspace_id, card_id, membership)
+    card = _get_card_or_404(session, card_id, current_user.id)
 
     # Fatura em aberto trava a exclusão. O soft delete só escondia o cartão: as
     # faturas não pagas continuavam existindo e ficavam INALCANÇÁVEIS (fechar/
     # pagar/reabrir passam por _get_card_or_404, que recusa cartão excluído).
     # Pior, a dívida sobrevivia só de um lado — a previsão somava a fatura e o
-    # Endividamento não —, e não havia tela por onde resolver. Quitar antes é a
-    # condição para o cartão sair sem deixar dívida órfã.
+    # Endividamento não —, e não havia tela por onde resolver.
     overview = CreditCardService.card_overview(session, card)
     abertas = [
         s for s in overview["statements"]
@@ -229,42 +218,35 @@ def delete_credit_card(
 
     card.deleted_at = datetime.now(UTC)
     session.add(card)
-    publish_event(session, workspace_id, "credit_card.deleted", "credit_card", card.id, membership.user_id)
     session.commit()
     return {"status": "ok"}
 
 
 @router.get("/{card_id}/statement-for")
 def statement_for_date(
-    workspace_id: int,
     card_id: int,
     on: datetime,
     session: Session = Depends(get_session),
-    membership: WorkspaceMembership = Depends(get_workspace_membership),
+    current_user: User = Depends(get_current_user),
 ):
     """Em qual fatura cairia uma compra neste cartão nesta data (ADR 0002).
 
     A fatura é derivada no SERVIDOR, e a regra não é óbvia: a partir do dia de
     fechamento a compra vai para o mês seguinte, e se essa fatura já estiver
-    fechada/paga ela rola para frente. O formulário não mostrava nada disso — o
-    usuário só descobria depois de salvar, e "por que minha compra de hoje está
-    na fatura de setembro?" não tinha resposta na tela.
-
-    Somente LEITURA: não cria fatura (senão digitar no formulário criaria faturas
-    vazias). O `GET` não muda estado, então não precisa de papel de escrita.
+    fechada/paga ela rola para frente. Somente LEITURA: não cria fatura (senão
+    digitar no formulário criaria faturas vazias).
     """
-    card = _get_card_or_404(session, workspace_id, card_id, membership)
+    card = _get_card_or_404(session, card_id, current_user.id)
     return CreditCardService.preview_statement_target(session, card, on)
 
 
 @router.get("/{card_id}/statements")
 def list_statements(
-    workspace_id: int,
     card_id: int,
     session: Session = Depends(get_session),
-    membership: WorkspaceMembership = Depends(get_workspace_membership)
+    current_user: User = Depends(get_current_user),
 ):
-    card = _get_card_or_404(session, workspace_id, card_id, membership)
+    card = _get_card_or_404(session, card_id, current_user.id)
     # Materializa a fatura do ciclo corrente antes de listar: um mês sem compras
     # não gerava fatura e a tela abria no mês anterior como se fosse o atual.
     # Best-effort — nunca derruba o GET (a criação é acessória à leitura).
@@ -290,13 +272,22 @@ def list_statements(
 
 @router.get("/{card_id}/statements/{statement_id}")
 def get_statement(
-    workspace_id: int,
     card_id: int,
     statement_id: int,
     session: Session = Depends(get_session),
-    membership: WorkspaceMembership = Depends(get_workspace_membership)
+    current_user: User = Depends(get_current_user),
 ):
-    card = _get_card_or_404(session, workspace_id, card_id, membership)
+    """A fatura com as compras dela.
+
+    As transações saem sem filtro adicional de propósito, e agora isso é correto:
+    a fatura é de um cartão que é do usuário logado, então tudo que caiu nela foi
+    comprado por ele. Era a MESMA query de antes — o que a tornava um vazamento
+    era o cartão poder ser de outra pessoa.
+
+    `workspace_id` viaja em cada linha porque a compra continua morando num
+    workspace: é o que permite à tela dizer "esta parcela caiu na Casa".
+    """
+    card = _get_card_or_404(session, card_id, current_user.id)
     stmt = _get_statement_or_404(session, card, statement_id)
 
     transactions = session.exec(
@@ -313,23 +304,24 @@ def get_statement(
 
 
 # ---- Ciclo da fatura (ADR 0011) --------------------------------------------
+# Sem guarda de dono nos três: a ROTA inteira é do dono. Antes cada uma pedia
+# `require_role(member)` no workspace, e era assim que um membro qualquer fechava
+# ou pagava a fatura de outra pessoa.
 
 
 @router.post("/{card_id}/statements/{statement_id}/close")
 def close_statement(
-    workspace_id: int,
     card_id: int,
     statement_id: int,
     session: Session = Depends(get_session),
-    membership: WorkspaceMembership = Depends(require_role(WorkspaceRole.member)),
+    current_user: User = Depends(get_current_user),
 ):
-    card = _get_card_or_404(session, workspace_id, card_id, membership)
+    card = _get_card_or_404(session, card_id, current_user.id)
     stmt = _get_statement_or_404(session, card, statement_id)
     try:
         CreditCardService.close_statement(session, stmt)
     except StatementStateError as exc:
         raise HTTPException(status_code=409, detail=str(exc))
-    publish_event(session, workspace_id, "credit_card.statement_closed", "card_statement", stmt.id, membership.user_id)
     session.commit()
     session.refresh(stmt)
     return _serialize_statement(session, stmt)
@@ -337,21 +329,23 @@ def close_statement(
 
 @router.post("/{card_id}/statements/{statement_id}/pay")
 def pay_statement(
-    workspace_id: int,
     card_id: int,
     statement_id: int,
     body: StatementPayRequest,
     session: Session = Depends(get_session),
-    membership: WorkspaceMembership = Depends(require_role(WorkspaceRole.member)),
+    current_user: User = Depends(get_current_user),
 ):
-    card = _get_card_or_404(session, workspace_id, card_id, membership)
+    card = _get_card_or_404(session, card_id, current_user.id)
     stmt = _get_statement_or_404(session, card, statement_id)
 
     account = None
     if body.account_id is not None:
         account = session.get(PaymentAccount, body.account_id)
-        if not account or account.workspace_id != workspace_id or account.deleted_at:
-            raise HTTPException(status_code=400, detail="Conta inválida para este workspace")
+        # A conta de origem tem de ser DO DONO do cartão. Antes a checagem era
+        # `account.workspace_id != workspace_id`, que num modelo de recurso
+        # pessoal não quer dizer nada.
+        if not account or account.deleted_at or account.owner_user_id != current_user.id:
+            raise HTTPException(status_code=400, detail="Conta inválida")
         if not account.active:
             raise HTTPException(status_code=400, detail="Conta inativa não pode originar pagamento")
 
@@ -359,16 +353,14 @@ def pay_statement(
         CreditCardService.pay_statement(
             session,
             stmt,
-            workspace_id=workspace_id,
             account=account,
             amount=body.amount,
             paid_at=body.paid_at,
             note=body.note,
-            user_id=membership.user_id,
+            user_id=current_user.id,
         )
     except StatementStateError as exc:
         raise HTTPException(status_code=409, detail=str(exc))
-    publish_event(session, workspace_id, "credit_card.statement_paid", "card_statement", stmt.id, membership.user_id)
     session.commit()
     session.refresh(stmt)
     return _serialize_statement(session, stmt)
@@ -376,92 +368,17 @@ def pay_statement(
 
 @router.post("/{card_id}/statements/{statement_id}/reopen")
 def reopen_statement(
-    workspace_id: int,
     card_id: int,
     statement_id: int,
     session: Session = Depends(get_session),
-    membership: WorkspaceMembership = Depends(require_role(WorkspaceRole.member)),
+    current_user: User = Depends(get_current_user),
 ):
-    card = _get_card_or_404(session, workspace_id, card_id, membership)
+    card = _get_card_or_404(session, card_id, current_user.id)
     stmt = _get_statement_or_404(session, card, statement_id)
     try:
         CreditCardService.reopen_statement(session, stmt)
     except StatementStateError as exc:
         raise HTTPException(status_code=409, detail=str(exc))
-    publish_event(session, workspace_id, "credit_card.statement_reopened", "card_statement", stmt.id, membership.user_id)
     session.commit()
     session.refresh(stmt)
     return _serialize_statement(session, stmt)
-
-
-@router.get("/{card_id}/shares")
-def list_card_shares(
-    workspace_id: int,
-    card_id: int,
-    session: Session = Depends(get_session),
-    membership: WorkspaceMembership = Depends(get_workspace_membership),
-):
-    """Com quais workspaces este cartão está compartilhado (ADR 0019)."""
-    card = _get_card_or_404(session, workspace_id, card_id, membership)
-    linhas = session.exec(
-        select(CardWorkspaceAccess).where(CardWorkspaceAccess.card_id == card.id)
-    ).all()
-    return [{"workspace_id": x.workspace_id, "access": x.access} for x in linhas]
-
-
-@router.put("/{card_id}/shares")
-def set_card_shares(
-    workspace_id: int,
-    card_id: int,
-    data: CardShareUpdate,
-    session: Session = Depends(get_session),
-    membership: WorkspaceMembership = Depends(require_role(WorkspaceRole.member)),
-):
-    """Define o compartilhamento do cartão — a lista enviada é o estado final.
-
-    Só o DONO compartilha: oferecer o próprio cartão a um workspace é decisão
-    dele, não de quem administra a casa.
-    """
-    card = _get_card_or_404(session, workspace_id, card_id, membership)
-    assert_can_write(
-        card.owner_user_id,
-        membership,
-        detail="Só o dono do cartão pode compartilhá-lo",
-        null_is_shared=True,
-    )
-
-    permitidos = workspaces_do_usuario(session, membership.user_id)
-    desejados = {item.workspace_id: item.access for item in data.shares}
-    if set(desejados) - permitidos:
-        raise HTTPException(
-            status_code=400,
-            detail="Você só pode compartilhar com workspaces de que participa",
-        )
-
-    atuais = {
-        linha.workspace_id: linha
-        for linha in session.exec(
-            select(CardWorkspaceAccess).where(CardWorkspaceAccess.card_id == card.id)
-        ).all()
-    }
-    for ws_id, nivel in desejados.items():
-        if ws_id in atuais:
-            atuais[ws_id].access = CardAccessLevel(nivel)
-            session.add(atuais[ws_id])
-        else:
-            session.add(
-                CardWorkspaceAccess(
-                    card_id=card.id, workspace_id=ws_id, access=CardAccessLevel(nivel)
-                )
-            )
-    for ws_id in set(atuais) - set(desejados):
-        session.delete(atuais[ws_id])
-
-    publish_event(
-        session, workspace_id, "credit_card.updated", "credit_card", card.id, membership.user_id
-    )
-    session.commit()
-    return {
-        "status": "ok",
-        "shares": [{"workspace_id": ws, "access": n} for ws, n in desejados.items()],
-    }

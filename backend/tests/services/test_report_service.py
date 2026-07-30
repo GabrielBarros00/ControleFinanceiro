@@ -8,7 +8,6 @@ from app.models.transaction import (
     TransactionSplit,
     SplitMethod,
 )
-from app.models.income import Income
 from app.models.category import Category
 from app.models.user import User
 from app.services.report_service import ReportService
@@ -35,19 +34,13 @@ def test_get_summary_with_data(db_session: Session, seed_ws):
     item2 = TransactionItem(transaction_id=t1.id, category_id=cat_b.id, amount=Decimal("40.00"), description="Item 2", title="Item 2")
     db_session.add_all([item1, item2])
     
-    # Setup: Income
-    i1 = Income(amount=Decimal("5000.00"), received_at=datetime(2026, 5, 5), workspace_id=workspace_id, title="Salary", user_id=user.id)
-    db_session.add(i1)
-    
     db_session.commit()
-    
+
     # Act
     summary = ReportService.get_summary(db_session, workspace_id, target_month)
-    
-    # Assert
+
+    # Assert — só gasto: renda saiu do resumo do workspace (ADR 0021)
     assert summary["total_expenses"] == 100.0
-    assert summary["total_income"] == 5000.0
-    assert summary["net_savings"] == 4900.0
     assert len(summary["categories"]) == 2
     # Nomes de categoria resolvidos a partir da tabela Category
     cats = sorted(summary["categories"], key=lambda x: x["name"])
@@ -61,10 +54,8 @@ def test_get_summary_empty(db_session: Session):
     target_month = date(2026, 5, 1)
     
     summary = ReportService.get_summary(db_session, workspace_id, target_month)
-    
+
     assert summary["total_expenses"] == 0.0
-    assert summary["total_income"] == 0.0
-    assert summary["net_savings"] == 0.0
     assert summary["categories"] == []
 
 def test_get_summary_excludes_and_counts_foreign_currency(db_session: Session, seed_ws):
@@ -98,8 +89,10 @@ def test_get_last_6_months(db_session: Session):
     for item in results:
         assert "name" in item
         assert "expenses" in item
-        assert "income" in item
         assert "my_expenses" in item
+        # A barra de RECEITA saiu do histórico do workspace junto com a renda:
+        # ela era a versão gráfica do mesmo erro do `my_net` (ADR 0021).
+        assert "income" not in item
 
 
 def test_get_last_6_months_ancorado_no_mes_pedido(db_session: Session, seed_ws):
@@ -126,24 +119,26 @@ def test_get_last_6_months_ancorado_no_mes_pedido(db_session: Session, seed_ws):
     assert results[-1]["expenses"] == Decimal("0.00")  # maio
 
 
-def test_historico_e_resumo_concordam_na_renda_em_outra_moeda(db_session: Session, seed_ws):
-    """Renda fora da moeda-base fica fora dos DOIS somatórios.
+def test_historico_e_resumo_concordam_no_gasto(db_session: Session, seed_ws):
+    """Resumo e histórico alimentam a MESMA tela e têm de contar a mesma coisa.
 
-    O `get_summary` já filtrava a moeda; o `get_last_6_months` não — e os dois
-    alimentam a MESMA tela de Relatórios. O card "Receita" e a barra do mês
-    mostravam números diferentes para o mesmo mês, sem nada explicando a
-    diferença.
+    A versão anterior comparava a RENDA nos dois: `get_summary` filtrava a moeda,
+    `get_last_6_months` não, e o card "Receita" divergia da barra do mesmo mês.
+    Renda saiu dos dois (ADR 0021); a invariante de concordância continua valendo
+    para o gasto, que é o que o workspace mede.
     """
     workspace_id = seed_ws["ws"].id
     user = seed_ws["user"]
     db_session.add_all([
-        Income(
-            amount=Decimal("1000.00"), currency="BRL", received_at=datetime(2026, 5, 5),
-            workspace_id=workspace_id, title="Salário", user_id=user.id,
+        Transaction(
+            title="BRL", total_amount=Decimal("100.00"), currency="BRL",
+            transaction_date=datetime(2026, 5, 5), billing_month="2026-05",
+            workspace_id=workspace_id, created_by_user_id=user.id,
         ),
-        Income(
-            amount=Decimal("900.00"), currency="USD", received_at=datetime(2026, 5, 6),
-            workspace_id=workspace_id, title="Freela em dólar", user_id=user.id,
+        Transaction(
+            title="USD", total_amount=Decimal("900.00"), currency="USD",
+            transaction_date=datetime(2026, 5, 6), billing_month="2026-05",
+            workspace_id=workspace_id, created_by_user_id=user.id,
         ),
     ])
     db_session.commit()
@@ -152,8 +147,8 @@ def test_historico_e_resumo_concordam_na_renda_em_outra_moeda(db_session: Sessio
     historico = ReportService.get_last_6_months(db_session, workspace_id, ref_month=date(2026, 5, 1))
     maio = next(r for r in historico if r["month"] == "2026-05")
 
-    assert resumo["total_income"] == Decimal("1000.00")
-    assert maio["income"] == resumo["total_income"]
+    assert resumo["total_expenses"] == Decimal("100.00")
+    assert maio["expenses"] == resumo["total_expenses"]
 
 
 def test_summary_leva_o_id_da_categoria(db_session: Session, seed_ws):
@@ -213,23 +208,21 @@ def test_get_summary_my_share(db_session: Session, seed_ws):
         transaction_id=tx.id, user_id=u2.id, split_method=SplitMethod.fixed,
         input_value=Decimal("150.00"), computed_amount=Decimal("150.00"),
     ))
-    # Rendas por usuário (Income tem user_id)
-    db_session.add(Income(amount=Decimal("5000.00"), received_at=datetime(2026, 5, 5), workspace_id=workspace_id, title="Sal", user_id=user.id))
-    db_session.add(Income(amount=Decimal("2000.00"), received_at=datetime(2026, 5, 6), workspace_id=workspace_id, title="Sal2", user_id=u2.id))
     db_session.commit()
 
     s_user = ReportService.get_summary(db_session, workspace_id, target_month, user_id=user.id)
     assert s_user["total_expenses"] == Decimal("300.00")   # visão da casa
     assert s_user["my_expenses"] == Decimal("150.00")      # só a minha parte
-    assert s_user["total_income"] == Decimal("7000.00")
-    assert s_user["my_income"] == Decimal("5000.00")
-    assert s_user["my_net"] == Decimal("4850.00")
+    # Pagou os 300 e consumiu 150 → tem 150 a receber. É o par que faltava.
+    assert s_user["paid_by_me"] == Decimal("300.00")
+    assert s_user["my_balance"] == Decimal("150.00")
 
     s_u2 = ReportService.get_summary(db_session, workspace_id, target_month, user_id=u2.id)
     assert s_u2["my_expenses"] == Decimal("150.00")
-    assert s_u2["my_income"] == Decimal("2000.00")
+    assert s_u2["paid_by_me"] == Decimal("0.00")
+    assert s_u2["my_balance"] == Decimal("-150.00")
 
-    # Sem user_id: campos "my_*" zerados (visão só da casa)
+    # Sem user_id: campos do recorte zerados (visão só da casa)
     s_none = ReportService.get_summary(db_session, workspace_id, target_month)
     assert s_none["my_expenses"] == Decimal("0.00")
-    assert s_none["my_income"] == Decimal("0.00")
+    assert s_none["paid_by_me"] == Decimal("0.00")

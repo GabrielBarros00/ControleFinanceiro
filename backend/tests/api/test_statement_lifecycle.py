@@ -17,10 +17,9 @@ client = TestClient(app)
 @pytest.fixture(name="card_ws")
 def card_ws_fixture(db_session: Session, setup_data):
     card = CreditCard(
-        workspace_id=setup_data["ws1"].id, name="Nubank",
-        limit=Decimal("5000.00"), closing_day=25, due_day=5,
-    )
-    account = PaymentAccount(workspace_id=setup_data["ws1"].id, name="Conta Corrente")
+        name="Nubank",
+        limit=Decimal("5000.00"), closing_day=25, due_day=5, owner_user_id=setup_data["u1"].id)
+    account = PaymentAccount(name="Conta Corrente", owner_user_id=setup_data["u1"].id)
     db_session.add_all([card, account])
     db_session.commit()
     db_session.refresh(card)
@@ -60,7 +59,7 @@ def test_ciclo_fechar_pagar_reabrir(db_session, card_ws, override_get_session):
     stmt = _statement_of(db_session, resp.json()["id"])
     assert stmt.status == StatementStatus.open
 
-    base = f"/api/v1/workspaces/{ws.id}/credit-cards/{card.id}/statements/{stmt.id}"
+    base = f"/api/v1/me/credit-cards/{card.id}/statements/{stmt.id}"
 
     # Fechar: congela o total e carimba closed_at
     resp = client.post(f"{base}/close", headers=headers)
@@ -109,7 +108,7 @@ def test_pagar_sem_fechar_e_conflito(db_session, card_ws, override_get_session):
     headers = card_ws["headers1"]
     resp = _post_tx(ws.id, headers, u1.id, card.id, 100.0, "2026-01-10T12:00:00")
     stmt = _statement_of(db_session, resp.json()["id"])
-    base = f"/api/v1/workspaces/{ws.id}/credit-cards/{card.id}/statements/{stmt.id}"
+    base = f"/api/v1/me/credit-cards/{card.id}/statements/{stmt.id}"
 
     resp = client.post(f"{base}/pay", json={"account_id": account.id}, headers=headers)
     assert resp.status_code == 409  # aberta não pode ser paga direto
@@ -118,14 +117,14 @@ def test_pagar_sem_fechar_e_conflito(db_session, card_ws, override_get_session):
 def test_pagar_com_conta_de_outro_workspace(db_session, card_ws, override_get_session):
     ws, u1, card = card_ws["ws1"], card_ws["u1"], card_ws["card"]
     headers = card_ws["headers1"]
-    foreign_account = PaymentAccount(workspace_id=card_ws["ws2"].id, name="Alheia")
+    foreign_account = PaymentAccount(name="Alheia", owner_user_id=card_ws["u2"].id)
     db_session.add(foreign_account)
     db_session.commit()
     db_session.refresh(foreign_account)
 
     resp = _post_tx(ws.id, headers, u1.id, card.id, 100.0, "2026-01-10T12:00:00")
     stmt = _statement_of(db_session, resp.json()["id"])
-    base = f"/api/v1/workspaces/{ws.id}/credit-cards/{card.id}/statements/{stmt.id}"
+    base = f"/api/v1/me/credit-cards/{card.id}/statements/{stmt.id}"
     client.post(f"{base}/close", headers=headers)
 
     resp = client.post(f"{base}/pay", json={"account_id": foreign_account.id}, headers=headers)
@@ -141,16 +140,16 @@ def test_limite_comprometido_e_disponivel(db_session, card_ws, override_get_sess
     resp = _post_tx(ws.id, headers, u1.id, card.id, 300.0, "2026-01-11T12:00:00")
     stmt = _statement_of(db_session, resp.json()["id"])
 
-    cards = client.get(f"/api/v1/workspaces/{ws.id}/credit-cards/", headers=headers).json()
+    cards = client.get("/api/v1/me/credit-cards/", headers=headers).json()
     assert Decimal(str(cards[0]["committed_amount"])) == Decimal("500.00")
     assert Decimal(str(cards[0]["available_limit"])) == Decimal("4500.00")
 
     # Fatura paga libera o limite
-    base = f"/api/v1/workspaces/{ws.id}/credit-cards/{card.id}/statements/{stmt.id}"
+    base = f"/api/v1/me/credit-cards/{card.id}/statements/{stmt.id}"
     client.post(f"{base}/close", headers=headers)
     client.post(f"{base}/pay", json={"account_id": account.id}, headers=headers)
 
-    cards = client.get(f"/api/v1/workspaces/{ws.id}/credit-cards/", headers=headers).json()
+    cards = client.get("/api/v1/me/credit-cards/", headers=headers).json()
     assert Decimal(str(cards[0]["committed_amount"])) == Decimal("0.00")
     assert Decimal(str(cards[0]["available_limit"])) == Decimal("5000.00")
 
@@ -164,7 +163,7 @@ def test_fatura_fechada_nao_recebe_novas_compras(db_session, card_ws, override_g
     stmt1 = _statement_of(db_session, resp.json()["id"])
     assert stmt1.month == "2026-01"
 
-    base = f"/api/v1/workspaces/{ws.id}/credit-cards/{card.id}/statements/{stmt1.id}"
+    base = f"/api/v1/me/credit-cards/{card.id}/statements/{stmt1.id}"
     client.post(f"{base}/close", headers=headers)
 
     resp = _post_tx(ws.id, headers, u1.id, card.id, 50.0, "2026-01-11T12:00:00")
@@ -183,7 +182,7 @@ def test_total_congelado_ignora_edicao_posterior(db_session, card_ws, override_g
     resp = _post_tx(ws.id, headers, u1.id, card.id, 100.0, "2026-01-10T12:00:00")
     tx_id = resp.json()["id"]
     stmt = _statement_of(db_session, tx_id)
-    base = f"/api/v1/workspaces/{ws.id}/credit-cards/{card.id}/statements/{stmt.id}"
+    base = f"/api/v1/me/credit-cards/{card.id}/statements/{stmt.id}"
     client.post(f"{base}/close", headers=headers)
 
     # Cancelar a transação depois do fechamento NÃO altera o total faturado
@@ -203,7 +202,7 @@ def test_overdue_derivado(db_session, card_ws, override_get_session):
     # Vencimento 2026-02-05 já passou (hoje é depois) → overdue enquanto não paga
     resp = _post_tx(ws.id, headers, u1.id, card.id, 100.0, "2026-01-10T12:00:00")
     stmt = _statement_of(db_session, resp.json()["id"])
-    base = f"/api/v1/workspaces/{ws.id}/credit-cards/{card.id}/statements/{stmt.id}"
+    base = f"/api/v1/me/credit-cards/{card.id}/statements/{stmt.id}"
 
     detail = client.get(f"{base.rsplit('/', 1)[0]}/{stmt.id}", headers=headers).json()
     assert detail["is_overdue"] is True

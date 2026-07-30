@@ -46,17 +46,17 @@ def test_recorrencia_despesa_estrangeira_converte_com_iof(db_session, seed_ws):
 
 
 def test_recorrencia_renda_estrangeira_converte_sem_iof(db_session, seed_ws):
-    user, ws = seed_ws["user"], seed_ws["ws"]
+    user, _ws = seed_ws["user"], seed_ws["ws"]
     tmpl = RecurringIncome(
         title="Freela USD", base_amount=Decimal("100.00"), currency="USD",
         frequency=RecurrenceFrequency.monthly, interval=1, day_of_month=5,
-        workspace_id=ws.id, created_by_user_id=user.id, user_id=user.id, is_active=True,
+        user_id=user.id, is_active=True,
     )
     db_session.add(tmpl)
     db_session.commit()
     db_session.refresh(tmpl)
 
-    created = RecurringIncomeService.generate_due_income(db_session, ws.id, date(2026, 3, 10))
+    created = RecurringIncomeService.generate_due_income(db_session, user.id, date(2026, 3, 10))
     db_session.commit()
     assert created == 1
     inc = db_session.exec(select(Income).where(Income.recurring_income_id == tmpl.id)).first()

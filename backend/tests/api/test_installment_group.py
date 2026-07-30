@@ -16,9 +16,8 @@ client = TestClient(app)
 @pytest.fixture(name="setup_data")
 def setup_data_with_card(db_session: Session, setup_data):
     card = CreditCard(
-        workspace_id=setup_data["ws1"].id, name="Card",
-        limit=Decimal("50000.00"), closing_day=25, due_day=5,
-    )
+        name="Card",
+        limit=Decimal("50000.00"), closing_day=25, due_day=5, owner_user_id=setup_data["u1"].id)
     db_session.add(card)
     db_session.commit()
     db_session.refresh(card)

@@ -119,9 +119,9 @@ def test_deleted_transaction_out_of_debts(ws_team):
 # --- Income PUT/DELETE ---
 
 def test_income_update_and_delete(ws_team):
-    ws, users, db = ws_team["ws"], ws_team["users"], ws_team["db"]
+    _ws, users, db = ws_team["ws"], ws_team["users"], ws_team["db"]
     res = client.post(
-        f"/api/v1/workspaces/{ws.id}/income/",
+        "/api/v1/me/income/",
         json={"title": "Salário", "amount": "5000", "received_at": datetime.now(UTC).isoformat()},
         headers=_headers(users["member"]),
     )
@@ -130,7 +130,7 @@ def test_income_update_and_delete(ws_team):
     # Outro member não altera renda alheia — e nem sabe que ela existe (ADR 0018):
     # salário é o dado mais sensível do sistema, então responde 404
     res = client.put(
-        f"/api/v1/workspaces/{ws.id}/income/{income_id}",
+        f"/api/v1/me/income/{income_id}",
         json={"amount": "1"},
         headers=_headers(users["member2"]),
     )
@@ -138,13 +138,13 @@ def test_income_update_and_delete(ws_team):
 
     # Nem na listagem
     alheia = client.get(
-        f"/api/v1/workspaces/{ws.id}/income/", headers=_headers(users["member2"])
+        "/api/v1/me/income/", headers=_headers(users["member2"])
     ).json()
     assert income_id not in [i["id"] for i in alheia]
 
     # Dono altera
     res = client.put(
-        f"/api/v1/workspaces/{ws.id}/income/{income_id}",
+        f"/api/v1/me/income/{income_id}",
         json={"amount": "6000"},
         headers=_headers(users["member"]),
     )
@@ -156,42 +156,41 @@ def test_income_update_and_delete(ws_team):
     # mora nela. Antes admin+ excluía qualquer renda, porque toda renda era do
     # workspace.
     res = client.delete(
-        f"/api/v1/workspaces/{ws.id}/income/{income_id}", headers=_headers(users["admin"])
+        f"/api/v1/me/income/{income_id}", headers=_headers(users["admin"])
     )
     assert res.status_code == 404
     assert db.get(Income, income_id).deleted_at is None
 
     # O dono exclui a própria (soft)
     res = client.delete(
-        f"/api/v1/workspaces/{ws.id}/income/{income_id}", headers=_headers(users["member"])
+        f"/api/v1/me/income/{income_id}", headers=_headers(users["member"])
     )
     assert res.status_code == 200
     assert db.get(Income, income_id).deleted_at is not None
 
 
-def test_admin_administra_renda_da_casa(ws_team):
-    """A contrapartida: renda DA CASA (`scope="workspace"`) é do workspace, e aí o
-    admin manda mesmo — é o aluguel do imóvel comum, não o salário de ninguém."""
-    ws, users, db = ws_team["ws"], ws_team["users"], ws_team["db"]
+def test_admin_nao_apaga_renda_de_membro(ws_team):
+    """A contrapartida do ADR 0021: não existe mais renda "da casa" para o admin
+    administrar, e a renda do membro é intocável mesmo por quem manda no
+    workspace. Salário é o dado mais sensível do sistema."""
+    users, db = ws_team["users"], ws_team["db"]
     res = client.post(
-        f"/api/v1/workspaces/{ws.id}/income/",
+        "/api/v1/me/income",
         json={
-            "title": "Aluguel do imóvel",
+            "title": "Salário do member",
             "amount": "2000",
             "received_at": datetime.now(UTC).isoformat(),
-            "scope": "workspace",
         },
         headers=_headers(users["member"]),
     )
     assert res.status_code == 200
-    assert res.json()["scope"] == "workspace"
     income_id = res.json()["id"]
 
     res = client.delete(
-        f"/api/v1/workspaces/{ws.id}/income/{income_id}", headers=_headers(users["admin"])
+        f"/api/v1/me/income/{income_id}", headers=_headers(users["admin"])
     )
-    assert res.status_code == 200
-    assert db.get(Income, income_id).deleted_at is not None
+    assert res.status_code == 404, "404 e não 403: a existência já é informação"
+    assert db.get(Income, income_id).deleted_at is None
 
 
 # --- Credit cards PUT/DELETE + statements ---
@@ -199,14 +198,14 @@ def test_admin_administra_renda_da_casa(ws_team):
 def test_credit_card_update_delete_and_statements(ws_team):
     ws, users = ws_team["ws"], ws_team["users"]
     res = client.post(
-        f"/api/v1/workspaces/{ws.id}/credit-cards/",
+        "/api/v1/me/credit-cards/",
         json={"name": "Nubank", "limit": "3000", "closing_day": 10, "due_day": 20},
         headers=_headers(users["member"]),
     )
     card_id = res.json()["id"]
 
     res = client.put(
-        f"/api/v1/workspaces/{ws.id}/credit-cards/{card_id}",
+        f"/api/v1/me/credit-cards/{card_id}",
         json={"limit": "5000"},
         headers=_headers(users["member"]),
     )
@@ -224,7 +223,7 @@ def test_credit_card_update_delete_and_statements(ws_team):
     res = client.post(f"/api/v1/workspaces/{ws.id}/transactions/", json=payload, headers=_headers(users["member"]))
     assert res.status_code == 200
 
-    res = client.get(f"/api/v1/workspaces/{ws.id}/credit-cards/{card_id}/statements", headers=_headers(users["member"]))
+    res = client.get(f"/api/v1/me/credit-cards/{card_id}/statements", headers=_headers(users["member"]))
     assert res.status_code == 200
     statements = res.json()
     assert len(statements) == 1
@@ -232,7 +231,7 @@ def test_credit_card_update_delete_and_statements(ws_team):
 
     stmt_id = statements[0]["id"]
     res = client.get(
-        f"/api/v1/workspaces/{ws.id}/credit-cards/{card_id}/statements/{stmt_id}",
+        f"/api/v1/me/credit-cards/{card_id}/statements/{stmt_id}",
         headers=_headers(users["member"]),
     )
     assert res.status_code == 200
@@ -240,32 +239,32 @@ def test_credit_card_update_delete_and_statements(ws_team):
 
     # Fatura em aberto trava a exclusão: o cartão sairia da tela deixando uma
     # dívida sem nenhum caminho para ser quitada (fechar/pagar exigem cartão vivo)
-    res = client.delete(f"/api/v1/workspaces/{ws.id}/credit-cards/{card_id}", headers=_headers(users["member"]))
+    res = client.delete(f"/api/v1/me/credit-cards/{card_id}", headers=_headers(users["member"]))
     assert res.status_code == 409
     assert "em aberto" in res.json()["error"]["message"]
 
     # Quitada a fatura, o delete soft passa e o cartão some da listagem
     client.post(
-        f"/api/v1/workspaces/{ws.id}/credit-cards/{card_id}/statements/{stmt_id}/close",
+        f"/api/v1/me/credit-cards/{card_id}/statements/{stmt_id}/close",
         headers=_headers(users["member"]),
     )
     client.post(
-        f"/api/v1/workspaces/{ws.id}/credit-cards/{card_id}/statements/{stmt_id}/pay",
+        f"/api/v1/me/credit-cards/{card_id}/statements/{stmt_id}/pay",
         json={},
         headers=_headers(users["member"]),
     )
-    res = client.delete(f"/api/v1/workspaces/{ws.id}/credit-cards/{card_id}", headers=_headers(users["member"]))
+    res = client.delete(f"/api/v1/me/credit-cards/{card_id}", headers=_headers(users["member"]))
     assert res.status_code == 200
-    res = client.get(f"/api/v1/workspaces/{ws.id}/credit-cards/", headers=_headers(users["member"]))
+    res = client.get("/api/v1/me/credit-cards/", headers=_headers(users["member"]))
     assert all(c["id"] != card_id for c in res.json())
 
 
 # --- Financing ---
 
 def test_financing_full_flow(ws_team):
-    ws, users, db = ws_team["ws"], ws_team["users"], ws_team["db"]
+    _ws, users, db = ws_team["ws"], ws_team["users"], ws_team["db"]
     res = client.post(
-        f"/api/v1/workspaces/{ws.id}/financing",
+        "/api/v1/me/financing",
         json={
             "title": "Carro",
             "total_amount": "12000",
@@ -280,7 +279,7 @@ def test_financing_full_flow(ws_team):
     fin_id = res.json()["id"]
 
     # Cronograma persistido com 12 parcelas
-    res = client.get(f"/api/v1/workspaces/{ws.id}/financing/{fin_id}/schedule", headers=_headers(users["member"]))
+    res = client.get(f"/api/v1/me/financing/{fin_id}/schedule", headers=_headers(users["member"]))
     assert res.status_code == 200
     schedule = res.json()
     assert len(schedule) == 12
@@ -289,7 +288,7 @@ def test_financing_full_flow(ws_team):
 
     # Simulação de quitação antecipada
     res = client.post(
-        f"/api/v1/workspaces/{ws.id}/financing/{fin_id}/early-settlement",
+        f"/api/v1/me/financing/{fin_id}/early-settlement",
         json={},
         headers=_headers(users["member"]),
     )
@@ -300,7 +299,7 @@ def test_financing_full_flow(ws_team):
 
     # Pagar uma parcela
     res = client.post(
-        f"/api/v1/workspaces/{ws.id}/financing/{fin_id}/installments/1/pay",
+        f"/api/v1/me/financing/{fin_id}/installments/1/pay",
         headers=_headers(users["member"]),
     )
     assert res.status_code == 200
@@ -312,22 +311,22 @@ def test_financing_full_flow(ws_team):
 
     # Pagar de novo → 400
     res = client.post(
-        f"/api/v1/workspaces/{ws.id}/financing/{fin_id}/installments/1/pay",
+        f"/api/v1/me/financing/{fin_id}/installments/1/pay",
         headers=_headers(users["member"]),
     )
     assert res.status_code == 400
 
     # Delete soft
-    res = client.delete(f"/api/v1/workspaces/{ws.id}/financing/{fin_id}", headers=_headers(users["member"]))
+    res = client.delete(f"/api/v1/me/financing/{fin_id}", headers=_headers(users["member"]))
     assert res.status_code == 200
-    res = client.get(f"/api/v1/workspaces/{ws.id}/financing", headers=_headers(users["member"]))
+    res = client.get("/api/v1/me/financing", headers=_headers(users["member"]))
     assert res.json() == []
 
 
 def test_financing_price_settles_when_all_paid(ws_team):
-    ws, users = ws_team["ws"], ws_team["users"]
+    _ws, users = ws_team["ws"], ws_team["users"]
     res = client.post(
-        f"/api/v1/workspaces/{ws.id}/financing",
+        "/api/v1/me/financing",
         json={
             "title": "Notebook",
             "total_amount": "3000",
@@ -342,12 +341,12 @@ def test_financing_price_settles_when_all_paid(ws_team):
 
     for n in (1, 2):
         res = client.post(
-            f"/api/v1/workspaces/{ws.id}/financing/{fin_id}/installments/{n}/pay",
+            f"/api/v1/me/financing/{fin_id}/installments/{n}/pay",
             headers=_headers(users["member"]),
         )
         assert res.status_code == 200
 
-    res = client.get(f"/api/v1/workspaces/{ws.id}/financing/{fin_id}", headers=_headers(users["member"]))
+    res = client.get(f"/api/v1/me/financing/{fin_id}", headers=_headers(users["member"]))
     assert res.json()["status"] == "settled"
 
 
@@ -537,9 +536,9 @@ def test_delete_recurring_with_instances_detaches_them(ws_team):
 # --- Cartões: mass assignment bloqueado ---
 
 def test_create_card_ignores_injected_fields(ws_team):
-    ws, users = ws_team["ws"], ws_team["users"]
+    _ws, users = ws_team["ws"], ws_team["users"]
     res = client.post(
-        f"/api/v1/workspaces/{ws.id}/credit-cards/",
+        "/api/v1/me/credit-cards/",
         json={
             "name": "Injetado", "limit": "1000", "closing_day": 5, "due_day": 15,
             "id": 99999, "deleted_at": "2020-01-01T00:00:00", "workspace_id": 12345,
@@ -549,7 +548,10 @@ def test_create_card_ignores_injected_fields(ws_team):
     assert res.status_code == 200
     body = res.json()
     assert body["id"] != 99999
-    assert body["workspace_id"] == ws.id
+    # `workspace_id` injetado é ignorado porque a coluna nem existe mais: cartão
+    # é pessoal (ADR 0021). O dono vem do token, nunca do corpo.
+    assert "workspace_id" not in body
+    assert body["owner_user_id"] == users["member"].id
     assert body["deleted_at"] is None
 
 
