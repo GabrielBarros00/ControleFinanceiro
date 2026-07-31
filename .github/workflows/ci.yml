@@ -192,3 +192,73 @@ jobs:
         with:
           name: playwright-report
           path: frontend/playwright-report/
+
+  # Stack REAL do Compose (nginx + backend production + Postgres) com os dois
+  # gates que só existem aqui: o smoke da jornada completa e a suíte `e2e-prod`.
+  #
+  # Este job existe por causa de um achado da auditoria: o `smoke_prod.py` ficou
+  # QUEBRADO por uma onda inteira — batia em rotas de cartão/financiamento que o
+  # ADR 0021 moveu para `/me/...` — e ninguém percebeu, porque nada o executava.
+  # Um gate de deploy que só roda quando alguém lembra apodrece em silêncio, e o
+  # dia em que ele é lembrado é o dia do deploy.
+  prod-stack:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: frontend/package-lock.json
+      # Mesmas variáveis do .env de teste local. COOKIE_SECURE=True de propósito:
+      # é o valor de produção, e o Chrome trata localhost como contexto seguro,
+      # então o cookie funciona sobre http sem afrouxar a configuração.
+      - name: Preparar .env do stack
+        run: |
+          cat > .env <<'ENV'
+          POSTGRES_USER=cf4
+          POSTGRES_DB=controle_financeiro
+          POSTGRES_PASSWORD=ci-postgres-only-for-tests
+          SECRET_KEY=ci-secret-key-only-for-tests-0123456789abcdef
+          APP_ENV=production
+          COOKIE_SECURE=True
+          HTTP_PORT=8890
+          FRONTEND_URL=http://localhost:8890
+          ALLOWED_HOSTS=localhost,127.0.0.1
+          RATE_LIMIT_ENABLED=True
+          ENV
+      - name: Subir o stack
+        run: |
+          docker compose up -d --build
+          # `--wait` não serve: o healthcheck do frontend depende do backend, e
+          # queremos o log do backend se ele não subir (o `alembic upgrade head`
+          # roda aí, antes do uvicorn).
+          for i in $(seq 1 60); do
+            if curl -fsS http://localhost:8890/api/v1/health >/dev/null 2>&1; then
+              echo "stack no ar"; exit 0
+            fi
+            sleep 5
+          done
+          echo "::error::stack não respondeu em 5 minutos"
+          docker compose logs --tail=100
+          exit 1
+      - name: Smoke de produção (jornada completa)
+        run: |
+          pip install httpx
+          python scripts/smoke_prod.py
+      - name: Suíte e2e-prod (nginx + WebSocket + convite por link)
+        run: |
+          cd frontend && npm ci
+          npx playwright install --with-deps chromium
+          npx playwright test --config playwright.prod.config.ts
+      - name: Logs do stack quando falha
+        if: failure()
+        run: docker compose logs --tail=200
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: e2e-prod-report
+          path: frontend/playwright-report/
