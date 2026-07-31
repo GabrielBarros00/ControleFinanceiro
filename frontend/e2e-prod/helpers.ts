@@ -3,7 +3,7 @@ import { expect, type APIRequestContext, type BrowserContext } from '@playwright
 // O backend limita auth a 5 req/min por IP+rota; a suíte inteira roda em
 // segundos e estoura o limite. Retry em 429 espera a janela liberar em vez
 // de desligar o rate limit (mantém o ambiente igual ao de produção).
-async function postWithRetry(request: APIRequestContext, url: string, data: unknown) {
+export async function postWithRetry(request: APIRequestContext, url: string, data: unknown) {
   for (let attempt = 0; attempt < 8; attempt++) {
     const res = await request.post(url, { data });
     if (res.status() !== 429) return res;

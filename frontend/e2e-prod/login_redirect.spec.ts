@@ -1,4 +1,5 @@
 import { test, expect, Page } from '@playwright/test';
+import { postWithRetry } from './helpers';
 
 // Regressão do bug: registro/login atrás do nginx (porta != 80) não redirecionava
 // ao dashboard e qualquer rota protegida devolvia ao /login mesmo com cookie válido
@@ -92,9 +93,14 @@ test.describe('Sessão atrás do nginx (stack de produção)', () => {
   test('login manual redireciona ao dashboard', async ({ page }) => {
     // Autossuficiente: worker pode reiniciar entre testes (ts é reavaliado),
     // então cria a própria conta via API antes do login pela UI
+    // Pelo helper com retry em 429, como o resto da suíte: o rate limit de auth
+    // é 5/min por IP+rota e a suíte inteira roda em menos de dois minutos. Esta
+    // era a ÚNICA chamada de registro que batia direto, então ela era a que caía
+    // quando um spec novo entrava na janela — falha de infraestrutura do teste
+    // que parecia defeito do login.
     const email2 = `e2e_prod_login_${Date.now()}@teste.com`;
-    const res = await page.request.post('/api/v1/auth/register', {
-      data: { name: 'Login E2E Prod', email: email2, password },
+    const res = await postWithRetry(page.request, '/api/v1/auth/register', {
+      name: 'Login E2E Prod', email: email2, password,
     });
     if (!res.ok()) throw new Error(`registro via API falhou: ${res.status()}`);
 

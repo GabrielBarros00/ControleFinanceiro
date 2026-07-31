@@ -90,9 +90,24 @@ class OverviewService:
     # ------------------------------------------------------------------
     @staticmethod
     def get_overview(
-        db: Session, user_id: int, target_month: date, currency: Optional[str] = None
+        db: Session,
+        user_id: int,
+        target_month: date,
+        currency: Optional[str] = None,
+        *,
+        com_acertos: bool = True,
     ) -> Dict[str, Any]:
-        """O mês da PESSOA, somando todos os workspaces dela."""
+        """O mês da PESSOA, somando todos os workspaces dela.
+
+        `com_acertos=False` pula o ledger de dívidas, e `to_pay`/`to_receive`
+        voltam zerados — **só use se não for lê-los**. Existe por causa do custo:
+        `DebtService.get_workspace_debts` varre o histórico INTEIRO do workspace e
+        não depende do mês pedido, então `get_series`, que chama isto uma vez por
+        mês do período, recalculava o mesmo ledger 24 vezes por workspace no teto,
+        para descartar o resultado — ele não expõe acerto nenhum. Com 2.160
+        lançamentos em 2 workspaces isso era a diferença entre 720 ms e 190 ms num
+        backend de UM worker, onde meio segundo bloqueia todo mundo.
+        """
         destino = currency or OverviewService.report_currency(db, user_id)
         mes = month_key(target_month)
         primeiro = date(target_month.year, target_month.month, 1)
@@ -160,15 +175,19 @@ class OverviewService:
 
             # Acerto entre pessoas: o ledger COMPLETO do workspace (o pareamento
             # precisa de todos os saldos) recortado nas linhas que me envolvem.
-            saldos = DebtService.get_workspace_debts(db, ws.id, viewer_user_id=user_id)
-            devo = sum(
-                (d["amount"] for d in saldos if d["debtor_id"] == user_id), ZERO
-            )
-            recebo = sum(
-                (d["amount"] for d in saldos if d["creditor_id"] == user_id), ZERO
-            )
-            devo_conv = OverviewService._converte(db, devo, base, destino, primeiro)
-            recebo_conv = OverviewService._converte(db, recebo, base, destino, primeiro)
+            # É a parte cara daqui — ver `com_acertos` no docstring.
+            if com_acertos:
+                saldos = DebtService.get_workspace_debts(db, ws.id, viewer_user_id=user_id)
+                devo = sum(
+                    (d["amount"] for d in saldos if d["debtor_id"] == user_id), ZERO
+                )
+                recebo = sum(
+                    (d["amount"] for d in saldos if d["creditor_id"] == user_id), ZERO
+                )
+                devo_conv = OverviewService._converte(db, devo, base, destino, primeiro)
+                recebo_conv = OverviewService._converte(db, recebo, base, destino, primeiro)
+            else:
+                devo_conv = recebo_conv = ZERO
 
             # Sem cotação, o workspace INTEIRO fica de fora e é contado — inclusive
             # quando o que não converte é só o saldo. A versão anterior escrevia
@@ -275,8 +294,10 @@ class OverviewService:
             while mes_num <= 0:
                 mes_num += 12
                 ano -= 1
+            # Sem o ledger de acertos: ele é global (não muda com o mês) e este
+            # relatório não expõe a pagar/receber. Ver `com_acertos`.
             mes = OverviewService.get_overview(
-                db, user_id, date(ano, mes_num, 1), currency=destino
+                db, user_id, date(ano, mes_num, 1), currency=destino, com_acertos=False
             )
             serie.append({
                 "month": mes["month"],

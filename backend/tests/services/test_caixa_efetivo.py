@@ -42,6 +42,7 @@ from app.models.transaction import (
 from app.models.user import User
 from app.models.workspace import Workspace, WorkspaceMembership, WorkspaceRole
 from app.services.cashflow_service import CashFlowService
+from app.services.overview_service import OverviewService
 
 JULHO = date(2026, 7, 1)
 AGOSTO = date(2026, 8, 1)
@@ -285,3 +286,104 @@ def test_net_cash_e_entrada_menos_saida(db_session, cenario):
     assert agosto["cash_in"] == Decimal("5000.00")
     assert agosto["cash_out"] == Decimal("200.00")
     assert agosto["net_cash"] == Decimal("4800.00")
+
+
+# ---------------------------------------------------------------------------
+# Série pessoal: o relatório global (ADR 0020 + 0022)
+
+def test_serie_nao_recalcula_o_ledger_de_acertos_por_mes(db_session, cenario, monkeypatch):
+    """`get_series` chama `get_overview` uma vez por mês do período, e o ledger de
+    dívidas é GLOBAL — não muda com o mês pedido.
+
+    Recalculá-lo por mês multiplicava por 12 uma varredura do histórico inteiro
+    do workspace, para descartar o resultado: a série não expõe a pagar/receber.
+    Medido com 2.160 lançamentos em 2 workspaces, era a diferença entre 400 ms e
+    200 ms — num backend de UM worker, onde isso bloqueia todos os outros.
+    """
+    from app.services import overview_service as mod
+
+    chamadas = []
+    original = mod.DebtService.get_workspace_debts
+
+    def espiao(db, workspace_id, viewer_user_id=None):
+        chamadas.append(workspace_id)
+        return original(db, workspace_id, viewer_user_id=viewer_user_id)
+
+    monkeypatch.setattr(mod.DebtService, "get_workspace_debts", espiao)
+
+    mod.OverviewService.get_series(
+        db_session, cenario["alice"].id, months=6, currency="BRL"
+    )
+    assert chamadas == [], "a série recalculou o ledger de acertos"
+
+    # E o overview normal continua calculando — quem lê a pagar/receber é ele.
+    mod.OverviewService.get_overview(
+        db_session, cenario["alice"].id, AGOSTO, currency="BRL"
+    )
+    assert chamadas, "o overview parou de calcular os acertos"
+
+
+def test_serie_devolve_um_ponto_por_mes_pedido(db_session, cenario):
+    serie = OverviewService.get_series(
+        db_session, cenario["alice"].id, months=6, currency="BRL"
+    )
+    assert len(serie["months"]) == 6
+    # Do mais antigo para o mais recente: é a ordem em que o gráfico desenha.
+    assert serie["months"] == sorted(serie["months"], key=lambda m: m["month"])
+    assert set(serie["totals"]) == {
+        "income", "consumption", "result", "cash_in", "cash_out", "net_cash",
+    }
+
+
+def test_duas_parcelas_no_mesmo_mes_so_a_sem_lancamento_conta(db_session, cenario):
+    """As duas situações no MESMO conjunto de dados.
+
+    Os testes acima cobrem os dois casos em fixtures separadas — e é por isso que
+    este existe: um `EXISTS` mal correlacionado (que perguntasse "há ALGUMA
+    despesa ligada a ALGUMA parcela?" em vez de "a esta") passaria nos dois
+    isoladamente e falharia aqui, descartando as duas parcelas ou nenhuma.
+    """
+    alice, ws = cenario["alice"], cenario["ws"]
+    fin = Financing(
+        title="Carro", total_amount=Decimal("50000.00"),
+        interest_rate=Decimal("0.010000"), installments_count=24,
+        start_date=date(2026, 1, 1), currency="BRL",
+        owner_user_id=alice.id, status=FinancingStatus.active,
+    )
+    db_session.add(fin)
+    db_session.commit()
+    db_session.refresh(fin)
+
+    parcelas = []
+    for numero, valor in ((8, Decimal("500.00")), (9, Decimal("300.00"))):
+        p = AmortizationInstallment(
+            financing_id=fin.id, installment_number=numero, due_date=date(2026, 8, numero),
+            principal_amount=valor, interest_amount=Decimal("0.00"),
+            total_amount=valor, remaining_balance=Decimal("10000.00"),
+            is_paid=True, paid_at=datetime(2026, 8, numero, tzinfo=UTC),
+        )
+        db_session.add(p)
+        parcelas.append(p)
+    db_session.flush()
+
+    # Só a PRIMEIRA virou despesa num workspace.
+    tx = Transaction(
+        title="Carro — Parcela 8/24", total_amount=Decimal("500.00"), currency="BRL",
+        transaction_date=datetime(2026, 8, 8, tzinfo=UTC), billing_month="2026-08",
+        workspace_id=ws.id, created_by_user_id=alice.id,
+        financing_installment_id=parcelas[0].id,
+    )
+    db_session.add(tx)
+    db_session.flush()
+    db_session.add(TransactionPayer(
+        transaction_id=tx.id, user_id=alice.id, amount=Decimal("500.00")
+    ))
+    db_session.commit()
+
+    agosto = _caixa(db_session, alice.id, AGOSTO)
+    quebra = agosto["cash_out_breakdown"]
+    # 500 pelo lançamento + 300 pela parcela solta. Nem 1.300 (dobrando a 8ª)
+    # nem 500 (descartando a 9ª junto).
+    assert quebra["transactions"] == Decimal("500.00")
+    assert quebra["financing_installments"] == Decimal("300.00")
+    assert agosto["cash_out"] == Decimal("800.00")

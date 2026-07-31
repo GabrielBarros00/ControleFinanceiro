@@ -15,6 +15,14 @@ import time
 
 import httpx
 
+# O console do Windows é cp1252: um "→" no nome de um check derrubava o SCRIPT
+# no `print`, depois de a verificação ter PASSADO — o gate de deploy morria com
+# UnicodeEncodeError no meio da jornada e nunca chegava ao veredito. Aqui o que
+# não couber vira "?" em vez de exceção.
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+
 BASE = os.environ.get("SMOKE_BASE_URL", "http://localhost:8890").rstrip("/")
 API = f"{BASE}/api/v1"
 
@@ -48,6 +56,21 @@ class Session:
 
     def req(self, method: str, path: str, **kwargs):
         res = self.client.request(method, f"{API}{path}", headers=self._headers(), **kwargs)
+
+        # 429 em rota de auth: espera a janela e tenta de novo, em vez de dar o
+        # gate por reprovado. O limite é 5/min por IP+rota — proteção REAL, que
+        # não se desliga para testar —, e qualquer coisa que tenha rodado antes
+        # (a suíte e2e-prod, outra execução deste script) já consumiu a cota.
+        # Sem isto, o gate de deploy reprovava por motivo que não é o deploy.
+        if res.status_code == 429 and path.startswith("/auth/"):
+            for _ in range(7):
+                time.sleep(10)
+                res = self.client.request(
+                    method, f"{API}{path}", headers=self._headers(), **kwargs
+                )
+                if res.status_code != 429:
+                    break
+
         for k, v in res.cookies.items():
             self.cookies[k] = v
         return res
@@ -126,7 +149,7 @@ def main():
     cat_id = res.json()[0]["id"]
 
     # --- Transações (com categoria e fatura de cartão dia 31) ---
-    res = alice.get(f"/workspaces/{ws_id}/credit-cards/")
+    res = alice.get("/me/credit-cards")
     card_id = res.json()[0]["id"]
     res = alice.post(f"/workspaces/{ws_id}/transactions/", json={
         "title": "Mercado Smoke", "total_amount": "150.00",
@@ -139,14 +162,24 @@ def main():
     check("transação com categoria + cartão (fev, fechamento 31)", res.status_code == 200 and res.json()["statement_id"])
     tx_anexo_id = res.json()["id"]  # recebe o anexo mais adiante
 
-    res = alice.get(f"/workspaces/{ws_id}/credit-cards/{card_id}/statements")
-    check("fatura criada com total", res.status_code == 200 and float(res.json()[0]["computed_total"]) == 150.0)
+    # Pela MÊS, não pelo índice: a listagem devolve também a fatura do ciclo
+    # corrente (vazia), e ela vem na frente da de fevereiro. Assumir `[0]` fazia
+    # o gate depender da ordenação e da data em que ele roda.
+    res = alice.get(f"/me/credit-cards/{card_id}/statements")
+    fatura_fev = next(
+        (f for f in res.json() if f["month"] == "2026-02"), None
+    ) if res.status_code == 200 else None
+    check(
+        "fatura de fevereiro criada com o total da compra",
+        fatura_fev is not None and float(fatura_fev["computed_total"]) == 150.0,
+        res.text[:300],
+    )
 
     # A UI anuncia o destino da compra ANTES de salvar (ADR 0002) — e perguntar
     # não pode criar fatura. Cartão do onboarding fecha dia 31.
     faturas_antes = len(res.json())
     res = alice.get(
-        f"/workspaces/{ws_id}/credit-cards/{card_id}/statement-for", params={"on": "2026-05-10"}
+        f"/me/credit-cards/{card_id}/statement-for", params={"on": "2026-05-10"}
     )
     alvo = res.json() if res.status_code == 200 else {}
     check(
@@ -154,12 +187,12 @@ def main():
         res.status_code == 200 and alvo.get("month") == "2026-05" and "due_date" in alvo,
         str(alvo),
     )
-    res = alice.get(f"/workspaces/{ws_id}/credit-cards/{card_id}/statements")
+    res = alice.get(f"/me/credit-cards/{card_id}/statements")
     check("consultar o destino NÃO cria fatura", len(res.json()) == faturas_antes)
 
     # Excluir cartão com fatura em aberto é 409: o soft delete escondia o cartão
     # e deixava a dívida sem nenhuma tela por onde ser quitada.
-    res = alice.delete(f"/workspaces/{ws_id}/credit-cards/{card_id}")
+    res = alice.delete(f"/me/credit-cards/{card_id}")
     check("excluir cartão com fatura em aberto → 409", res.status_code == 409, res.text)
 
     # --- Validações de borda em produção ---
@@ -240,17 +273,17 @@ def main():
     res = alice.delete(f"/workspaces/{ws_id}/recurring/{rec_id}")
     check("recorrência excluída", res.status_code == 200)
 
-    res = alice.post(f"/workspaces/{ws_id}/financing", json={
+    res = alice.post("/me/financing", json={
         "title": "Carro Smoke", "total_amount": "12000", "interest_rate": "0.015",
         "start_date": "2026-03-01", "installments_count": 12, "method": "PRICE",
     })
     fin_id = res.json()["id"]
     check("financiamento PRICE criado", res.status_code == 200)
-    res = alice.get(f"/workspaces/{ws_id}/financing/{fin_id}/schedule")
+    res = alice.get(f"/me/financing/{fin_id}/schedule")
     check("cronograma com 12 parcelas", len(res.json()) == 12)
-    res = alice.post(f"/workspaces/{ws_id}/financing/{fin_id}/early-settlement", json={})
+    res = alice.post(f"/me/financing/{fin_id}/early-settlement", json={})
     check("simulação de quitação", res.status_code == 200 and float(res.json()["savings"]) > 0)
-    res = alice.post(f"/workspaces/{ws_id}/financing/{fin_id}/installments/1/pay")
+    res = alice.post(f"/me/financing/{fin_id}/installments/1/pay")
     check("parcela 1 paga", res.status_code == 200)
 
     res = alice.post(f"/workspaces/{ws_id}/analytics/estimates", json={"category": "Geral", "amount": "2500", "month": "2026-02"})
@@ -258,7 +291,7 @@ def main():
     res = alice.get(f"/workspaces/{ws_id}/analytics/forecast?month=2026-02")
     check("forecast com orçamento", res.status_code == 200 and float(res.json()["total_budget"]) == 2500.0)
 
-    res = alice.post(f"/workspaces/{ws_id}/income/", json={
+    res = alice.post("/me/income", json={
         "title": "Freela", "amount": "800", "received_at": "2026-02-15T12:00:00",
     })
     check("renda extra criada", res.status_code == 200)

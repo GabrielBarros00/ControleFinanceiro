@@ -75,7 +75,13 @@ def get_overview(
 
 @router.get("/reports", response_model=SeriesRead)
 def get_reports(
-    months: int = Query(6, ge=1, le=24),
+    # Teto de 12, não 24: a tela pede 6, e o custo é LINEAR no número de meses —
+    # medido com 2.160 lançamentos em 2 workspaces, 6 meses custam ~100 ms e 24
+    # custavam ~400 ms. Num backend de UM worker (o ConnectionManager do
+    # WebSocket é in-process, ver Dockerfile) meio segundo de CPU bloqueia todos
+    # os outros usuários, e o parâmetro é de quem chama. 12 dá o dobro do que a
+    # UI usa e mantém o pior caso em ~200 ms.
+    months: int = Query(6, ge=1, le=12),
     currency: Optional[str] = Query(default=None),
     session: Session = Depends(get_session),
     current_user: User = Depends(get_current_user),
