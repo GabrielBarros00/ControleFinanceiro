@@ -141,24 +141,30 @@ export function Home() {
                   }
                 />
               )}
+              {/* "Pago por você" sugeria dinheiro que saiu da conta, e não é
+                  isso: a compra no cartão entra aqui no mês do lançamento, com o
+                  dinheiro ainda no banco. Caixa de verdade é global e está na
+                  Visão global (ADR 0022) — aqui o número certo é o que a pessoa
+                  ASSUMIU desta casa, que é o que fecha o acerto. */}
               <StatTile
-                label="Pago por você"
+                label="Adiantado por você"
                 value={paidByMe}
                 kind="neutral"
                 icon={Wallet}
                 currency={baseCurrency}
-                hint="O que saiu do seu bolso nesta casa"
+                hint="O que você assumiu das despesas desta casa"
               />
               <StatTile
-                // Nome pelo que é: a diferença entre consumo e caixa NESTE
-                // workspace. Nunca compensada com outros — dever na casa e ter a
-                // receber na viagem envolve pessoas e acordos diferentes.
+                // Nome pelo que é: a diferença entre o que consumi e o que
+                // assumi NESTE workspace, já descontados os acertos do mês.
+                // Nunca compensada com outros — dever na casa e ter a receber na
+                // viagem envolve pessoas e acordos diferentes.
                 label={myBalance >= 0 ? 'Você tem a receber' : 'Você deve'}
                 value={Math.abs(myBalance)}
                 kind={myBalance >= 0 ? 'income' : 'expense'}
                 icon={HandCoins}
                 currency={baseCurrency}
-                hint="Diferença entre o que você pagou e a sua parte"
+                hint="Já descontados os acertos deste mês"
               />
               <ExcludedForeignNotice
                 count={summary?.excluded_foreign_count}

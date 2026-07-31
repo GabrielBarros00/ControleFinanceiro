@@ -27,6 +27,16 @@ moravam (o membro com papel `owner`; na falta dele, o membro mais antigo). Linha
 em workspace sem membro nenhum não tem dono possível e é removida — só existe em
 base de desenvolvimento com resíduo de teste.
 
+**Sentido único.** Não há `downgrade()`: o vínculo de compartilhamento e o
+workspace de origem de cada recurso deixam de existir como dado aqui, e nenhuma
+consulta os reconstitui. O rollback é restauração de backup — ver
+`docs/runbook-deploy.md` e a mensagem em `_SEM_VOLTA`, no fim deste arquivo.
+
+**Ordem das operações.** Toda referência é solta ANTES do `DELETE` que a
+invalidaria. No Postgres a FK é verificada na hora, então "apaga agora, limpa
+depois" não é uma limpeza atrasada: é a migração abortando — e, com o
+`alembic upgrade head` que o Dockerfile roda no start, o container não sobe.
+
 Revision ID: a4e8c1b90f52
 Revises: f3a7d21e08b4
 Create Date: 2026-07-30
@@ -82,6 +92,176 @@ def _uniques(bind, tabela: str) -> set:
 # a exceção nasce depois do bloco. Por isso a existência é conferida ANTES.
 
 
+# Quem aponta para uma conta de pagamento. Ambas as pontas têm FK de verdade
+# (`fk_transactionpayer_account` na c7e4a95d63f1; inline na d1f6b083a2c4), então
+# nenhuma linha de `paymentaccount` pode ser apagada com uma delas apontando.
+_REFERENCIAM_CONTA = ('transactionpayer', 'statementpayment')
+
+
+def _funde_contas_duplicadas(bind, existentes: set) -> None:
+    """Resolve o `(owner_user_id, name)` repetido ANTES de a unicidade nova valer.
+
+    A mesma pessoa podia ter uma conta "Nubank" em cada workspace; com o
+    `workspace_id` fora, as duas passam a colidir. A versão anterior resolvia com
+    um `DELETE` do maior id — e isso tinha dois defeitos:
+
+    1. `transactionpayer.account_id` e `statementpayment.account_id` continuavam
+       apontando para a linha apagada. No SQLite virava referência órfã; no
+       Postgres, onde a FK é verificada na hora, o `DELETE` **aborta a migração**
+       — e o `alembic upgrade head` do Dockerfile roda no start do container, de
+       modo que o backend não sobe.
+    2. diferença de tipo, moeda ou estado era descartada em silêncio.
+
+    Aqui: duplicata idêntica em `type` e `currency` é a MESMA conta vista de dois
+    workspaces — as referências são reapontadas para a sobrevivente (a mais
+    antiga) e só então a linha some. Qualquer diferença material é conta
+    diferente com nome repetido: ela é **renomeada**, nunca apagada.
+    """
+    linhas = bind.execute(sa.text(
+        "SELECT id, owner_user_id, name, type, currency FROM paymentaccount "
+        "WHERE owner_user_id IS NOT NULL ORDER BY owner_user_id, name, id"
+    )).mappings().all()
+
+    grupos: dict = {}
+    nomes_do_dono: dict = {}
+    for linha in linhas:
+        grupos.setdefault((linha['owner_user_id'], linha['name']), []).append(linha)
+        nomes_do_dono.setdefault(linha['owner_user_id'], set()).add(linha['name'])
+
+    referenciam = [t for t in _REFERENCIAM_CONTA if t in existentes]
+
+    for (dono, nome), membros in grupos.items():
+        if len(membros) < 2:
+            continue
+        # Menor id = a mais antiga; é ela que os relatórios já vinham somando.
+        sobrevivente = membros[0]
+        for dup in membros[1:]:
+            mesma_conta = (
+                dup['type'] == sobrevivente['type']
+                and dup['currency'] == sobrevivente['currency']
+            )
+            if mesma_conta:
+                for tabela in referenciam:
+                    bind.execute(
+                        sa.text(
+                            f"UPDATE {tabela} SET account_id = :novo WHERE account_id = :velho"
+                        ),
+                        {"novo": sobrevivente['id'], "velho": dup['id']},
+                    )
+                bind.execute(
+                    sa.text("DELETE FROM paymentaccount WHERE id = :id"), {"id": dup['id']}
+                )
+                continue
+
+            # Nome livre para o dono: `(2)`, `(3)`… O sufixo é conferido contra os
+            # nomes que ele já tem, senão o próprio desempate colidiria com uma
+            # conta chamada "Nubank (2)" cadastrada à mão.
+            usados = nomes_do_dono[dono]
+            sufixo = 2
+            while f"{nome} ({sufixo})" in usados:
+                sufixo += 1
+            novo_nome = f"{nome} ({sufixo})"
+            usados.add(novo_nome)
+            bind.execute(
+                sa.text("UPDATE paymentaccount SET name = :nome WHERE id = :id"),
+                {"nome": novo_nome, "id": dup['id']},
+            )
+
+
+def _solta_referencias_e_apaga_sem_dono(bind, existentes: set) -> None:
+    """Apaga cartão/conta que não têm dono possível — soltando o que aponta para
+    eles ANTES, não depois.
+
+    Linha em workspace sem membro nenhum não tem de quem herdar o dono e não cabe
+    no modelo novo (só existe em base de desenvolvimento com resíduo de teste).
+    Mas ela é alvo de FK por três lados no caso do cartão (`transaction`,
+    `cardstatement`, `recurringexpense`) e por dois no caso da conta. A versão
+    anterior apagava primeiro e limpava depois: no Postgres a limpeza nunca era
+    alcançada, porque o `DELETE` já tinha estourado.
+    """
+    if 'paymentaccount' in existentes:
+        sem_dono = "SELECT id FROM paymentaccount WHERE owner_user_id IS NULL"
+        for tabela in _REFERENCIAM_CONTA:
+            if tabela in existentes and 'account_id' in _colunas(bind, tabela):
+                op.execute(sa.text(
+                    f"UPDATE {tabela} SET account_id = NULL "
+                    f"WHERE account_id IN ({sem_dono})"
+                ))
+        op.execute(sa.text("DELETE FROM paymentaccount WHERE owner_user_id IS NULL"))
+
+    if 'creditcard' in existentes:
+        sem_dono = "SELECT id FROM creditcard WHERE owner_user_id IS NULL"
+        faturas = f"SELECT id FROM cardstatement WHERE card_id IN ({sem_dono})"
+        if 'transaction' in existentes:
+            op.execute(sa.text(
+                f'UPDATE "transaction" SET statement_id = NULL '
+                f"WHERE statement_id IN ({faturas})"
+            ))
+            op.execute(sa.text(
+                f'UPDATE "transaction" SET credit_card_id = NULL '
+                f"WHERE credit_card_id IN ({sem_dono})"
+            ))
+        if 'recurringexpense' in existentes:
+            op.execute(sa.text(
+                f"UPDATE recurringexpense SET credit_card_id = NULL "
+                f"WHERE credit_card_id IN ({sem_dono})"
+            ))
+        if 'statementpayment' in existentes:
+            op.execute(sa.text(
+                f"DELETE FROM statementpayment WHERE statement_id IN ({faturas})"
+            ))
+        if 'cardstatement' in existentes:
+            op.execute(sa.text(f"DELETE FROM cardstatement WHERE card_id IN ({sem_dono})"))
+        op.execute(sa.text("DELETE FROM creditcard WHERE owner_user_id IS NULL"))
+
+
+def _varre_orfas_preexistentes(bind, existentes: set) -> None:
+    """Rede de segurança para o que JÁ estava pendurado.
+
+    O SQLite roda com `PRAGMA foreign_keys=OFF` por padrão, então uma base de
+    desenvolvimento pode chegar aqui com referência quebrada de antes — e ela
+    faria o `NOT NULL`/recriação de tabela mais adiante falhar. Idempotente: em
+    base íntegra não toca em nada.
+    """
+    if 'cardstatement' in existentes:
+        op.execute(sa.text(
+            "DELETE FROM cardstatement WHERE card_id NOT IN (SELECT id FROM creditcard)"
+        ))
+    if 'statementpayment' in existentes:
+        op.execute(sa.text(
+            "DELETE FROM statementpayment "
+            "WHERE statement_id NOT IN (SELECT id FROM cardstatement)"
+        ))
+        op.execute(sa.text(
+            "UPDATE statementpayment SET account_id = NULL "
+            "WHERE account_id IS NOT NULL "
+            "AND account_id NOT IN (SELECT id FROM paymentaccount)"
+        ))
+    if 'transaction' in existentes:
+        op.execute(sa.text(
+            'UPDATE "transaction" SET credit_card_id = NULL '
+            "WHERE credit_card_id IS NOT NULL "
+            "AND credit_card_id NOT IN (SELECT id FROM creditcard)"
+        ))
+        op.execute(sa.text(
+            'UPDATE "transaction" SET statement_id = NULL '
+            "WHERE statement_id IS NOT NULL "
+            "AND statement_id NOT IN (SELECT id FROM cardstatement)"
+        ))
+    if 'recurringexpense' in existentes:
+        op.execute(sa.text(
+            "UPDATE recurringexpense SET credit_card_id = NULL "
+            "WHERE credit_card_id IS NOT NULL "
+            "AND credit_card_id NOT IN (SELECT id FROM creditcard)"
+        ))
+    if 'transactionpayer' in existentes:
+        op.execute(sa.text(
+            "UPDATE transactionpayer SET account_id = NULL "
+            "WHERE account_id IS NOT NULL "
+            "AND account_id NOT IN (SELECT id FROM paymentaccount)"
+        ))
+
+
 def upgrade() -> None:
     bind = op.get_bind()
     existentes = set(sa.inspect(bind).get_table_names())
@@ -101,43 +281,20 @@ def upgrade() -> None:
                 + _DONO_DO_WORKSPACE.format(tabela=tabela)
                 + " WHERE owner_user_id IS NULL"
             ))
-        # Sem dono possível (workspace sem membro): a linha não tem como existir
-        # no modelo novo. Só ocorre com resíduo de teste.
-        op.execute(sa.text(f"DELETE FROM {tabela} WHERE owner_user_id IS NULL"))
 
-    # A fatura pertence ao cartão; sem cartão ela é órfã, e órfã de fatura foi
-    # bug real da 3ª rodada de auditoria.
-    if 'cardstatement' in existentes:
-        op.execute(sa.text(
-            "DELETE FROM cardstatement WHERE card_id NOT IN (SELECT id FROM creditcard)"
-        ))
-    if 'statementpayment' in existentes:
-        op.execute(sa.text(
-            "DELETE FROM statementpayment "
-            "WHERE statement_id NOT IN (SELECT id FROM cardstatement)"
-        ))
+    # --- 2. Conta duplicada do mesmo dono: funde ou renomeia -----------------
+    # Antes da limpeza abaixo, porque a fusão REAPONTA referências em vez de as
+    # deixar para trás — e antes da constraint nova, que é quem exige o desempate.
+    if 'paymentaccount' in existentes:
+        _funde_contas_duplicadas(bind, existentes)
 
-    # Lançamento que apontava para cartão/conta que sumiu perde a referência, em
-    # vez de quebrar a FK.
-    if 'transaction' in existentes:
-        op.execute(sa.text(
-            "UPDATE \"transaction\" SET credit_card_id = NULL "
-            "WHERE credit_card_id IS NOT NULL "
-            "AND credit_card_id NOT IN (SELECT id FROM creditcard)"
-        ))
-        op.execute(sa.text(
-            "UPDATE \"transaction\" SET statement_id = NULL "
-            "WHERE statement_id IS NOT NULL "
-            "AND statement_id NOT IN (SELECT id FROM cardstatement)"
-        ))
-    if 'transactionpayer' in existentes:
-        op.execute(sa.text(
-            "UPDATE transactionpayer SET account_id = NULL "
-            "WHERE account_id IS NOT NULL "
-            "AND account_id NOT IN (SELECT id FROM paymentaccount)"
-        ))
+    # --- 3. Sem dono possível: solta as referências e só então apaga ---------
+    _solta_referencias_e_apaga_sem_dono(bind, existentes)
 
-    # --- 2. Financiamento: autoria vira propriedade --------------------------
+    # --- 3b. Órfãs que já vinham quebradas de antes --------------------------
+    _varre_orfas_preexistentes(bind, existentes)
+
+    # --- 4. Financiamento: autoria vira propriedade --------------------------
     if 'financing' in existentes:
         colunas = _colunas(bind, 'financing')
         if 'owner_user_id' not in colunas and 'created_by_user_id' in colunas:
@@ -149,7 +306,7 @@ def upgrade() -> None:
                     existing_nullable=False,
                 )
 
-    # --- 3. Largar o workspace_id de todo recurso pessoal --------------------
+    # --- 5. Largar o workspace_id de todo recurso pessoal --------------------
     for tabela in ('creditcard', 'paymentaccount', 'financing', 'income', 'recurringincome',
                    'statementpayment'):
         if tabela not in existentes or 'workspace_id' not in _colunas(bind, tabela):
@@ -170,7 +327,7 @@ def upgrade() -> None:
         with op.batch_alter_table('recurringincome') as batch:
             batch.drop_column('created_by_user_id')
 
-    # --- 4. NOT NULL + índice no dono ---------------------------------------
+    # --- 6. NOT NULL + índice no dono ---------------------------------------
     for tabela in ('creditcard', 'paymentaccount', 'financing'):
         if tabela not in existentes:
             continue
@@ -182,18 +339,10 @@ def upgrade() -> None:
         if f'ix_{tabela}_owner_user_id' not in indices:
             op.create_index(f'ix_{tabela}_owner_user_id', tabela, ['owner_user_id'])
 
-    # --- 5. Conta: nome único POR DONO, não por workspace --------------------
-    # Duas pessoas podem ter uma conta "Nubank"; a mesma pessoa, não.
+    # --- 7. Conta: nome único POR DONO, não por workspace --------------------
+    # Duas pessoas podem ter uma conta "Nubank"; a mesma pessoa, não. O desempate
+    # aconteceu no passo 2 — aqui só a constraint muda de eixo.
     if 'paymentaccount' in existentes:
-        op.execute(sa.text("""
-            DELETE FROM paymentaccount WHERE id IN (
-                SELECT id FROM (
-                    SELECT id, ROW_NUMBER() OVER (
-                        PARTITION BY owner_user_id, name ORDER BY id
-                    ) AS n FROM paymentaccount
-                ) dup WHERE dup.n > 1
-            )
-        """))
         antiga = 'uq_paymentaccount_workspace_name'
         tem_antiga = antiga in _uniques(bind, 'paymentaccount')
         with op.batch_alter_table('paymentaccount') as batch:
@@ -203,77 +352,32 @@ def upgrade() -> None:
                 'uq_paymentaccount_owner_name', ['owner_user_id', 'name']
             )
 
-    # --- 6. As tabelas de vínculo somem -------------------------------------
+    # --- 8. As tabelas de vínculo somem -------------------------------------
     for tabela in _TABELAS_DE_VINCULO:
         if tabela in existentes:
             op.drop_table(tabela)
 
 
+_SEM_VOLTA = """\
+Esta revisão não tem downgrade: volte por restauração de backup.
+
+`a4e8c1b90f52` apaga as cinco tabelas de vínculo da Onda 2 (cardworkspaceaccess,
+paymentaccountworkspaceshare, financingworkspaceshare, incomeworkspaceshare,
+recurringincomeworkspaceshare) e o `workspace_id` de cartão, conta, financiamento,
+renda e pagamento de fatura. Nada disso é reconstituível a partir do estado novo:
+quem compartilhava o quê, e em qual workspace cada recurso morava, deixa de existir
+como dado no instante do upgrade.
+
+A versão anterior deste downgrade fingia que dava: recriava o `workspace_id`
+ancorando o recurso no PRIMEIRO workspace do dono e não recriava tabela de vínculo
+nenhuma. O Alembic marcava `f3a7d21e08b4` como aplicada e a revisão anterior não
+tinha como funcionar — um rollback que reporta sucesso e entrega um banco quebrado
+é pior que um rollback que não existe.
+
+Para voltar: restaure o dump tirado ANTES do upgrade (ver docs/runbook-deploy.md).
+"""
+
+
 def downgrade() -> None:
-    """Volta o `workspace_id`, mas NÃO o compartilhamento.
-
-    Recriar as tabelas de vínculo vazias seria honesto quanto ao schema e mentiroso
-    quanto ao dado: quem compartilhava o quê não sobrevive à ida. O recurso volta
-    ancorado no primeiro workspace do dono, que é a única reconstrução possível.
-    """
-    bind = op.get_bind()
-    existentes = set(sa.inspect(bind).get_table_names())
-
-    primeiro_workspace = """
-        (SELECT m.workspace_id FROM workspacemembership m
-          WHERE m.user_id = {tabela}.{dono} ORDER BY m.workspace_id LIMIT 1)
-    """
-
-    for tabela, dono in (
-        ('creditcard', 'owner_user_id'),
-        ('paymentaccount', 'owner_user_id'),
-        ('financing', 'owner_user_id'),
-    ):
-        if tabela not in existentes:
-            continue
-        op.add_column(tabela, sa.Column('workspace_id', sa.Integer(), nullable=True))
-        op.execute(sa.text(
-            f"UPDATE {tabela} SET workspace_id = "
-            + primeiro_workspace.format(tabela=tabela, dono=dono)
-        ))
-        op.execute(sa.text(f"DELETE FROM {tabela} WHERE workspace_id IS NULL"))
-        with op.batch_alter_table(tabela) as batch:
-            batch.alter_column('workspace_id', existing_type=sa.Integer(), nullable=False)
-        op.create_index(f'ix_{tabela}_workspace_id', tabela, ['workspace_id'])
-
-    for tabela in ('income', 'recurringincome'):
-        if tabela in existentes:
-            op.add_column(tabela, sa.Column('workspace_id', sa.Integer(), nullable=True))
-            op.create_index(f'ix_{tabela}_workspace_id', tabela, ['workspace_id'])
-
-    if 'recurringincome' in existentes:
-        op.add_column(
-            'recurringincome', sa.Column('created_by_user_id', sa.Integer(), nullable=True)
-        )
-        op.execute(sa.text("UPDATE recurringincome SET created_by_user_id = user_id"))
-
-    if 'statementpayment' in existentes:
-        op.add_column(
-            'statementpayment', sa.Column('workspace_id', sa.Integer(), nullable=True)
-        )
-
-    if 'financing' in existentes:
-        with op.batch_alter_table('financing') as batch:
-            batch.alter_column(
-                'owner_user_id',
-                new_column_name='created_by_user_id',
-                existing_type=sa.Integer(),
-                existing_nullable=False,
-            )
-
-    if 'paymentaccount' in existentes:
-        nova = 'uq_paymentaccount_owner_name'
-        tem_nova = nova in {
-            u['name'] for u in sa.inspect(bind).get_unique_constraints('paymentaccount')
-        }
-        with op.batch_alter_table('paymentaccount') as batch:
-            if tem_nova:
-                batch.drop_constraint(nova, type_='unique')
-            batch.create_unique_constraint(
-                'uq_paymentaccount_workspace_name', ['workspace_id', 'name']
-            )
+    """Recusa explícita — ver `_SEM_VOLTA`."""
+    raise RuntimeError(_SEM_VOLTA)

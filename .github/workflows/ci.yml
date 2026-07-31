@@ -32,7 +32,19 @@ jobs:
       - name: Audit dependencies (pip)
         run: |
           pip install pip-audit
-          pip-audit -r backend/requirements.txt --strict
+          pip-audit -r backend/requirements.lock --strict
+      # O lock é o que a imagem instala (ver backend/Dockerfile). Se ele não
+      # bater com o requirements.txt, o ambiente testado aqui não é o que vai
+      # para produção — e a divergência apareceria só no deploy.
+      - name: Lock de dependências em dia
+        run: |
+          pip install pip-tools
+          cd backend
+          pip-compile --output-file=requirements.lock --strip-extras --quiet requirements.txt
+          git diff --exit-code -- requirements.lock || {
+            echo "::error::requirements.lock desatualizado — regenere com pip-compile e commite"
+            exit 1
+          }
       - name: Run tests (SQLite) + cobertura
         run: |
           cd backend && python -m pytest -q --cov=app --cov-report=term-missing --cov-fail-under=90
@@ -97,9 +109,18 @@ jobs:
       - name: Run lint
         run: |
           cd frontend && npm run lint
+      # `tsc -b`, não `tsc --noEmit`: o tsconfig da raiz tem `"files": []` e só
+      # referências de projeto, então `--noEmit` sozinho não checa arquivo
+      # nenhum e passa sempre — um verde falso que já enganou uma auditoria.
+      - name: Typecheck
+        run: |
+          cd frontend && npm run typecheck
+      # Gate com allowlist JUSTIFICADA (frontend/scripts/audit-gate.mjs): falha
+      # em qualquer high/critical, exceto os advisories com decisão de risco
+      # registrada e data de revisão — que, ao vencer, voltam a falhar.
       - name: Audit dependencies (npm)
         run: |
-          cd frontend && npm audit --omit=dev --audit-level=high
+          cd frontend && npm run audit
       - name: Run tests + cobertura
         run: |
           cd frontend && npx vitest run --coverage

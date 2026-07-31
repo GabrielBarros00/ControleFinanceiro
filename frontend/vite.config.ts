@@ -40,7 +40,29 @@ export default defineConfig({
     coverage: {
       provider: 'v8',
       reporter: ['text', 'json', 'html'],
-      exclude: ['node_modules/', 'src/test/', 'e2e/', 'e2e-prod/', 'e2e-shots/'],
+      exclude: [
+        'node_modules/', 'src/test/', 'e2e/', 'e2e-prod/', 'e2e-shots/',
+        // Gerado a partir do OpenAPI: medir cobertura de declaração de tipo não
+        // diz nada, e o arquivo é grande o bastante para distorcer o total.
+        'src/types/api.gen.ts',
+      ],
+      /*
+       * PISO, não meta. O backend tem `--cov-fail-under=90` e o frontend não
+       * tinha limite nenhum: a cobertura podia cair a cada PR sem que nada
+       * apontasse — e foi assim que `OverviewPage`, `use-overview`, `AppShell`,
+       * `BottomNav` e `nav-items` chegaram a 0% justamente nas telas da Onda 5.
+       *
+       * Os números são os de HOJE arredondados para baixo, de propósito: um piso
+       * que já falha não é gate, é ruído que se aprende a ignorar. Ele existe
+       * para impedir REGRESSÃO; subir é trabalho de cada onda, e o número aqui
+       * sobe junto.
+       */
+      thresholds: {
+        statements: 58,
+        branches: 50,
+        functions: 46,
+        lines: 60,
+      },
     },
   },
 })

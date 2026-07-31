@@ -20,6 +20,14 @@ const VENV_PYTHON = path.resolve(
 );
 const PYTHON = JSON.stringify(process.env.E2E_PYTHON ?? VENV_PYTHON);
 
+// Apaga o banco descartável antes de cada rodada. `del` no cmd.exe, `rm -f` no
+// resto; ambos com o "não falhe se não existir", porque a primeira rodada numa
+// máquina limpa não tem o arquivo.
+const DELETA_E2E_DB =
+  process.platform === 'win32'
+    ? 'if exist e2e.db del /f /q e2e.db &&'
+    : 'rm -f e2e.db &&';
+
 export default defineConfig({
   testDir: './e2e',
   fullyParallel: false, // specs compartilham o backend; serial evita corrida
@@ -35,19 +43,42 @@ export default defineConfig({
     {
       name: 'chromium',
       use: { ...devices['Desktop Chrome'] },
+      // Sem isto o projeto desktop rodaria também os specs de mobile, num
+      // viewport onde a barra inferior está escondida por `md:hidden` — os
+      // seletores não achariam nada e a falha diria "elemento ausente" em vez de
+      // "este spec não é para cá".
+      testIgnore: /.*\.mobile\.spec\.ts/,
+    },
+    // Projeto MOBILE. A barra inferior e o FAB "Nova despesa" vivem atrás de
+    // `md:hidden`, então nada em viewport desktop os alcança — e era exatamente
+    // aí que estava o defeito que a auditoria encontrou: o FAB aparecia na visão
+    // global e lançava despesa no último workspace visitado, invisível para o
+    // usuário. A suíte de acessibilidade AFIRMAVA que `/overview` é somente
+    // leitura, testando só o desktop, onde o botão nem é renderizado.
+    {
+      name: 'mobile',
+      use: { ...devices['Pixel 5'] },
+      testMatch: /.*\.mobile\.spec\.ts/,
     },
   ],
   webServer: [
     {
-      command: `${PYTHON} -m uvicorn app.main:app --port 8000`,
+      // `rm -f e2e.db` antes de subir: o banco é descartável POR DEFINIÇÃO, e um
+      // resíduo da rodada anterior (usuário já cadastrado, workspace com nome
+      // repetido) faz specs falharem por motivo que não é o código.
+      command: `${DELETA_E2E_DB} ${PYTHON} -m uvicorn app.main:app --port 8000`,
       cwd: '../backend',
       url: 'http://localhost:8000/api/v1/health',
-      reuseExistingServer: true,
+      // NUNCA reutilizar: com `true`, um uvicorn de desenvolvimento já ligado na
+      // 8000 era adotado pelo Playwright — e esse processo está conectado ao
+      // `dev.db`. O `env` abaixo só vale para o processo que o Playwright SOBE,
+      // então a suíte passava a cadastrar usuários e lançar despesas no banco de
+      // desenvolvimento. O comentário dizia "banco descartável"; a configuração
+      // não garantia isso.
+      reuseExistingServer: false,
       timeout: 60_000,
       // A suíte registra vários usuários em sequência — o rate limit de auth
       // (5/min) derrubaria os specs; a proteção em si tem testes no backend.
-      // Banco DESCARTÁVEL (e2e.db): o E2E nunca escreve no dev.db — o startup
-      // em dev roda `alembic upgrade head` e cria o schema sozinho.
       env: { RATE_LIMIT_ENABLED: 'False', DATABASE_URL: 'sqlite:///./e2e.db' },
     },
     {

@@ -1,5 +1,5 @@
 from datetime import datetime, UTC
-from typing import Any, Dict, List, Optional
+from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException
 from sqlmodel import Session, select, func
@@ -12,7 +12,12 @@ from app.models.workspace import (
     WorkspaceMembership,
     WorkspaceRole,
 )
-from app.schemas.workspace import WorkspaceCreate, WorkspaceRead, WorkspaceUpdate
+from app.schemas.workspace import (
+    BaseCurrencyPreviewRead,
+    WorkspaceCreate,
+    WorkspaceRead,
+    WorkspaceUpdate,
+)
 from app.api.routes.auth import get_current_user
 from app.api.deps import get_workspace_membership, require_role
 from app.domain.query_policy import InvalidCurrencyCode, normalize_currency_code
@@ -198,7 +203,7 @@ def update_workspace(
     return _to_read(session, workspace)
 
 
-@router.get("/{workspace_id}/base-currency/preview", response_model=Dict[str, Any])
+@router.get("/{workspace_id}/base-currency/preview", response_model=BaseCurrencyPreviewRead)
 def preview_base_currency_change(
     workspace_id: int,
     to: str,

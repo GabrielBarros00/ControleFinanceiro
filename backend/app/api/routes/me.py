@@ -21,6 +21,12 @@ from app.domain.dates import InvalidMonth, parse_month
 from app.domain.query_policy import InvalidCurrencyCode, normalize_currency_code
 from app.models.user import User
 from app.schemas.common import OptionalCurrencyCode
+from app.schemas.overview import (
+    ActivityRead,
+    CommitmentsRead,
+    OverviewRead,
+    SeriesRead,
+)
 from app.services.overview_service import OverviewService
 from sqlmodel import Session
 
@@ -47,7 +53,7 @@ class ReportCurrencyUpdate(BaseModel):
     report_currency: OptionalCurrencyCode = None
 
 
-@router.get("/overview", response_model=Dict[str, Any])
+@router.get("/overview", response_model=OverviewRead)
 def get_overview(
     month: Optional[str] = None,
     currency: Optional[str] = Query(default=None),
@@ -56,16 +62,37 @@ def get_overview(
 ):
     """O mês da pessoa somando TODOS os workspaces dela.
 
-    Distingue consumo (minha parte), saída de caixa (o que saiu do meu bolso),
-    a pagar/receber (a diferença, por workspace) e resultado (renda − consumo) —
-    quatro números que o Início antigo colapsava num só.
+    Distingue consumo (minha parte), o que ela adiantou nos lançamentos, a
+    pagar/receber (a diferença, por workspace), resultado (renda − consumo) e o
+    caixa efetivo — entrada e saída de dinheiro de verdade, com pagamento de
+    fatura, acerto e parcela de financiamento (ADR 0022). Números que o Início
+    antigo colapsava num só.
     """
     return OverviewService.get_overview(
         session, current_user.id, _mes(month), currency=_moeda(currency)
     )
 
 
-@router.get("/commitments", response_model=Dict[str, Any])
+@router.get("/reports", response_model=SeriesRead)
+def get_reports(
+    months: int = Query(6, ge=1, le=24),
+    currency: Optional[str] = Query(default=None),
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+):
+    """Relatório da PESSOA: vários meses somando todos os workspaces.
+
+    Os Relatórios de `/w/:id/reports` continuam existindo e são de outra
+    pergunta — "quanto esta casa gastou". Este responde "como está o meu
+    período": renda × consumo, resultado mês a mês, caixa efetivo e quanto do
+    meu consumo foi para cada casa.
+    """
+    return OverviewService.get_series(
+        session, current_user.id, months=months, currency=_moeda(currency)
+    )
+
+
+@router.get("/commitments", response_model=CommitmentsRead)
 def get_commitments(
     currency: Optional[str] = Query(default=None),
     session: Session = Depends(get_session),
@@ -77,7 +104,7 @@ def get_commitments(
     )
 
 
-@router.get("/activity", response_model=List[Dict[str, Any]])
+@router.get("/activity", response_model=List[ActivityRead])
 def get_activity(
     limit: int = Query(10, ge=1, le=50),
     session: Session = Depends(get_session),

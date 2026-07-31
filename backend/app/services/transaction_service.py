@@ -87,20 +87,33 @@ def _validate_categories(
 
 
 def _validate_payer_accounts(
-    session: Session, workspace_id: int, payers: List[TransactionPayerBase]
+    session: Session,
+    workspace_id: int,
+    payers: List[TransactionPayerBase],
+    actor_user_id: Optional[int] = None,
 ) -> None:
-    """A conta informada por um pagador tem de existir, estar ativa e ser **dele**
-    (ADR 0004 + ADR 0021). Cartão de crédito não usa conta — validado no schema
-    (validate_payer_origins).
+    """A conta informada por um pagador tem de existir, estar ativa, ser **dele** e
+    ser declarável por **quem está lançando** (ADR 0004 + ADR 0021).
 
-    Duas correções em relação à versão anterior:
+    Cartão de crédito não usa conta — validado no schema (validate_payer_origins).
 
-    1. O gate era `account.workspace_id == workspace_id`, que num modelo de conta
-       pessoal não quer dizer nada — e era o que impedia usar no workspace de
-       destino a conta que a listagem de lá já mostrava.
-    2. A função nunca olhava `p.user_id`: bastava conhecer o id para declarar que
-       a despesa saiu da conta bancária de outra pessoa. Agora o par
-       (pagador, conta) precisa bater.
+    Três gates, cada um consertando um furo diferente:
+
+    1. O gate original era `account.workspace_id == workspace_id`, que num modelo
+       de conta pessoal não quer dizer nada — e era o que impedia usar, no
+       workspace de destino, a conta que a listagem de lá já mostrava.
+    2. Depois passou a conferir `account.owner_user_id == payer.user_id`, mas só
+       isso: quem soubesse o id ainda podia declarar de qual conta bancária de
+       OUTRA pessoa o dinheiro saiu, bastando pôr essa pessoa como pagadora.
+    3. Agora, com `actor_user_id`, a conta só pode ser declarada por quem é dono
+       dela. Registrar que "o Bob pagou" é informação legítima de um membro;
+       afirmar que saiu da conta X do Bob é informação que só o Bob tem, e ela
+       aparece no extrato pessoal dele. Sem conta declarada o lançamento continua
+       válido — o campo é opcional.
+
+    `actor_user_id=None` desliga o gate 3: é a materialização de recorrência, que
+    não tem ator humano e cujos pagadores nem carregam conta (o `split_snapshot`
+    guarda só user_id/método/valor).
     """
     for payer in payers:
         if payer.account_id is None:
@@ -110,6 +123,11 @@ def _validate_payer_accounts(
             raise ValueError("Conta inválida")
         if account.owner_user_id != payer.user_id:
             raise ValueError("A conta informada não pertence a quem pagou")
+        if actor_user_id is not None and account.owner_user_id != actor_user_id:
+            raise ValueError(
+                "Você não pode declarar de qual conta de outra pessoa saiu o "
+                "dinheiro — deixe a conta em branco"
+            )
         if not account.active:
             raise ValueError(f"Conta '{account.name}' está desativada")
 
@@ -222,6 +240,7 @@ def compute_transaction_breakdown(
     splits: List[TransactionSplitBase],
     items: Optional[List[TransactionItemCreate]],
     adjustments: Optional[List[TransactionAdjustmentCreate]] = None,
+    actor_user_id: Optional[int] = None,
 ) -> Dict[str, Any]:
     """Valida invariantes e calcula a divisão SEM persistir nada.
 
@@ -264,7 +283,7 @@ def compute_transaction_breakdown(
     _ensure_members(session, workspace_id, involved)
 
     # 3b) Origem do dinheiro por pagador (ADR 0004)
-    _validate_payer_accounts(session, workspace_id, payers)
+    _validate_payer_accounts(session, workspace_id, payers, actor_user_id)
 
     result: Dict[str, Any] = {
         "payers": [p.model_dump() for p in payers],
@@ -386,6 +405,7 @@ def persist_transaction_children(
     splits: List[TransactionSplitBase],
     items: Optional[List[TransactionItemCreate]],
     adjustments: Optional[List[TransactionAdjustmentCreate]] = None,
+    actor_user_id: Optional[int] = None,
 ) -> None:
     """Grava payers/splits/items(+shares)/ajustes calculados pelo
     compute_transaction_breakdown (mesma fonte de verdade do preview).
@@ -403,6 +423,7 @@ def persist_transaction_children(
         splits=splits,
         items=items,
         adjustments=adjustments,
+        actor_user_id=actor_user_id,
     )
 
     for p in breakdown["payers"]:

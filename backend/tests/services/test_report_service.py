@@ -9,6 +9,7 @@ from app.models.transaction import (
     SplitMethod,
 )
 from app.models.category import Category
+from app.models.settlement import Settlement
 from app.models.user import User
 from app.services.report_service import ReportService
 
@@ -226,3 +227,100 @@ def test_get_summary_my_share(db_session: Session, seed_ws):
     s_none = ReportService.get_summary(db_session, workspace_id, target_month)
     assert s_none["my_expenses"] == Decimal("0.00")
     assert s_none["paid_by_me"] == Decimal("0.00")
+
+
+def test_my_balance_zera_depois_do_acerto(db_session: Session, seed_ws):
+    """O cenário que a auditoria reproduziu, e que o Painel contava errado.
+
+    `my_balance` era `paid_by_me − my_expenses` e ignorava `Settlement`: Alice
+    adiantava 100 numa despesa cuja parte dela era 50, Bob acertava os 50, e o
+    Painel e os Relatórios seguiam anunciando "R$ 50 a receber" — enquanto
+    `/me/overview`, que usa o ledger do `DebtService`, já mostrava zero. Duas
+    telas do mesmo app discordando sobre a mesma dívida.
+    """
+    workspace_id = seed_ws["ws"].id
+    alice = seed_ws["user"]
+    bob = User(name="Bob", email="bob-acerto@test.com", password_hash="h")
+    db_session.add(bob)
+    db_session.commit()
+    db_session.refresh(bob)
+    target_month = date(2026, 5, 1)
+
+    tx = Transaction(
+        title="Mercado", total_amount=Decimal("100.00"),
+        transaction_date=datetime(2026, 5, 10), workspace_id=workspace_id,
+        created_by_user_id=alice.id, billing_month="2026-05",
+    )
+    db_session.add(tx)
+    db_session.flush()
+    db_session.add(TransactionPayer(
+        transaction_id=tx.id, user_id=alice.id, amount=Decimal("100.00")
+    ))
+    for quem in (alice, bob):
+        db_session.add(TransactionSplit(
+            transaction_id=tx.id, user_id=quem.id, split_method=SplitMethod.fixed,
+            input_value=Decimal("50.00"), computed_amount=Decimal("50.00"),
+        ))
+    db_session.commit()
+
+    antes = ReportService.get_summary(
+        db_session, workspace_id, target_month, user_id=alice.id
+    )
+    assert antes["my_balance"] == Decimal("50.00"), "adiantou 50, tem 50 a receber"
+
+    db_session.add(Settlement(
+        workspace_id=workspace_id, from_user_id=bob.id, to_user_id=alice.id,
+        amount=Decimal("50.00"), billing_month="2026-05",
+    ))
+    db_session.commit()
+
+    depois = ReportService.get_summary(
+        db_session, workspace_id, target_month, user_id=alice.id
+    )
+    assert depois["my_balance"] == Decimal("0.00"), "o acerto não foi descontado"
+    # Os números brutos NÃO mudam: o acerto não desfaz o que foi pago nem consumido.
+    assert depois["paid_by_me"] == Decimal("100.00")
+    assert depois["my_expenses"] == Decimal("50.00")
+
+    # E a outra ponta: Bob devia 50 e pagou; zera também.
+    bob_depois = ReportService.get_summary(
+        db_session, workspace_id, target_month, user_id=bob.id
+    )
+    assert bob_depois["my_balance"] == Decimal("0.00")
+
+
+def test_acerto_de_outro_mes_nao_afeta_o_mes_pedido(db_session: Session, seed_ws):
+    """O recorte é `billing_month`, o mesmo de "Dívidas do mês" — a tela onde o
+    acerto é registrado. Acerto de junho não pode zerar a dívida de maio."""
+    workspace_id = seed_ws["ws"].id
+    alice = seed_ws["user"]
+    bob = User(name="Bob", email="bob-outro-mes@test.com", password_hash="h")
+    db_session.add(bob)
+    db_session.commit()
+    db_session.refresh(bob)
+
+    tx = Transaction(
+        title="Feira", total_amount=Decimal("80.00"),
+        transaction_date=datetime(2026, 5, 3), workspace_id=workspace_id,
+        created_by_user_id=alice.id, billing_month="2026-05",
+    )
+    db_session.add(tx)
+    db_session.flush()
+    db_session.add(TransactionPayer(
+        transaction_id=tx.id, user_id=alice.id, amount=Decimal("80.00")
+    ))
+    for quem in (alice, bob):
+        db_session.add(TransactionSplit(
+            transaction_id=tx.id, user_id=quem.id, split_method=SplitMethod.fixed,
+            input_value=Decimal("40.00"), computed_amount=Decimal("40.00"),
+        ))
+    db_session.add(Settlement(
+        workspace_id=workspace_id, from_user_id=bob.id, to_user_id=alice.id,
+        amount=Decimal("40.00"), billing_month="2026-06",
+    ))
+    db_session.commit()
+
+    maio = ReportService.get_summary(
+        db_session, workspace_id, date(2026, 5, 1), user_id=alice.id
+    )
+    assert maio["my_balance"] == Decimal("40.00")

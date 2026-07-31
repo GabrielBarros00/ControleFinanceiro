@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { apiClient } from '@/api/client';
+import { invalidateForEvent } from '@/lib/ws-events';
 
 export interface CardStatement {
   id: number;
@@ -176,14 +177,18 @@ export interface PayStatementInput {
 }
 
 // Ações do ciclo da fatura (ADR 0011): fechar → pagar (com conta) → reabrir.
-// Todas invalidam faturas E cartões (o limite disponível muda quando paga).
 export function useStatementActions(cardId: number | null) {
   const queryClient = useQueryClient();
 
   const base = `/me/credit-cards/${cardId}/statements`;
 
+  // Passa pelo contrato único (`ws-events`) em vez de invalidar só a fatura
+  // aberta. Pagar uma fatura muda o limite disponível do cartão, sai dos
+  // Compromissos e — desde o ADR 0022 — é saída de caixa do mês na Visão
+  // global. Invalidar `['statements', cardId]` sozinho deixava as três telas
+  // com o número velho até um F5.
   const invalidate = () => {
-    queryClient.invalidateQueries({ queryKey: ['statements', cardId] });
+    invalidateForEvent(queryClient, 'credit_card.statement_paid', null);
   };
 
   const close = useMutation({

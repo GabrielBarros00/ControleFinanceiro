@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { apiClient } from '@/api/client';
+import { invalidateForEvent } from '@/lib/ws-events';
 
 export interface Financing {
   id: number;
@@ -35,10 +36,10 @@ export function useFinancing() {
     },
   });
 
-  // Pagar parcela muda o saldo devedor mostrado em Compromissos também
+  // Pagar parcela muda o saldo devedor em Compromissos e o caixa do mês na Visão
+  // global (ADR 0022). Pelo contrato único, para as três telas concordarem.
   const invalidate = () => {
-    queryClient.invalidateQueries({ queryKey: ['financing'] });
-    queryClient.invalidateQueries({ queryKey: ['me-commitments'] });
+    invalidateForEvent(queryClient, 'financing.updated', null);
   };
 
   const createMutation = useMutation({
@@ -56,13 +57,41 @@ export function useFinancing() {
     onSuccess: invalidate,
   });
 
+  /**
+   * Paga a parcela e, OPCIONALMENTE, lança a despesa num workspace.
+   *
+   * O backend aceita `workspace_id` desde sempre e o hook nunca o enviava: pela
+   * interface, pagar uma parcela só reduzia Compromissos, e o gasto não aparecia
+   * em lugar nenhum — a funcionalidade existia no servidor e não para o usuário.
+   *
+   * Sem workspace, o pagamento é puramente pessoal (o caso comum) e entra no
+   * caixa pela própria parcela; com workspace, vira despesa e é ela que conta,
+   * sem duplicar (ADR 0022).
+   */
   const payInstallment = useMutation({
-    mutationFn: async ({ financingId, installmentNumber }: { financingId: number; installmentNumber: number }) => {
+    mutationFn: async ({
+      financingId,
+      installmentNumber,
+      workspaceId,
+    }: {
+      financingId: number;
+      installmentNumber: number;
+      workspaceId?: number | null;
+    }) => {
       await apiClient.post(
-        `/me/financing/${financingId}/installments/${installmentNumber}/pay`
+        `/me/financing/${financingId}/installments/${installmentNumber}/pay`,
+        workspaceId ? { workspace_id: workspaceId } : {},
       );
+      return { workspaceId };
     },
-    onSuccess: invalidate,
+    onSuccess: ({ workspaceId }) => {
+      // Com workspace houve despesa nova: o extrato e os relatórios DELE também
+      // mudaram, não só os Compromissos.
+      invalidateForEvent(queryClient, 'financing.updated', null);
+      if (workspaceId) {
+        invalidateForEvent(queryClient, 'transaction.created', workspaceId);
+      }
+    },
   });
 
   return {

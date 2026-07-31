@@ -1,4 +1,4 @@
-from typing import Optional
+from typing import List, Optional
 from datetime import datetime
 from pydantic import BaseModel, Field
 
@@ -108,3 +108,30 @@ class InviteInfoRead(BaseModel):
     invited_by: Optional[str]
     valid: bool
     reason: Optional[str] = None
+
+
+class BaseCurrencyPreviewRead(BaseModel):
+    """Dry-run da troca de moeda-base: o tamanho da reescrita, antes de confirmar.
+
+    Tipado — e não `Dict[str, Any]` — porque a divergência aqui é cara. O
+    frontend mantinha uma `interface` escrita à mão com `incomes`, `statements` e
+    `financings`; o ADR 0021 tirou renda, fatura e financiamento do workspace e o
+    serviço passou a devolver `settlements`, `estimates` e `recurring`. Nada
+    acusou: o OpenAPI dizia só "objeto", o `api.gen.ts` não ganhava tipo, o
+    TypeScript ficava verde — e a confirmação de uma operação que REESCREVE todo
+    o histórico financeiro passou a exibir "undefined renda(s), undefined
+    fatura(s) e undefined financiamento(s)".
+
+    Só entidades DO WORKSPACE entram na conta. Renda, cartão, conta e
+    financiamento são pessoais e seguem `User.report_currency`: reescrevê-los
+    porque um workspace trocou de base seria o workspace mexendo no cadastro de
+    cada membro — e, em quem participa de dois, o segundo desfaria o primeiro.
+    """
+    from_currency: str
+    to_currency: str
+    transactions: int
+    settlements: int
+    estimates: int
+    recurring: int
+    #: Datas sem cotação. Não vazia = a troca é abortada inteira (ADR 0006).
+    missing_rates: List[str]

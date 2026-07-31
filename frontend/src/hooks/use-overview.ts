@@ -1,36 +1,23 @@
 import { useQuery } from '@tanstack/react-query';
 import { apiClient } from '@/api/client';
+import type { components } from '@/types/api.gen';
 
 /**
- * Visão GLOBAL e pessoal (ADR 0020).
+ * Visão GLOBAL e pessoal (ADR 0020 + 0022).
  *
  * Note o que NÃO existe aqui: `workspaceId` na chave nem na URL. É o único grupo
  * de hooks do app assim, e de propósito — a pergunta é "como está o MEU mês",
  * somando todos os workspaces. Um recorte por workspace seria a dashboard da casa,
  * que é outra tela.
+ *
+ * Os tipos vêm do OpenAPI, não escritos à mão. As rotas `/me/*` devolviam
+ * `Dict[str, Any]` e estas interfaces eram cópias mantidas por disciplina — o
+ * mesmo arranjo que, em Configurações, fez a confirmação de uma operação
+ * destrutiva imprimir `undefined` três vezes com o TypeScript verde. Agora
+ * divergir é erro de compilação.
  */
-export interface OverviewWorkspace {
-  workspace_id: number;
-  workspace_name: string;
-  base_currency: string;
-  consumption: string | number;
-  cash_out: string | number;
-  to_pay: string | number;
-  to_receive: string | number;
-}
-
-export interface Overview {
-  month: string;
-  currency: string;
-  income: string | number;
-  consumption: string | number;
-  cash_out: string | number;
-  result: string | number;
-  to_pay: string | number;
-  to_receive: string | number;
-  by_workspace: OverviewWorkspace[];
-  excluded_foreign_count: number;
-}
+export type Overview = components['schemas']['OverviewRead'];
+export type OverviewWorkspace = components['schemas']['WorkspaceSlice'];
 
 export function useOverview(month?: string) {
   const query = useQuery({
@@ -53,41 +40,7 @@ export function useOverview(month?: string) {
  * com o que vence em quinze anos e não respondia nem "quanto preciso ter em
  * caixa este mês" nem "quanto devo ao todo". São cinco números agora.
  */
-export interface Commitments {
-  currency: string;
-  /** Já venceu e não foi pago */
-  overdue: string | number;
-  /** Ainda vence dentro deste mês */
-  due_this_month: string | number;
-  /** Tamanho da dívida: principal em aberto + faturas não pagas */
-  outstanding_total: string | number;
-  /** Quanto do mês já está comprometido (uma parcela por financiamento ativo) */
-  monthly_commitment: string | number;
-  next_installments: {
-    financing_id: number;
-    title: string;
-    installment_number: number;
-    due_date: string;
-    amount: string | number;
-  }[];
-  cards: {
-    card_id: number;
-    card_name: string;
-    statement_id: number;
-    month: string;
-    due_date: string;
-    amount: string | number;
-    is_overdue: boolean;
-  }[];
-  financings: {
-    financing_id: number;
-    title: string;
-    outstanding: string | number;
-    next_due_date: string;
-    remaining_installments: number;
-  }[];
-  excluded_foreign_count: number;
-}
+export type Commitments = components['schemas']['CommitmentsRead'];
 
 export function useCommitments() {
   const query = useQuery({
@@ -100,15 +53,26 @@ export function useCommitments() {
   return { commitments: query.data, isLoading: query.isLoading };
 }
 
-export interface ActivityItem {
-  id: number;
-  workspace_id: number;
-  workspace_name: string;
-  title: string;
-  total_amount: string | number;
-  currency: string;
-  transaction_date: string;
-  status: string;
+export type ActivityItem = components['schemas']['ActivityRead'];
+
+/**
+ * Relatórios GLOBAIS: vários meses somando todos os workspaces.
+ *
+ * Par de `useReports` (que é do workspace) e não substituto dele: um responde
+ * "quanto esta casa gastou", este responde "como está o meu período". Depois do
+ * ADR 0021 o primeiro nem pode mais falar de renda.
+ */
+export type MyReports = components['schemas']['SeriesRead'];
+
+export function useMyReports(months = 6) {
+  const query = useQuery({
+    queryKey: ['me-reports', months],
+    queryFn: async (): Promise<MyReports> => {
+      const res = await apiClient.get('/me/reports', { params: { months } });
+      return res.data;
+    },
+  });
+  return { reports: query.data, isLoading: query.isLoading };
 }
 
 export function useMyActivity(limit = 8) {

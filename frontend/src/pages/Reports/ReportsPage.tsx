@@ -128,12 +128,14 @@ export function ReportsPage() {
           currency={baseCurrency}
           hint={casa(myExpenses, numeroDaCasa(currentSummary.total_expenses))}
         />
+        {/* Ver Home: "pago por você" sugeria dinheiro fora da conta, e a compra
+            no cartão entra aqui antes de a fatura ser paga (ADR 0022). */}
         <StatTile
-          label="Pago por você (mês)"
+          label="Adiantado por você (mês)"
           value={paidByMe}
           kind="neutral"
           currency={baseCurrency}
-          hint="O que saiu do seu bolso nesta casa"
+          hint="O que você assumiu das despesas desta casa"
         />
         <div className="rounded-xl border border-border bg-card p-4">
           <p className="text-sm text-muted-foreground">Maior categoria</p>
@@ -157,7 +159,10 @@ export function ReportsPage() {
         <TabsList>
           <TabsTrigger value="overview">Visão geral</TabsTrigger>
           <TabsTrigger value="categories">Categorias</TabsTrigger>
-          <TabsTrigger value="trends">Fluxo</TabsTrigger>
+          {/* "Fluxo" (de caixa) era promessa que a aba não cumpria: ela desenha
+              evolução de DESPESA. Caixa de verdade é global e vive na Visão
+              global (ADR 0022). */}
+          <TabsTrigger value="trends">Evolução</TabsTrigger>
           <TabsTrigger value="budget">Orçamento</TabsTrigger>
         </TabsList>
 
@@ -178,8 +183,11 @@ export function ReportsPage() {
             <CardHeader>
               <CardTitle className="flex items-center gap-2 text-lg">
                 <BarChart3 className="h-5 w-5 text-primary" />
-                Receitas vs Despesas
+                Gasto da casa × sua parte
               </CardTitle>
+              {/* Não é "Receitas vs Despesas": renda saiu do workspace no ADR
+                  0021 e o gráfico só desenha despesa. O título prometia uma
+                  comparação que os dados não tinham. */}
               <CardDescription>Comparativo mensal dos últimos 6 meses.</CardDescription>
             </CardHeader>
             <CardContent className="h-[400px]">
@@ -282,7 +290,7 @@ export function ReportsPage() {
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
                 <TrendingUp className="h-5 w-5 text-primary" />
-                Histórico de Fluxo de Caixa
+                Evolução das despesas
               </CardTitle>
             </CardHeader>
             <CardContent className="h-[400px]">
@@ -300,7 +308,7 @@ export function ReportsPage() {
                   </LineChart>
                 </ResponsiveContainer>
               ) : (
-                 <div className="flex items-center justify-center h-full text-muted-foreground italic">Dê o primeiro passo registrando seus ganhos e gastos.</div>
+                 <div className="flex items-center justify-center h-full text-muted-foreground italic">Dê o primeiro passo registrando as despesas desta casa.</div>
               )}
             </CardContent>
           </Card>

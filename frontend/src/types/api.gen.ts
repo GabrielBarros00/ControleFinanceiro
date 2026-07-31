@@ -783,11 +783,38 @@ export interface paths {
          * Get Overview
          * @description O mês da pessoa somando TODOS os workspaces dela.
          *
-         *     Distingue consumo (minha parte), saída de caixa (o que saiu do meu bolso),
-         *     a pagar/receber (a diferença, por workspace) e resultado (renda − consumo) —
-         *     quatro números que o Início antigo colapsava num só.
+         *     Distingue consumo (minha parte), o que ela adiantou nos lançamentos, a
+         *     pagar/receber (a diferença, por workspace), resultado (renda − consumo) e o
+         *     caixa efetivo — entrada e saída de dinheiro de verdade, com pagamento de
+         *     fatura, acerto e parcela de financiamento (ADR 0022). Números que o Início
+         *     antigo colapsava num só.
          */
         get: operations["get_overview_api_v1_me_overview_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/me/reports": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Reports
+         * @description Relatório da PESSOA: vários meses somando todos os workspaces.
+         *
+         *     Os Relatórios de `/w/:id/reports` continuam existindo e são de outra
+         *     pergunta — "quanto esta casa gastou". Este responde "como está o meu
+         *     período": renda × consumo, resultado mês a mês, caixa efetivo e quanto do
+         *     meu consumo foi para cada casa.
+         */
+        get: operations["get_reports_api_v1_me_reports_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -1562,6 +1589,33 @@ export interface components {
          */
         ActionType: "create" | "update" | "delete" | "login" | "logout";
         /**
+         * ActivityRead
+         * @description Lançamento recente em que a pessoa está envolvida, em qualquer workspace.
+         */
+        ActivityRead: {
+            /** Id */
+            id: number;
+            /** Workspace Id */
+            workspace_id: number;
+            /** Workspace Name */
+            workspace_name: string;
+            /** Title */
+            title: string;
+            /** Total Amount */
+            total_amount: string;
+            /** My Share */
+            my_share: string | null;
+            /** Currency */
+            currency: string;
+            /**
+             * Transaction Date
+             * Format: date-time
+             */
+            transaction_date: string;
+            /** Status */
+            status: string;
+        };
+        /**
          * AdjustmentType
          * @enum {string}
          */
@@ -1639,6 +1693,40 @@ export interface components {
              */
             created_at: string;
         };
+        /**
+         * BaseCurrencyPreviewRead
+         * @description Dry-run da troca de moeda-base: o tamanho da reescrita, antes de confirmar.
+         *
+         *     Tipado — e não `Dict[str, Any]` — porque a divergência aqui é cara. O
+         *     frontend mantinha uma `interface` escrita à mão com `incomes`, `statements` e
+         *     `financings`; o ADR 0021 tirou renda, fatura e financiamento do workspace e o
+         *     serviço passou a devolver `settlements`, `estimates` e `recurring`. Nada
+         *     acusou: o OpenAPI dizia só "objeto", o `api.gen.ts` não ganhava tipo, o
+         *     TypeScript ficava verde — e a confirmação de uma operação que REESCREVE todo
+         *     o histórico financeiro passou a exibir "undefined renda(s), undefined
+         *     fatura(s) e undefined financiamento(s)".
+         *
+         *     Só entidades DO WORKSPACE entram na conta. Renda, cartão, conta e
+         *     financiamento são pessoais e seguem `User.report_currency`: reescrevê-los
+         *     porque um workspace trocou de base seria o workspace mexendo no cadastro de
+         *     cada membro — e, em quem participa de dois, o segundo desfaria o primeiro.
+         */
+        BaseCurrencyPreviewRead: {
+            /** From Currency */
+            from_currency: string;
+            /** To Currency */
+            to_currency: string;
+            /** Transactions */
+            transactions: number;
+            /** Settlements */
+            settlements: number;
+            /** Estimates */
+            estimates: number;
+            /** Recurring */
+            recurring: number;
+            /** Missing Rates */
+            missing_rates: string[];
+        };
         /** Body_parse_csv_api_v1_workspaces__workspace_id__imports_parse_post */
         Body_parse_csv_api_v1_workspaces__workspace_id__imports_parse_post: {
             /** File */
@@ -1674,6 +1762,27 @@ export interface components {
         Body_upload_attachment_api_v1_workspaces__workspace_id__transactions__transaction_id__attachments_post: {
             /** File */
             file: string;
+        };
+        /** CashInBreakdown */
+        CashInBreakdown: {
+            /** Income */
+            income: string;
+            /** Settlements Received */
+            settlements_received: string;
+        };
+        /**
+         * CashOutBreakdown
+         * @description De onde veio a saída de caixa — sem isto o total não é auditável.
+         */
+        CashOutBreakdown: {
+            /** Transactions */
+            transactions: string;
+            /** Statement Payments */
+            statement_payments: string;
+            /** Settlements Sent */
+            settlements_sent: string;
+            /** Financing Installments */
+            financing_installments: string;
         };
         /** Category */
         Category: {
@@ -1753,6 +1862,86 @@ export interface components {
              * @default import
              */
             decision: string;
+        };
+        /** CommitmentFinancing */
+        CommitmentFinancing: {
+            /** Financing Id */
+            financing_id: number;
+            /** Title */
+            title: string;
+            /** Outstanding */
+            outstanding: string;
+            /**
+             * Next Due Date
+             * Format: date
+             */
+            next_due_date: string;
+            /** Remaining Installments */
+            remaining_installments: number;
+        };
+        /** CommitmentInstallment */
+        CommitmentInstallment: {
+            /** Financing Id */
+            financing_id: number;
+            /** Title */
+            title: string;
+            /** Installment Number */
+            installment_number: number;
+            /**
+             * Due Date
+             * Format: date
+             */
+            due_date: string;
+            /** Amount */
+            amount: string;
+        };
+        /** CommitmentStatement */
+        CommitmentStatement: {
+            /** Card Id */
+            card_id: number;
+            /** Card Name */
+            card_name: string;
+            /** Statement Id */
+            statement_id: number;
+            /** Month */
+            month: string;
+            /**
+             * Due Date
+             * Format: date-time
+             */
+            due_date: string;
+            /** Amount */
+            amount: string;
+            /** Is Overdue */
+            is_overdue: boolean;
+        };
+        /**
+         * CommitmentsRead
+         * @description Compromissos separados por PRAZO (ADR 0021).
+         *
+         *     O "Total a pagar" antigo somava a próxima fatura com o principal inteiro de
+         *     cada financiamento — juntava o que vence em cinco dias com o que vence em
+         *     quinze anos e não respondia a nenhuma das duas perguntas.
+         */
+        CommitmentsRead: {
+            /** Currency */
+            currency: string;
+            /** Overdue */
+            overdue: string;
+            /** Due This Month */
+            due_this_month: string;
+            /** Outstanding Total */
+            outstanding_total: string;
+            /** Monthly Commitment */
+            monthly_commitment: string;
+            /** Cards */
+            cards: components["schemas"]["CommitmentStatement"][];
+            /** Financings */
+            financings: components["schemas"]["CommitmentFinancing"][];
+            /** Next Installments */
+            next_installments: components["schemas"]["CommitmentInstallment"][];
+            /** Excluded Foreign Count */
+            excluded_foreign_count: number;
         };
         /**
          * CreditCardCreate
@@ -2137,6 +2326,26 @@ export interface components {
             role: components["schemas"]["WorkspaceRole"];
             financial_access?: components["schemas"]["FinancialAccess"] | null;
         };
+        /**
+         * MonthPoint
+         * @description Um mês na série pessoal.
+         */
+        MonthPoint: {
+            /** Month */
+            month: string;
+            /** Income */
+            income: string;
+            /** Consumption */
+            consumption: string;
+            /** Result */
+            result: string;
+            /** Cash In */
+            cash_in: string;
+            /** Cash Out */
+            cash_out: string;
+            /** Net Cash */
+            net_cash: string;
+        };
         /** MonthlyEstimateCreate */
         MonthlyEstimateCreate: {
             /** Category */
@@ -2239,6 +2448,40 @@ export interface components {
             credit_card_limit?: number | string | null;
             /** Credit Card Closing Day */
             credit_card_closing_day?: number | null;
+        };
+        /**
+         * OverviewRead
+         * @description O mês da pessoa somando todos os workspaces (ADR 0020 + 0022).
+         */
+        OverviewRead: {
+            /** Month */
+            month: string;
+            /** Currency */
+            currency: string;
+            /** Income */
+            income: string;
+            /** Consumption */
+            consumption: string;
+            /** Paid In Transactions */
+            paid_in_transactions: string;
+            /** Result */
+            result: string;
+            /** Cash In */
+            cash_in: string;
+            /** Cash Out */
+            cash_out: string;
+            /** Net Cash */
+            net_cash: string;
+            cash_out_breakdown: components["schemas"]["CashOutBreakdown"];
+            cash_in_breakdown: components["schemas"]["CashInBreakdown"];
+            /** To Pay */
+            to_pay: string;
+            /** To Receive */
+            to_receive: string;
+            /** By Workspace */
+            by_workspace: components["schemas"]["WorkspaceSlice"][];
+            /** Excluded Foreign Count */
+            excluded_foreign_count: number;
         };
         /** PaymentAccountCreate */
         PaymentAccountCreate: {
@@ -2578,6 +2821,41 @@ export interface components {
             token: string;
             /** New Password */
             new_password: string;
+        };
+        /**
+         * SeriesRead
+         * @description Relatório GLOBAL e pessoal: vários meses somando todos os workspaces.
+         *
+         *     Os Relatórios do app sempre foram de um workspace — respondem "quanto esta
+         *     casa gastou". Faltava o outro eixo: renda × consumo, resultado mês a mês e a
+         *     participação de cada casa no meu período. Depois do ADR 0021, que tirou renda
+         *     do workspace, os Relatórios locais nem podem mais responder isso.
+         */
+        SeriesRead: {
+            /** Currency */
+            currency: string;
+            /** Months */
+            months: components["schemas"]["MonthPoint"][];
+            totals: components["schemas"]["SeriesTotals"];
+            /** By Workspace */
+            by_workspace: components["schemas"]["WorkspaceShare"][];
+            /** Excluded Foreign Count */
+            excluded_foreign_count: number;
+        };
+        /** SeriesTotals */
+        SeriesTotals: {
+            /** Income */
+            income: string;
+            /** Consumption */
+            consumption: string;
+            /** Result */
+            result: string;
+            /** Cash In */
+            cash_in: string;
+            /** Cash Out */
+            cash_out: string;
+            /** Net Cash */
+            net_cash: string;
         };
         /** SettlementCreate */
         SettlementCreate: {
@@ -3069,6 +3347,38 @@ export interface components {
          * @enum {string}
          */
         WorkspaceRole: "owner" | "admin" | "member" | "viewer";
+        /**
+         * WorkspaceShare
+         * @description Quanto do consumo da pessoa foi para cada casa, no período.
+         */
+        WorkspaceShare: {
+            /** Workspace Id */
+            workspace_id: number;
+            /** Workspace Name */
+            workspace_name: string;
+            /** Consumption */
+            consumption: string;
+        };
+        /**
+         * WorkspaceSlice
+         * @description A parte de UM workspace no mês da pessoa.
+         */
+        WorkspaceSlice: {
+            /** Workspace Id */
+            workspace_id: number;
+            /** Workspace Name */
+            workspace_name: string;
+            /** Base Currency */
+            base_currency: string;
+            /** Consumption */
+            consumption: string;
+            /** Paid In Transactions */
+            paid_in_transactions: string;
+            /** To Pay */
+            to_pay: string;
+            /** To Receive */
+            to_receive: string;
+        };
         /** WorkspaceUpdate */
         WorkspaceUpdate: {
             /** Name */
@@ -3277,9 +3587,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": {
-                        [key: string]: unknown;
-                    };
+                    "application/json": components["schemas"]["BaseCurrencyPreviewRead"];
                 };
             };
             /** @description Validation Error */
@@ -5315,9 +5623,41 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": {
-                        [key: string]: unknown;
-                    };
+                    "application/json": components["schemas"]["OverviewRead"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_reports_api_v1_me_reports_get: {
+        parameters: {
+            query?: {
+                months?: number;
+                currency?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: {
+                access_token?: string | null;
+            };
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SeriesRead"];
                 };
             };
             /** @description Validation Error */
@@ -5350,9 +5690,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": {
-                        [key: string]: unknown;
-                    };
+                    "application/json": components["schemas"]["CommitmentsRead"];
                 };
             };
             /** @description Validation Error */
@@ -5385,9 +5723,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": {
-                        [key: string]: unknown;
-                    }[];
+                    "application/json": components["schemas"]["ActivityRead"][];
                 };
             };
             /** @description Validation Error */

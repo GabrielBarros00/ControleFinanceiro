@@ -8,14 +8,15 @@ import {
   Wallet,
 } from 'lucide-react';
 import { PageHeader } from '@/components/layout/PageHeader';
+import { PeriodPicker } from '@/components/layout/PeriodPicker';
 import { Skeleton } from '@/components/ui/skeleton';
 import { StatTile } from '@/components/ui/stat-tile';
 import { EmptyState } from '@/components/ui/empty-state';
 import { ExcludedForeignNotice } from '@/components/money/ExcludedForeignNotice';
 import { useOverview, useMyActivity } from '@/hooks/use-overview';
 import { useAuth } from '@/hooks/use-auth';
+import { useMonthParam } from '@/hooks/use-month-param';
 import { formatMoney } from '@/lib/money';
-import { currentMonthLocal } from '@/lib/date';
 import { parseApiDate } from '@/lib/date';
 
 /**
@@ -26,18 +27,25 @@ import { parseApiDate } from '@/lib/date';
  * casa e não somava nada de ninguém. Quem tem duas casas não tinha onde perguntar
  * "como está o meu mês".
  *
- * Os quatro números aparecem separados porque são perguntas diferentes — e o app
- * inteiro chamava tudo de "gasto":
+ * Os números aparecem separados porque são perguntas diferentes — e o app inteiro
+ * chamava tudo de "gasto":
  *
- * - **Consumo**: a minha parte das despesas.
- * - **Saída de caixa**: o que efetivamente saiu do meu bolso.
+ * - **Consumo**: a minha parte das despesas (competência).
+ * - **Adiantado nos lançamentos**: o que assumi das despesas. Chamava-se "Saída
+ *   de caixa" e não era caixa (ADR 0022) — a compra no cartão entrava aqui com o
+ *   dinheiro ainda na conta.
+ * - **Caixa**: o dinheiro que de fato entrou e saiu, com pagamento de fatura,
+ *   acerto e parcela de financiamento.
  * - **A pagar / a receber**: a diferença, por casa.
  * - **Resultado do mês**: renda − consumo. (Era o que se chamava "Seu saldo",
  *   que sugeria saldo bancário e nunca foi isso.)
  */
 export function OverviewPage() {
   const { user } = useAuth();
-  const month = currentMonthLocal();
+  // Mês na URL, como no resto do app. Estava fixo em `currentMonthLocal()`: a
+  // única tela que soma todos os workspaces não deixava olhar o mês passado, e
+  // "como foi meu mês" só valia para o mês corrente.
+  const [month, setMonth] = useMonthParam();
   const { overview, isLoading } = useOverview(month);
   const { activity, isLoading: activityLoading } = useMyActivity(8);
 
@@ -47,8 +55,21 @@ export function OverviewPage() {
   const fmt = (v: unknown) => formatMoney(n(v), { currency: moeda });
 
   const result = n(overview?.result);
+  const netCash = n(overview?.net_cash);
   const aPagar = n(overview?.to_pay);
   const aReceber = n(overview?.to_receive);
+
+  // Detalhamento da saída: só as linhas com valor, para o quadro não virar uma
+  // lista de zeros em quem não tem cartão nem financiamento.
+  const quebra = overview?.cash_out_breakdown;
+  const saidas: [string, number][] = (
+    [
+      ['Lançamentos à vista', n(quebra?.transactions)],
+      ['Faturas de cartão pagas', n(quebra?.statement_payments)],
+      ['Acertos enviados', n(quebra?.settlements_sent)],
+      ['Parcelas de financiamento', n(quebra?.financing_installments)],
+    ] as [string, number][]
+  ).filter(([, valor]) => valor !== 0);
 
   return (
     <div className="space-y-6">
@@ -59,6 +80,7 @@ export function OverviewPage() {
             ? `Olá, ${firstName} — seu mês somando todos os workspaces.`
             : 'Seu mês somando todos os workspaces.'
         }
+        period={<PeriodPicker value={month} onChange={setMonth} />}
       />
 
       {isLoading ? (
@@ -90,12 +112,12 @@ export function OverviewPage() {
               hint="Sua parte das despesas"
             />
             <StatTile
-              label="Saída de caixa"
-              value={n(overview?.cash_out)}
+              label="Adiantado nos lançamentos"
+              value={n(overview?.paid_in_transactions)}
               kind="expense"
               icon={ArrowUpRight}
               currency={moeda}
-              hint="O que saiu do seu bolso"
+              hint="O que você assumiu das despesas"
             />
             <StatTile
               label="Resultado do mês"
@@ -106,6 +128,52 @@ export function OverviewPage() {
               hint="Renda menos consumo"
             />
           </div>
+
+          {/* CAIXA — dinheiro que se moveu de verdade (ADR 0022). Separado dos
+              números de competência acima porque responde outra pergunta: a
+              compra no cartão é consumo em julho e caixa só quando a fatura é
+              paga. O detalhamento existe para o total ser conferível — sem ele,
+              "saiu R$ 4.200" não diz se a fatura entrou na conta. */}
+          <section className="rounded-xl border border-border bg-card">
+            <div className="border-b border-border px-4 py-3">
+              <h2 className="text-base font-semibold text-foreground">Caixa do mês</h2>
+              <p className="text-sm text-muted-foreground">
+                O dinheiro que entrou e saiu de fato — fatura paga, acerto e parcela
+                de financiamento entram aqui, compra no cartão só quando a fatura é paga.
+              </p>
+            </div>
+            <div className="grid gap-4 p-4 sm:grid-cols-3">
+              <StatTile
+                label="Entrou"
+                value={n(overview?.cash_in)}
+                kind="income"
+                icon={ArrowDownLeft}
+                currency={moeda}
+              />
+              <StatTile
+                label="Saiu"
+                value={n(overview?.cash_out)}
+                kind="expense"
+                icon={ArrowUpRight}
+                currency={moeda}
+              />
+              <StatTile
+                label="Saldo do movimento"
+                value={netCash}
+                kind={netCash >= 0 ? 'income' : 'expense'}
+                icon={Wallet}
+                currency={moeda}
+              />
+            </div>
+            <dl className="grid gap-x-6 gap-y-1 border-t border-border px-4 py-3 text-sm sm:grid-cols-2">
+              {saidas.map(([rotulo, valor]) => (
+                <div key={rotulo} className="flex items-center justify-between gap-4">
+                  <dt className="text-muted-foreground">{rotulo}</dt>
+                  <dd className="tabular-nums text-foreground">{fmt(valor)}</dd>
+                </div>
+              ))}
+            </dl>
+          </section>
 
           {(aPagar > 0 || aReceber > 0) && (
             <div className="grid gap-4 sm:grid-cols-2">
@@ -159,7 +227,8 @@ export function OverviewPage() {
                     <div className="min-w-0">
                       <p className="truncate font-medium text-foreground">{w.workspace_name}</p>
                       <p className="text-sm text-muted-foreground">
-                        Consumo {fmt(w.consumption)} · Pago {fmt(w.cash_out)}
+                        Consumo {fmt(w.consumption)} · Adiantado{' '}
+                        {fmt(w.paid_in_transactions)}
                       </p>
                     </div>
                     <div className="flex shrink-0 items-center gap-3 text-sm">
@@ -208,9 +277,24 @@ export function OverviewPage() {
                         {parseApiDate(t.transaction_date).toLocaleDateString('pt-BR')}
                       </p>
                     </div>
-                    <span className="shrink-0 text-sm tabular-nums text-foreground">
-                      {formatMoney(Number(t.total_amount), { currency: t.currency })}
-                    </span>
+                    {/* A PARTE da pessoa, não o total da despesa. Numa seção
+                        chamada "Onde você está envolvido", mostrar o valor cheio
+                        fazia o jantar de 200 rateado 50/50 aparecer como 200 para
+                        quem consumiu 100. O total vem abaixo, como referência.
+                        Sem split (entrou por ter criado ou pago), `my_share` é
+                        nulo e só o total faz sentido. */}
+                    <div className="shrink-0 text-right">
+                      <span className="block text-sm tabular-nums text-foreground">
+                        {formatMoney(n(t.my_share ?? t.total_amount), {
+                          currency: t.currency,
+                        })}
+                      </span>
+                      {t.my_share != null && n(t.my_share) !== n(t.total_amount) && (
+                        <span className="block text-xs tabular-nums text-muted-foreground">
+                          de {formatMoney(n(t.total_amount), { currency: t.currency })}
+                        </span>
+                      )}
+                    </div>
                   </div>
                 ))
               )}

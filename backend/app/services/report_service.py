@@ -14,6 +14,7 @@ from app.models.transaction import (
     TransactionSplit,
 )
 from app.models.category import Category
+from app.models.settlement import Settlement
 from app.services.transaction_service import _allocate_proportional, _cents
 
 
@@ -76,6 +77,7 @@ class ReportService:
         # Sem user_id, os campos do recorte ficam zerados (visão só da casa).
         my_expenses = Decimal("0.00")
         paid_by_me = Decimal("0.00")
+        settled_by_me = Decimal("0.00")
         if user_id is not None:
             my_expenses = db.exec(
                 select(func.sum(TransactionSplit.computed_amount))
@@ -101,6 +103,35 @@ class ReportService:
                 .where(Transaction.currency == base_currency)
                 .where(TransactionPayer.user_id == user_id)
             ).one() or Decimal("0.00")
+
+            # ACERTOS DO MÊS. Sem eles `my_balance` era `paid_by_me − my_expenses`
+            # e nunca zerava: Alice adiantava 100 numa despesa de 50 que era dela,
+            # Bob acertava os 50, e o Painel seguia anunciando "R$ 50 a receber"
+            # para sempre — enquanto `/me/overview`, que usa o ledger do
+            # DebtService, já mostrava zero. Duas telas do mesmo app discordando
+            # sobre a mesma dívida.
+            #
+            # Mesma convenção do ledger mensal (`DebtService.get_monthly_ledger`):
+            # quem PAGOU o acerto sobe (a dívida dele diminui), quem RECEBEU desce.
+            # E o recorte é `billing_month`, o mesmo de "Dívidas do mês" — que é a
+            # tela onde o acerto é registrado. Acerto global (billing_month NULL)
+            # não entra aqui: ele pertence ao balanço geral, em `/debts` e
+            # `/me/overview`, e este número é o do MÊS.
+            enviados = db.exec(
+                select(func.sum(Settlement.amount))
+                .where(Settlement.workspace_id == workspace_id)
+                .where(Settlement.billing_month == mes)
+                .where(Settlement.deleted_at.is_(None))
+                .where(Settlement.from_user_id == user_id)
+            ).one() or Decimal("0.00")
+            recebidos = db.exec(
+                select(func.sum(Settlement.amount))
+                .where(Settlement.workspace_id == workspace_id)
+                .where(Settlement.billing_month == mes)
+                .where(Settlement.deleted_at.is_(None))
+                .where(Settlement.to_user_id == user_id)
+            ).one() or Decimal("0.00")
+            settled_by_me = enviados - recebidos
 
         # Distribuição por categoria: soma dos itens COM categoria. Itens sem
         # categoria E transações sem item nenhum entram em "Sem categoria" — que
@@ -204,11 +235,11 @@ class ReportService:
             # Estes NUNCA são suprimidos: são os dados do próprio usuário.
             "my_expenses": my_expenses,
             "paid_by_me": paid_by_me,
-            # Positivo = adiantei e tenho a receber; negativo = devo. É a mesma
-            # conta de `/me/overview`, aqui recortada num workspace só — e por isso
-            # NÃO é compensada com outros (dever na casa e receber na viagem
+            # Positivo = adiantei e tenho a receber; negativo = devo — DEPOIS dos
+            # acertos já registrados neste mês. Recortado num workspace só, e por
+            # isso NÃO compensado com outros (dever na casa e receber na viagem
             # envolve pessoas e acordos diferentes).
-            "my_balance": paid_by_me - my_expenses,
+            "my_balance": paid_by_me - my_expenses + settled_by_me,
             # Mesma composição, recortada na parte do usuário (meta pessoal)
             "my_categories": my_category_data,
             "base_currency": base_currency,

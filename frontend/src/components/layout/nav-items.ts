@@ -53,6 +53,14 @@ export const GLOBAL_SECTION: NavSection = {
     // Cartões e financiamentos a vencer. Eixo diferente de "Acertos entre
     // pessoas" — e agora há UM item com este nome, não dois.
     { icon: Scale, label: 'Compromissos', to: '/me/commitments' },
+    // Renda × consumo do PERÍODO, somando todas as casas. Os Relatórios de
+    // `/w/:id/reports` continuam existindo e são outro eixo: quanto ESTA casa
+    // gastou. Depois do ADR 0021 eles nem podem mais falar de renda.
+    { icon: BarChart3, label: 'Seus relatórios', to: '/me/reports' },
+    // Perfil, senha, contas de pagamento, tema e moeda de relatório. Ficavam
+    // presos em `/w/:id/settings`, inalcançáveis para quem não tivesse um
+    // workspace válido — e nenhum deles pertence a workspace nenhum.
+    { icon: Settings, label: 'Suas configurações', to: '/me/settings' },
   ],
 };
 
@@ -105,8 +113,15 @@ export function activeNavPath(pathname: string, workspaceId: number | null): str
   return candidatos.reduce((a, b) => (b.length > a.length ? b : a));
 }
 
-/** Slots primários da bottom-nav mobile; o restante vai no sheet "Mais". */
+/**
+ * Slots primários da bottom-nav mobile; o restante vai no sheet "Mais".
+ *
+ * Os caminhos têm de EXISTIR em `navFlat` — a `BottomNav` casa por igualdade e
+ * descarta o que não encontra, em silêncio. Era o caso de `/w/:id/cards`: os
+ * cartões viraram `/me/cards` no ADR 0021, o item nunca casava e o terceiro slot
+ * simplesmente sumia da barra.
+ */
 export function mobilePrimaryPaths(workspaceId: number | null): string[] {
-  if (!workspaceId) return ['/overview'];
-  return ['/overview', `/w/${workspaceId}/transactions`, `/w/${workspaceId}/cards`];
+  if (!workspaceId) return ['/overview', '/me/cards'];
+  return ['/overview', `/w/${workspaceId}/transactions`, '/me/cards'];
 }

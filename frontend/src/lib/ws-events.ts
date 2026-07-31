@@ -57,42 +57,75 @@ export const FULL_RESYNC = '*';
 const AUDIT = ['audit'];
 
 /**
+ * Famílias GLOBAIS — a queryKey delas NÃO leva workspace.
+ *
+ * Depois do ADR 0021 cartão, conta, financiamento e renda são da pessoa e a
+ * acompanham em todo workspace; as chaves passaram a ser `['credit-cards']`,
+ * `['payment-accounts']`, `['financing']`, `['income', mês]`, `['statements',
+ * cardId]` e as `['me-*']`. Este mapa continuava anexando `workspaceId` a TUDO, e
+ * o resultado é que nenhuma delas era invalidada: o TanStack casa por PREFIXO, e
+ * `['credit-cards', 7]` não é prefixo de `['credit-cards']` — é o contrário.
+ * `['statements', 7]` era pior que inócuo: acertava por acaso o cartão de id 7.
+ *
+ * Consequência prática, antes desta correção: criar um lançamento não atualizava
+ * a Visão global, a atividade recente, o limite do cartão nem os compromissos.
+ */
+export const GLOBAIS = new Set([
+  'credit-cards', 'statements', 'payment-accounts', 'financing', 'income',
+  'recurring-income', 'me-overview', 'me-commitments', 'me-activity', 'me-reports',
+  'workspaces',
+]);
+
+/**
  * Famílias de query afetadas por prefixo de evento. Os nomes são o PRIMEIRO
- * elemento da queryKey; o workspace entra depois (o TanStack casa por prefixo,
- * então ['reports', wsId] invalida ['reports', wsId, month]).
+ * elemento da queryKey; o workspace entra depois SE a família for do workspace
+ * (o TanStack casa por prefixo, então ['reports', wsId] invalida
+ * ['reports', wsId, month]). Ver `GLOBAIS` acima.
  */
 const BY_PREFIX: Record<string, string[]> = {
   // Um lançamento mexe no extrato, no detalhe aberto, no grupo de parcelas, nos
-  // relatórios, na previsão, nas dívidas (global e do mês), no endividamento e
-  // na fatura/limite do cartão.
+  // relatórios, na previsão, nas dívidas (global e do mês), na fatura/limite do
+  // cartão — e na visão pessoal, que soma todos os workspaces.
   transaction: [
     'transactions', 'transaction', 'installment-group', 'reports', 'analytics-forecast',
-    'debts', 'debts-monthly', 'liabilities', 'statements', 'credit-cards', 'attachments',
+    'debts', 'debts-monthly', 'statements', 'credit-cards', 'attachments',
+    'me-overview', 'me-reports', 'me-activity', 'me-commitments',
     ...AUDIT,
   ],
-  income: ['income', 'reports', 'analytics-forecast', ...AUDIT],
+  income: ['income', 'reports', 'analytics-forecast', 'me-overview', 'me-reports', ...AUDIT],
   // Recorrente materializa lançamentos (possivelmente numa fatura de cartão)
   recurring: [
     'recurring', 'transactions', 'reports', 'analytics-forecast', 'debts', 'debts-monthly',
-    'liabilities', 'statements', 'credit-cards', ...AUDIT,
+    'statements', 'credit-cards', 'me-overview', 'me-reports', 'me-activity', 'me-commitments',
+    ...AUDIT,
   ],
-  recurring_income: ['recurring-income', 'income', 'reports', 'analytics-forecast', ...AUDIT],
-  // Fechar/pagar/reabrir fatura muda limite comprometido e endividamento
-  credit_card: ['credit-cards', 'statements', 'liabilities', 'transactions', ...AUDIT],
+  recurring_income: [
+    'recurring-income', 'income', 'reports', 'analytics-forecast', 'me-overview', 'me-reports', ...AUDIT,
+  ],
+  // Fechar/pagar/reabrir fatura muda limite comprometido, compromissos e — desde
+  // o ADR 0022 — o caixa efetivo do mês em que a fatura foi paga.
+  credit_card: [
+    'credit-cards', 'statements', 'transactions', 'me-commitments', 'me-overview',
+    'me-reports', ...AUDIT,
+  ],
   category: ['categories', 'reports', 'transactions', ...AUDIT],
   tag: ['tags', 'transactions', ...AUDIT],
   estimate: ['estimates', 'analytics-forecast', 'reports', ...AUDIT],
-  financing: ['financing', 'liabilities', ...AUDIT],
+  financing: ['financing', 'me-commitments', 'me-overview', 'me-reports', ...AUDIT],
   payment_account: ['payment-accounts', 'transactions', 'credit-cards', ...AUDIT],
   attachment: ['attachments', 'transactions', ...AUDIT],
-  settlement: ['settlements', 'debts', 'debts-monthly', ...AUDIT],
+  // O acerto mexe no saldo a pagar/receber E no caixa (é dinheiro que muda de mão)
+  settlement: [
+    'settlements', 'debts', 'debts-monthly', 'me-overview', 'me-reports', 'reports',
+    ...AUDIT,
+  ],
   // Entrar/sair muda o rateio; renomear muda o nome exibido no extrato e nas dívidas
   member: [
-    'members', 'invites', 'debts', 'debts-monthly', 'transactions', 'liabilities',
-    'workspaces', ...AUDIT,
+    'members', 'invites', 'debts', 'debts-monthly', 'transactions',
+    'workspaces', 'me-overview', ...AUDIT,
   ],
   invite: ['invites', 'members', ...AUDIT],
-  workspace: ['workspaces', ...AUDIT],
+  workspace: ['workspaces', 'me-overview', ...AUDIT],
 };
 
 /** Eventos que exigem resync completo (o tipo inteiro, não só o prefixo). */
@@ -119,8 +152,9 @@ export function keysForEvent(type: string, workspaceId: number): unknown[][] | t
   if (!families) return FULL_RESYNC;
 
   return families.map((family) =>
-    // 'workspaces' é global (lista do switcher), não tem escopo de workspace
-    family === 'workspaces' ? [family] : [family, workspaceId],
+    // Família global (recurso pessoal, ADR 0021) não leva workspace na chave —
+    // anexá-lo produzia uma chave que não casa com query nenhuma.
+    GLOBAIS.has(family) ? [family] : [family, workspaceId],
   );
 }
 
@@ -134,13 +168,17 @@ export function invalidateForEvent(
   type: string,
   workspaceId?: number | null,
 ): void {
-  if (!workspaceId) return;
-  const keys = keysForEvent(type, workspaceId);
+  const keys = keysForEvent(type, workspaceId ?? -1);
   if (keys === FULL_RESYNC) {
     queryClient.invalidateQueries();
     return;
   }
   for (const key of keys) {
+    // Sem workspace conhecido, a camada PESSOAL ainda precisa atualizar: pagar
+    // uma fatura em `/me/cards` não acontece dentro de `/w/:id`, e o `return`
+    // que existia aqui descartava a invalidação inteira. O que é do workspace
+    // fica de fora, porque não há workspace a que se referir.
+    if (!workspaceId && key.length > 1) continue;
     queryClient.invalidateQueries({ queryKey: key });
   }
 }

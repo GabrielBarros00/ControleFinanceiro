@@ -297,6 +297,7 @@ def create_transaction(
             splits=transaction_in.splits,
             items=transaction_in.items,
             adjustments=transaction_in.adjustments,
+            actor_user_id=membership.user_id,
         )
     except ValueError as exc:
         # Divisão/somas inválidas é erro do cliente — nunca 500. Rollback
@@ -498,6 +499,7 @@ def _create_installments(
                 payers=[payer.model_copy(update={"amount": inst_amount})],
                 splits=plan["splits"],
                 items=items,
+                actor_user_id=membership.user_id,
             )
 
             if transaction_in.tag_ids is not None:
@@ -889,6 +891,7 @@ def _full_edit(
             splits=splits,
             items=items,
             adjustments=adjustments,
+            actor_user_id=membership.user_id,
         )
     except ValueError as exc:
         session.rollback()
@@ -1232,6 +1235,7 @@ def _recompute_open_installments(
             payers=[payer.model_copy(update={"amount": inst_amount})],
             splits=plan["splits"],
             items=items,
+            actor_user_id=membership.user_id,
         )
         if transaction_in.tag_ids is not None:
             _set_transaction_tags(session, workspace_id, sib.id, transaction_in.tag_ids)

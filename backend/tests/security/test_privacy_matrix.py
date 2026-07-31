@@ -551,12 +551,23 @@ def test_minha_parte_do_restrito_conta_so_o_split_dele(casa):
 
 
 def test_quem_pagou_tudo_tem_saldo_a_receber(casa):
-    """O par que faltava no Painel: consumo × caixa. O dono pagou as duas
-    despesas (600) e consumiu 400 → tem 200 a receber."""
+    """O par que faltava no Painel: consumo × caixa — e o acerto já recebido.
+
+    O dono pagou as duas despesas (600) e consumiu 400, então adiantou 200. Mas o
+    admin já lhe acertou 50 neste mês (fixture `casa`), e o que resta a receber é
+    150.
+
+    Este teste afirmava 200 e, ao afirmar, congelava o defeito que a auditoria
+    externa encontrou: `my_balance` era `paid_by_me − my_expenses` e ignorava
+    `Settlement`, então o Painel e os Relatórios seguiam cobrando um valor já
+    pago — enquanto `/me/overview`, que usa o ledger do `DebtService`, mostrava o
+    saldo certo. Os números brutos continuam sendo 600 e 400: o acerto não desfaz
+    o que foi pago nem o que foi consumido, só quita a diferença.
+    """
     corpo = _get(casa, "dono", f"/analytics/summary?month={MES}").json()
     assert Decimal(str(corpo["paid_by_me"])) == Decimal("600.00")
     assert Decimal(str(corpo["my_expenses"])) == Decimal("400.00")
-    assert Decimal(str(corpo["my_balance"])) == Decimal("200.00")
+    assert Decimal(str(corpo["my_balance"])) == Decimal("150.00")
 
 
 @pytest.mark.parametrize("perfil", COMPLETOS)

@@ -166,13 +166,19 @@ def test_consumo_e_caixa_sao_numeros_diferentes(db_session, override_get_session
 
     corpo = _overview(dono)
     assert Decimal(str(corpo["consumption"])) == Decimal("400.00"), "minha parte"
-    assert Decimal(str(corpo["cash_out"])) == Decimal("1000.00"), "o que saiu do bolso"
+    assert Decimal(str(corpo["paid_in_transactions"])) == Decimal("1000.00"), (
+        "o que assumi nos lançamentos"
+    )
+    # Despesa à vista: o que foi assumido E o caixa coincidem. Só divergem quando
+    # há cartão no meio (ADR 0022) — ver tests/services/test_caixa_efetivo.py.
+    assert Decimal(str(corpo["cash_out"])) == Decimal("1000.00"), "saiu do bolso agora"
     assert Decimal(str(corpo["to_receive"])) == Decimal("600.00"), "adiantei, tenho a receber"
     assert Decimal(str(corpo["to_pay"])) == Decimal("0.00")
 
     # E do outro lado, o colega deve
     do_colega = _overview(colega)
     assert Decimal(str(do_colega["consumption"])) == Decimal("600.00")
+    assert Decimal(str(do_colega["paid_in_transactions"])) == Decimal("0.00")
     assert Decimal(str(do_colega["cash_out"])) == Decimal("0.00")
     assert Decimal(str(do_colega["to_pay"])) == Decimal("600.00")
 

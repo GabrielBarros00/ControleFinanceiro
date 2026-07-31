@@ -6,8 +6,22 @@
 # sensação de cobertura. Ferramentas de teste/lint moram em requirements-dev.txt
 # e NÃO vão para a imagem.
 #
-# Para atualizar: suba a versão aqui, rode a suíte contra SQLite E Postgres, e
-# só então faça o merge.
+# Para atualizar: suba a versão aqui, REGENERE o lock (abaixo), rode a suíte
+# contra SQLite E Postgres, e só então faça o merge.
+#
+# ATENÇÃO — este arquivo NÃO é o que a imagem instala. As diretas estão fixadas
+# aqui, mas as transitivas não estavam em lugar nenhum, e dois `docker build` do
+# mesmo commit podiam resolver `httpcore`/`cffi`/`typing-extensions` diferentes:
+# o ambiente que passou nos testes não era o que ia para produção. O Dockerfile
+# instala `requirements.lock`, e o CI falha se ele divergir daqui.
+#
+# O lock é resolvido para LINUX/CPython 3.12 — a plataforma da imagem. Ele traz
+# pacotes que não existem no Windows (`uvloop`, via `uvicorn[standard]`), então
+# no desenvolvimento local em Windows continue instalando `requirements.txt` +
+# `requirements-dev.txt`. Para regenerar, use o mesmo Python da imagem:
+#
+#   docker run --rm -v "$PWD:/src" -w /src python:3.12-slim \
+#     sh -c "pip install pip-tools && pip-compile --output-file=requirements.lock --strip-extras requirements.txt"
 
 # --- Web ---
 fastapi==0.136.1

@@ -27,6 +27,7 @@ Cada ADR registra **uma decisão** relevante do projeto: o contexto, a decisão 
 | [0019](0019-propriedade-pessoal-com-compartilhamento.md) | ~~Renda/cartão/conta/financiamento são da PESSOA; workspace só por compartilhamento explícito~~ (superseded por 0021) | Propriedade / privacidade |
 | [0020](0020-visao-global-e-quatro-numeros.md) | Início global e pessoal; consumo × caixa × a pagar × resultado; workspace na URL | Informação / navegação |
 | [0021](0021-recurso-pessoal-sem-workspace.md) | Recurso pessoal não tem `workspace_id`; acesso financeiro completo não o alcança (supersede 0019) | Propriedade / privacidade |
+| [0022](0022-caixa-efetivo.md) | Caixa é quando o dinheiro se move; o `cash_out` antigo vira `paid_in_transactions` | Relatórios / caixa |
 
 ## Escrevendo um novo ADR
 

@@ -7,8 +7,20 @@ WORKDIR /app
 
 # Só as dependências de PRODUÇÃO: pytest e afins moram em requirements-dev.txt
 # e não entram na imagem.
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+#
+# A instalação usa o LOCK, não o requirements.txt. As diretas sempre foram
+# fixadas, mas as transitivas não: dois `docker build` do mesmo commit podiam
+# resolver versões diferentes de `httpcore`, `cffi` ou `typing-extensions`, e o
+# ambiente que passou nos testes não era o que ia para produção. O frontend tem
+# `package-lock.json` desde sempre; isto é o equivalente.
+#
+# Para atualizar: mexa em `requirements.txt` e regenere com
+#   docker run --rm -v "$PWD:/src" -w /src python:3.12-slim \
+#     sh -c "pip install pip-tools && pip-compile --output-file=requirements.lock --strip-extras requirements.txt"
+# (no MESMO Python da imagem — um lock gerado noutra versão traz markers
+# diferentes e pode omitir backport necessário aqui).
+COPY requirements.txt requirements.lock ./
+RUN pip install --no-cache-dir -r requirements.lock
 
 COPY . .
 

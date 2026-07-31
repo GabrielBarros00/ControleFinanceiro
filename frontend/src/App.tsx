@@ -19,6 +19,8 @@ const StatementView = React.lazy(() => import('./components/credit-cards/Stateme
 const AmortizationTable = React.lazy(() => import('./components/financing/AmortizationTable').then(m => ({ default: m.AmortizationTable })));
 const ReportsPage = React.lazy(() => import('./pages/Reports/ReportsPage').then(m => ({ default: m.ReportsPage })));
 const SettingsPage = React.lazy(() => import('./pages/Settings/SettingsPage').then(m => ({ default: m.SettingsPage })));
+const MyReportsPage = React.lazy(() => import('./pages/MyReportsPage').then(m => ({ default: m.MyReportsPage })));
+const PersonalSettingsPage = React.lazy(() => import('./pages/Settings/SettingsPage').then(m => ({ default: m.PersonalSettingsPage })));
 const RecurringTransactionsPage = React.lazy(() => import('./pages/RecurringTransactionsPage').then(m => ({ default: m.RecurringTransactionsPage })));
 const DebtsPage = React.lazy(() => import('./pages/DebtsPage').then(m => ({ default: m.DebtsPage })));
 const TransactionsPage = React.lazy(() => import('./pages/TransactionsPage').then(m => ({ default: m.TransactionsPage })));
@@ -169,12 +171,21 @@ function AppContent() {
               </Layout>
             </ProtectedRoute>
           } />
+          <Route path="/me/reports" element={
+            <ProtectedRoute><Layout><MyReportsPage /></Layout></ProtectedRoute>
+          } />
           <Route path="/me/commitments" element={
             <ProtectedRoute>
               <Layout title="Compromissos financeiros" subtitle="Faturas e financiamentos a vencer — seus, em todos os workspaces.">
                 <CommitmentsPage />
               </Layout>
             </ProtectedRoute>
+          } />
+          {/* Perfil, senha, contas e tema não pertencem a workspace nenhum e
+              mesmo assim só existiam dentro de `/w/:id/settings` — quem ficasse
+              sem workspace válido não alcançava a própria senha pela interface. */}
+          <Route path="/me/settings" element={
+            <ProtectedRoute><Layout><PersonalSettingsPage /></Layout></ProtectedRoute>
           } />
 
           <Route path="/invite/:token" element={

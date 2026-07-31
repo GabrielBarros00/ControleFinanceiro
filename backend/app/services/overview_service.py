@@ -5,18 +5,24 @@ O "Início" era a dashboard de um workspace disfarçada de tela pessoal: lia o
 casa". Quem participa de dois workspaces não tinha lugar nenhum que respondesse
 "quanto eu ganhei, quanto consumi e quanto tenho a pagar **no total**".
 
-Quatro números que o app confundia num só — e que aqui são explícitos:
+Cinco números que o app confundia num só — e que aqui são explícitos:
 
-| Número            | Fórmula                                   | Pergunta que responde        |
-|-------------------|-------------------------------------------|------------------------------|
-| **Consumo**       | Σ dos meus `TransactionSplit`             | quanto do gasto foi meu      |
-| **Saída de caixa**| Σ dos meus `TransactionPayer`             | quanto saiu do meu bolso     |
-| **A pagar/receber**| consumo − caixa, por workspace           | quanto acerto com quem       |
-| **Resultado**     | renda − consumo                           | sobrou ou faltou no mês      |
+| Número                | Fórmula                              | Pergunta que responde         |
+|-----------------------|--------------------------------------|-------------------------------|
+| **Consumo**           | Σ dos meus `TransactionSplit`        | quanto do gasto foi meu       |
+| **Adiantado**         | Σ dos meus `TransactionPayer`        | quanto eu assumi nas despesas |
+| **A pagar/receber**   | consumo − adiantado, por workspace   | quanto acerto com quem        |
+| **Resultado**         | renda − consumo                      | sobrou ou faltou no mês       |
+| **Caixa (in/out)**    | `CashFlowService` (ADR 0022)         | quando o dinheiro se moveu    |
 
-O app só calculava consumo e resultado. "Saída de caixa" não existia em lugar
-nenhum, e por isso "Seu saldo" no Início era um nome errado para o resultado do
-período (não é saldo bancário, e nunca foi).
+O app só calculava consumo e resultado, e "Seu saldo" no Início era um nome errado
+para o resultado do período (não é saldo bancário, e nunca foi).
+
+**Adiantado ≠ caixa.** O campo hoje chamado `paid_in_transactions` já se chamou
+`cash_out`, e o nome era falso: a compra no cartão entrava nele no mês do
+lançamento, com o dinheiro ainda na conta, e o pagamento da fatura não entrava em
+lugar nenhum. Ele é o número certo para o ACERTO (quem assumiu o quê) e continua
+recortado por workspace; o caixa efetivo é global e vive no `CashFlowService`.
 
 **Moeda:** somar workspaces com moedas-base diferentes viola o ADR 0006. O
 destino é `User.report_currency`, e o que não converte fica de fora com contagem —
@@ -28,7 +34,7 @@ diferentes. Os saldos são agrupados POR workspace, e o total é informativo.
 """
 import calendar
 from datetime import UTC, date, datetime
-from decimal import Decimal, ROUND_HALF_UP
+from decimal import Decimal
 from typing import Any, Dict, List, Optional
 
 from sqlmodel import Session, func, select
@@ -38,16 +44,13 @@ from app.domain.dates import month_key
 from app.domain.query_policy import REALIZED_STATUSES, workspace_base_currency
 from app.models.credit_card import CreditCard, StatementStatus
 from app.models.financing import AmortizationInstallment, Financing, FinancingStatus
-from app.models.income import Income
 from app.models.transaction import Transaction, TransactionPayer, TransactionSplit
 from app.models.user import User
 from app.models.workspace import Workspace, WorkspaceMembership
+from app.services.cashflow_service import CashFlowService
 from app.services.credit_card_service import CreditCardService
-from app.services.currency_service import ExchangeRateUnavailable
 from app.services.debt_service import DebtService
-from app.services.exchange_rate_store import ExchangeRateStore
-
-ZERO = Decimal("0.00")
+from app.services.money_conversion import ZERO, converte
 
 
 class OverviewService:
@@ -61,14 +64,12 @@ class OverviewService:
         db: Session, valor: Decimal, de: str, para: str, quando: date
     ) -> Optional[Decimal]:
         """`None` quando não há taxa: o valor fica FORA da soma e é contado como
-        excluído, em vez de entrar com uma conversão inventada (ADR 0006)."""
-        if valor == ZERO or de == para:
-            return valor
-        try:
-            taxa, _fonte = ExchangeRateStore.rate_between(db, de, para, quando, allow_fetch=False)
-        except ExchangeRateUnavailable:
-            return None
-        return (valor * taxa).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+        excluído, em vez de entrar com uma conversão inventada (ADR 0006).
+
+        A regra mora em `money_conversion.converte` desde que o caixa efetivo
+        passou a usá-la; aqui fica o apelido, para as chamadas existentes.
+        """
+        return converte(db, valor, de, para, quando)
 
     @staticmethod
     def _workspaces_do_usuario(db: Session, user_id: int) -> List[Workspace]:
@@ -102,30 +103,18 @@ class OverviewService:
         )
 
         workspaces = OverviewService._workspaces_do_usuario(db, user_id)
-        excluidos = 0
 
-        # --- Renda: da PESSOA, sem passar por workspace nenhum -----------------
-        # `Income.user_id` e mais nada — e depois do ADR 0021 isso é correto por
-        # construção, não por sorte: não existe mais renda "da casa" para ser
-        # creditada inteira a quem por acaso a cadastrou.
-        rendas = db.exec(
-            select(Income.amount, Income.currency)
-            .where(Income.user_id == user_id)
-            .where(Income.received_at >= inicio)
-            .where(Income.received_at <= fim)
-            .where(Income.deleted_at.is_(None))
-        ).all()
-        renda_total = ZERO
-        for valor, moeda in rendas:
-            convertido = OverviewService._converte(db, valor, moeda, destino, primeiro)
-            if convertido is None:
-                excluidos += 1
-            else:
-                renda_total += convertido
+        # --- Caixa efetivo e renda (ADR 0022) ----------------------------------
+        # Renda sai daqui junto com o caixa porque é uma das seis fontes do
+        # ledger: manter a mesma consulta em dois lugares era o caminho curto para
+        # os dois números discordarem.
+        fluxo = CashFlowService.get_month(db, user_id, target_month, destino, inicio, fim)
+        renda_total = fluxo["income"]
+        excluidos = fluxo["excluded_foreign_count"]
 
-        # --- Consumo, caixa e acertos, workspace a workspace -------------------
+        # --- Consumo, adiantamento e acertos, workspace a workspace ------------
         consumo_total = ZERO
-        caixa_total = ZERO
+        adiantado_total = ZERO
         por_workspace: List[Dict[str, Any]] = []
         a_pagar_total = ZERO
         a_receber_total = ZERO
@@ -144,10 +133,18 @@ class OverviewService:
                 .where(TransactionSplit.user_id == user_id)
             ).one() or ZERO
 
-            # SAÍDA DE CAIXA — o número que não existia em lugar nenhum do app.
+            # ADIANTADO NOS LANÇAMENTOS — o que eu assumi nas despesas desta casa.
             # Sem ele não dá para dizer "consumi 300 mas paguei 500, tenho 200 a
             # receber": o app só sabia falar de consumo.
-            caixa = db.exec(
+            #
+            # Este número CHAMAVA-SE `cash_out` e não era caixa (ADR 0022): a
+            # compra no cartão entra aqui no mês do lançamento, com o dinheiro
+            # ainda na conta, e o pagamento da fatura não entra em lugar nenhum.
+            # Ele continua sendo o número certo PARA O ACERTO — que é sobre quem
+            # assumiu o quê, não sobre quando o dinheiro saiu —, e por isso é o que
+            # fecha `to_pay`/`to_receive` por workspace. O caixa de verdade é
+            # global e vem do `CashFlowService`.
+            adiantado = db.exec(
                 select(func.coalesce(func.sum(TransactionPayer.amount), 0))
                 .join(Transaction, Transaction.id == TransactionPayer.transaction_id)
                 .where(Transaction.workspace_id == ws.id)
@@ -159,12 +156,7 @@ class OverviewService:
             ).one() or ZERO
 
             consumo_conv = OverviewService._converte(db, consumo, base, destino, primeiro)
-            caixa_conv = OverviewService._converte(db, caixa, base, destino, primeiro)
-            if consumo_conv is None or caixa_conv is None:
-                excluidos += 1
-                continue
-            consumo_total += consumo_conv
-            caixa_total += caixa_conv
+            adiantado_conv = OverviewService._converte(db, adiantado, base, destino, primeiro)
 
             # Acerto entre pessoas: o ledger COMPLETO do workspace (o pareamento
             # precisa de todos os saldos) recortado nas linhas que me envolvem.
@@ -175,17 +167,42 @@ class OverviewService:
             recebo = sum(
                 (d["amount"] for d in saldos if d["creditor_id"] == user_id), ZERO
             )
-            devo_conv = OverviewService._converte(db, devo, base, destino, primeiro) or ZERO
-            recebo_conv = OverviewService._converte(db, recebo, base, destino, primeiro) or ZERO
+            devo_conv = OverviewService._converte(db, devo, base, destino, primeiro)
+            recebo_conv = OverviewService._converte(db, recebo, base, destino, primeiro)
+
+            # Sem cotação, o workspace INTEIRO fica de fora e é contado — inclusive
+            # quando o que não converte é só o saldo. A versão anterior escrevia
+            # `_converte(...) or ZERO` nos dois saldos, e o `or` engolia o `None`
+            # sem incrementar `excluidos`: uma dívida em aberto de USD 100 de um mês
+            # anterior, num mês corrente sem lançamento novo, virava `to_pay = 0`
+            # com `excluded_foreign_count = 0`. Omitir um lançamento avisando é a
+            # política do ADR 0006; dizer "você não deve nada" a quem deve é outra
+            # coisa.
+            if any(v is None for v in (consumo_conv, adiantado_conv, devo_conv, recebo_conv)):
+                excluidos += 1
+                continue
+
+            consumo_total += consumo_conv
+            adiantado_total += adiantado_conv
             a_pagar_total += devo_conv
             a_receber_total += recebo_conv
+
+            # Workspace sem movimento nenhum não vira linha na tela: a seção "Por
+            # workspace" listava TODAS as casas da pessoa, com zeros, e por isso o
+            # estado vazio ("Nenhum movimento neste mês") era inalcançável para
+            # quem tem mais de um workspace.
+            if all(
+                v == ZERO
+                for v in (consumo_conv, adiantado_conv, devo_conv, recebo_conv)
+            ):
+                continue
 
             por_workspace.append({
                 "workspace_id": ws.id,
                 "workspace_name": ws.name,
                 "base_currency": base,
                 "consumption": consumo_conv,
-                "cash_out": caixa_conv,
+                "paid_in_transactions": adiantado_conv,
                 "to_pay": devo_conv,
                 "to_receive": recebo_conv,
             })
@@ -193,18 +210,103 @@ class OverviewService:
         return {
             "month": mes,
             "currency": destino,
-            # Os quatro números, nomeados pelo que são
+            # --- Competência: de quem é o gasto ---------------------------------
             "income": renda_total,
             "consumption": consumo_total,
-            "cash_out": caixa_total,
+            # O que eu assumi nos lançamentos. Era `cash_out` e não era caixa
+            # (ADR 0022) — o nome novo diz o que o número sempre mediu.
+            "paid_in_transactions": adiantado_total,
             # Resultado do mês: renda − CONSUMO (não − caixa). O que eu adiantei
             # por outra pessoa não é gasto meu; é crédito a receber.
             "result": renda_total - consumo_total,
+            # --- Caixa: quando o dinheiro se moveu ------------------------------
+            # Global, sem recorte por workspace: pagamento de fatura e parcela de
+            # financiamento não moram em workspace nenhum, e forçá-los num
+            # reintroduziria a premissa que o ADR 0021 removeu.
+            "cash_in": fluxo["cash_in"],
+            "cash_out": fluxo["cash_out"],
+            "net_cash": fluxo["net_cash"],
+            "cash_out_breakdown": fluxo["cash_out_breakdown"],
+            "cash_in_breakdown": fluxo["cash_in_breakdown"],
+            # --- Acerto entre pessoas -------------------------------------------
             "to_pay": a_pagar_total,
             "to_receive": a_receber_total,
             # Por workspace, NUNCA compensado entre eles: dever na casa e ter a
             # receber na viagem envolve pessoas e acordos diferentes.
             "by_workspace": por_workspace,
+            "excluded_foreign_count": excluidos,
+        }
+
+    # ------------------------------------------------------------------
+    @staticmethod
+    def get_series(
+        db: Session, user_id: int, months: int = 6, currency: Optional[str] = None
+    ) -> Dict[str, Any]:
+        """Os últimos `months` meses da PESSOA — o relatório que não existia.
+
+        Relatórios sempre foram de um workspace: eles respondem "quanto esta casa
+        gastou". Nenhuma tela respondia "como está o MEU ano" — renda contra
+        consumo, resultado mês a mês, e quanto de mim foi para cada casa. Quem
+        participa de dois workspaces tinha de somar de cabeça, e depois do ADR
+        0021 (renda fora do workspace) nem isso era possível: os Relatórios não
+        falam mais de renda.
+
+        Reusa `get_overview` mês a mês em vez de reescrever as agregações: é a
+        mesma definição de consumo, caixa e acerto, então as duas telas não têm
+        como divergir. O custo é linear no número de meses, aceitável para 6–12
+        num app de um worker.
+
+        A participação por workspace é acumulada no PERÍODO: é ela que responde
+        "quanto do meu ano foi para a Casa e quanto foi para a Viagem".
+        """
+        destino = currency or OverviewService.report_currency(db, user_id)
+        hoje = datetime.now(UTC).date()
+
+        serie: List[Dict[str, Any]] = []
+        por_workspace: Dict[int, Dict[str, Any]] = {}
+        totais = {
+            "income": ZERO, "consumption": ZERO, "result": ZERO,
+            "cash_in": ZERO, "cash_out": ZERO, "net_cash": ZERO,
+        }
+        excluidos = 0
+
+        for passo in range(months - 1, -1, -1):
+            ano, mes_num = hoje.year, hoje.month - passo
+            while mes_num <= 0:
+                mes_num += 12
+                ano -= 1
+            mes = OverviewService.get_overview(
+                db, user_id, date(ano, mes_num, 1), currency=destino
+            )
+            serie.append({
+                "month": mes["month"],
+                "income": mes["income"],
+                "consumption": mes["consumption"],
+                "result": mes["result"],
+                "cash_in": mes["cash_in"],
+                "cash_out": mes["cash_out"],
+                "net_cash": mes["net_cash"],
+            })
+            for chave in totais:
+                totais[chave] += mes[chave]
+            excluidos += mes["excluded_foreign_count"]
+
+            for linha in mes["by_workspace"]:
+                acumulado = por_workspace.setdefault(linha["workspace_id"], {
+                    "workspace_id": linha["workspace_id"],
+                    "workspace_name": linha["workspace_name"],
+                    "consumption": ZERO,
+                })
+                acumulado["consumption"] += linha["consumption"]
+
+        participacao = sorted(
+            por_workspace.values(), key=lambda w: w["consumption"], reverse=True
+        )
+        return {
+            "currency": destino,
+            "months": serie,
+            "totals": totais,
+            "by_workspace": participacao,
             "excluded_foreign_count": excluidos,
         }
 
@@ -380,6 +482,23 @@ class OverviewService:
             .order_by(Transaction.transaction_date.desc())
             .limit(limit)
         ).all()
+
+        # A PARTE DA PESSOA em cada linha. A lista mostrava só `total_amount` — o
+        # valor cheio da despesa — numa tela chamada "Onde você está envolvido",
+        # que é justamente sobre a participação. Num rateio 50/50, o jantar de 200
+        # aparecia como 200 para quem consumiu 100.
+        #
+        # `None` (e não zero) quando não há split do usuário: ele pode estar ali
+        # por ter criado ou pago a despesa sem consumir nada, e zero diria que a
+        # parte dele é zero em vez de "não se aplica".
+        minhas_partes = {}
+        if linhas:
+            minhas_partes = dict(db.exec(
+                select(TransactionSplit.transaction_id, TransactionSplit.computed_amount)
+                .where(TransactionSplit.transaction_id.in_([t.id for t in linhas]))
+                .where(TransactionSplit.user_id == user_id)
+            ).all())
+
         return [
             {
                 "id": t.id,
@@ -387,6 +506,7 @@ class OverviewService:
                 "workspace_name": nomes.get(t.workspace_id, ""),
                 "title": t.title,
                 "total_amount": t.total_amount,
+                "my_share": minhas_partes.get(t.id),
                 "currency": t.currency,
                 "transaction_date": t.transaction_date,
                 "status": t.status,

@@ -3,7 +3,7 @@ import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { Plus, MoreHorizontal, LogOut } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { activeNavPath, navFlat, mobilePrimaryPaths, type NavItem } from './nav-items';
-import { useWorkspaceId } from '@/hooks/use-workspace-id';
+import { useWorkspaceId, useWorkspaceIdFromUrl } from '@/hooks/use-workspace-id';
 import { useNewTxStore } from '@/stores';
 import { useAuth } from '@/hooks/use-auth';
 
@@ -56,6 +56,8 @@ export function BottomNav() {
   const setNewTxOpen = useNewTxStore((s) => s.setOpen);
   const [moreOpen, setMoreOpen] = React.useState(false);
   const workspaceId = useWorkspaceId();
+  // Estrito, sem o fallback da store: é ele que decide se DÁ para lançar aqui.
+  const workspaceDaUrl = useWorkspaceIdFromUrl();
   const itens = navFlat(workspaceId);
   const primary = mobilePrimaryPaths(workspaceId)
     .map((p) => itens.find((i) => i.to === p))
@@ -81,14 +83,22 @@ export function BottomNav() {
     <>
       <nav className="fixed inset-x-0 bottom-0 z-40 flex items-center justify-around border-t border-border bg-card/95 px-2 backdrop-blur md:hidden">
         {primary.slice(0, 2).map(item)}
-        <button
-          type="button"
-          onClick={() => setNewTxOpen(true)}
-          aria-label="Nova despesa"
-          className="mx-1 -mt-5 flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-brand text-primary-foreground shadow-lg"
-        >
-          <Plus className="h-6 w-6" />
-        </button>
+        {/* O FAB só existe DENTRO de um workspace. Fora dele — na Visão global,
+            em `/me/*` — ele abria o diálogo com o último workspace visitado, sem
+            mostrar qual, e a despesa ia para a casa errada. O ADR 0020 define a
+            visão global como somente leitura por esse motivo, e a suíte de
+            acessibilidade afirmava isso testando só o desktop, onde o FAB está
+            escondido por `md:hidden` e o problema não aparecia. */}
+        {workspaceDaUrl !== null && (
+          <button
+            type="button"
+            onClick={() => setNewTxOpen(true)}
+            aria-label="Nova despesa"
+            className="mx-1 -mt-5 flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-brand text-primary-foreground shadow-lg"
+          >
+            <Plus className="h-6 w-6" />
+          </button>
+        )}
         {primary.slice(2).map(item)}
         <button
           type="button"

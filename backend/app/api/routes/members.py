@@ -11,6 +11,7 @@ from app.core.config import settings
 from app.db.session import get_session
 from app.domain.access_policy import effective_access
 from app.domain.query_policy import workspace_base_currency
+from app.models.recurring import RecurringExpense
 from app.models.user import User
 from app.models.workspace import (
     Workspace,
@@ -74,6 +75,51 @@ def _ensure_no_open_balance(session: Session, workspace_id: int, user_id: int) -
             + ("a pagar" if devedor else "a receber")
             + ". Registre o acerto antes de sair/remover — senão o histórico "
             "fica com lançamentos de alguém que não é mais membro."
+        ),
+    )
+
+
+def _ensure_no_active_recurring(session: Session, workspace_id: int, user_id: int) -> None:
+    """Recusa a saída de quem ainda é pagador ou participante de recorrência ativa.
+
+    `_ensure_no_open_balance` cobria o passado (o que já foi lançado) e nada
+    cobria o FUTURO. Uma recorrência ativa com o membro como pagador ou dentro do
+    `split_snapshot` continuava tentando materializar depois da remoção; o
+    snapshot passa a apontar para quem não é mais membro, a validação recusa, e a
+    ocorrência é **descartada em silêncio** (`recurring_service`, no `except` que
+    protege a materialização preguiçosa de derrubar uma rota de leitura).
+
+    O efeito prático é o pior possível: o aluguel simplesmente para de aparecer, e
+    ninguém recebe aviso nenhum — nem quem removeu, nem quem restou. Melhor
+    recusar aqui e pedir a reassociação, que é uma edição de um minuto.
+    """
+    ativas = session.exec(
+        select(RecurringExpense)
+        .where(RecurringExpense.workspace_id == workspace_id)
+        .where(RecurringExpense.is_active.is_(True))
+    ).all()
+
+    def _envolve(template: RecurringExpense) -> bool:
+        if template.payer_user_id == user_id:
+            return True
+        for parte in template.split_snapshot or []:
+            if isinstance(parte, dict) and parte.get("user_id") == user_id:
+                return True
+        return False
+
+    envolvidas = [t for t in ativas if _envolve(t)]
+    if not envolvidas:
+        return
+
+    nomes = ", ".join(f"'{t.title}'" for t in envolvidas[:3])
+    resto = f" e mais {len(envolvidas) - 3}" if len(envolvidas) > 3 else ""
+    raise HTTPException(
+        status_code=409,
+        detail=(
+            f"Há {len(envolvidas)} recorrência(s) ativa(s) com esta pessoa como "
+            f"pagador ou participante: {nomes}{resto}. Reassocie ou desative "
+            "antes de remover — senão as próximas ocorrências param de ser "
+            "geradas sem aviso."
         ),
     )
 
@@ -200,6 +246,7 @@ def remove_member(
     if role_level(target.role) >= role_level(actor.role):
         raise HTTPException(status_code=403, detail="Permissão insuficiente para esta ação")
     _ensure_no_open_balance(session, workspace_id, user_id)
+    _ensure_no_active_recurring(session, workspace_id, user_id)
 
     session.delete(target)
     publish_event(session, workspace_id, "member.removed", "member", user_id, actor.user_id)
@@ -219,6 +266,7 @@ def leave_workspace(
             detail="O owner não pode sair do próprio workspace. Exclua o workspace."
         )
     _ensure_no_open_balance(session, workspace_id, membership.user_id)
+    _ensure_no_active_recurring(session, workspace_id, membership.user_id)
     session.delete(membership)
     publish_event(session, workspace_id, "member.removed", "member", membership.user_id, membership.user_id)
     session.commit()

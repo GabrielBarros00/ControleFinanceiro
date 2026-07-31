@@ -91,7 +91,16 @@ describe('Painel do workspace — acesso financeiro restrito', () => {
   it('mostra a própria parte mesmo sem os números da casa', () => {
     renderHome();
     expect(screen.getByText('Sua parte no mês')).toBeInTheDocument();
-    expect(screen.getByText('Pago por você')).toBeInTheDocument();
+    expect(screen.getByText('Adiantado por você')).toBeInTheDocument();
+  });
+
+  it('não chama de caixa o que não é caixa', () => {
+    // ADR 0022: a soma dos pagadores é o que a pessoa ASSUMIU das despesas — a
+    // compra no cartão entra nela com o dinheiro ainda na conta. Caixa efetivo
+    // é global e vive na Visão global; prometê-lo no Painel do workspace era o
+    // rótulo que a auditoria apontou.
+    renderHome();
+    expect(screen.queryByText(/saiu do seu bolso/i)).not.toBeInTheDocument();
   });
 
   it('não fala de renda nem de sobra — isso é da Visão global', () => {

@@ -1,4 +1,5 @@
 import * as React from 'react';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -11,11 +12,13 @@ import { useAuthStore } from '@/stores';
 import { useTheme } from '@/hooks/use-theme';
 import { useAuth } from '@/hooks/use-auth';
 import { useWorkspaces } from '@/hooks/use-workspaces';
+import { workspacePath } from '@/hooks/use-workspace-id';
 import { useWorkspaceRole } from '@/hooks/use-workspace-role';
 import { useAudit } from '@/hooks/use-audit';
 import { useMembers, type FinancialAccess, type WorkspaceRole } from '@/hooks/use-members';
 import { useCategories } from '@/hooks/use-categories';
 import { usePaymentAccounts, ACCOUNT_TYPE_OPTIONS, accountTypeLabel, type PaymentAccountType } from '@/hooks/use-payment-accounts';
+import { useReportCurrency, useSetReportCurrency } from '@/hooks/use-report-currency';
 import { WorkspaceCreateDialog } from '@/components/workspace/WorkspaceCreateDialog';
 import { apiClient } from '@/api/client';
 import { getApiErrorMessage } from '@/lib/api-error';
@@ -23,6 +26,7 @@ import { toast } from '@/stores/toast';
 import { useConfirm } from '@/components/ui/confirm';
 import { CategoryGlyph } from '@/components/money/CategoryGlyph';
 import { parseApiDate } from '@/lib/date';
+import type { components } from '@/types/api.gen';
 import { CURRENCIES } from '@/lib/currencies';
 import { PageHeader } from '@/components/layout/PageHeader';
 
@@ -36,15 +40,13 @@ const BASE_CURRENCY_OPTIONS = CURRENCIES.map((c) => ({
 
 // Dry-run da troca de moeda-base: o backend devolve o tamanho da reconversão e
 // as datas sem cotação, para a UI avisar ANTES de reescrever o histórico.
-interface BaseCurrencyPreview {
-  from_currency: string;
-  to_currency: string;
-  transactions: number;
-  incomes: number;
-  statements: number;
-  financings: number;
-  missing_rates: string[];
-}
+//
+// Tipo GERADO, não escrito à mão. A interface manual que morava aqui listava
+// `incomes/statements/financings` — campos que o backend deixou de devolver
+// quando o ADR 0021 tirou renda, fatura e financiamento do workspace. O
+// TypeScript não tinha como saber, e a confirmação de uma operação destrutiva
+// passou a exibir "undefined" três vezes. Agora divergir não compila.
+type BaseCurrencyPreview = components['schemas']['BaseCurrencyPreviewRead'];
 
 const ROLE_LABELS: Record<WorkspaceRole, string> = {
   owner: 'Dono',
@@ -62,6 +64,23 @@ const ACCESS_LABELS: Record<FinancialAccess, string> = {
 function ProfileTab() {
   const { user, setUser } = useAuthStore();
   const { workspaces, currentWorkspaceId, switchWorkspace } = useWorkspaces();
+  const navigate = useNavigate();
+  const location = useLocation();
+
+  /**
+   * Trocar de workspace tem de mexer na URL, não só na store.
+   *
+   * `switchWorkspace` sozinho deixava dois contextos vivos ao mesmo tempo: a
+   * store (e o `currentWorkspace` exibido aqui) apontando para a casa nova, e a
+   * URL — de onde membros, categorias e todos os demais hooks leem o id — ainda
+   * na antiga. Bastava mudar de aba dentro de Configurações para ver o nome e a
+   * moeda de uma casa ao lado dos membros de outra, com risco real de
+   * administrar a errada. A Sidebar sempre fez os dois; esta aba, não.
+   */
+  const trocar = (id: number) => {
+    switchWorkspace(id);
+    navigate(workspacePath(id, location.pathname));
+  };
   const [name, setName] = React.useState(user?.name ?? '');
   const [saving, setSaving] = React.useState(false);
   const [saved, setSaved] = React.useState(false);
@@ -127,7 +146,7 @@ function ProfileTab() {
             <button
               key={ws.id}
               type="button"
-              onClick={() => switchWorkspace(ws.id)}
+              onClick={() => trocar(ws.id)}
               className="w-full flex items-center justify-between p-4 rounded-xl bg-accent/30 border border-border/50 hover:bg-accent/40 transition-colors group text-left"
             >
               <div className="flex items-center gap-4">
@@ -153,8 +172,75 @@ function ProfileTab() {
           </Button>
         </CardContent>
       </Card>
+
+      <ReportCurrencyCard />
+
       <WorkspaceCreateDialog open={createOpen} onOpenChange={setCreateOpen} />
     </div>
+  );
+}
+
+/**
+ * Moeda em que os números PESSOAIS aparecem.
+ *
+ * O `useSetReportCurrency` existia e não era chamado por tela nenhuma: a moeda
+ * de relatório só podia ser trocada batendo direto na API. Quem participa de
+ * workspaces com moedas-base diferentes precisa dela — é o destino de conversão
+ * da Visão global, e sem escolher fica no padrão para sempre.
+ *
+ * Não confundir com a moeda-base, que é do workspace e vive nas configurações
+ * dele: trocar esta NÃO reescreve nada, só muda a moeda em que os totais
+ * pessoais são expressos.
+ */
+function ReportCurrencyCard() {
+  const atual = useReportCurrency();
+  const setReportCurrency = useSetReportCurrency();
+  const [moeda, setMoeda] = React.useState(atual);
+
+  React.useEffect(() => setMoeda(atual), [atual]);
+
+  return (
+    <Card className="bg-card border-border shadow-xl">
+      <CardHeader>
+        <CardTitle>Moeda de relatório</CardTitle>
+        <CardDescription>
+          Moeda em que os seus números aparecem: renda, cartões, financiamentos e a
+          Visão global, que soma workspaces de moedas-base diferentes. Não altera
+          nenhum lançamento — só a moeda em que os totais são expressos.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="flex flex-wrap items-end gap-3">
+        <div className="min-w-[240px] flex-1 space-y-2">
+          <Label htmlFor="report-currency">Sua moeda</Label>
+          <Select
+            items={BASE_CURRENCY_OPTIONS}
+            value={moeda}
+            onValueChange={(v) => setMoeda(v as string)}
+          >
+            <SelectTrigger id="report-currency"><SelectValue /></SelectTrigger>
+            <SelectContent>
+              {BASE_CURRENCY_OPTIONS.map((o) => (
+                <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+        <Button
+          className="bg-primary font-bold"
+          disabled={moeda === atual || setReportCurrency.isPending}
+          onClick={async () => {
+            try {
+              await setReportCurrency.mutateAsync(moeda);
+              toast.success('Moeda de relatório atualizada.');
+            } catch (err) {
+              toast.error(getApiErrorMessage(err, 'Não foi possível trocar a moeda.'));
+            }
+          }}
+        >
+          {setReportCurrency.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Salvar'}
+        </Button>
+      </CardContent>
+    </Card>
   );
 }
 
@@ -380,13 +466,27 @@ function MembersTab() {
                       return;
                     }
 
+                    // Os quatro números que o backend realmente devolve. A versão
+                    // anterior listava renda, fatura e financiamento — que saíram
+                    // do workspace no ADR 0021 — e imprimia "undefined" três
+                    // vezes na confirmação de uma operação destrutiva.
+                    const itens = [
+                      [preview.transactions, 'lançamento(s)'],
+                      [preview.settlements, 'acerto(s)'],
+                      [preview.estimates, 'orçamento(s)'],
+                      [preview.recurring, 'recorrência(s)'],
+                    ] as const;
+                    const afetados = itens
+                      .filter(([n]) => n > 0)
+                      .map(([n, rotulo]) => `${n} ${rotulo}`);
+
                     const ok = await confirm({
                       title: 'Trocar a moeda-base',
                       description:
                         `Isto reconverte o histórico de ${preview.from_currency} para ` +
                         `${preview.to_currency} pela cotação da data de cada registro: ` +
-                        `${preview.transactions} lançamento(s), ${preview.incomes} renda(s), ` +
-                        `${preview.statements} fatura(s) e ${preview.financings} financiamento(s). ` +
+                        `${afetados.length > 0 ? afetados.join(', ') : 'nenhum registro'}. ` +
+                        'Cartões, contas, financiamentos e rendas são pessoais e não mudam. ' +
                         'Faça backup do banco antes — não há desfazer automático.',
                       confirmLabel: 'Reconverter e trocar',
                       destructive: true,
@@ -976,43 +1076,32 @@ function AuditTab() {
   );
 }
 
-export function SettingsPage() {
+interface MenuItem {
+  id: Tab;
+  label: string;
+  icon: typeof User;
+}
+
+/** Casca das duas telas de configuração: menu lateral + conteúdo da aba. */
+function SettingsShell({
+  title,
+  subtitle,
+  menuItems,
+  activeTab,
+  onSelect,
+  children,
+}: {
+  title: string;
+  subtitle: string;
+  menuItems: MenuItem[];
+  activeTab: Tab;
+  onSelect: (tab: Tab) => void;
+  children: React.ReactNode;
+}) {
   const { logout } = useAuth();
-  const { isAdmin } = useWorkspaceRole();
-  const [activeTab, setActiveTab] = React.useState<Tab>('profile');
-
-  const menuItems = [
-    { id: 'profile', label: 'Perfil', icon: User },
-    { id: 'security', label: 'Segurança', icon: Shield },
-    { id: 'members', label: 'Membros', icon: Users },
-    { id: 'categories', label: 'Categorias', icon: Tag },
-    { id: 'accounts', label: 'Contas', icon: Wallet },
-    { id: 'appearance', label: 'Aparência', icon: Palette },
-    // Auditoria é sensível (AUD-001): só admin/owner
-    ...(isAdmin ? [{ id: 'audit', label: 'Auditoria', icon: History }] : []),
-  ];
-
-  // Não-admin nunca fica preso na aba de auditoria (ex.: perdeu o papel)
-  React.useEffect(() => {
-    if (activeTab === 'audit' && !isAdmin) setActiveTab('profile');
-  }, [activeTab, isAdmin]);
-
-  const renderTab = () => {
-    switch (activeTab) {
-      case 'profile': return <ProfileTab />;
-      case 'security': return <SecurityTab />;
-      case 'members': return <MembersTab />;
-      case 'categories': return <CategoriesTab />;
-      case 'accounts': return <AccountsTab />;
-      case 'appearance': return <AppearanceTab />;
-      case 'audit': return isAdmin ? <AuditTab /> : null;
-      default: return null;
-    }
-  };
-
   return (
     <div className="space-y-8 animate-in slide-in-from-bottom-4 duration-700 pb-20">
-      <PageHeader title="Configurações" subtitle="Seu perfil, este workspace e quem tem acesso a ele." />
+      <PageHeader title={title} subtitle={subtitle} />
       <div className="grid gap-6 md:grid-cols-[240px_1fr]">
         <aside className="space-y-2">
           {menuItems.map((item) => (
@@ -1024,7 +1113,7 @@ export function SettingsPage() {
                   ? 'bg-primary text-primary-foreground font-bold shadow-lg shadow-primary/20'
                   : 'text-muted-foreground hover:text-foreground hover:bg-accent'
               }`}
-              onClick={() => setActiveTab(item.id as Tab)}
+              onClick={() => onSelect(item.id)}
             >
               <item.icon className={`h-4 w-4 ${activeTab === item.id ? 'text-primary-foreground' : ''}`} />
               {item.label}
@@ -1037,10 +1126,96 @@ export function SettingsPage() {
           </div>
         </aside>
 
-        <main className="min-h-[500px]">
-          {renderTab()}
-        </main>
+        <main className="min-h-[500px]">{children}</main>
       </div>
     </div>
+  );
+}
+
+const MENU_PESSOAL: MenuItem[] = [
+  { id: 'profile', label: 'Perfil', icon: User },
+  { id: 'security', label: 'Segurança', icon: Shield },
+  { id: 'accounts', label: 'Contas', icon: Wallet },
+  { id: 'appearance', label: 'Aparência', icon: Palette },
+];
+
+/**
+ * Configurações da PESSOA — em `/me/settings`, sem workspace no caminho.
+ *
+ * Perfil, senha, contas de pagamento e tema não têm nada a ver com uma casa
+ * específica, e mesmo assim só existiam dentro de `/w/:id/settings`. Quem não
+ * tem workspace válido — acabou de sair do último, ou o link quebrou — não
+ * alcançava a própria senha pela interface. As contas de pagamento eram o caso
+ * mais estranho: pessoais desde o ADR 0021, listadas em `/me/payment-accounts`,
+ * e administráveis só de dentro de um workspace.
+ */
+export function PersonalSettingsPage() {
+  const [activeTab, setActiveTab] = React.useState<Tab>('profile');
+
+  const renderTab = () => {
+    switch (activeTab) {
+      case 'profile': return <ProfileTab />;
+      case 'security': return <SecurityTab />;
+      case 'accounts': return <AccountsTab />;
+      case 'appearance': return <AppearanceTab />;
+      default: return null;
+    }
+  };
+
+  return (
+    <SettingsShell
+      title="Suas configurações"
+      subtitle="Perfil, segurança, contas e aparência — seus, em qualquer workspace."
+      menuItems={MENU_PESSOAL}
+      activeTab={activeTab}
+      onSelect={setActiveTab}
+    >
+      {renderTab()}
+    </SettingsShell>
+  );
+}
+
+/**
+ * Configurações DO WORKSPACE — em `/w/:id/settings`.
+ *
+ * Só o que pertence a esta casa: nome, moeda-base, membros e permissões,
+ * categorias e a trilha de auditoria. O que é da pessoa mudou-se para
+ * `/me/settings`.
+ */
+export function SettingsPage() {
+  const { isAdmin } = useWorkspaceRole();
+  const [activeTab, setActiveTab] = React.useState<Tab>('members');
+
+  const menuItems: MenuItem[] = [
+    { id: 'members', label: 'Workspace e membros', icon: Users },
+    { id: 'categories', label: 'Categorias', icon: Tag },
+    // Auditoria é sensível (AUD-001): só admin/owner
+    ...(isAdmin ? [{ id: 'audit' as Tab, label: 'Auditoria', icon: History }] : []),
+  ];
+
+  // Não-admin nunca fica preso na aba de auditoria (ex.: perdeu o papel)
+  React.useEffect(() => {
+    if (activeTab === 'audit' && !isAdmin) setActiveTab('members');
+  }, [activeTab, isAdmin]);
+
+  const renderTab = () => {
+    switch (activeTab) {
+      case 'members': return <MembersTab />;
+      case 'categories': return <CategoriesTab />;
+      case 'audit': return isAdmin ? <AuditTab /> : null;
+      default: return null;
+    }
+  };
+
+  return (
+    <SettingsShell
+      title="Configurações do workspace"
+      subtitle="Esta casa, quem participa dela e o que cada um vê."
+      menuItems={menuItems}
+      activeTab={activeTab}
+      onSelect={setActiveTab}
+    >
+      {renderTab()}
+    </SettingsShell>
   );
 }

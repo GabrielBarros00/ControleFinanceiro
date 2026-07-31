@@ -103,6 +103,27 @@ aluguel recebido pelo casal aparecia todo para um só.
    redirecionamento 307 do Starlette descarta o cookie de sessão: `/me/income/`
    devolvia 401 enquanto `/me/income` devolvia 200.
 
+8. **Cartão do lançamento é do ATOR; o pagador pode ser outro; a CONTA, não**
+   (acrescentado em 2026-07-31). Três gates diferentes, porque são três
+   informações diferentes:
+
+   - o **cartão** tem de pertencer a quem está lançando — a compra entra na
+     fatura dele, e assinar dívida no cartão alheio não é ato de terceiro;
+   - o **pagador** pode ser qualquer membro. "O Bob pagou a conta" é fato
+     compartilhado da casa, e é o que faz o acerto funcionar. Que a compra caia
+     na fatura de A e o crédito vá para B é assimetria ACEITA: quem adiantou é
+     quem tem a receber, independentemente de qual plástico passou;
+   - a **conta bancária** só pode ser declarada pelo dono dela. De qual conta o
+     dinheiro de outra pessoa saiu é informação que só ela tem, e aparece no
+     extrato pessoal dela. Sem conta declarada o lançamento continua válido — o
+     campo é opcional.
+
+   A materialização de recorrência não tem ator humano e passa `actor_user_id=None`,
+   o que desliga só o terceiro gate (os pagadores de um template nem carregam
+   conta). Quando ela não consegue rotear a ocorrência para uma fatura, isso vira
+   log — antes era um `return None` mudo e a fatura não fechava com o extrato sem
+   nenhum rastro.
+
 ## Consequências
 
 **O que melhora.** A privacidade deixa de depender de cada endpoint lembrar de

@@ -91,6 +91,19 @@ def _statement_for(db: Session, template: RecurringExpense, occ: date) -> Option
     # A checagem antiga era `card.workspace_id != template.workspace_id`.
     dono_esperado = template.payer_user_id or template.created_by_user_id
     if not card or card.deleted_at or card.owner_user_id != dono_esperado:
+        # A ocorrência ainda nasce — o gasto existe —, mas FORA de qualquer
+        # fatura: não entra no limite comprometido nem no total do cartão. A
+        # rota de escrita já valida a propriedade (`api/routes/recurring.py`),
+        # então chegar aqui significa que algo mudou depois (cartão apagado,
+        # pagador trocado). Antes isso era um `return None` mudo, e a fatura
+        # simplesmente não fechava com o extrato sem nenhum rastro.
+        logger.warning(
+            "recorrencia.sem_fatura",
+            recurring_id=template.id,
+            credit_card_id=template.credit_card_id,
+            dono_esperado=dono_esperado,
+            motivo="cartão inexistente, apagado ou de outra pessoa",
+        )
         return None
     statement = CreditCardService.get_or_create_statement(
         db, card, datetime(occ.year, occ.month, occ.day, tzinfo=UTC)
@@ -354,8 +367,26 @@ class RecurringService:
                 splits=splits,
                 items=None,
             )
-        except ValueError:
-            # Snapshot inválido (ex.: membro saiu): desiste desta ocorrência
+        except ValueError as exc:
+            # Snapshot inválido (ex.: membro saiu): desiste desta ocorrência.
+            #
+            # O descarte continua sendo o comportamento certo AQUI — a
+            # materialização é preguiçosa e roda dentro de rotas de LEITURA, onde
+            # estourar deixaria o extrato inacessível por causa de um template
+            # quebrado. O que não podia continuar era o silêncio absoluto: o
+            # aluguel parava de aparecer e ninguém ficava sabendo.
+            #
+            # A prevenção mora na saída do membro (`_ensure_no_active_recurring`,
+            # em `api/routes/members.py`), que recusa remover quem ainda é
+            # pagador ou participante de recorrência ativa. Este log é a rede
+            # para o que escapar dela.
+            logger.warning(
+                "recorrencia.ocorrencia_descartada",
+                recurring_id=template.id,
+                workspace_id=template.workspace_id,
+                occurrence=str(occ),
+                motivo=str(exc),
+            )
             db.delete(tx)
             db.flush()
             return None

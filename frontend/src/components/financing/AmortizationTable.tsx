@@ -12,6 +12,7 @@ import { Label } from "@/components/ui/label";
 import { MoneyInput } from "@/components/ui/MoneyInput";
 import { ChevronLeft, ChevronRight, Loader2, Trash2 } from 'lucide-react';
 import { useFinancing, useFinancingSchedule, type Financing } from '@/hooks/use-financing';
+import { useWorkspaces } from '@/hooks/use-workspaces';
 import { useBaseCurrency } from '@/hooks/use-base-currency';
 import { currencySymbol, formatMoney } from '@/lib/money';
 import { toast } from '@/stores/toast';
@@ -26,6 +27,102 @@ const selectClass =
 
 // Um ano por página: o recorte natural de um cronograma de amortização
 const PARCELAS_POR_PAGINA = 12;
+
+/**
+ * Pagar parcela — com a opção de LANÇAR A DESPESA num workspace.
+ *
+ * O backend aceita `workspace_id` neste endpoint desde que a rota existe, e a
+ * interface nunca o enviava: pagar uma parcela só reduzia Compromissos e o gasto
+ * não aparecia em relatório nenhum. Quem divide o financiamento com alguém não
+ * tinha como registrar isso pela tela.
+ *
+ * O padrão é "não lançar": o financiamento é compromisso pessoal (ADR 0021) e a
+ * maioria dos pagamentos não é despesa de casa nenhuma. Quem quer, escolhe.
+ */
+function PagarParcelaDialog({
+  open,
+  onOpenChange,
+  financing,
+  installmentNumber,
+  valor,
+}: {
+  open: boolean;
+  onOpenChange: (o: boolean) => void;
+  financing: Financing;
+  installmentNumber: number | null;
+  valor: string;
+}) {
+  const { payInstallment } = useFinancing();
+  const { workspaces } = useWorkspaces();
+  const [workspaceId, setWorkspaceId] = React.useState('');
+  const [saving, setSaving] = React.useState(false);
+
+  React.useEffect(() => {
+    if (open) setWorkspaceId('');
+  }, [open]);
+
+  if (installmentNumber === null) return null;
+
+  const confirmar = async () => {
+    setSaving(true);
+    try {
+      await payInstallment({
+        financingId: financing.id,
+        installmentNumber,
+        workspaceId: workspaceId ? Number(workspaceId) : null,
+      });
+      toast.success(
+        workspaceId
+          ? 'Parcela paga e lançada como despesa.'
+          : 'Parcela paga.',
+      );
+      onOpenChange(false);
+    } catch {
+      toast.error('Erro ao pagar parcela.');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Pagar parcela {installmentNumber}</DialogTitle>
+          <DialogDescription>
+            {valor} — sai dos seus Compromissos e entra no caixa do mês.
+          </DialogDescription>
+        </DialogHeader>
+        <div className="space-y-2">
+          <Label htmlFor="pagar-parcela-ws">Lançar como despesa em</Label>
+          <select
+            id="pagar-parcela-ws"
+            className={selectClass}
+            value={workspaceId}
+            onChange={(e) => setWorkspaceId(e.target.value)}
+          >
+            <option value="">Não lançar (só compromisso pessoal)</option>
+            {workspaces.map((ws) => (
+              <option key={ws.id} value={ws.id}>{ws.name}</option>
+            ))}
+          </select>
+          <p className="text-xs text-muted-foreground">
+            Escolhendo um workspace, a parcela vira um lançamento lá — e entra nos
+            relatórios daquela casa. Sem escolher, o pagamento fica só seu.
+          </p>
+        </div>
+        <DialogFooter>
+          <Button type="button" variant="ghost" onClick={() => onOpenChange(false)}>
+            Cancelar
+          </Button>
+          <Button type="button" onClick={confirmar} disabled={saving} className="px-8 font-bold">
+            {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Pagar'}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
 
 function CreateFinancingDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (o: boolean) => void }) {
   const { create } = useFinancing();
@@ -122,9 +219,10 @@ function CreateFinancingDialog({ open, onOpenChange }: { open: boolean; onOpenCh
 
 function FinancingDetail({ financing }: { financing: Financing }) {
   const { schedule, settlement } = useFinancingSchedule(financing.id);
-  const { payInstallment } = useFinancing();
   const baseCurrency = useBaseCurrency();
   const fmt = (value: number | string) => formatMoney(value, { currency: baseCurrency });
+  // Número da parcela em pagamento (o diálogo pergunta se ela vira despesa).
+  const [pagando, setPagando] = React.useState<number | null>(null);
 
   const unpaid = schedule.filter((i) => !i.is_paid);
   const nextInstallment = unpaid[0] ?? null;
@@ -237,11 +335,7 @@ function FinancingDetail({ financing }: { financing: Financing }) {
                         size="sm"
                         variant="outline"
                         className="h-7 text-xs border-primary/40 text-primary hover:bg-primary/10"
-                        onClick={async () => {
-                          try {
-                            await payInstallment({ financingId: financing.id, installmentNumber: row.installment_number });
-                          } catch { toast.error('Erro ao pagar parcela.'); }
-                        }}
+                        onClick={() => setPagando(row.installment_number)}
                       >
                         Pagar
                       </Button>
@@ -293,6 +387,16 @@ function FinancingDetail({ financing }: { financing: Financing }) {
           )}
         </CardContent>
       </Card>
+
+      <PagarParcelaDialog
+        open={pagando !== null}
+        onOpenChange={(o) => !o && setPagando(null)}
+        financing={financing}
+        installmentNumber={pagando}
+        valor={fmt(
+          schedule.find((i) => i.installment_number === pagando)?.total_amount ?? 0,
+        )}
+      />
     </div>
   );
 }

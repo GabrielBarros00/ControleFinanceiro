@@ -22,16 +22,32 @@ import { useUIStore } from '@/stores';
  * — e para a transição das rotas antigas.
  */
 export function useWorkspaceId(): number | null {
-  const { workspaceId } = useParams<{ workspaceId?: string }>();
+  const daUrl = useWorkspaceIdFromUrl();
   const guardado = useUIStore((s) => s.currentWorkspaceId);
+  const { workspaceId } = useParams<{ workspaceId?: string }>();
 
-  if (workspaceId !== undefined) {
-    const daUrl = Number(workspaceId);
-    // Id inválido na URL não cai no guardado: isso mascararia um link quebrado
-    // carregando dados de outro workspace, que é pior que uma tela vazia.
-    return Number.isInteger(daUrl) && daUrl > 0 ? daUrl : null;
-  }
+  // Dentro de `/w/:id` vale a URL — inclusive quando ela é inválida, caso em que
+  // o resultado é `null` e não o guardado: mascarar um link quebrado carregando
+  // dados de outro workspace é pior que uma tela vazia.
+  if (workspaceId !== undefined) return daUrl;
   return guardado;
+}
+
+/**
+ * Workspace da URL, **sem** o fallback para a store — `null` fora de `/w/:id`.
+ *
+ * Quem decide AGIR precisa deste, não do `useWorkspaceId`. O fallback existe para
+ * telas que precisam de algum workspace para se orientar (o seletor da sidebar),
+ * e é inofensivo aí; no botão "Nova despesa" ele é o contrário de inofensivo:
+ * na Visão global o FAB abria o diálogo com o último workspace visitado, sem
+ * dizer qual, e a despesa ia para a casa errada. O ADR 0020 define `/overview`
+ * como somente leitura justamente por isso.
+ */
+export function useWorkspaceIdFromUrl(): number | null {
+  const { workspaceId } = useParams<{ workspaceId?: string }>();
+  if (workspaceId === undefined) return null;
+  const id = Number(workspaceId);
+  return Number.isInteger(id) && id > 0 ? id : null;
 }
 
 /**

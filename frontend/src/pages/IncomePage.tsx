@@ -231,7 +231,10 @@ export function IncomePage() {
     <div className="space-y-6">
       <PageHeader
         title="Rendas"
-        subtitle={`Suas entradas do mês, em todos os workspaces — total ${formatCurrency(total, baseCurrency)}`}
+        // "em todos os workspaces" descrevia errado o próprio modelo: desde o
+        // ADR 0021 a renda não mora em workspace nenhum — ela é da pessoa, e só
+        // ela a vê. Dizer que está "em todos" sugeria exatamente o oposto.
+        subtitle={`Suas entradas do mês, só suas — total ${formatCurrency(total, baseCurrency)}`}
         period={<PeriodPicker value={month} onChange={setMonth} />}
         action={
           <div className="flex items-center gap-2">
