@@ -37,18 +37,26 @@ export interface NavSection {
   items: NavItem[];
 }
 
-/** Seções que não dependem de workspace nenhum. */
+/** Tudo que é da PESSOA — não depende de workspace nenhum (ADR 0021).
+ *
+ * Cartões, Financiamentos e Rendas mudaram de lado na Onda 5. "Rendas" chegou a
+ * viver numa seção chamada "Compartilhado", o que anunciava exatamente o oposto
+ * da verdade: salário é o dado mais privado do sistema.
+ */
 export const GLOBAL_SECTION: NavSection = {
   label: 'Meu',
   items: [
-    { icon: LayoutDashboard, label: 'Início', to: '/overview' },
-    // "Compromissos financeiros" (antes "Endividamento"): cartões e
-    // financiamentos a vencer. Eixo diferente de "Acertos entre pessoas".
+    { icon: LayoutDashboard, label: 'Visão global', to: '/overview' },
+    { icon: Wallet, label: 'Rendas', to: '/me/income' },
+    { icon: CreditCard, label: 'Cartões', to: '/me/cards' },
+    { icon: Landmark, label: 'Financiamentos', to: '/me/financing' },
+    // Cartões e financiamentos a vencer. Eixo diferente de "Acertos entre
+    // pessoas" — e agora há UM item com este nome, não dois.
     { icon: Scale, label: 'Compromissos', to: '/me/commitments' },
   ],
 };
 
-/** Navegação DE UM workspace. Sem id, devolve só a camada global. */
+/** Navegação DE UM workspace. Sem id, devolve só a camada pessoal. */
 export function navSections(workspaceId: number | null): NavSection[] {
   if (!workspaceId) return [GLOBAL_SECTION];
   const w = (path: string) => `/w/${workspaceId}${path}`;
@@ -61,20 +69,6 @@ export function navSections(workspaceId: number | null): NavSection[] {
         { icon: Receipt, label: 'Lançamentos', to: w('/transactions') },
         { icon: Repeat, label: 'Recorrência', to: w('/recurring') },
         { icon: BarChart3, label: 'Relatórios', to: w('/reports') },
-      ],
-    },
-    {
-      label: 'Crédito & metas',
-      items: [
-        { icon: CreditCard, label: 'Cartões', to: w('/cards') },
-        { icon: Landmark, label: 'Financiamentos', to: w('/financing') },
-        { icon: Scale, label: 'Compromissos', to: w('/liabilities') },
-      ],
-    },
-    {
-      label: 'Compartilhado',
-      items: [
-        { icon: Wallet, label: 'Rendas', to: w('/income') },
         // "Dívidas" era ambíguo com o endividamento bancário: aqui é quem deve a
         // quem ENTRE MEMBROS, que se resolve com um acerto.
         { icon: Users, label: 'Acertos', to: w('/debts') },
@@ -92,6 +86,23 @@ export function navSections(workspaceId: number | null): NavSection[] {
 
 export function navFlat(workspaceId: number | null): NavItem[] {
   return navSections(workspaceId).flatMap((s) => s.items);
+}
+
+/**
+ * Qual item da navegação está ativo para o caminho atual.
+ *
+ * Precisa ser calculado sobre a LISTA, não item a item: o Painel é `/w/1` e
+ * `/w/1/reports` começa com ele, então um teste de prefixo por item marcava os
+ * dois ao mesmo tempo — o usuário via "Painel" e "Relatórios" acesos juntos.
+ * Vence o item de caminho mais LONGO que casa, o que dá match exato para o
+ * Painel e prefixo para as subrotas de cada seção.
+ */
+export function activeNavPath(pathname: string, workspaceId: number | null): string | null {
+  const candidatos = navFlat(workspaceId)
+    .map((i) => i.to)
+    .filter((to) => pathname === to || pathname.startsWith(`${to}/`));
+  if (candidatos.length === 0) return null;
+  return candidatos.reduce((a, b) => (b.length > a.length ? b : a));
 }
 
 /** Slots primários da bottom-nav mobile; o restante vai no sheet "Mais". */

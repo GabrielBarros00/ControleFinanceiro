@@ -1,4 +1,4 @@
-import { CreditCard, Landmark, AlertTriangle } from 'lucide-react';
+import { AlertTriangle, CalendarClock, CreditCard, Landmark } from 'lucide-react';
 import { Skeleton } from '@/components/ui/skeleton';
 import { EmptyState } from '@/components/ui/empty-state';
 import { StatTile } from '@/components/ui/stat-tile';
@@ -7,16 +7,18 @@ import { formatMoney } from '@/lib/money';
 import { parseApiDay } from '@/lib/date';
 
 /**
- * Compromissos financeiros da PESSOA (ADR 0020).
+ * Compromissos financeiros da PESSOA (ADR 0020 + 0021).
  *
  * Antes chamava-se "Endividamento" e vivia dentro de um workspace, o que
  * embaralhava dois eixos com nomes parecidos: *acertos entre pessoas* (quem deve
  * a quem no rateio, que se resolve com uma transferência) e *compromissos com
  * terceiros* (o banco e a operadora do cartão, que se resolvem pagando a fatura).
  *
- * Aqui é o segundo, e globalmente: o cartão compartilhado entre dois workspaces
- * aparece UMA vez — antes exigia dois cadastros e a mesma fatura era contada em
- * dobro.
+ * Aqui é o segundo, e é da pessoa: cartão e financiamento são de quem assinou.
+ *
+ * Os quatro números do topo substituem um "Total a pagar" que somava a próxima
+ * fatura com o principal INTEIRO dos financiamentos — juntava o que vence em
+ * cinco dias com o que vence em quinze anos, e não respondia nenhuma pergunta.
  */
 export function CommitmentsPage() {
   const { commitments, isLoading } = useCommitments();
@@ -34,6 +36,8 @@ export function CommitmentsPage() {
 
   const cartoes = commitments?.cards ?? [];
   const financiamentos = commitments?.financings ?? [];
+  const proximas = commitments?.next_installments ?? [];
+  const vencido = Number(commitments?.overdue ?? 0);
 
   if (cartoes.length === 0 && financiamentos.length === 0) {
     return (
@@ -47,14 +51,38 @@ export function CommitmentsPage() {
 
   return (
     <div className="space-y-6">
-      <StatTile
-        label="Total a pagar"
-        value={Number(commitments?.total ?? 0)}
-        kind="expense"
-        currency={moeda}
-        hint="Faturas em aberto e saldo devedor dos financiamentos"
-        className="max-w-xs"
-      />
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        {/* Valores POSITIVOS num card já rotulado "Vencido"/"A pagar": o sinal
+            de menos ao lado do rótulo era redundante e lia como desconto. */}
+        <StatTile
+          label="Vencido"
+          value={vencido}
+          kind={vencido > 0 ? 'expense' : 'neutral'}
+          currency={moeda}
+          hint={vencido > 0 ? 'Pague o quanto antes' : 'Nada em atraso'}
+        />
+        <StatTile
+          label="A vencer neste mês"
+          value={Number(commitments?.due_this_month ?? 0)}
+          kind="neutral"
+          currency={moeda}
+          hint="O que ainda sai do caixa até o fim do mês"
+        />
+        <StatTile
+          label="Saldo devedor"
+          value={Number(commitments?.outstanding_total ?? 0)}
+          kind="neutral"
+          currency={moeda}
+          hint="Principal em aberto + faturas não pagas"
+        />
+        <StatTile
+          label="Comprometimento mensal"
+          value={Number(commitments?.monthly_commitment ?? 0)}
+          kind="neutral"
+          currency={moeda}
+          hint="Uma parcela por financiamento ativo"
+        />
+      </div>
 
       {cartoes.length > 0 && (
         <section className="rounded-xl border border-border bg-card">
@@ -105,6 +133,34 @@ export function CommitmentsPage() {
                 </div>
                 <span className="shrink-0 tabular-nums font-medium text-foreground">
                   {fmt(f.outstanding)}
+                </span>
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
+
+      {proximas.length > 0 && (
+        <section className="rounded-xl border border-border bg-card">
+          <div className="flex items-center gap-2 border-b border-border px-4 py-3">
+            <CalendarClock className="h-4 w-4 text-muted-foreground" />
+            <h2 className="text-base font-semibold text-foreground">Próximas parcelas</h2>
+          </div>
+          <div className="divide-y divide-border">
+            {proximas.map((p) => (
+              <div
+                key={`${p.financing_id}-${p.installment_number}`}
+                className="flex items-center justify-between gap-4 px-4 py-3"
+              >
+                <div className="min-w-0">
+                  <p className="truncate font-medium text-foreground">{p.title}</p>
+                  <p className="text-sm text-muted-foreground">
+                    Parcela {p.installment_number} · vence{' '}
+                    {parseApiDay(p.due_date).toLocaleDateString('pt-BR')}
+                  </p>
+                </div>
+                <span className="shrink-0 tabular-nums font-medium text-foreground">
+                  {fmt(p.amount)}
                 </span>
               </div>
             ))}

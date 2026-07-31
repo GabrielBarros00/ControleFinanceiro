@@ -1,7 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { apiClient } from '@/api/client';
 import type { components } from '@/types/api.gen';
-import { useWorkspaceId } from './use-workspace-id';
 
 // Tipos GERADOS do OpenAPI (npm run typegen) — nunca espelhados à mão
 export type PaymentAccountRead = components['schemas']['PaymentAccountRead'];
@@ -21,23 +20,21 @@ export function accountTypeLabel(type: PaymentAccountType): string {
 
 export function usePaymentAccounts() {
   const queryClient = useQueryClient();
-  const currentWorkspaceId = useWorkspaceId();
 
   const listQuery = useQuery({
-    queryKey: ['payment-accounts', currentWorkspaceId],
+    queryKey: ['payment-accounts'],
     queryFn: async (): Promise<PaymentAccountRead[]> => {
-      const response = await apiClient.get(`/workspaces/${currentWorkspaceId}/payment-accounts`);
+      const response = await apiClient.get(`/me/payment-accounts`);
       return response.data;
     },
-    enabled: !!currentWorkspaceId,
   });
 
   const invalidate = () =>
-    queryClient.invalidateQueries({ queryKey: ['payment-accounts', currentWorkspaceId] });
+    queryClient.invalidateQueries({ queryKey: ['payment-accounts'] });
 
   const createMutation = useMutation({
     mutationFn: async (data: { name: string; type: PaymentAccountType; owner_user_id?: number | null }) => {
-      const response = await apiClient.post(`/workspaces/${currentWorkspaceId}/payment-accounts`, data);
+      const response = await apiClient.post(`/me/payment-accounts`, data);
       return response.data as PaymentAccountRead;
     },
     onSuccess: invalidate,
@@ -45,7 +42,7 @@ export function usePaymentAccounts() {
 
   const updateMutation = useMutation({
     mutationFn: async ({ id, data }: { id: number; data: Partial<PaymentAccountRead> }) => {
-      const response = await apiClient.put(`/workspaces/${currentWorkspaceId}/payment-accounts/${id}`, data);
+      const response = await apiClient.put(`/me/payment-accounts/${id}`, data);
       return response.data as PaymentAccountRead;
     },
     onSuccess: invalidate,
@@ -53,7 +50,7 @@ export function usePaymentAccounts() {
 
   const deleteMutation = useMutation({
     mutationFn: async (id: number) => {
-      await apiClient.delete(`/workspaces/${currentWorkspaceId}/payment-accounts/${id}`);
+      await apiClient.delete(`/me/payment-accounts/${id}`);
     },
     onSuccess: invalidate,
   });

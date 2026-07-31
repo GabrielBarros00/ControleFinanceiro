@@ -6,9 +6,23 @@ import { useWorkspaceId } from './use-workspace-id';
 
 export type WorkspaceRole = 'owner' | 'admin' | 'member' | 'viewer';
 
+/**
+ * O que o membro pode VER — eixo separado do papel, que diz o que ele pode FAZER
+ * (ADR 0018).
+ *
+ * `involved_only` (padrão) mostra só o que envolve a pessoa; `full_workspace`
+ * abre os números da casa. O backend modelava os dois eixos desde a Onda 5, mas
+ * o campo não existia em lugar nenhum do frontend: a permissão era concedível
+ * apenas por chamada direta à API, e um admin não tinha como dá-la nem tirá-la
+ * pela tela. `admin` e `owner` têm acesso completo pelo cargo e não são
+ * rebaixáveis — por isso a UI não oferece o controle para eles.
+ */
+export type FinancialAccess = 'involved_only' | 'full_workspace';
+
 export interface Member {
   user_id: number;
   role: WorkspaceRole;
+  financial_access: FinancialAccess;
   user_name: string;
   user_email: string;
   joined_at: string;
@@ -18,6 +32,7 @@ export interface Invite {
   id: number;
   email: string | null;
   role: WorkspaceRole;
+  financial_access: FinancialAccess;
   status: 'pending' | 'accepted' | 'revoked';
   expires_at: string;
   uses: number;
@@ -64,7 +79,9 @@ export function useMembers() {
   };
 
   const inviteByEmail = useMutation({
-    mutationFn: async (data: { email: string; role: WorkspaceRole }) => {
+    mutationFn: async (data: {
+      email: string; role: WorkspaceRole; financial_access?: FinancialAccess;
+    }) => {
       const response = await apiClient.post(`/workspaces/${currentWorkspaceId}/invites`, data);
       return response.data;
     },
@@ -72,7 +89,12 @@ export function useMembers() {
   });
 
   const createInviteLink = useMutation({
-    mutationFn: async (data: { role: WorkspaceRole; expires_days?: number; max_uses?: number | null }) => {
+    mutationFn: async (data: {
+      role: WorkspaceRole;
+      financial_access?: FinancialAccess;
+      expires_days?: number;
+      max_uses?: number | null;
+    }) => {
       const response = await apiClient.post(`/workspaces/${currentWorkspaceId}/invites/link`, data);
       return response.data as Invite & { token: string; url: string };
     },
@@ -86,11 +108,15 @@ export function useMembers() {
     onSuccess: invalidate,
   });
 
-  const changeRole = useMutation({
-    mutationFn: async ({ userId, role }: { userId: number; role: WorkspaceRole }) => {
+  // Um PATCH para os dois eixos: `role` continua obrigatório no schema, então a
+  // tela reenvia o papel atual quando muda só a visibilidade.
+  const updateMember = useMutation({
+    mutationFn: async ({ userId, role, financial_access }: {
+      userId: number; role: WorkspaceRole; financial_access?: FinancialAccess;
+    }) => {
       const response = await apiClient.patch(
         `/workspaces/${currentWorkspaceId}/members/${userId}`,
-        { role }
+        financial_access ? { role, financial_access } : { role },
       );
       return response.data;
     },
@@ -120,7 +146,7 @@ export function useMembers() {
     inviteByEmail: inviteByEmail.mutateAsync,
     createInviteLink: createInviteLink.mutateAsync,
     revokeInvite: revokeInvite.mutateAsync,
-    changeRole: changeRole.mutateAsync,
+    updateMember: updateMember.mutateAsync,
     removeMember: removeMember.mutateAsync,
     leaveWorkspace: leaveWorkspace.mutateAsync,
   };

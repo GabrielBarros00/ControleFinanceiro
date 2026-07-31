@@ -1,7 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { apiClient } from '@/api/client';
-import { invalidateForEvent } from '@/lib/ws-events';
-import { useWorkspaceId } from './use-workspace-id';
 
 export interface Financing {
   id: number;
@@ -28,24 +26,24 @@ export interface Installment {
 
 export function useFinancing() {
   const queryClient = useQueryClient();
-  const currentWorkspaceId = useWorkspaceId();
 
   const listQuery = useQuery({
-    queryKey: ['financing', currentWorkspaceId],
+    queryKey: ['financing'],
     queryFn: async (): Promise<Financing[]> => {
-      const response = await apiClient.get(`/workspaces/${currentWorkspaceId}/financing`);
+      const response = await apiClient.get(`/me/financing`);
       return response.data;
     },
-    enabled: !!currentWorkspaceId,
   });
 
-  // Pagar parcela muda o saldo devedor mostrado em Endividamento também
-  const invalidate = () =>
-    invalidateForEvent(queryClient, 'financing.updated', currentWorkspaceId);
+  // Pagar parcela muda o saldo devedor mostrado em Compromissos também
+  const invalidate = () => {
+    queryClient.invalidateQueries({ queryKey: ['financing'] });
+    queryClient.invalidateQueries({ queryKey: ['me-commitments'] });
+  };
 
   const createMutation = useMutation({
     mutationFn: async (data: Record<string, unknown>) => {
-      const response = await apiClient.post(`/workspaces/${currentWorkspaceId}/financing`, data);
+      const response = await apiClient.post(`/me/financing`, data);
       return response.data as Financing;
     },
     onSuccess: invalidate,
@@ -53,7 +51,7 @@ export function useFinancing() {
 
   const deleteMutation = useMutation({
     mutationFn: async (id: number) => {
-      await apiClient.delete(`/workspaces/${currentWorkspaceId}/financing/${id}`);
+      await apiClient.delete(`/me/financing/${id}`);
     },
     onSuccess: invalidate,
   });
@@ -61,7 +59,7 @@ export function useFinancing() {
   const payInstallment = useMutation({
     mutationFn: async ({ financingId, installmentNumber }: { financingId: number; installmentNumber: number }) => {
       await apiClient.post(
-        `/workspaces/${currentWorkspaceId}/financing/${financingId}/installments/${installmentNumber}/pay`
+        `/me/financing/${financingId}/installments/${installmentNumber}/pay`
       );
     },
     onSuccess: invalidate,
@@ -77,24 +75,23 @@ export function useFinancing() {
 }
 
 export function useFinancingSchedule(financingId: number | null) {
-  const currentWorkspaceId = useWorkspaceId();
 
   const scheduleQuery = useQuery({
-    queryKey: ['financing', currentWorkspaceId, financingId, 'schedule'],
+    queryKey: ['financing', financingId, 'schedule'],
     queryFn: async (): Promise<Installment[]> => {
       const response = await apiClient.get(
-        `/workspaces/${currentWorkspaceId}/financing/${financingId}/schedule`
+        `/me/financing/${financingId}/schedule`
       );
       return response.data;
     },
-    enabled: !!currentWorkspaceId && !!financingId,
+    enabled: !!financingId,
   });
 
   const settlementQuery = useQuery({
-    queryKey: ['financing', currentWorkspaceId, financingId, 'settlement'],
+    queryKey: ['financing', financingId, 'settlement'],
     queryFn: async () => {
       const response = await apiClient.post(
-        `/workspaces/${currentWorkspaceId}/financing/${financingId}/early-settlement`,
+        `/me/financing/${financingId}/early-settlement`,
         {}
       );
       return response.data as {
@@ -104,7 +101,7 @@ export function useFinancingSchedule(financingId: number | null) {
         installments_settled: number;
       };
     },
-    enabled: !!currentWorkspaceId && !!financingId,
+    enabled: !!financingId,
   });
 
   return {

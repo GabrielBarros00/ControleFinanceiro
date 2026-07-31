@@ -1,6 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { apiClient } from '@/api/client';
-import { useWorkspaceId } from './use-workspace-id';
 
 export interface Income {
   id: number;
@@ -21,28 +20,26 @@ export interface Income {
 
 export function useIncome(month?: string) {
   const queryClient = useQueryClient();
-  const currentWorkspaceId = useWorkspaceId();
 
   const listQuery = useQuery({
-    queryKey: ['income', currentWorkspaceId, month],
+    queryKey: ['income', month],
     queryFn: async (): Promise<Income[]> => {
-      const response = await apiClient.get(`/workspaces/${currentWorkspaceId}/income/`, {
+      const response = await apiClient.get(`/me/income/`, {
         params: { month },
       });
       return response.data;
     },
-    enabled: !!currentWorkspaceId,
   });
 
   const invalidate = () => {
-    queryClient.invalidateQueries({ queryKey: ['income', currentWorkspaceId] });
-    queryClient.invalidateQueries({ queryKey: ['reports', currentWorkspaceId] });
-    queryClient.invalidateQueries({ queryKey: ['analytics-forecast', currentWorkspaceId] });
+    queryClient.invalidateQueries({ queryKey: ['income'] });
+    queryClient.invalidateQueries({ queryKey: ['reports'] });
+    queryClient.invalidateQueries({ queryKey: ['analytics-forecast'] });
   };
 
   const createMutation = useMutation({
     mutationFn: async (data: { title: string; amount: number; received_at: string; description?: string; currency?: string }) => {
-      const response = await apiClient.post(`/workspaces/${currentWorkspaceId}/income/`, data);
+      const response = await apiClient.post(`/me/income/`, data);
       return response.data as Income;
     },
     onSuccess: invalidate,
@@ -50,7 +47,7 @@ export function useIncome(month?: string) {
 
   const updateMutation = useMutation({
     mutationFn: async ({ id, data }: { id: number; data: Partial<{ title: string; amount: number; received_at: string; description: string; currency: string }> }) => {
-      const response = await apiClient.put(`/workspaces/${currentWorkspaceId}/income/${id}`, data);
+      const response = await apiClient.put(`/me/income/${id}`, data);
       return response.data as Income;
     },
     onSuccess: invalidate,
@@ -58,7 +55,7 @@ export function useIncome(month?: string) {
 
   const deleteMutation = useMutation({
     mutationFn: async (id: number) => {
-      await apiClient.delete(`/workspaces/${currentWorkspaceId}/income/${id}`);
+      await apiClient.delete(`/me/income/${id}`);
     },
     onSuccess: invalidate,
   });

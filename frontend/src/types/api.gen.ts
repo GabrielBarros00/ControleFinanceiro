@@ -4,200 +4,6 @@
  */
 
 export interface paths {
-    "/api/v1/auth/onboarding": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Finish Onboarding */
-        post: operations["finish_onboarding_api_v1_auth_onboarding_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/auth/register": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Register */
-        post: operations["register_api_v1_auth_register_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/auth/login": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Login */
-        post: operations["login_api_v1_auth_login_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/auth/me": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** Get Me */
-        get: operations["get_me_api_v1_auth_me_get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        /** Update Me */
-        patch: operations["update_me_api_v1_auth_me_patch"];
-        trace?: never;
-    };
-    "/api/v1/auth/logout": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Logout */
-        post: operations["logout_api_v1_auth_logout_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/auth/refresh": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Refresh Session
-         * @description Renova a sessão a partir do cookie refresh_token, reemitindo ambos os cookies.
-         */
-        post: operations["refresh_session_api_v1_auth_refresh_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/auth/change-password": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Change Password */
-        post: operations["change_password_api_v1_auth_change_password_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/auth/forgot-password": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Forgot Password
-         * @description Sempre retorna 200 para não revelar quais emails estão cadastrados.
-         */
-        post: operations["forgot_password_api_v1_auth_forgot_password_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/auth/reset-password": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Reset Password */
-        post: operations["reset_password_api_v1_auth_reset_password_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/auth/google/login": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** Google Login */
-        get: operations["google_login_api_v1_auth_google_login_get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/auth/google/callback": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** Google Callback */
-        get: operations["google_callback_api_v1_auth_google_callback_get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/api/v1/workspaces/": {
         parameters: {
             query?: never;
@@ -549,42 +355,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/workspaces/{workspace_id}/income/": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** List Income */
-        get: operations["list_income_api_v1_workspaces__workspace_id__income__get"];
-        put?: never;
-        /** Create Income */
-        post: operations["create_income_api_v1_workspaces__workspace_id__income__post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/workspaces/{workspace_id}/income/{income_id}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        /** Update Income */
-        put: operations["update_income_api_v1_workspaces__workspace_id__income__income_id__put"];
-        post?: never;
-        /** Delete Income */
-        delete: operations["delete_income_api_v1_workspaces__workspace_id__income__income_id__delete"];
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/api/v1/workspaces/{workspace_id}/analytics/summary": {
         parameters: {
             query?: never;
@@ -709,183 +479,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/workspaces/{workspace_id}/credit-cards/": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** List Credit Cards */
-        get: operations["list_credit_cards_api_v1_workspaces__workspace_id__credit_cards__get"];
-        put?: never;
-        /** Create Credit Card */
-        post: operations["create_credit_card_api_v1_workspaces__workspace_id__credit_cards__post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/workspaces/{workspace_id}/credit-cards/{card_id}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        /** Update Credit Card */
-        put: operations["update_credit_card_api_v1_workspaces__workspace_id__credit_cards__card_id__put"];
-        post?: never;
-        /** Delete Credit Card */
-        delete: operations["delete_credit_card_api_v1_workspaces__workspace_id__credit_cards__card_id__delete"];
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/workspaces/{workspace_id}/credit-cards/{card_id}/statement-for": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * Statement For Date
-         * @description Em qual fatura cairia uma compra neste cartão nesta data (ADR 0002).
-         *
-         *     A fatura é derivada no SERVIDOR, e a regra não é óbvia: a partir do dia de
-         *     fechamento a compra vai para o mês seguinte, e se essa fatura já estiver
-         *     fechada/paga ela rola para frente. O formulário não mostrava nada disso — o
-         *     usuário só descobria depois de salvar, e "por que minha compra de hoje está
-         *     na fatura de setembro?" não tinha resposta na tela.
-         *
-         *     Somente LEITURA: não cria fatura (senão digitar no formulário criaria faturas
-         *     vazias). O `GET` não muda estado, então não precisa de papel de escrita.
-         */
-        get: operations["statement_for_date_api_v1_workspaces__workspace_id__credit_cards__card_id__statement_for_get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/workspaces/{workspace_id}/credit-cards/{card_id}/statements": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** List Statements */
-        get: operations["list_statements_api_v1_workspaces__workspace_id__credit_cards__card_id__statements_get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/workspaces/{workspace_id}/credit-cards/{card_id}/statements/{statement_id}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** Get Statement */
-        get: operations["get_statement_api_v1_workspaces__workspace_id__credit_cards__card_id__statements__statement_id__get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/workspaces/{workspace_id}/credit-cards/{card_id}/statements/{statement_id}/close": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Close Statement */
-        post: operations["close_statement_api_v1_workspaces__workspace_id__credit_cards__card_id__statements__statement_id__close_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/workspaces/{workspace_id}/credit-cards/{card_id}/statements/{statement_id}/pay": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Pay Statement */
-        post: operations["pay_statement_api_v1_workspaces__workspace_id__credit_cards__card_id__statements__statement_id__pay_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/workspaces/{workspace_id}/credit-cards/{card_id}/statements/{statement_id}/reopen": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Reopen Statement */
-        post: operations["reopen_statement_api_v1_workspaces__workspace_id__credit_cards__card_id__statements__statement_id__reopen_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/workspaces/{workspace_id}/credit-cards/{card_id}/shares": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * List Card Shares
-         * @description Com quais workspaces este cartão está compartilhado (ADR 0019).
-         */
-        get: operations["list_card_shares_api_v1_workspaces__workspace_id__credit_cards__card_id__shares_get"];
-        /**
-         * Set Card Shares
-         * @description Define o compartilhamento do cartão — a lista enviada é o estado final.
-         *
-         *     Só o DONO compartilha: oferecer o próprio cartão a um workspace é decisão
-         *     dele, não de quem administra a casa.
-         */
-        put: operations["set_card_shares_api_v1_workspaces__workspace_id__credit_cards__card_id__shares_put"];
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/api/v1/workspaces/{workspace_id}/recurring": {
         parameters: {
             query?: never;
@@ -943,62 +536,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/workspaces/{workspace_id}/recurring-income": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** List Recurring Income */
-        get: operations["list_recurring_income_api_v1_workspaces__workspace_id__recurring_income_get"];
-        put?: never;
-        /** Create Recurring Income */
-        post: operations["create_recurring_income_api_v1_workspaces__workspace_id__recurring_income_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/workspaces/{workspace_id}/recurring-income/generate": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Generate Recurring Income
-         * @description Materializa as rendas recorrentes vencidas do mês corrente (idempotente).
-         */
-        post: operations["generate_recurring_income_api_v1_workspaces__workspace_id__recurring_income_generate_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/workspaces/{workspace_id}/recurring-income/{recurring_id}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        /** Update Recurring Income */
-        put: operations["update_recurring_income_api_v1_workspaces__workspace_id__recurring_income__recurring_id__put"];
-        post?: never;
-        /** Delete Recurring Income */
-        delete: operations["delete_recurring_income_api_v1_workspaces__workspace_id__recurring_income__recurring_id__delete"];
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/api/v1/workspaces/{workspace_id}/debts": {
         parameters: {
             query?: never;
@@ -1029,27 +566,6 @@ export interface paths {
          *     um deve e se a despesa está paga. Parcelas aparecem só no mês delas.
          */
         get: operations["get_monthly_debts_api_v1_workspaces__workspace_id__debts_monthly_get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/workspaces/{workspace_id}/liabilities/overview": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * Get Liabilities Overview
-         * @description Panorama de endividamento: financiamentos + faturas de cartão, com total
-         *     devedor, o que vence no mês selecionado e a parte de cada pessoa.
-         */
-        get: operations["get_liabilities_overview_api_v1_workspaces__workspace_id__liabilities_overview_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -1167,150 +683,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/workspaces/{workspace_id}/financing": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** List Financing */
-        get: operations["list_financing_api_v1_workspaces__workspace_id__financing_get"];
-        put?: never;
-        /** Create Financing */
-        post: operations["create_financing_api_v1_workspaces__workspace_id__financing_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/workspaces/{workspace_id}/financing/{financing_id}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** Get Financing */
-        get: operations["get_financing_api_v1_workspaces__workspace_id__financing__financing_id__get"];
-        /**
-         * Update Financing
-         * @description Edita o financiamento. Antes NÃO existia: um financiamento cadastrado
-         *     errado só podia ser excluído e recriado, perdendo o histórico.
-         *
-         *     Alterar valor/taxa/prazo/método regenera o cronograma, então é recusado se
-         *     já houver parcela paga (o pagamento virou despesa real e o plano não pode
-         *     mudar debaixo dela).
-         */
-        put: operations["update_financing_api_v1_workspaces__workspace_id__financing__financing_id__put"];
-        post?: never;
-        /** Delete Financing */
-        delete: operations["delete_financing_api_v1_workspaces__workspace_id__financing__financing_id__delete"];
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/workspaces/{workspace_id}/financing/{financing_id}/schedule": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** Get Financing Schedule */
-        get: operations["get_financing_schedule_api_v1_workspaces__workspace_id__financing__financing_id__schedule_get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/workspaces/{workspace_id}/financing/{financing_id}/early-settlement": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Simulate Early Settlement */
-        post: operations["simulate_early_settlement_api_v1_workspaces__workspace_id__financing__financing_id__early_settlement_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/workspaces/{workspace_id}/financing/{financing_id}/installments/{installment_number}/pay": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Pay Installment */
-        post: operations["pay_installment_api_v1_workspaces__workspace_id__financing__financing_id__installments__installment_number__pay_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/workspaces/{workspace_id}/financing/{financing_id}/installments/{installment_number}/unpay": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Unpay Installment
-         * @description Estorna o pagamento de uma parcela.
-         *
-         *     `is_paid` era irreversível: um clique errado não tinha desfazer, e a despesa
-         *     gerada ficava para sempre no caixa. Aqui a parcela volta a aberta, a despesa
-         *     correspondente é soft-deletada e o financiamento sai de `settled`.
-         */
-        post: operations["unpay_installment_api_v1_workspaces__workspace_id__financing__financing_id__installments__installment_number__unpay_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/workspaces/{workspace_id}/financing/{financing_id}/shares": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** List Financing Shares */
-        get: operations["list_financing_shares_api_v1_workspaces__workspace_id__financing__financing_id__shares_get"];
-        /**
-         * Set Financing Shares
-         * @description Workspaces cujo endividamento este financiamento compõe (ADR 0019).
-         *
-         *     O caso que motiva: o imóvel do casal é financiado no nome de um, mas o
-         *     compromisso é da casa.
-         */
-        put: operations["set_financing_shares_api_v1_workspaces__workspace_id__financing__financing_id__shares_put"];
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/api/v1/workspaces/{workspace_id}/tags": {
         parameters: {
             query?: never;
@@ -1383,67 +755,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/workspaces/{workspace_id}/payment-accounts": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** List Payment Accounts */
-        get: operations["list_payment_accounts_api_v1_workspaces__workspace_id__payment_accounts_get"];
-        put?: never;
-        /** Create Payment Account */
-        post: operations["create_payment_account_api_v1_workspaces__workspace_id__payment_accounts_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/workspaces/{workspace_id}/payment-accounts/{account_id}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        /** Update Payment Account */
-        put: operations["update_payment_account_api_v1_workspaces__workspace_id__payment_accounts__account_id__put"];
-        post?: never;
-        /**
-         * Delete Payment Account
-         * @description Soft delete: pagamentos antigos continuam apontando para a conta
-         *     (histórico explicável); para sumir do formulário basta desativar.
-         */
-        delete: operations["delete_payment_account_api_v1_workspaces__workspace_id__payment_accounts__account_id__delete"];
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/workspaces/{workspace_id}/payment-accounts/{account_id}/shares": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** List Account Shares */
-        get: operations["list_account_shares_api_v1_workspaces__workspace_id__payment_accounts__account_id__shares_get"];
-        /**
-         * Set Account Shares
-         * @description Workspaces com que esta conta é compartilhada — a lista é o estado final.
-         */
-        put: operations["set_account_shares_api_v1_workspaces__workspace_id__payment_accounts__account_id__shares_put"];
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/api/v1/workspaces/{workspace_id}/audit": {
         parameters: {
             query?: never;
@@ -1455,57 +766,6 @@ export interface paths {
         get: operations["list_audit_api_v1_workspaces__workspace_id__audit_get"];
         put?: never;
         post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/notifications": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** List Notifications */
-        get: operations["list_notifications_api_v1_notifications_get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/notifications/{notification_id}/read": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Mark Notification Read */
-        post: operations["mark_notification_read_api_v1_notifications__notification_id__read_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/notifications/read-all": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Mark All Notifications Read */
-        post: operations["mark_all_notifications_read_api_v1_notifications_read_all_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1598,6 +858,657 @@ export interface paths {
          *     uma moeda de destino declarada é o que o ADR 0006 proíbe.
          */
         patch: operations["set_report_currency_api_v1_me_report_currency_patch"];
+        trace?: never;
+    };
+    "/api/v1/me/income": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Income */
+        get: operations["list_income_api_v1_me_income_get"];
+        put?: never;
+        /** Create Income */
+        post: operations["create_income_api_v1_me_income_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/me/income/{income_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Update Income */
+        put: operations["update_income_api_v1_me_income__income_id__put"];
+        post?: never;
+        /** Delete Income */
+        delete: operations["delete_income_api_v1_me_income__income_id__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/me/recurring-income": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Recurring Income */
+        get: operations["list_recurring_income_api_v1_me_recurring_income_get"];
+        put?: never;
+        /** Create Recurring Income */
+        post: operations["create_recurring_income_api_v1_me_recurring_income_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/me/recurring-income/generate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Generate Recurring Income
+         * @description Materializa as rendas recorrentes do mês corrente (idempotente).
+         */
+        post: operations["generate_recurring_income_api_v1_me_recurring_income_generate_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/me/recurring-income/{recurring_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Update Recurring Income */
+        put: operations["update_recurring_income_api_v1_me_recurring_income__recurring_id__put"];
+        post?: never;
+        /** Delete Recurring Income */
+        delete: operations["delete_recurring_income_api_v1_me_recurring_income__recurring_id__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/me/credit-cards": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Credit Cards */
+        get: operations["list_credit_cards_api_v1_me_credit_cards_get"];
+        put?: never;
+        /** Create Credit Card */
+        post: operations["create_credit_card_api_v1_me_credit_cards_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/me/credit-cards/{card_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Update Credit Card */
+        put: operations["update_credit_card_api_v1_me_credit_cards__card_id__put"];
+        post?: never;
+        /** Delete Credit Card */
+        delete: operations["delete_credit_card_api_v1_me_credit_cards__card_id__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/me/credit-cards/{card_id}/statement-for": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Statement For Date
+         * @description Em qual fatura cairia uma compra neste cartão nesta data (ADR 0002).
+         *
+         *     A fatura é derivada no SERVIDOR, e a regra não é óbvia: a partir do dia de
+         *     fechamento a compra vai para o mês seguinte, e se essa fatura já estiver
+         *     fechada/paga ela rola para frente. Somente LEITURA: não cria fatura (senão
+         *     digitar no formulário criaria faturas vazias).
+         */
+        get: operations["statement_for_date_api_v1_me_credit_cards__card_id__statement_for_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/me/credit-cards/{card_id}/statements": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Statements */
+        get: operations["list_statements_api_v1_me_credit_cards__card_id__statements_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/me/credit-cards/{card_id}/statements/{statement_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Statement
+         * @description A fatura com as compras dela.
+         *
+         *     As transações saem sem filtro adicional de propósito, e agora isso é correto:
+         *     a fatura é de um cartão que é do usuário logado, então tudo que caiu nela foi
+         *     comprado por ele. Era a MESMA query de antes — o que a tornava um vazamento
+         *     era o cartão poder ser de outra pessoa.
+         *
+         *     `workspace_id` viaja em cada linha porque a compra continua morando num
+         *     workspace: é o que permite à tela dizer "esta parcela caiu na Casa".
+         */
+        get: operations["get_statement_api_v1_me_credit_cards__card_id__statements__statement_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/me/credit-cards/{card_id}/statements/{statement_id}/close": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Close Statement */
+        post: operations["close_statement_api_v1_me_credit_cards__card_id__statements__statement_id__close_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/me/credit-cards/{card_id}/statements/{statement_id}/pay": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Pay Statement */
+        post: operations["pay_statement_api_v1_me_credit_cards__card_id__statements__statement_id__pay_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/me/credit-cards/{card_id}/statements/{statement_id}/reopen": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Reopen Statement */
+        post: operations["reopen_statement_api_v1_me_credit_cards__card_id__statements__statement_id__reopen_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/me/payment-accounts": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Payment Accounts */
+        get: operations["list_payment_accounts_api_v1_me_payment_accounts_get"];
+        put?: never;
+        /** Create Payment Account */
+        post: operations["create_payment_account_api_v1_me_payment_accounts_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/me/payment-accounts/{account_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Update Payment Account */
+        put: operations["update_payment_account_api_v1_me_payment_accounts__account_id__put"];
+        post?: never;
+        /**
+         * Delete Payment Account
+         * @description Soft delete: pagamentos antigos continuam apontando para a conta
+         *     (histórico explicável); para sumir do formulário basta desativar.
+         */
+        delete: operations["delete_payment_account_api_v1_me_payment_accounts__account_id__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/me/financing": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Financing */
+        get: operations["list_financing_api_v1_me_financing_get"];
+        put?: never;
+        /** Create Financing */
+        post: operations["create_financing_api_v1_me_financing_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/me/financing/{financing_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Financing */
+        get: operations["get_financing_api_v1_me_financing__financing_id__get"];
+        /**
+         * Update Financing
+         * @description Alterar valor/taxa/prazo/método regenera o cronograma, então é recusado se
+         *     já houver parcela paga (o pagamento virou registro real e o plano não pode
+         *     mudar debaixo dele).
+         */
+        put: operations["update_financing_api_v1_me_financing__financing_id__put"];
+        post?: never;
+        /** Delete Financing */
+        delete: operations["delete_financing_api_v1_me_financing__financing_id__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/me/financing/{financing_id}/schedule": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Financing Schedule */
+        get: operations["get_financing_schedule_api_v1_me_financing__financing_id__schedule_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/me/financing/{financing_id}/early-settlement": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Simulate Early Settlement */
+        post: operations["simulate_early_settlement_api_v1_me_financing__financing_id__early_settlement_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/me/financing/{financing_id}/installments/{installment_number}/pay": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Pay Installment */
+        post: operations["pay_installment_api_v1_me_financing__financing_id__installments__installment_number__pay_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/me/financing/{financing_id}/installments/{installment_number}/unpay": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Unpay Installment
+         * @description Estorna o pagamento de uma parcela.
+         *
+         *     `is_paid` era irreversível: um clique errado não tinha desfazer, e a despesa
+         *     gerada ficava para sempre no caixa. Aqui a parcela volta a aberta, a despesa
+         *     correspondente (se houve) é soft-deletada e o financiamento sai de `settled`.
+         */
+        post: operations["unpay_installment_api_v1_me_financing__financing_id__installments__installment_number__unpay_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/auth/onboarding": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Finish Onboarding */
+        post: operations["finish_onboarding_api_v1_auth_onboarding_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/auth/register": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Register */
+        post: operations["register_api_v1_auth_register_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/auth/login": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Login */
+        post: operations["login_api_v1_auth_login_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/auth/me": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Me */
+        get: operations["get_me_api_v1_auth_me_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /** Update Me */
+        patch: operations["update_me_api_v1_auth_me_patch"];
+        trace?: never;
+    };
+    "/api/v1/auth/logout": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Logout */
+        post: operations["logout_api_v1_auth_logout_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/auth/refresh": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Refresh Session
+         * @description Renova a sessão a partir do cookie refresh_token, reemitindo ambos os cookies.
+         */
+        post: operations["refresh_session_api_v1_auth_refresh_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/auth/change-password": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Change Password */
+        post: operations["change_password_api_v1_auth_change_password_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/auth/forgot-password": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Forgot Password
+         * @description Sempre retorna 200 para não revelar quais emails estão cadastrados.
+         */
+        post: operations["forgot_password_api_v1_auth_forgot_password_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/auth/reset-password": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Reset Password */
+        post: operations["reset_password_api_v1_auth_reset_password_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/auth/google/login": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Google Login */
+        get: operations["google_login_api_v1_auth_google_login_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/auth/google/callback": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Google Callback */
+        get: operations["google_callback_api_v1_auth_google_callback_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/notifications": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Notifications */
+        get: operations["list_notifications_api_v1_notifications_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/notifications/{notification_id}/read": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Mark Notification Read */
+        post: operations["mark_notification_read_api_v1_notifications__notification_id__read_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/notifications/read-all": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Mark All Notifications Read */
+        post: operations["mark_all_notifications_read_api_v1_notifications_read_all_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
         trace?: never;
     };
     "/api/v1/health": {
@@ -1764,25 +1675,6 @@ export interface components {
             /** File */
             file: string;
         };
-        /** CardShareItem */
-        CardShareItem: {
-            /** Workspace Id */
-            workspace_id: number;
-            /**
-             * Access
-             * @default use
-             * @enum {string}
-             */
-            access: "use" | "full";
-        };
-        /**
-         * CardShareUpdate
-         * @description Com que workspaces este cartão é compartilhado, e em que nível (ADR 0019).
-         */
-        CardShareUpdate: {
-            /** Shares */
-            shares?: components["schemas"]["CardShareItem"][];
-        };
         /** Category */
         Category: {
             /** Name */
@@ -1904,7 +1796,15 @@ export interface components {
          * @enum {string}
          */
         FinancialAccess: "involved_only" | "full_workspace";
-        /** Financing */
+        /**
+         * Financing
+         * @description Financiamento de UMA pessoa (ADR 0021).
+         *
+         *     Sem `workspace_id`: a dívida é de quem assinou o contrato e aparece nos
+         *     Compromissos pessoais dele, em qualquer workspace de que participe. O
+         *     `created_by_user_id` de antes descrevia autoria; aqui a coluna passa a
+         *     declarar PROPRIEDADE, que é o que a política de leitura precisa saber.
+         */
         Financing: {
             /** Title */
             title: string;
@@ -1932,10 +1832,8 @@ export interface components {
             currency: string;
             /** Id */
             id?: number | null;
-            /** Workspace Id */
-            workspace_id: number;
-            /** Created By User Id */
-            created_by_user_id: number;
+            /** Owner User Id */
+            owner_user_id: number;
             /**
              * Created At
              * Format: date-time
@@ -2026,14 +1924,6 @@ export interface components {
             received_at: string;
             /** Category */
             category?: string | null;
-            /**
-             * Scope
-             * @default personal
-             * @enum {string}
-             */
-            scope: "personal" | "workspace";
-            /** Shared With Workspace Ids */
-            shared_with_workspace_ids?: number[];
         };
         /** IncomeRead */
         IncomeRead: {
@@ -2057,18 +1947,8 @@ export interface components {
             category?: string | null;
             /** Id */
             id: number;
-            /** Workspace Id */
-            workspace_id?: number | null;
             /** User Id */
             user_id: number;
-            /**
-             * Scope
-             * @default personal
-             * @enum {string}
-             */
-            scope: "personal" | "workspace";
-            /** Shared With Workspace Ids */
-            shared_with_workspace_ids?: number[];
             /** Recurring Income Id */
             recurring_income_id?: number | null;
             /** Billing Month */
@@ -2094,10 +1974,6 @@ export interface components {
         };
         /** IncomeUpdate */
         IncomeUpdate: {
-            /** Scope */
-            scope?: ("personal" | "workspace") | null;
-            /** Shared With Workspace Ids */
-            shared_with_workspace_ids?: number[] | null;
             /** Title */
             title?: string | null;
             /** Description */
@@ -2110,6 +1986,18 @@ export interface components {
             received_at?: string | null;
             /** Category */
             category?: string | null;
+        };
+        /**
+         * InstallmentPayRequest
+         * @description Onde registrar a despesa do pagamento, se em algum lugar.
+         *
+         *     `None` = só marca a parcela como paga (o compromisso é pessoal e o caixa dele
+         *     aparece em `/me/commitments`). Um workspace = cria também a despesa lá, para
+         *     quem quer a parcela visível — e divisível — no orçamento da casa.
+         */
+        InstallmentPayRequest: {
+            /** Workspace Id */
+            workspace_id?: number | null;
         };
         /** InviteCreate */
         InviteCreate: {
@@ -2360,8 +2248,6 @@ export interface components {
             type: components["schemas"]["PaymentAccountType"];
             /** Currency */
             currency?: string | null;
-            /** Owner User Id */
-            owner_user_id?: number | null;
         };
         /** PaymentAccountRead */
         PaymentAccountRead: {
@@ -2375,7 +2261,7 @@ export interface components {
             /** Active */
             active: boolean;
             /** Owner User Id */
-            owner_user_id: number | null;
+            owner_user_id: number;
         };
         /**
          * PaymentAccountType
@@ -2389,8 +2275,6 @@ export interface components {
             type?: components["schemas"]["PaymentAccountType"] | null;
             /** Active */
             active?: boolean | null;
-            /** Owner User Id */
-            owner_user_id?: number | null;
         };
         /**
          * PaymentMethod
@@ -2549,10 +2433,6 @@ export interface components {
             is_active: boolean;
             /** Id */
             id?: number | null;
-            /** Workspace Id */
-            workspace_id?: number | null;
-            /** Created By User Id */
-            created_by_user_id?: number | null;
             /** User Id */
             user_id: number;
             /**
@@ -2601,21 +2481,9 @@ export interface components {
              * @default true
              */
             is_active: boolean;
-            /**
-             * Scope
-             * @default personal
-             * @enum {string}
-             */
-            scope: "personal" | "workspace";
-            /** Shared With Workspace Ids */
-            shared_with_workspace_ids?: number[];
         };
         /** RecurringIncomeUpdate */
         RecurringIncomeUpdate: {
-            /** Scope */
-            scope?: ("personal" | "workspace") | null;
-            /** Shared With Workspace Ids */
-            shared_with_workspace_ids?: number[] | null;
             /** Title */
             title?: string | null;
             /** Description */
@@ -3219,392 +3087,6 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
-    finish_onboarding_api_v1_auth_onboarding_post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: {
-                access_token?: string | null;
-            };
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["OnboardingRequest"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": unknown;
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    register_api_v1_auth_register_post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["RegisterRequest"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["UserResponse"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    login_api_v1_auth_login_post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["LoginRequest"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": unknown;
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    get_me_api_v1_auth_me_get: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: {
-                access_token?: string | null;
-            };
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["UserResponse"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    update_me_api_v1_auth_me_patch: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: {
-                access_token?: string | null;
-            };
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["ProfileUpdate"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["UserResponse"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    logout_api_v1_auth_logout_post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: {
-                access_token?: string | null;
-                refresh_token?: string | null;
-            };
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": unknown;
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    refresh_session_api_v1_auth_refresh_post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: {
-                refresh_token?: string | null;
-            };
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": unknown;
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    change_password_api_v1_auth_change_password_post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: {
-                access_token?: string | null;
-            };
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["ChangePasswordRequest"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": unknown;
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    forgot_password_api_v1_auth_forgot_password_post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["ForgotPasswordRequest"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": unknown;
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    reset_password_api_v1_auth_reset_password_post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["ResetPasswordRequest"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": unknown;
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    google_login_api_v1_auth_google_login_get: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": unknown;
-                };
-            };
-        };
-    };
-    google_callback_api_v1_auth_google_callback_get: {
-        parameters: {
-            query?: {
-                code?: string | null;
-                state?: string | null;
-                error?: string | null;
-            };
-            header?: never;
-            path?: never;
-            cookie?: {
-                oauth_state?: string | null;
-            };
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": unknown;
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
     list_workspaces_api_v1_workspaces__get: {
         parameters: {
             query?: never;
@@ -4589,150 +4071,6 @@ export interface operations {
             };
         };
     };
-    list_income_api_v1_workspaces__workspace_id__income__get: {
-        parameters: {
-            query?: {
-                month?: string | null;
-            };
-            header?: never;
-            path: {
-                workspace_id: number;
-            };
-            cookie?: {
-                access_token?: string | null;
-            };
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["IncomeRead"][];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    create_income_api_v1_workspaces__workspace_id__income__post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                workspace_id: number;
-            };
-            cookie?: {
-                access_token?: string | null;
-            };
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["IncomeCreate"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["IncomeRead"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    update_income_api_v1_workspaces__workspace_id__income__income_id__put: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                workspace_id: number;
-                income_id: number;
-            };
-            cookie?: {
-                access_token?: string | null;
-            };
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["IncomeUpdate"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["IncomeRead"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    delete_income_api_v1_workspaces__workspace_id__income__income_id__delete: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                workspace_id: number;
-                income_id: number;
-            };
-            cookie?: {
-                access_token?: string | null;
-            };
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": unknown;
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
     get_summary_api_v1_workspaces__workspace_id__analytics_summary_get: {
         parameters: {
             query?: {
@@ -5026,434 +4364,6 @@ export interface operations {
             };
         };
     };
-    list_credit_cards_api_v1_workspaces__workspace_id__credit_cards__get: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                workspace_id: number;
-            };
-            cookie?: {
-                access_token?: string | null;
-            };
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": unknown;
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    create_credit_card_api_v1_workspaces__workspace_id__credit_cards__post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                workspace_id: number;
-            };
-            cookie?: {
-                access_token?: string | null;
-            };
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["CreditCardCreate"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": unknown;
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    update_credit_card_api_v1_workspaces__workspace_id__credit_cards__card_id__put: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                workspace_id: number;
-                card_id: number;
-            };
-            cookie?: {
-                access_token?: string | null;
-            };
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["CreditCardUpdate"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": unknown;
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    delete_credit_card_api_v1_workspaces__workspace_id__credit_cards__card_id__delete: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                workspace_id: number;
-                card_id: number;
-            };
-            cookie?: {
-                access_token?: string | null;
-            };
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": unknown;
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    statement_for_date_api_v1_workspaces__workspace_id__credit_cards__card_id__statement_for_get: {
-        parameters: {
-            query: {
-                on: string;
-            };
-            header?: never;
-            path: {
-                workspace_id: number;
-                card_id: number;
-            };
-            cookie?: {
-                access_token?: string | null;
-            };
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": unknown;
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    list_statements_api_v1_workspaces__workspace_id__credit_cards__card_id__statements_get: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                workspace_id: number;
-                card_id: number;
-            };
-            cookie?: {
-                access_token?: string | null;
-            };
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": unknown;
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    get_statement_api_v1_workspaces__workspace_id__credit_cards__card_id__statements__statement_id__get: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                workspace_id: number;
-                card_id: number;
-                statement_id: number;
-            };
-            cookie?: {
-                access_token?: string | null;
-            };
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": unknown;
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    close_statement_api_v1_workspaces__workspace_id__credit_cards__card_id__statements__statement_id__close_post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                workspace_id: number;
-                card_id: number;
-                statement_id: number;
-            };
-            cookie?: {
-                access_token?: string | null;
-            };
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": unknown;
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    pay_statement_api_v1_workspaces__workspace_id__credit_cards__card_id__statements__statement_id__pay_post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                workspace_id: number;
-                card_id: number;
-                statement_id: number;
-            };
-            cookie?: {
-                access_token?: string | null;
-            };
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["StatementPayRequest"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": unknown;
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    reopen_statement_api_v1_workspaces__workspace_id__credit_cards__card_id__statements__statement_id__reopen_post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                workspace_id: number;
-                card_id: number;
-                statement_id: number;
-            };
-            cookie?: {
-                access_token?: string | null;
-            };
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": unknown;
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    list_card_shares_api_v1_workspaces__workspace_id__credit_cards__card_id__shares_get: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                workspace_id: number;
-                card_id: number;
-            };
-            cookie?: {
-                access_token?: string | null;
-            };
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": unknown;
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    set_card_shares_api_v1_workspaces__workspace_id__credit_cards__card_id__shares_put: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                workspace_id: number;
-                card_id: number;
-            };
-            cookie?: {
-                access_token?: string | null;
-            };
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["CardShareUpdate"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": unknown;
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
     list_recurring_api_v1_workspaces__workspace_id__recurring_get: {
         parameters: {
             query?: never;
@@ -5671,187 +4581,6 @@ export interface operations {
             };
         };
     };
-    list_recurring_income_api_v1_workspaces__workspace_id__recurring_income_get: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                workspace_id: number;
-            };
-            cookie?: {
-                access_token?: string | null;
-            };
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["RecurringIncome"][];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    create_recurring_income_api_v1_workspaces__workspace_id__recurring_income_post: {
-        parameters: {
-            query?: {
-                /** @description Escopo da materialização com start_date retroativa: past | current | future */
-                materialize?: string;
-            };
-            header?: never;
-            path: {
-                workspace_id: number;
-            };
-            cookie?: {
-                access_token?: string | null;
-            };
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["RecurringIncomeCreate"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["RecurringIncome"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    generate_recurring_income_api_v1_workspaces__workspace_id__recurring_income_generate_post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                workspace_id: number;
-            };
-            cookie?: {
-                access_token?: string | null;
-            };
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": unknown;
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    update_recurring_income_api_v1_workspaces__workspace_id__recurring_income__recurring_id__put: {
-        parameters: {
-            query?: {
-                /** @description Escopo da materialização com start_date retroativa: past | current | future */
-                materialize?: string;
-            };
-            header?: never;
-            path: {
-                workspace_id: number;
-                recurring_id: number;
-            };
-            cookie?: {
-                access_token?: string | null;
-            };
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["RecurringIncomeUpdate"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["RecurringIncome"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    delete_recurring_income_api_v1_workspaces__workspace_id__recurring_income__recurring_id__delete: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                workspace_id: number;
-                recurring_id: number;
-            };
-            cookie?: {
-                access_token?: string | null;
-            };
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": unknown;
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
     get_debts_api_v1_workspaces__workspace_id__debts_get: {
         parameters: {
             query?: never;
@@ -5888,43 +4617,6 @@ export interface operations {
         };
     };
     get_monthly_debts_api_v1_workspaces__workspace_id__debts_monthly_get: {
-        parameters: {
-            query?: {
-                month?: string | null;
-            };
-            header?: never;
-            path: {
-                workspace_id: number;
-            };
-            cookie?: {
-                access_token?: string | null;
-            };
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": {
-                        [key: string]: unknown;
-                    };
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    get_liabilities_overview_api_v1_workspaces__workspace_id__liabilities_overview_get: {
         parameters: {
             query?: {
                 month?: string | null;
@@ -6285,396 +4977,6 @@ export interface operations {
             };
         };
     };
-    list_financing_api_v1_workspaces__workspace_id__financing_get: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                workspace_id: number;
-            };
-            cookie?: {
-                access_token?: string | null;
-            };
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Financing"][];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    create_financing_api_v1_workspaces__workspace_id__financing_post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                workspace_id: number;
-            };
-            cookie?: {
-                access_token?: string | null;
-            };
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["FinancingCreate"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Financing"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    get_financing_api_v1_workspaces__workspace_id__financing__financing_id__get: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                workspace_id: number;
-                financing_id: number;
-            };
-            cookie?: {
-                access_token?: string | null;
-            };
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Financing"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    update_financing_api_v1_workspaces__workspace_id__financing__financing_id__put: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                workspace_id: number;
-                financing_id: number;
-            };
-            cookie?: {
-                access_token?: string | null;
-            };
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["FinancingUpdate"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Financing"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    delete_financing_api_v1_workspaces__workspace_id__financing__financing_id__delete: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                workspace_id: number;
-                financing_id: number;
-            };
-            cookie?: {
-                access_token?: string | null;
-            };
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": unknown;
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    get_financing_schedule_api_v1_workspaces__workspace_id__financing__financing_id__schedule_get: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                workspace_id: number;
-                financing_id: number;
-            };
-            cookie?: {
-                access_token?: string | null;
-            };
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["AmortizationInstallment"][];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    simulate_early_settlement_api_v1_workspaces__workspace_id__financing__financing_id__early_settlement_post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                workspace_id: number;
-                financing_id: number;
-            };
-            cookie?: {
-                access_token?: string | null;
-            };
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["EarlySettlementRequest"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": unknown;
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    pay_installment_api_v1_workspaces__workspace_id__financing__financing_id__installments__installment_number__pay_post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                workspace_id: number;
-                financing_id: number;
-                installment_number: number;
-            };
-            cookie?: {
-                access_token?: string | null;
-            };
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": unknown;
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    unpay_installment_api_v1_workspaces__workspace_id__financing__financing_id__installments__installment_number__unpay_post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                workspace_id: number;
-                financing_id: number;
-                installment_number: number;
-            };
-            cookie?: {
-                access_token?: string | null;
-            };
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": unknown;
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    list_financing_shares_api_v1_workspaces__workspace_id__financing__financing_id__shares_get: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                workspace_id: number;
-                financing_id: number;
-            };
-            cookie?: {
-                access_token?: string | null;
-            };
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": number[];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    set_financing_shares_api_v1_workspaces__workspace_id__financing__financing_id__shares_put: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                workspace_id: number;
-                financing_id: number;
-            };
-            cookie?: {
-                access_token?: string | null;
-            };
-        };
-        requestBody: {
-            content: {
-                "application/json": number[];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": unknown;
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
     list_tags_api_v1_workspaces__workspace_id__tags_get: {
         parameters: {
             query?: never;
@@ -6957,220 +5259,6 @@ export interface operations {
             };
         };
     };
-    list_payment_accounts_api_v1_workspaces__workspace_id__payment_accounts_get: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                workspace_id: number;
-            };
-            cookie?: {
-                access_token?: string | null;
-            };
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["PaymentAccountRead"][];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    create_payment_account_api_v1_workspaces__workspace_id__payment_accounts_post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                workspace_id: number;
-            };
-            cookie?: {
-                access_token?: string | null;
-            };
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["PaymentAccountCreate"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["PaymentAccountRead"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    update_payment_account_api_v1_workspaces__workspace_id__payment_accounts__account_id__put: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                workspace_id: number;
-                account_id: number;
-            };
-            cookie?: {
-                access_token?: string | null;
-            };
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["PaymentAccountUpdate"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["PaymentAccountRead"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    delete_payment_account_api_v1_workspaces__workspace_id__payment_accounts__account_id__delete: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                workspace_id: number;
-                account_id: number;
-            };
-            cookie?: {
-                access_token?: string | null;
-            };
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": unknown;
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    list_account_shares_api_v1_workspaces__workspace_id__payment_accounts__account_id__shares_get: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                workspace_id: number;
-                account_id: number;
-            };
-            cookie?: {
-                access_token?: string | null;
-            };
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": number[];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    set_account_shares_api_v1_workspaces__workspace_id__payment_accounts__account_id__shares_put: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                workspace_id: number;
-                account_id: number;
-            };
-            cookie?: {
-                access_token?: string | null;
-            };
-        };
-        requestBody: {
-            content: {
-                "application/json": number[];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": unknown;
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
     list_audit_api_v1_workspaces__workspace_id__audit_get: {
         parameters: {
             query?: {
@@ -7194,103 +5282,6 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["AuditLogRead"][];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    list_notifications_api_v1_notifications_get: {
-        parameters: {
-            query?: {
-                only_unread?: boolean;
-            };
-            header?: never;
-            path?: never;
-            cookie?: {
-                access_token?: string | null;
-            };
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["NotificationList"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    mark_notification_read_api_v1_notifications__notification_id__read_post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                notification_id: number;
-            };
-            cookie?: {
-                access_token?: string | null;
-            };
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["NotificationRead"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    mark_all_notifications_read_api_v1_notifications_read_all_post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: {
-                access_token?: string | null;
-            };
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": unknown;
                 };
             };
             /** @description Validation Error */
@@ -7434,6 +5425,1591 @@ export interface operations {
                     "application/json": {
                         [key: string]: unknown;
                     };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_income_api_v1_me_income_get: {
+        parameters: {
+            query?: {
+                month?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: {
+                access_token?: string | null;
+            };
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IncomeRead"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    create_income_api_v1_me_income_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: {
+                access_token?: string | null;
+            };
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["IncomeCreate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IncomeRead"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_income_api_v1_me_income__income_id__put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                income_id: number;
+            };
+            cookie?: {
+                access_token?: string | null;
+            };
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["IncomeUpdate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IncomeRead"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_income_api_v1_me_income__income_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                income_id: number;
+            };
+            cookie?: {
+                access_token?: string | null;
+            };
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_recurring_income_api_v1_me_recurring_income_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: {
+                access_token?: string | null;
+            };
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RecurringIncome"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    create_recurring_income_api_v1_me_recurring_income_post: {
+        parameters: {
+            query?: {
+                /** @description Escopo da materialização com start_date retroativa: past | current | future */
+                materialize?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: {
+                access_token?: string | null;
+            };
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RecurringIncomeCreate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RecurringIncome"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    generate_recurring_income_api_v1_me_recurring_income_generate_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: {
+                access_token?: string | null;
+            };
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_recurring_income_api_v1_me_recurring_income__recurring_id__put: {
+        parameters: {
+            query?: {
+                /** @description Escopo da materialização com start_date retroativa: past | current | future */
+                materialize?: string;
+            };
+            header?: never;
+            path: {
+                recurring_id: number;
+            };
+            cookie?: {
+                access_token?: string | null;
+            };
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RecurringIncomeUpdate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RecurringIncome"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_recurring_income_api_v1_me_recurring_income__recurring_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                recurring_id: number;
+            };
+            cookie?: {
+                access_token?: string | null;
+            };
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_credit_cards_api_v1_me_credit_cards_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: {
+                access_token?: string | null;
+            };
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    create_credit_card_api_v1_me_credit_cards_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: {
+                access_token?: string | null;
+            };
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreditCardCreate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_credit_card_api_v1_me_credit_cards__card_id__put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                card_id: number;
+            };
+            cookie?: {
+                access_token?: string | null;
+            };
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreditCardUpdate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_credit_card_api_v1_me_credit_cards__card_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                card_id: number;
+            };
+            cookie?: {
+                access_token?: string | null;
+            };
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    statement_for_date_api_v1_me_credit_cards__card_id__statement_for_get: {
+        parameters: {
+            query: {
+                on: string;
+            };
+            header?: never;
+            path: {
+                card_id: number;
+            };
+            cookie?: {
+                access_token?: string | null;
+            };
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_statements_api_v1_me_credit_cards__card_id__statements_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                card_id: number;
+            };
+            cookie?: {
+                access_token?: string | null;
+            };
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_statement_api_v1_me_credit_cards__card_id__statements__statement_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                card_id: number;
+                statement_id: number;
+            };
+            cookie?: {
+                access_token?: string | null;
+            };
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    close_statement_api_v1_me_credit_cards__card_id__statements__statement_id__close_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                card_id: number;
+                statement_id: number;
+            };
+            cookie?: {
+                access_token?: string | null;
+            };
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    pay_statement_api_v1_me_credit_cards__card_id__statements__statement_id__pay_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                card_id: number;
+                statement_id: number;
+            };
+            cookie?: {
+                access_token?: string | null;
+            };
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["StatementPayRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    reopen_statement_api_v1_me_credit_cards__card_id__statements__statement_id__reopen_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                card_id: number;
+                statement_id: number;
+            };
+            cookie?: {
+                access_token?: string | null;
+            };
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_payment_accounts_api_v1_me_payment_accounts_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: {
+                access_token?: string | null;
+            };
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PaymentAccountRead"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    create_payment_account_api_v1_me_payment_accounts_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: {
+                access_token?: string | null;
+            };
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PaymentAccountCreate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PaymentAccountRead"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_payment_account_api_v1_me_payment_accounts__account_id__put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                account_id: number;
+            };
+            cookie?: {
+                access_token?: string | null;
+            };
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PaymentAccountUpdate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PaymentAccountRead"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_payment_account_api_v1_me_payment_accounts__account_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                account_id: number;
+            };
+            cookie?: {
+                access_token?: string | null;
+            };
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_financing_api_v1_me_financing_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: {
+                access_token?: string | null;
+            };
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Financing"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    create_financing_api_v1_me_financing_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: {
+                access_token?: string | null;
+            };
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["FinancingCreate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Financing"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_financing_api_v1_me_financing__financing_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                financing_id: number;
+            };
+            cookie?: {
+                access_token?: string | null;
+            };
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Financing"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_financing_api_v1_me_financing__financing_id__put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                financing_id: number;
+            };
+            cookie?: {
+                access_token?: string | null;
+            };
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["FinancingUpdate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Financing"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_financing_api_v1_me_financing__financing_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                financing_id: number;
+            };
+            cookie?: {
+                access_token?: string | null;
+            };
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_financing_schedule_api_v1_me_financing__financing_id__schedule_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                financing_id: number;
+            };
+            cookie?: {
+                access_token?: string | null;
+            };
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AmortizationInstallment"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    simulate_early_settlement_api_v1_me_financing__financing_id__early_settlement_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                financing_id: number;
+            };
+            cookie?: {
+                access_token?: string | null;
+            };
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EarlySettlementRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    pay_installment_api_v1_me_financing__financing_id__installments__installment_number__pay_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                financing_id: number;
+                installment_number: number;
+            };
+            cookie?: {
+                access_token?: string | null;
+            };
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["InstallmentPayRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    unpay_installment_api_v1_me_financing__financing_id__installments__installment_number__unpay_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                financing_id: number;
+                installment_number: number;
+            };
+            cookie?: {
+                access_token?: string | null;
+            };
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    finish_onboarding_api_v1_auth_onboarding_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: {
+                access_token?: string | null;
+            };
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["OnboardingRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    register_api_v1_auth_register_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RegisterRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UserResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    login_api_v1_auth_login_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["LoginRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_me_api_v1_auth_me_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: {
+                access_token?: string | null;
+            };
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UserResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_me_api_v1_auth_me_patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: {
+                access_token?: string | null;
+            };
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ProfileUpdate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UserResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    logout_api_v1_auth_logout_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: {
+                access_token?: string | null;
+                refresh_token?: string | null;
+            };
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    refresh_session_api_v1_auth_refresh_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: {
+                refresh_token?: string | null;
+            };
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    change_password_api_v1_auth_change_password_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: {
+                access_token?: string | null;
+            };
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ChangePasswordRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    forgot_password_api_v1_auth_forgot_password_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ForgotPasswordRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    reset_password_api_v1_auth_reset_password_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ResetPasswordRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    google_login_api_v1_auth_google_login_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+        };
+    };
+    google_callback_api_v1_auth_google_callback_get: {
+        parameters: {
+            query?: {
+                code?: string | null;
+                state?: string | null;
+                error?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: {
+                oauth_state?: string | null;
+            };
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_notifications_api_v1_notifications_get: {
+        parameters: {
+            query?: {
+                only_unread?: boolean;
+            };
+            header?: never;
+            path?: never;
+            cookie?: {
+                access_token?: string | null;
+            };
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NotificationList"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    mark_notification_read_api_v1_notifications__notification_id__read_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                notification_id: number;
+            };
+            cookie?: {
+                access_token?: string | null;
+            };
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NotificationRead"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    mark_all_notifications_read_api_v1_notifications_read_all_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: {
+                access_token?: string | null;
+            };
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
                 };
             };
             /** @description Validation Error */

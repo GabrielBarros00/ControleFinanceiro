@@ -1,8 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { apiClient } from '@/api/client';
-import { invalidateForEvent } from '@/lib/ws-events';
 import type { MaterializeScope } from '@/lib/recurrence';
-import { useWorkspaceId } from './use-workspace-id';
 
 export interface RecurringIncome {
   id: number;
@@ -23,25 +21,24 @@ export interface RecurringIncome {
 
 export function useRecurringIncome() {
   const queryClient = useQueryClient();
-  const currentWorkspaceId = useWorkspaceId();
 
-  const queryKey = ['recurring-income', currentWorkspaceId];
+  const queryKey = ['recurring-income'];
 
   const listQuery = useQuery({
     queryKey,
     queryFn: async (): Promise<RecurringIncome[]> => {
-      if (!currentWorkspaceId) return [];
-      const response = await apiClient.get(`/workspaces/${currentWorkspaceId}/recurring-income`);
+      const response = await apiClient.get(`/me/recurring-income`);
       return response.data;
     },
-    enabled: !!currentWorkspaceId,
   });
 
   const invalidateList = () => queryClient.invalidateQueries({ queryKey });
 
-  // Rendas geradas alimentam lista de rendas, relatórios e previsão
-  const invalidateIncome = () =>
-    invalidateForEvent(queryClient, 'recurring_income.updated', currentWorkspaceId);
+  // Rendas geradas alimentam a lista de rendas e a visão global
+  const invalidateIncome = () => {
+    queryClient.invalidateQueries({ queryKey: ['income'] });
+    queryClient.invalidateQueries({ queryKey: ['me-overview'] });
+  };
 
   // Criar/editar/excluir template pode materializar (ou re-sincronizar) a renda
   // do mês corrente no backend — refaz a lista de rendas e os relatórios também.
@@ -56,7 +53,7 @@ export function useRecurringIncome() {
   const createMutation = useMutation({
     mutationFn: async ({ data, materialize }: { data: Record<string, unknown>; materialize?: MaterializeScope }) => {
       const response = await apiClient.post(
-        `/workspaces/${currentWorkspaceId}/recurring-income`,
+        `/me/recurring-income`,
         data,
         { params: materialize ? { materialize } : undefined },
       );
@@ -68,7 +65,7 @@ export function useRecurringIncome() {
   const updateMutation = useMutation({
     mutationFn: async ({ id, data, materialize }: { id: number; data: Record<string, unknown>; materialize?: MaterializeScope }) => {
       const response = await apiClient.put(
-        `/workspaces/${currentWorkspaceId}/recurring-income/${id}`,
+        `/me/recurring-income/${id}`,
         data,
         { params: materialize ? { materialize } : undefined },
       );
@@ -79,7 +76,7 @@ export function useRecurringIncome() {
 
   const removeMutation = useMutation({
     mutationFn: async (id: number) => {
-      await apiClient.delete(`/workspaces/${currentWorkspaceId}/recurring-income/${id}`);
+      await apiClient.delete(`/me/recurring-income/${id}`);
     },
     onSuccess: invalidateAll,
   });
@@ -87,7 +84,7 @@ export function useRecurringIncome() {
   // Materializa as rendas recorrentes vencidas do mês (idempotente no backend)
   const generateMutation = useMutation({
     mutationFn: async (): Promise<{ created: number }> => {
-      const response = await apiClient.post(`/workspaces/${currentWorkspaceId}/recurring-income/generate`);
+      const response = await apiClient.post(`/me/recurring-income/generate`);
       return response.data;
     },
     onSuccess: (result) => {

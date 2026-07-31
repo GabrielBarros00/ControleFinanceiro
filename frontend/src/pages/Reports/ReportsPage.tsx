@@ -83,21 +83,26 @@ export function ReportsPage() {
   // "Pouca história" (B4): conta meses com movimento real, não o tamanho da série
   // (o back devolve 6 meses, a maioria zerada para quem é novo).
   const monthsWithData = monthlyData.filter(
-    (m: { income?: number | string; expenses?: number | string }) =>
-      (Number(m.income) || 0) + (Number(m.expenses) || 0) > 0,
+    (m: { expenses?: number | string; my_expenses?: number | string }) =>
+      (Number(m.expenses) || 0) + (Number(m.my_expenses) || 0) > 0,
   ).length;
   // Números da casa vêm `null` sem acesso financeiro completo (ADR 0018), então
   // o fallback deles é `null` e não 0 — 0 viraria "Casa R$ 0,00" na dica e um
   // gráfico de pizza vazio apresentado como se a casa não tivesse gastado nada.
-  const currentSummary = data?.current_summary || { total_expenses: null, total_income: null, net_savings: null, my_expenses: 0, my_income: 0, my_net: 0, categories: null };
+  const currentSummary = data?.current_summary || {
+    total_expenses: null, my_expenses: 0, paid_by_me: 0, my_balance: 0, categories: null,
+  };
   const categoryDataCasa = currentSummary.categories || [];
   // Mesma composição, recortada na sua parte — é o par de `categories` para a
   // meta pessoal (a da casa compara com o total; a sua, com a sua fatia)
   const myCategoryData = currentSummary.my_categories || [];
   // Destaque = a sua parte (splits); sublinha = total da casa/workspace
   const myExpenses = Number(currentSummary.my_expenses ?? 0);
-  const myIncome = Number(currentSummary.my_income ?? 0);
-  const myNet = Number(currentSummary.my_net ?? 0);
+  // Receita e saldo saíram destes relatórios (ADR 0021): são pessoais e viviam
+  // aqui misturando renda GLOBAL com gasto DESTE workspace. O par certo do gasto
+  // é o caixa — quanto eu paguei — e a diferença entre os dois, que é o acerto.
+  const paidByMe = Number(currentSummary.paid_by_me ?? 0);
+  const myBalance = Number(currentSummary.my_balance ?? 0);
   // Ver Home: o hint da casa é redundante quando bate com a sua parte — e não
   // existe quando o acesso é restrito (`house` nulo).
   const numeroDaCasa = (valor: unknown): number | null =>
@@ -124,11 +129,11 @@ export function ReportsPage() {
           hint={casa(myExpenses, numeroDaCasa(currentSummary.total_expenses))}
         />
         <StatTile
-          label="Sua receita (mês)"
-          value={myIncome}
-          kind="income"
+          label="Pago por você (mês)"
+          value={paidByMe}
+          kind="neutral"
           currency={baseCurrency}
-          hint={casa(myIncome, numeroDaCasa(currentSummary.total_income))}
+          hint="O que saiu do seu bolso nesta casa"
         />
         <div className="rounded-xl border border-border bg-card p-4">
           <p className="text-sm text-muted-foreground">Maior categoria</p>
@@ -139,11 +144,12 @@ export function ReportsPage() {
           </p>
         </div>
         <StatTile
-          label="Seu saldo (mês)"
-          value={myNet}
-          kind={myNet >= 0 ? 'income' : 'expense'}
+          // "Saldo" ficou reservado a saldo de conta: aqui é o acerto desta casa.
+          label={myBalance >= 0 ? 'A receber nesta casa' : 'A pagar nesta casa'}
+          value={Math.abs(myBalance)}
+          kind={myBalance >= 0 ? 'income' : 'expense'}
           currency={baseCurrency}
-          hint={casa(myNet, numeroDaCasa(currentSummary.net_savings))}
+          hint="Diferença entre o que você pagou e a sua parte"
         />
       </div>
 
@@ -187,7 +193,6 @@ export function ReportsPage() {
                       contentStyle={{ backgroundColor: chart.tooltipBg, border: `1px solid ${chart.tooltipBorder}`, borderRadius: '12px', color: chart.tooltipText }}
                       itemStyle={{ color: chart.tooltipText, fontWeight: 'bold' }}
                     />
-                    <Bar dataKey="income" fill={chart.series[1]} radius={[4, 4, 0, 0]} name="Receita" />
                     <Bar dataKey="expenses" fill={chart.series[0]} radius={[4, 4, 0, 0]} name="Despesa (casa)" />
                     <Bar dataKey="my_expenses" fill={chart.series[2]} radius={[4, 4, 0, 0]} name="Minha parte" />
                   </BarChart>
@@ -290,7 +295,6 @@ export function ReportsPage() {
                     <Tooltip 
                       contentStyle={{ backgroundColor: chart.tooltipBg, border: `1px solid ${chart.tooltipBorder}`, borderRadius: '12px', color: chart.tooltipText }}
                     />
-                    <Line type="monotone" dataKey="income" stroke={chart.series[1]} strokeWidth={3} dot={{ r: 6, strokeWidth: 2, fill: chart.tooltipBg }} name="Receita" />
                     <Line type="monotone" dataKey="expenses" stroke={chart.series[0]} strokeWidth={3} dot={{ r: 6, strokeWidth: 2, fill: chart.tooltipBg }} name="Despesa (casa)" />
                     <Line type="monotone" dataKey="my_expenses" stroke={chart.series[2]} strokeWidth={2} strokeDasharray="4 4" dot={{ r: 4, strokeWidth: 2, fill: chart.tooltipBg }} name="Minha parte" />
                   </LineChart>

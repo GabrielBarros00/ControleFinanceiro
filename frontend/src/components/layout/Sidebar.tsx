@@ -5,7 +5,7 @@ import { cn } from '@/lib/utils';
 import { useWorkspaces, type Workspace } from '@/hooks/use-workspaces';
 import { useAuth } from '@/hooks/use-auth';
 import { WorkspaceCreateDialog } from '@/components/workspace/WorkspaceCreateDialog';
-import { navSections } from './nav-items';
+import { activeNavPath, navSections } from './nav-items';
 import { useWorkspaceId, workspacePath } from '@/hooks/use-workspace-id';
 
 function useOnClickOutside(ref: React.RefObject<HTMLElement | null>, handler: () => void) {
@@ -133,8 +133,9 @@ function UserMenu() {
 export function Sidebar() {
   const location = useLocation();
   const workspaceIdAtual = useWorkspaceId();
-  const isActive = (to: string) =>
-    location.pathname === to || location.pathname.startsWith(`${to}/`);
+  // Um item ativo por vez: ver `activeNavPath`. O teste de prefixo por item
+  // acendia Painel e Relatórios juntos, porque `/w/1/reports` começa com `/w/1`.
+  const ativo = activeNavPath(location.pathname, workspaceIdAtual);
 
   return (
     <aside className="sticky top-0 hidden h-screen w-[240px] shrink-0 flex-col border-r border-border bg-card md:flex">
@@ -158,7 +159,7 @@ export function Sidebar() {
               {section.label}
             </p>
             {section.items.map((item) => {
-              const active = isActive(item.to);
+              const active = ativo === item.to;
               return (
                 <Link
                   key={item.to}

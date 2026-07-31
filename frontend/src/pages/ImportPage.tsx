@@ -12,6 +12,7 @@ import { toast } from '@/stores/toast';
 import { parseApiDate } from '@/lib/date';
 import { formatMoney } from '@/lib/money';
 import { useBaseCurrency } from '@/hooks/use-base-currency';
+import { PageHeader } from '@/components/layout/PageHeader';
 
 interface ParsedRow {
   line?: number;
@@ -114,6 +115,7 @@ export function ImportPage() {
 
   return (
     <div className="space-y-6">
+      <PageHeader title="Importar" subtitle="Traga um extrato em CSV para dentro deste workspace." />
       <div className="grid gap-6 lg:grid-cols-3">
         <Card className="lg:col-span-1 bg-card border-border shadow-xl">
           <CardHeader>

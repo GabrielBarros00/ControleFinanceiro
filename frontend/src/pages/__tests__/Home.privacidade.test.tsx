@@ -5,28 +5,30 @@ import { MemoryRouter } from 'react-router-dom';
 import { Home } from '../Home';
 
 /**
- * Início com acesso financeiro RESTRITO (ADR 0018).
+ * Painel do workspace: privacidade (ADR 0018) e escopo (ADR 0021).
  *
- * O backend passou a devolver `null` nos números da CASA para quem é
- * `involved_only`. O Início lia com `?? 0`, e é aí que estava o defeito de
- * apresentação: a dica renderizaria "Casa R$ 0,00" ao lado da despesa real do
- * membro — um número INVENTADO na tela, mais enganoso do que não mostrar nada.
+ * O backend devolve `null` nos números da CASA para quem é `involved_only`. O
+ * painel lia com `?? 0`, e é aí que estava o defeito de apresentação: mostraria
+ * "Gasto da casa R$ 0,00" ao lado da despesa real do membro — um número
+ * INVENTADO na tela, mais enganoso do que não mostrar nada.
  *
- * O outro caso é o `canWrite`: o Início era justamente a tela que renderizava o
- * ledger sem a prop, e o default permissivo dos componentes mostrava
- * editar/excluir a um viewer.
+ * O segundo eixo é o que este painel NÃO pode mais dizer. "Sua receita" e
+ * "Resultado do mês" eram renda GLOBAL da pessoa combinada com a despesa DESTE
+ * workspace — o número que dava "sobras" diferentes e todas maiores que a real
+ * em cada casa. Renda e resultado vivem na Visão global.
+ *
+ * O terceiro é o `canWrite`: o painel era justamente a tela que renderizava o
+ * ledger sem a prop, e o default permissivo mostrava editar/excluir a um viewer.
  */
 
 const RESUMO_RESTRITO = {
   // Números da casa suprimidos pelo servidor
   total_expenses: null,
-  total_income: null,
-  net_savings: null,
   categories: null,
   // O recorte pessoal continua vindo
   my_expenses: '100.00',
-  my_income: '3000.00',
-  my_net: '2900.00',
+  paid_by_me: '0.00',
+  my_balance: '-100.00',
   my_categories: [],
   base_currency: 'BRL',
   excluded_foreign_count: 0,
@@ -35,8 +37,8 @@ const RESUMO_RESTRITO = {
 const RESUMO_COMPLETO = {
   ...RESUMO_RESTRITO,
   total_expenses: '900.00',
-  total_income: '12000.00',
-  net_savings: '11100.00',
+  paid_by_me: '900.00',
+  my_balance: '800.00',
   categories: [],
 };
 
@@ -54,11 +56,11 @@ vi.mock('@/hooks/use-analytics', () => ({
 vi.mock('@/hooks/use-transactions', () => ({
   useTransactions: () => ({ transactions: [], isLoading: false }),
 }));
-vi.mock('@/hooks/use-auth', () => ({
-  useAuth: () => ({ user: { id: 1, name: 'Bia' } }),
-}));
 vi.mock('@/hooks/use-base-currency', () => ({
   useBaseCurrency: () => 'BRL',
+}));
+vi.mock('@/hooks/use-workspaces', () => ({
+  useWorkspaces: () => ({ currentWorkspace: { id: 1, name: 'Casa' } }),
 }));
 vi.mock('@/hooks/use-workspace-role', () => ({
   useWorkspaceRole: () => ({ canWrite: estado.canWrite, isLoading: false }),
@@ -75,22 +77,38 @@ function renderHome() {
   );
 }
 
-describe('Início — acesso financeiro restrito', () => {
+describe('Painel do workspace — acesso financeiro restrito', () => {
   beforeEach(() => {
     estado.resumo = RESUMO_RESTRITO;
     estado.canWrite = false;
   });
 
-  it('não inventa "Casa R$ 0,00" quando o total da casa vem nulo', () => {
+  it('não inventa "Gasto da casa R$ 0,00" quando o total vem nulo', () => {
     renderHome();
-    expect(screen.queryByText(/Casa/)).not.toBeInTheDocument();
+    expect(screen.queryByText('Gasto da casa')).not.toBeInTheDocument();
   });
 
   it('mostra a própria parte mesmo sem os números da casa', () => {
     renderHome();
-    // A receita pessoal continua na tela: é dado do próprio usuário
-    expect(screen.getByText('Sua receita')).toBeInTheDocument();
-    expect(screen.getByText('Sua despesa')).toBeInTheDocument();
+    expect(screen.getByText('Sua parte no mês')).toBeInTheDocument();
+    expect(screen.getByText('Pago por você')).toBeInTheDocument();
+  });
+
+  it('não fala de renda nem de sobra — isso é da Visão global', () => {
+    estado.resumo = RESUMO_COMPLETO;
+    renderHome();
+    expect(screen.queryByText(/receita/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/sobra/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/resultado do mês/i)).not.toBeInTheDocument();
+  });
+
+  it('nomeia o acerto pelo lado em que a pessoa está', () => {
+    renderHome(); // my_balance negativo: consumiu 100 e não pagou nada
+    expect(screen.getByText('Você deve')).toBeInTheDocument();
+
+    estado.resumo = RESUMO_COMPLETO; // pagou 900, consumiu 100
+    renderHome();
+    expect(screen.getByText('Você tem a receber')).toBeInTheDocument();
   });
 
   it('esconde "Nova despesa" de quem não pode escrever', () => {
@@ -104,10 +122,10 @@ describe('Início — acesso financeiro restrito', () => {
     expect(screen.getAllByRole('button', { name: /nova despesa/i }).length).toBeGreaterThan(0);
   });
 
-  it('com acesso completo, a dica da casa volta a aparecer', () => {
+  it('com acesso completo, o gasto da casa aparece com a sua parte na dica', () => {
     estado.resumo = RESUMO_COMPLETO;
     renderHome();
-    // Os totais da casa DIFEREM da parte pessoal, então a dica é informativa
-    expect(screen.getAllByText(/^Casa /).length).toBeGreaterThan(0);
+    expect(screen.getByText('Gasto da casa')).toBeInTheDocument();
+    expect(screen.getByText(/^Sua parte: /)).toBeInTheDocument();
   });
 });

@@ -3,12 +3,12 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import { OverviewPage } from './pages/OverviewPage';
 import { WorkspaceGuard } from './components/layout/WorkspaceGuard';
-import { useLastWorkspaceId, useWorkspaceId } from './hooks/use-workspace-id';
+import { useLastWorkspaceId } from './hooks/use-workspace-id';
 import { registerQueryClient } from './api/client';
 import { Layout } from './components/layout/Layout';
+import { PageHeader } from './components/layout/PageHeader';
 import { useAuth } from './hooks/use-auth';
 import { useTheme } from './hooks/use-theme';
-import { useAuthStore } from './stores';
 import { Toaster } from './components/ui/toaster';
 import { ConfirmProvider } from './components/ui/confirm';
 
@@ -21,7 +21,6 @@ const ReportsPage = React.lazy(() => import('./pages/Reports/ReportsPage').then(
 const SettingsPage = React.lazy(() => import('./pages/Settings/SettingsPage').then(m => ({ default: m.SettingsPage })));
 const RecurringTransactionsPage = React.lazy(() => import('./pages/RecurringTransactionsPage').then(m => ({ default: m.RecurringTransactionsPage })));
 const DebtsPage = React.lazy(() => import('./pages/DebtsPage').then(m => ({ default: m.DebtsPage })));
-const EndividamentoPage = React.lazy(() => import('./pages/EndividamentoPage').then(m => ({ default: m.EndividamentoPage })));
 const TransactionsPage = React.lazy(() => import('./pages/TransactionsPage').then(m => ({ default: m.TransactionsPage })));
 const ImportPage = React.lazy(() => import('./pages/ImportPage').then(m => ({ default: m.ImportPage })));
 const IncomePage = React.lazy(() => import('./pages/IncomePage').then(m => ({ default: m.IncomePage })));
@@ -66,8 +65,22 @@ interface ProtectedRouteProps {
   children: React.ReactNode;
 }
 
+/**
+ * Guarda de rota autenticada.
+ *
+ * O estado vem do `useAuth()` (react-query) e NÃO do espelho em Zustand. A
+ * diferença é a corrida que deixava o cadastro intermitente no E2E: depois do
+ * auto-login, `invalidateQueries(['auth-me'])` marca a query como suja e dispara
+ * um refetch — mas o store só é atualizado quando esse refetch RESOLVE. Entre
+ * uma coisa e outra ele fica em `isLoading: false` + `isAuthenticated: false`,
+ * um estado que significa "sessão morta" e mandava direto para `/login`,
+ * enquanto a requisição de sessão ainda estava em voo e voltaria 200.
+ *
+ * `isFetching` fecha a janela: enquanto há requisição de sessão pendente, o
+ * guard espera em vez de concluir que não há sessão.
+ */
 const ProtectedRoute = ({ children }: ProtectedRouteProps) => {
-  const { isAuthenticated, isLoading } = useAuthStore();
+  const { isAuthenticated, isLoading } = useAuth();
   const location = useLocation();
 
   if (isLoading) {
@@ -91,19 +104,19 @@ const ProtectedRoute = ({ children }: ProtectedRouteProps) => {
 };
 
 function CardsPage() {
+  // Cartão é PESSOAL (ADR 0021): não é mais zerado ao trocar de workspace,
+  // porque não pertence a nenhum.
   const [selectedCardId, setSelectedCardId] = React.useState<number | null>(null);
-  const currentWorkspaceId = useWorkspaceId();
-
-  // Cartão selecionado não sobrevive à troca de workspace
-  React.useEffect(() => {
-    setSelectedCardId(null);
-  }, [currentWorkspaceId]);
 
   return (
     <div className="space-y-12">
+      <PageHeader
+        title="Cartões"
+        subtitle="Seus cartões e faturas. Só você os vê — em qualquer workspace."
+      />
       <CreditCardList selectedCardId={selectedCardId} onSelectCard={setSelectedCardId} />
       <div className="space-y-6">
-        <h3 className="text-xl font-semibold text-foreground">Faturas do Cartão</h3>
+        <h2 className="text-xl font-semibold text-foreground">Faturas do cartão</h2>
         <StatementView cardId={selectedCardId} />
       </div>
     </div>
@@ -137,9 +150,24 @@ function AppContent() {
           <Route path="/forgot-password" element={<ForgotPasswordPage />} />
           <Route path="/reset-password" element={<ResetPasswordPage />} />
           
-          {/* ---- PESSOAL: sem workspace no caminho (ADR 0020) ---- */}
+          {/* ---- PESSOAL: sem workspace no caminho (ADR 0020 + 0021) ----
+              Renda, cartões, contas e financiamentos vieram para cá na Onda 5:
+              são da PESSOA e a acompanham em todos os workspaces. */}
           <Route path="/overview" element={
             <ProtectedRoute><Layout><OverviewPage /></Layout></ProtectedRoute>
+          } />
+          <Route path="/me/income" element={
+            <ProtectedRoute><Layout><IncomePage /></Layout></ProtectedRoute>
+          } />
+          <Route path="/me/cards" element={
+            <ProtectedRoute><Layout><CardsPage /></Layout></ProtectedRoute>
+          } />
+          <Route path="/me/financing" element={
+            <ProtectedRoute>
+              <Layout title="Financiamentos" subtitle="Seus contratos e o cronograma de amortização.">
+                <AmortizationTable />
+              </Layout>
+            </ProtectedRoute>
           } />
           <Route path="/me/commitments" element={
             <ProtectedRoute>
@@ -159,25 +187,36 @@ function AppContent() {
           }>
             <Route index element={<WorkspaceHome />} />
             <Route path="transactions" element={<TransactionsPage />} />
-            <Route path="income" element={<IncomePage />} />
-            <Route path="cards" element={<CardsPage />} />
-            <Route path="financing" element={<AmortizationTable />} />
             <Route path="reports" element={<ReportsPage />} />
             <Route path="settings" element={<SettingsPage />} />
             <Route path="recurring" element={<RecurringTransactionsPage />} />
             <Route path="debts" element={<DebtsPage />} />
-            <Route path="liabilities" element={<EndividamentoPage />} />
             <Route path="import" element={<ImportPage />} />
           </Route>
 
-          {/* ---- Rotas antigas: redirecionam para o último workspace ---- */}
-          {/* `/` é o Início GLOBAL (ADR 0020) — não o painel de um workspace.
-              Só as rotas ANTIGAS, que eram de workspace, caem na última casa. */}
+          {/* ---- Rotas antigas ----
+              As que viraram PESSOAIS vão direto para `/me/...`; as que continuam
+              sendo do workspace caem na última casa aberta. `/` é o Início
+              GLOBAL (ADR 0020), não o painel de um workspace. */}
           <Route path="/" element={<Navigate to="/overview" replace />} />
-          {[
-            'transactions', 'income', 'cards', 'financing', 'reports',
-            'settings', 'recurring', 'debts', 'liabilities', 'import',
-          ].map((rota) => (
+          {Object.entries({
+            income: '/me/income',
+            cards: '/me/cards',
+            financing: '/me/financing',
+            liabilities: '/me/commitments',
+          }).map(([antiga, nova]) => (
+            <Route key={antiga} path={`/${antiga}`} element={<Navigate to={nova} replace />} />
+          ))}
+          {/* Também com o prefixo de workspace: quem tinha `/w/1/cards` salvo */}
+          {Object.entries({
+            'w/:workspaceId/income': '/me/income',
+            'w/:workspaceId/cards': '/me/cards',
+            'w/:workspaceId/financing': '/me/financing',
+            'w/:workspaceId/liabilities': '/me/commitments',
+          }).map(([antiga, nova]) => (
+            <Route key={antiga} path={`/${antiga}`} element={<Navigate to={nova} replace />} />
+          ))}
+          {['transactions', 'reports', 'settings', 'recurring', 'debts', 'import'].map((rota) => (
             <Route
               key={rota}
               path={`/${rota}`}

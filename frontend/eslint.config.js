@@ -6,7 +6,13 @@ import tseslint from 'typescript-eslint'
 import { defineConfig, globalIgnores } from 'eslint/config'
 
 export default defineConfig([
-  globalIgnores(['dist', 'coverage', 'playwright-report', 'test-results']),
+  // `.pytest_cache` entrou aqui porque `npm run lint` inteiro falhava com EPERM
+  // ao tentar varrê-lo — o lint "passava" só quando apontado a `src/`, e a
+  // auditoria externa encontrou o comando completo vermelho.
+  globalIgnores([
+    'dist', 'coverage', 'playwright-report', 'test-results',
+    '.pytest_cache', 'node_modules', '.venv',
+  ]),
   {
     files: ['**/*.{ts,tsx}'],
     extends: [

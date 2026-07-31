@@ -1,9 +1,8 @@
 import { Link } from 'react-router-dom';
-import { Plus, ArrowRight, Receipt, TrendingUp, TrendingDown, Wallet } from 'lucide-react';
+import { Plus, ArrowRight, Receipt, TrendingDown, Wallet, HandCoins } from 'lucide-react';
 import { useReports } from '@/hooks/use-reports';
 import { useAnalytics } from '@/hooks/use-analytics';
 import { useTransactions } from '@/hooks/use-transactions';
-import { useAuth } from '@/hooks/use-auth';
 import { useNewTxStore, useTxDetailStore } from '@/stores';
 import { PageHeader } from '@/components/layout/PageHeader';
 import { Button } from '@/components/ui/button';
@@ -14,6 +13,8 @@ import { HeroBalance } from '@/components/dashboard/HeroBalance';
 import { ExcludedForeignNotice } from '@/components/money/ExcludedForeignNotice';
 import { useBaseCurrency } from '@/hooks/use-base-currency';
 import { useWorkspaceRole } from '@/hooks/use-workspace-role';
+import { useWorkspaces } from '@/hooks/use-workspaces';
+import { useWorkspaceId } from '@/hooks/use-workspace-id';
 import { TransactionLedger } from '@/components/money/TransactionLedger';
 import { formatMoney, sameMoney } from '@/lib/money';
 import { currentMonthLocal } from '@/lib/date';
@@ -25,8 +26,21 @@ function daysLeftInMonth(): number {
   return last - now.getDate();
 }
 
+/**
+ * Painel DESTE workspace — e só dele (ADR 0021).
+ *
+ * O que saiu daqui foi o número mais enganoso do app. "Sua receita" era a renda
+ * GLOBAL da pessoa e "Resultado do mês" era essa renda menos a despesa DESTE
+ * workspace: com salário de 9.000 e 1.150 de despesa na Casa, o painel anunciava
+ * 7.850 de sobra, ignorando os 500 gastos noutro workspace — e num terceiro
+ * workspace o mesmo salário daria uma terceira "sobra", todas maiores que a real.
+ *
+ * Renda e resultado agora existem num lugar só, a Visão global (`/overview`),
+ * onde o denominador é o consumo somado de todos os workspaces. Aqui ficam os
+ * números que dependem só desta casa — e o par que faltava: quanto eu CONSUMI
+ * contra quanto eu PAGUEI, cuja diferença é o acerto.
+ */
 export function Home() {
-  const { user } = useAuth();
   // Mês LOCAL explícito nas três consultas: sem ele, resumo e previsão usavam
   // o date.today() do servidor e divergiam do extrato na virada do mês.
   const month = currentMonthLocal();
@@ -34,6 +48,12 @@ export function Home() {
   const { data: reports, isLoading: reportsLoading } = useReports(month);
   const { forecast, isLoading: forecastLoading } = useAnalytics(month);
   const { transactions, isLoading: txLoading } = useTransactions({ page: 1, limit: 6, month });
+  const { currentWorkspace } = useWorkspaces();
+  // Links do painel apontam para ESTE workspace, com o id na URL. Eles iam para
+  // `/transactions` e `/reports` — as rotas legadas, que redirecionam para a
+  // "última casa aberta" e perdiam a query string pelo caminho.
+  const workspaceId = useWorkspaceId();
+  const base = `/w/${workspaceId}`;
   const setNewTxOpen = useNewTxStore((s) => s.setOpen);
   // O Início era a tela que renderizava o ledger SEM `canWrite`, e o default
   // permissivo mostrava editar/excluir a um viewer. `isLoading` importa: o hook
@@ -44,36 +64,26 @@ export function Home() {
 
   const loading = reportsLoading || forecastLoading || roleLoading;
   const summary = reports?.current_summary;
-  const myIncome = Number(summary?.my_income ?? 0);
   const myExpenses = Number(summary?.my_expenses ?? 0);
-  // `my_net` vem do backend; recalcular aqui era uma segunda definição do
-  // mesmo número esperando divergir.
-  const myNet = summary?.my_net == null ? myIncome - myExpenses : Number(summary.my_net);
+  const paidByMe = Number(summary?.paid_by_me ?? 0);
+  // Positivo = adiantei e tenho a receber; negativo = devo. Vem do backend
+  // pronto: recalcular aqui seria uma segunda definição esperando divergir.
+  const myBalance = Number(summary?.my_balance ?? 0);
   // Números da CASA vêm `null` para quem não tem acesso financeiro completo
   // (ADR 0018). `?? 0` aqui era um erro esperando acontecer: a dica renderizaria
   // "Casa R$ 0,00" ao lado da despesa real do membro — um número inventado na
   // tela. `null` tem de continuar `null` até a decisão de exibir.
-  const houseIncome = summary?.total_income == null ? null : Number(summary.total_income);
   const houseExpenses = summary?.total_expenses == null ? null : Number(summary.total_expenses);
-  // Meta PESSOAL — o card mostra "sua despesa", então o orçamento ao lado tem
+  // Meta PESSOAL — o card mostra "sua parte", então o orçamento ao lado tem
   // que ser o seu. Com `total_budget` (a meta da CASA) a barra marcava ~50% num
   // workspace de duas pessoas com rateio igual, enquanto Relatórios, que compara
   // casa com casa, mostrava 100% para o MESMO orçamento.
   const budget = parseFloat(forecast?.my_budget ?? '0') || 0;
-  // "Casa X" só quando o total do workspace DIFERE da sua parte. Sozinho no
-  // workspace (ou num mês em que tudo foi só seu) ele repetia o número de cima.
-  // Sem acesso completo (house === null) a dica simplesmente não existe.
-  const casa = (mine: number, house: number | null) =>
-    house == null || sameMoney(mine, house)
-      ? undefined
-      : `Casa ${formatMoney(house, { currency: baseCurrency })}`;
-  const firstName = user?.name?.split(' ')[0];
-
   return (
     <div className="space-y-6">
       <PageHeader
-        title="Início"
-        subtitle={firstName ? `Olá, ${firstName} — aqui está seu mês.` : 'Aqui está seu mês.'}
+        title={currentWorkspace ? `Workspace · ${currentWorkspace.name}` : 'Painel'}
+        subtitle="Somente este workspace. Sua renda e seu resultado ficam na Visão global."
         action={
           canWrite ? (
             <Button onClick={() => setNewTxOpen(true)} className="gap-2">
@@ -100,38 +110,55 @@ export function Home() {
           <div className="grid gap-6 lg:grid-cols-3 lg:items-start">
             <HeroBalance
               className="lg:col-span-2"
-              net={myNet}
+              // O protagonista aqui é o consumo DESTA casa contra a meta — não
+              // uma "sobra", que depende de renda e por isso é da Visão global.
+              label="Sua parte no mês"
+              hero={myExpenses}
+              heroKind="expense"
               spent={myExpenses}
               budget={budget}
               daysLeft={daysLeftInMonth()}
               currency={baseCurrency}
-              budgetHref={`/reports?month=${month}`}
+              budgetHref={`${base}/reports?month=${month}`}
             />
             <div className="grid gap-4 sm:grid-cols-3 lg:grid-cols-1">
+              {/* Gasto da CASA — o número que só existe com acesso financeiro
+                  completo (ADR 0018). Sem ele o tile some, em vez de mostrar
+                  "R$ 0,00", que seria um número inventado ao lado da sua parte.
+                  Repetir "Sua parte" aqui, ao lado do mesmo valor no hero, era a
+                  redundância que a auditoria apontou. */}
+              {houseExpenses != null && (
+                <StatTile
+                  label="Gasto da casa"
+                  value={houseExpenses}
+                  kind="expense"
+                  icon={TrendingDown}
+                  currency={baseCurrency}
+                  hint={
+                    sameMoney(myExpenses, houseExpenses)
+                      ? 'Tudo neste mês foi seu'
+                      : `Sua parte: ${formatMoney(myExpenses, { currency: baseCurrency })}`
+                  }
+                />
+              )}
               <StatTile
-                label="Sua receita"
-                value={myIncome}
-                kind="income"
-                icon={TrendingUp}
-                currency={baseCurrency}
-                hint={casa(myIncome, houseIncome)}
-              />
-              <StatTile
-                label="Sua despesa"
-                value={myExpenses}
-                kind="expense"
-                icon={TrendingDown}
-                currency={baseCurrency}
-                hint={casa(myExpenses, houseExpenses)}
-              />
-              <StatTile
-                // "Saldo" sugeria saldo bancário; é renda menos consumo do
-                // PERÍODO (ADR 0020)
-                label="Resultado do mês"
-                value={myNet}
-                kind={myNet >= 0 ? 'income' : 'expense'}
+                label="Pago por você"
+                value={paidByMe}
+                kind="neutral"
                 icon={Wallet}
                 currency={baseCurrency}
+                hint="O que saiu do seu bolso nesta casa"
+              />
+              <StatTile
+                // Nome pelo que é: a diferença entre consumo e caixa NESTE
+                // workspace. Nunca compensada com outros — dever na casa e ter a
+                // receber na viagem envolve pessoas e acordos diferentes.
+                label={myBalance >= 0 ? 'Você tem a receber' : 'Você deve'}
+                value={Math.abs(myBalance)}
+                kind={myBalance >= 0 ? 'income' : 'expense'}
+                icon={HandCoins}
+                currency={baseCurrency}
+                hint="Diferença entre o que você pagou e a sua parte"
               />
               <ExcludedForeignNotice
                 count={summary?.excluded_foreign_count}
@@ -144,7 +171,7 @@ export function Home() {
             <div className="flex items-center justify-between border-b border-border px-4 py-3">
               <h2 className="text-base font-semibold text-foreground">Últimos lançamentos</h2>
               <Link
-                to="/transactions"
+                to={`${base}/transactions`}
                 className="inline-flex items-center gap-1 text-sm font-medium text-brand hover:underline"
               >
                 Ver todos <ArrowRight className="h-3.5 w-3.5" />
@@ -161,7 +188,7 @@ export function Home() {
                 <EmptyState
                   icon={Receipt}
                   title="Nenhum lançamento ainda"
-                  description="Registre seu primeiro gasto para começar a acompanhar seu mês."
+                  description="Registre o primeiro gasto desta casa para começar a acompanhar o mês."
                   action={
                     canWrite ? (
                       <Button onClick={() => setNewTxOpen(true)} className="gap-2">

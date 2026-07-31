@@ -98,7 +98,16 @@ export function useAuth() {
   return {
     user: meQuery.data,
     isAuthenticated: !!meQuery.data,
-    isLoading: meQuery.isLoading || loginMutation.isPending || registerMutation.isPending,
+    // `isFetching`, não só `isLoading`: depois do auto-login o cache de
+    // `auth-me` é invalidado e refeito, e nesse intervalo `isLoading` já é
+    // `false` enquanto `data` ainda é `undefined`. Quem consome isto como
+    // "não autenticado" (o ProtectedRoute) redirecionava para /login no meio de
+    // um cadastro bem-sucedido — a intermitência que o E2E via.
+    isLoading:
+      meQuery.isLoading ||
+      meQuery.isFetching ||
+      loginMutation.isPending ||
+      registerMutation.isPending,
     error: loginMutation.error || registerMutation.error,
     login: loginMutation.mutateAsync,
     register: registerMutation.mutateAsync,

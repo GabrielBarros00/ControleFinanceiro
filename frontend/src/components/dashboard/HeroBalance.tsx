@@ -5,12 +5,21 @@ import { MoneyText } from '@/components/money/MoneyText';
 import { BudgetBar } from '@/components/ui/budget-bar';
 
 /*
- * HeroBalance — o número protagonista do Início (docs/frontend-redesign/06 §1).
- * Mostra a RESPOSTA ("sobra do mês") + progresso do orçamento, no lugar dos 8
- * cartões redundantes de antes.
+ * HeroBalance — o número protagonista do painel (docs/frontend-redesign/06 §1),
+ * no lugar dos 8 cartões redundantes de antes.
+ *
+ * O rótulo é PARÂMETRO desde a Onda 5. Ele era fixo em "Sobra do mês", e o
+ * painel do workspace exibia ali um resultado pessoal (renda global menos
+ * despesa local) que não era nem sobra nem do workspace — além de repetir, com
+ * outro nome, o tile "Resultado do mês" logo ao lado. Cada tela agora declara
+ * que número está protagonizando.
  */
 interface HeroBalanceProps {
-  net: number; // sobra = sua receita − sua despesa (mês)
+  /** O que o número grande significa nesta tela. */
+  label: string;
+  hero: number;
+  /** Cor do número: `expense` pinta de vermelho mesmo sendo positivo. */
+  heroKind?: 'income' | 'expense';
   spent: number; // sua despesa (mês)
   /** Meta PESSOAL do mês. Tem que ser a do usuário: `spent` é a parte dele. */
   budget: number;
@@ -23,7 +32,9 @@ interface HeroBalanceProps {
 }
 
 export function HeroBalance({
-  net,
+  label,
+  hero,
+  heroKind,
   spent,
   budget,
   daysLeft,
@@ -41,10 +52,10 @@ export function HeroBalance({
 
   return (
     <div className={cn('rounded-2xl border border-border bg-card p-6', className)}>
-      <p className="text-sm text-muted-foreground">Sobra do mês</p>
+      <p className="text-sm text-muted-foreground">{label}</p>
       <MoneyText
-        value={net}
-        kind={net >= 0 ? 'income' : 'expense'}
+        value={hero}
+        kind={heroKind ?? (hero >= 0 ? 'income' : 'expense')}
         size="hero"
         currency={currency}
         className="mt-1 block"

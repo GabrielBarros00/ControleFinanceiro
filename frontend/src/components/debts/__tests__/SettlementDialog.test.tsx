@@ -10,8 +10,8 @@ import type { Member } from '@/hooks/use-members';
 const WS = 'http://localhost:8000/api/v1/workspaces/1';
 
 const members: Member[] = [
-  { user_id: 1, role: 'owner', user_name: 'Alice', user_email: 'a@t.com', joined_at: '2026-01-01' },
-  { user_id: 2, role: 'member', user_name: 'Bob', user_email: 'b@t.com', joined_at: '2026-01-01' },
+  { user_id: 1, role: 'owner', financial_access: 'full_workspace', user_name: 'Alice', user_email: 'a@t.com', joined_at: '2026-01-01' },
+  { user_id: 2, role: 'member', financial_access: 'involved_only', user_name: 'Bob', user_email: 'b@t.com', joined_at: '2026-01-01' },
 ];
 
 function renderDialog(onOpenChange: (open: boolean) => void = () => {}) {

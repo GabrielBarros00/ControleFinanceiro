@@ -45,9 +45,31 @@ export function useOverview(month?: string) {
   return { overview: query.data, isLoading: query.isLoading };
 }
 
+/**
+ * Compromissos separados por PRAZO (ADR 0021).
+ *
+ * O `total` único que existia aqui somava a próxima fatura do cartão com o
+ * principal inteiro de cada financiamento — juntava o que vence em cinco dias
+ * com o que vence em quinze anos e não respondia nem "quanto preciso ter em
+ * caixa este mês" nem "quanto devo ao todo". São cinco números agora.
+ */
 export interface Commitments {
   currency: string;
-  total: string | number;
+  /** Já venceu e não foi pago */
+  overdue: string | number;
+  /** Ainda vence dentro deste mês */
+  due_this_month: string | number;
+  /** Tamanho da dívida: principal em aberto + faturas não pagas */
+  outstanding_total: string | number;
+  /** Quanto do mês já está comprometido (uma parcela por financiamento ativo) */
+  monthly_commitment: string | number;
+  next_installments: {
+    financing_id: number;
+    title: string;
+    installment_number: number;
+    due_date: string;
+    amount: string | number;
+  }[];
   cards: {
     card_id: number;
     card_name: string;
@@ -64,6 +86,7 @@ export interface Commitments {
     next_due_date: string;
     remaining_installments: number;
   }[];
+  excluded_foreign_count: number;
 }
 
 export function useCommitments() {

@@ -2,13 +2,11 @@ import * as React from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { Plus, MoreHorizontal, LogOut } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { navFlat, mobilePrimaryPaths, type NavItem } from './nav-items';
+import { activeNavPath, navFlat, mobilePrimaryPaths, type NavItem } from './nav-items';
 import { useWorkspaceId } from '@/hooks/use-workspace-id';
 import { useNewTxStore } from '@/stores';
 import { useAuth } from '@/hooks/use-auth';
 
-const isActivePath = (pathname: string, to: string) =>
-  pathname === to || pathname.startsWith(`${to}/`);
 
 function MoreSheet({ open, onClose }: { open: boolean; onClose: () => void }) {
   const location = useLocation();
@@ -24,7 +22,7 @@ function MoreSheet({ open, onClose }: { open: boolean; onClose: () => void }) {
         <div className="mx-auto mb-4 h-1 w-10 rounded-full bg-muted" />
         <div className="grid grid-cols-3 gap-2">
           {itens.map((item) => {
-            const active = isActivePath(location.pathname, item.to);
+            const active = activeNavPath(location.pathname, workspaceId) === item.to;
             return (
               <Link
                 key={item.to}
@@ -69,7 +67,9 @@ export function BottomNav() {
       to={nav.to}
       className={cn(
         'flex flex-1 flex-col items-center gap-0.5 py-2 text-[11px]',
-        isActivePath(location.pathname, nav.to) ? 'text-brand' : 'text-muted-foreground',
+        activeNavPath(location.pathname, workspaceId) === nav.to
+          ? 'text-brand'
+          : 'text-muted-foreground',
       )}
     >
       <nav.icon className="h-5 w-5" />

@@ -13,7 +13,7 @@ import { useAuth } from '@/hooks/use-auth';
 import { useWorkspaces } from '@/hooks/use-workspaces';
 import { useWorkspaceRole } from '@/hooks/use-workspace-role';
 import { useAudit } from '@/hooks/use-audit';
-import { useMembers, type WorkspaceRole } from '@/hooks/use-members';
+import { useMembers, type FinancialAccess, type WorkspaceRole } from '@/hooks/use-members';
 import { useCategories } from '@/hooks/use-categories';
 import { usePaymentAccounts, ACCOUNT_TYPE_OPTIONS, accountTypeLabel, type PaymentAccountType } from '@/hooks/use-payment-accounts';
 import { WorkspaceCreateDialog } from '@/components/workspace/WorkspaceCreateDialog';
@@ -24,6 +24,7 @@ import { useConfirm } from '@/components/ui/confirm';
 import { CategoryGlyph } from '@/components/money/CategoryGlyph';
 import { parseApiDate } from '@/lib/date';
 import { CURRENCIES } from '@/lib/currencies';
+import { PageHeader } from '@/components/layout/PageHeader';
 
 type Tab = 'profile' | 'security' | 'members' | 'categories' | 'accounts' | 'appearance' | 'audit';
 
@@ -50,6 +51,12 @@ const ROLE_LABELS: Record<WorkspaceRole, string> = {
   admin: 'Admin',
   member: 'Membro',
   viewer: 'Leitor',
+};
+
+/** O que o membro VÊ (ADR 0018) — eixo separado do que ele PODE FAZER. */
+const ACCESS_LABELS: Record<FinancialAccess, string> = {
+  involved_only: 'Só o que o envolve',
+  full_workspace: 'Todo o workspace',
 };
 
 function ProfileTab() {
@@ -226,7 +233,7 @@ function MembersTab() {
   const { currentWorkspace, update: updateWorkspace, remove: removeWorkspace } = useWorkspaces();
   const {
     members, invites, inviteByEmail, createInviteLink, revokeInvite,
-    changeRole, removeMember, leaveWorkspace,
+    updateMember, removeMember, leaveWorkspace,
   } = useMembers();
 
   const confirm = useConfirm();
@@ -237,6 +244,9 @@ function MembersTab() {
   const [wsName, setWsName] = React.useState('');
   const [inviteEmail, setInviteEmail] = React.useState('');
   const [inviteRole, setInviteRole] = React.useState<WorkspaceRole>('member');
+  // Default FECHADO, igual ao do backend (ADR 0018): quem entra vê o que o
+  // envolve, e abrir para os números da casa é ato explícito de quem convida.
+  const [inviteAccess, setInviteAccess] = React.useState<FinancialAccess>('involved_only');
   const [feedback, setFeedback] = React.useState<{ ok: boolean; text: string } | null>(null);
   const [inviteLink, setInviteLink] = React.useState<string | null>(null);
   const [copied, setCopied] = React.useState(false);
@@ -257,7 +267,9 @@ function MembersTab() {
   const handleInvite = async () => {
     setFeedback(null);
     try {
-      await inviteByEmail({ email: inviteEmail.trim(), role: inviteRole });
+      await inviteByEmail({
+        email: inviteEmail.trim(), role: inviteRole, financial_access: inviteAccess,
+      });
       setInviteEmail('');
       // Ninguém mais entra sem aceitar — nem quem já tem conta. Quem já tem
       // recebe o aviso dentro do app (sino) além do e-mail.
@@ -273,7 +285,9 @@ function MembersTab() {
   const handleCreateLink = async () => {
     setFeedback(null);
     try {
-      const res = await createInviteLink({ role: inviteRole, expires_days: 7 });
+      const res = await createInviteLink({
+        role: inviteRole, financial_access: inviteAccess, expires_days: 7,
+      });
       setInviteLink(res.url);
     } catch (err) {
       showError(err, 'Erro ao gerar link.');
@@ -419,8 +433,13 @@ function MembersTab() {
                       items={ROLE_LABELS}
                       value={m.role}
                       onValueChange={async (value) => {
-                        try { await changeRole({ userId: m.user_id, role: value as WorkspaceRole }); }
-                        catch (err) { showError(err, 'Erro ao alterar papel.'); }
+                        try {
+                          await updateMember({
+                            userId: m.user_id,
+                            role: value as WorkspaceRole,
+                            financial_access: m.financial_access,
+                          });
+                        } catch (err) { showError(err, 'Erro ao alterar papel.'); }
                       }}
                     >
                       <SelectTrigger className="h-8 w-[112px] text-xs font-semibold"><SelectValue /></SelectTrigger>
@@ -430,6 +449,35 @@ function MembersTab() {
                         {isOwner && <SelectItem value="admin">Admin</SelectItem>}
                       </SelectContent>
                     </Select>
+                    {/* Visibilidade financeira — o eixo que existia só na API.
+                        `admin`/`owner` veem tudo pelo cargo e não são
+                        rebaixáveis, então o controle não aparece para eles. */}
+                    {m.role !== 'admin' && (
+                      <Select
+                        items={ACCESS_LABELS}
+                        value={m.financial_access}
+                        onValueChange={async (value) => {
+                          try {
+                            await updateMember({
+                              userId: m.user_id,
+                              role: m.role,
+                              financial_access: value as FinancialAccess,
+                            });
+                          } catch (err) { showError(err, 'Erro ao alterar a visibilidade.'); }
+                        }}
+                      >
+                        <SelectTrigger
+                          aria-label={`Visibilidade financeira de ${m.user_name}`}
+                          className="h-8 w-[168px] text-xs font-semibold"
+                        >
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="involved_only">Só o que o envolve</SelectItem>
+                          <SelectItem value="full_workspace">Todo o workspace</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    )}
                     <Button
                       variant="ghost" size="sm"
                       onClick={async () => {
@@ -449,7 +497,12 @@ function MembersTab() {
                     </Button>
                   </>
                 ) : (
-                  <Badge variant="outline" className="border-border text-muted-foreground">{ROLE_LABELS[m.role]}</Badge>
+                  <div className="flex items-center gap-2">
+                    <Badge variant="outline" className="border-border text-muted-foreground">{ROLE_LABELS[m.role]}</Badge>
+                    <Badge variant="outline" className="border-border text-muted-foreground">
+                      {ACCESS_LABELS[m.financial_access] ?? ACCESS_LABELS.involved_only}
+                    </Badge>
+                  </div>
                 )}
               </div>
             </div>
@@ -472,13 +525,29 @@ function MembersTab() {
                 className="bg-background/50 border-border flex-1"
               />
               <Select items={ROLE_LABELS} value={inviteRole} onValueChange={(value) => setInviteRole(value as WorkspaceRole)}>
-                <SelectTrigger className="h-10 w-[130px] text-sm font-semibold"><SelectValue /></SelectTrigger>
+                <SelectTrigger aria-label="Papel do convidado" className="h-10 w-[130px] text-sm font-semibold"><SelectValue /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value="viewer">Leitor</SelectItem>
                   <SelectItem value="member">Membro</SelectItem>
                   {isOwner && <SelectItem value="admin">Admin</SelectItem>}
                 </SelectContent>
               </Select>
+              {/* Visibilidade do convidado: vale tanto para o convite por e-mail
+                  quanto para o link. Sem este controle, a permissão só existia
+                  por chamada direta à API. */}
+              {inviteRole !== 'admin' && (
+                <Select
+                  items={ACCESS_LABELS}
+                  value={inviteAccess}
+                  onValueChange={(value) => setInviteAccess(value as FinancialAccess)}
+                >
+                  <SelectTrigger aria-label="Visibilidade financeira do convidado" className="h-10 w-[186px] text-sm font-semibold"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="involved_only">Só o que o envolve</SelectItem>
+                    <SelectItem value="full_workspace">Todo o workspace</SelectItem>
+                  </SelectContent>
+                </Select>
+              )}
               <Button onClick={handleInvite} disabled={!inviteEmail.includes('@')} className="bg-primary font-bold">
                 Convidar
               </Button>
@@ -943,6 +1012,7 @@ export function SettingsPage() {
 
   return (
     <div className="space-y-8 animate-in slide-in-from-bottom-4 duration-700 pb-20">
+      <PageHeader title="Configurações" subtitle="Seu perfil, este workspace e quem tem acesso a ele." />
       <div className="grid gap-6 md:grid-cols-[240px_1fr]">
         <aside className="space-y-2">
           {menuItems.map((item) => (

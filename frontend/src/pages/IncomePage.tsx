@@ -29,7 +29,7 @@ import {
   type RecurrenceValue,
 } from "@/lib/recurrence";
 import { formatCurrency, currencySymbol } from '@/lib/money';
-import { useBaseCurrency } from '@/hooks/use-base-currency';
+import { useReportCurrency } from '@/hooks/use-report-currency';
 import { CurrencyCombobox } from '@/components/dashboard/transaction-form/CurrencyCombobox';
 import { getApiErrorMessage } from '@/lib/api-error';
 import { toast } from '@/stores/toast';
@@ -44,7 +44,11 @@ import { useMonthParam } from '@/hooks/use-month-param';
 export function IncomePage() {
   const [month, setMonth] = useMonthParam();
   const { incomes, isLoading, create, update, remove } = useIncome(month);
-  const baseCurrency = useBaseCurrency();
+  // Renda é PESSOAL (ADR 0021): a moeda é a de relatório do usuário, não a
+  // moeda-base do workspace aberto. Somar `amount` e formatar com a base do
+  // workspace fazia a MESMA renda ser exibida em moedas diferentes conforme a
+  // casa em que a tela por acaso estivesse.
+  const baseCurrency = useReportCurrency();
   const {
     recurringIncomes,
     isLoading: loadingRecurring,
@@ -227,7 +231,7 @@ export function IncomePage() {
     <div className="space-y-6">
       <PageHeader
         title="Rendas"
-        subtitle={`Salários e entradas do mês — total ${formatCurrency(total, baseCurrency)}`}
+        subtitle={`Suas entradas do mês, em todos os workspaces — total ${formatCurrency(total, baseCurrency)}`}
         period={<PeriodPicker value={month} onChange={setMonth} />}
         action={
           <div className="flex items-center gap-2">
