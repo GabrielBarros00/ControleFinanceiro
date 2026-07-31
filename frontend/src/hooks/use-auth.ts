@@ -98,14 +98,20 @@ export function useAuth() {
   return {
     user: meQuery.data,
     isAuthenticated: !!meQuery.data,
-    // `isFetching`, não só `isLoading`: depois do auto-login o cache de
-    // `auth-me` é invalidado e refeito, e nesse intervalo `isLoading` já é
-    // `false` enquanto `data` ainda é `undefined`. Quem consome isto como
-    // "não autenticado" (o ProtectedRoute) redirecionava para /login no meio de
-    // um cadastro bem-sucedido — a intermitência que o E2E via.
+    // "Carregando" = **há requisição de sessão em voo E ainda não sei quem é**.
+    //
+    // As duas metades importam. Sem `isFetching`, o auto-login abria uma janela
+    // em que `isLoading` já era `false` e `data` ainda `undefined` — estado
+    // indistinguível de "sessão morta", e o `ProtectedRoute` redirecionava para
+    // `/login` no meio de um cadastro bem-sucedido (a intermitência do E2E).
+    //
+    // Sem o `!meQuery.data`, o remédio vira outro defeito: `auth-me` refaz a
+    // consulta em segundo plano (foco da janela, reconexão) e o app inteiro
+    // piscava a tela de carregamento, desmontando o que estivesse aberto — um
+    // diálogo em preenchimento, por exemplo. Com usuário conhecido, refetch é
+    // invisível.
     isLoading:
-      meQuery.isLoading ||
-      meQuery.isFetching ||
+      (meQuery.isFetching && !meQuery.data) ||
       loginMutation.isPending ||
       registerMutation.isPending,
     error: loginMutation.error || registerMutation.error,

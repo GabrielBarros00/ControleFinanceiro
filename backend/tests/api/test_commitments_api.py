@@ -11,6 +11,7 @@ em aberto de cada financiamento — juntando o que vence em cinco dias com o que
 vence em quinze anos. Um número assim não responde nem "quanto preciso ter em
 caixa este mês" nem "quanto devo ao todo".
 """
+import calendar
 from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
 
@@ -25,7 +26,12 @@ from app.models.transaction import Transaction
 
 client = TestClient(app)
 
-HOJE = date.today()
+# UTC, a mesma referência que `is_overdue` e `get_commitments` usam. Com
+# `date.today()` (local) o fixture ficava frágil em fuso negativo: perto da meia-
+# noite UTC já era o dia seguinte, e a fatura montada para "vencer hoje"
+# aparecia como vencida.
+HOJE = datetime.now(UTC).date()
+FIM_DO_MES = date(HOJE.year, HOJE.month, calendar.monthrange(HOJE.year, HOJE.month)[1])
 
 
 def _me(setup_data, caminho: str, headers_key: str = "headers1"):
@@ -58,11 +64,13 @@ def compromissos_fixture(db_session: Session, setup_data, override_get_session):
         due_date=datetime(2026, 1, 20, tzinfo=UTC),
         total_amount=Decimal("300.00"),
     )
-    # Fatura ABERTA vencendo ainda neste mês
+    # Fatura ABERTA vencendo ainda neste mês. O vencimento é o ÚLTIMO dia do mês:
+    # qualquer data fixa (hoje, hoje+N) ou vira "vencida" numa rodada perto da
+    # virada, ou escapa do mês quando o teste roda no fim dele.
     do_mes = CardStatement(
         card_id=card.id, month=HOJE.strftime("%Y-%m"), status=StatementStatus.open,
         closing_date=datetime.combine(HOJE, datetime.min.time()),
-        due_date=datetime.combine(HOJE, datetime.max.time()),
+        due_date=datetime.combine(FIM_DO_MES, datetime.min.time()),
     )
     db_session.add_all([vencida, do_mes])
     db_session.commit()

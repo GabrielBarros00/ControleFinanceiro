@@ -96,7 +96,7 @@ test.describe('Troca de workspace: janela do handshake', () => {
     });
 
     await pageB.goto('/');
-    await expect(pageB.getByRole('heading', { name: 'Início' })).toBeVisible();
+    await expect(pageB.getByRole('heading', { name: /Workspace ·|Início|Painel/ })).toBeVisible();
     // Pré-condição: B está no próprio workspace, com socket aberto
     await pageB.waitForEvent('websocket', {
       predicate: (w) => w.url().includes(`/ws/workspaces/${wsB.id}`),

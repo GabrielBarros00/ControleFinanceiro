@@ -71,8 +71,12 @@ export function OnboardingModal() {
         showCloseButton={false}
         onEscapeKeyDown={(e) => e.preventDefault()}
         onPointerDownOutside={(e) => e.preventDefault()}
-        onInteractOutside={(e) => e.preventDefault()}
-        aria-labelledby="onboarding-titulo"
+        // Sem `id`/`aria-labelledby` na mão: o Radix gera o id do título e o
+        // associa sozinho. Fixar `id="onboarding-titulo"` no `DialogTitle`
+        // SOBRESCREVIA o id gerado, então a verificação interna do Radix não
+        // encontrava o título e disparava, a cada abertura,
+        // "`DialogContent` requires a `DialogTitle`" — o erro de console que a
+        // auditoria externa via repetido no log e que nenhum teste pegava.
       >
         <div className="h-2 bg-muted w-full">
           <div
@@ -94,7 +98,7 @@ export function OnboardingModal() {
                   <Sparkles className="h-8 w-8 text-primary" />
                 </div>
                 <div className="space-y-2">
-                  <DialogTitle id="onboarding-titulo" className="text-3xl font-bold tracking-tight">
+                  <DialogTitle className="text-3xl font-bold tracking-tight">
                     Bem-vindo, {user?.name.split(' ')[0]}!
                   </DialogTitle>
                   <DialogDescription>
@@ -113,7 +117,7 @@ export function OnboardingModal() {
           {step === 2 && (
             <div className="space-y-6 animate-in fade-in slide-in-from-right-4 duration-500">
               <DialogHeader className="space-y-2">
-                <DialogTitle id="onboarding-titulo" className="text-xl font-bold flex items-center gap-2">
+                <DialogTitle className="text-xl font-bold flex items-center gap-2">
                   <Wallet className="h-5 w-5 text-primary" /> Qual sua renda mensal?
                 </DialogTitle>
                 <DialogDescription>
@@ -148,7 +152,7 @@ export function OnboardingModal() {
           {step === 3 && (
             <div className="space-y-6 animate-in fade-in slide-in-from-right-4 duration-500">
               <DialogHeader className="space-y-2">
-                <DialogTitle id="onboarding-titulo" className="text-xl font-bold flex items-center gap-2">
+                <DialogTitle className="text-xl font-bold flex items-center gap-2">
                   <CreditCard className="h-5 w-5 text-primary" /> Seu cartão principal
                 </DialogTitle>
                 <DialogDescription>

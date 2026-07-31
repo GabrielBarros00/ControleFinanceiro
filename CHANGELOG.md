@@ -11,6 +11,85 @@ segue [SemVer](https://semver.org/lang/pt-BR/).
 
 ## [Não lançado]
 
+### Recurso financeiro é da pessoa e não mora em workspace nenhum (ADR 0021)
+
+Uma auditoria externa encontrou um vazamento de privacidade em cartão de crédito, e a causa
+não era um endpoint distraído: era o modelo. A Onda 2 tinha deixado o cartão morar num
+workspace e criado uma tabela de vínculo com dois níveis — `use` (lançar e ver o próprio
+subtotal) e `full` (fatura inteira). O predicado que implementava a distinção,
+`card_full_access_here()`, **existia sem um único chamador**. Na prática, todo cartão
+compartilhado entregava a quem tivesse `full_workspace` no workspace de destino o limite, o
+valor comprometido e a fatura inteira — com as compras privadas feitas em outro workspace
+dentro dela. `GET .../statements/{id}` piorava: filtrava as transações só por
+`statement_id`, sem workspace e sem envolvimento. E `close`, `pay` e `reopen` pediam apenas
+`require_role(member)`, então qualquer membro que enxergasse o cartão controlava o ciclo da
+fatura do dono.
+
+E, ao mesmo tempo, **não servia**: usar o cartão compartilhado no destino respondia `400`,
+porque a criação de lançamento exigia `card.workspace_id == workspace_id`. Vazava e não
+funcionava.
+
+Por decisão do dono, cartão, conta de pagamento, financiamento e renda passam a ser da
+PESSOA, sem `workspace_id`:
+
+- as cinco tabelas de vínculo recurso↔workspace foram removidas, as colunas `workspace_id`
+  saíram de `creditcard`/`paymentaccount`/`financing`/`income`/`recurringincome`, e o dono
+  virou NOT NULL (migração `a4e8c1b90f52`, com backfill a partir do workspace de origem);
+- as rotas foram para `/me/...`, com a sessão no gate;
+- `personal_scope` substitui `owner_scope` nesses domínios e **não consulta
+  `financial_access`** — acesso completo governa dado do workspace, nunca recurso pessoal.
+  Trocar o modelo sem trocar o predicado teria reaberto o vazamento com o schema novo;
+- o gate de uso virou a propriedade: lançar exige que o cartão seja de quem lança, e a conta
+  informada por um pagador tem de pertencer **àquele pagador** — `_validate_payer_accounts`
+  nunca olhava `payer.user_id`, então bastava conhecer o id para declarar que a despesa saiu
+  da conta bancária de outra pessoa do mesmo workspace.
+
+### O "Resultado do mês" que mentia
+
+O Painel mostrava `my_net = my_income − my_expenses` com a renda **global** e a despesa
+recortada **naquele workspace**. Com salário de 9.000 e 1.150 de despesa na Casa, ele
+anunciava 7.850 de sobra — ignorando os 500 gastos noutro workspace. Num terceiro workspace
+o mesmo salário seria combinado com outro subconjunto de despesas e daria uma terceira
+"sobra", todas maiores que a real.
+
+Renda e resultado saíram do resumo, do histórico e da previsão do workspace; existem num
+lugar só, `/me/overview`, onde o denominador é o consumo somado de todos. O Painel ganhou
+`paid_by_me` e `my_balance`, que respondem "paguei 1.300, consumi 1.150, tenho 150 a
+receber". A renda "da casa" também saiu: sem modelo de beneficiários ela era creditada 100%
+a quem cadastrou — o aluguel recebido pelo casal aparecia todo para um só.
+
+### Permissão financeira, enfim, na tela
+
+`financial_access` existia no backend e em lugar nenhum do frontend: a permissão era
+concedível apenas por chamada direta à API. Agora há um seletor "Só o que o envolve / Todo o
+workspace" na linha de cada membro e nos dois formulários de convite.
+
+### Outros
+
+- **Compromissos separados por prazo.** O "Total a pagar" somava a próxima fatura com o
+  principal inteiro dos financiamentos — juntava o que vence em cinco dias com o que vence
+  em quinze anos. `/me/commitments` devolve vencido, a vencer no mês, próximas parcelas,
+  saldo devedor e comprometimento mensal.
+- **Moeda do que é pessoal** passa a ser `User.report_currency`. Herdava a moeda-base do
+  workspace ABERTO, então a mesma renda nascia em moedas diferentes conforme a tela por onde
+  foi criada. E trocar a moeda-base de um workspace deixou de reescrever renda/conta/cartão
+  dos membros — num usuário de dois workspaces, o segundo desfazia o primeiro.
+- **Corrida do cadastro/login.** `ProtectedRoute` lia um espelho em Zustand que só é
+  atualizado quando o refetch de `auth-me` resolve; entre o `invalidateQueries` e a
+  resposta, o estado era indistinguível de "sessão morta" e o guard mandava para `/login` no
+  meio de um cadastro bem-sucedido.
+- **307 e o cookie.** Rotas de coleção em `/me` respondem com e sem barra final: o
+  redirecionamento automático do Starlette descarta o cookie de sessão, e `/me/income/`
+  devolvia 401 enquanto `/me/income` devolvia 200.
+- **Navegação:** um item ativo por vez (o teste de prefixo acendia Painel e Relatórios
+  juntos), "Rendas" saiu da seção "Compartilhado" (é o dado mais privado do sistema), e há
+  um único item "Compromissos". `h1` em Cartões, Financiamentos, Importar e Configurações.
+- **`npm run lint` inteiro volta a passar** — varria `.pytest_cache` e morria com `EPERM`.
+- **Compartilhamento entre PESSOAS** (o casal que divide tudo mas tem contas separadas) fica
+  desenhado em `docs/estudo-recursos-compartilhados.md`, não implementado: o modelo anterior
+  errava a forma ao vincular recurso a espaço em vez de a co-proprietários.
+
+
 ### Renda é da pessoa, não do workspace (ADR 0019)
 
 - **"A renda não está global — criei um novo workspace e não contou."** Todo o domínio

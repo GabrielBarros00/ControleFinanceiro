@@ -15,6 +15,34 @@ const API = 'http://localhost:8000/api/v1';
 const PADRAO = ['wcag2a', 'wcag2aa'];
 
 /**
+ * Erro de console é FALHA, não ruído.
+ *
+ * A auditoria externa encontrou `DialogContent requires a DialogTitle` repetido
+ * no log do runner — um defeito de acessibilidade real (diálogo sem nome
+ * acessível) que nenhum teste via, porque o axe mede o DOM e o React reporta
+ * isso via `console.error`. Aqui os dois sinais passam a valer.
+ *
+ * A lista de exceções é curta e explícita de propósito: o que não estiver nela
+ * quebra o teste.
+ */
+const RUIDO_ACEITAVEL = [
+  'WebSocket connection',            // Vite HMR reconectando em dev
+  'Download the React DevTools',
+];
+
+function vigiarConsole(page: Page): string[] {
+  const erros: string[] = [];
+  page.on('console', (msg) => {
+    if (msg.type() !== 'error' && msg.type() !== 'warning') return;
+    const texto = msg.text();
+    if (RUIDO_ACEITAVEL.some((ok) => texto.includes(ok))) return;
+    erros.push(`[${msg.type()}] ${texto}`);
+  });
+  page.on('pageerror', (err) => erros.push(`[pageerror] ${err.message}`));
+  return erros;
+}
+
+/**
  * Espera as animações de entrada TERMINAREM antes de medir.
  *
  * Sem isto o axe fotografa a tela no meio do `fade-in` — com o elemento ainda
@@ -25,7 +53,16 @@ const PADRAO = ['wcag2a', 'wcag2aa'];
  */
 async function aguardarAnimacoes(page: Page) {
   await page.waitForFunction(
-    () => document.getAnimations().every((a) => a.playState !== 'running'),
+    () =>
+      document.getAnimations().every((a) => {
+        if (a.playState !== 'running') return true;
+        // Animação INFINITA (spinner, `animate-pulse` de skeleton) nunca termina
+        // — esperar por ela é esperar para sempre. O que interessa aqui é a
+        // animação de ENTRADA, que tem fim: é ela que faz o axe fotografar o
+        // texto semitransparente e reportar contraste falso.
+        const iteracoes = (a.effect?.getTiming().iterations ?? 1) as number;
+        return iteracoes === Infinity;
+      }),
     undefined,
     { timeout: 5_000 },
   );
@@ -62,6 +99,7 @@ test.describe('Acessibilidade (axe · WCAG 2 A/AA)', () => {
   test('Onboarding — a primeira tela do usuário novo', async ({ browser }) => {
     const context = await contaNova(browser);
     const page = await context.newPage();
+    const erros = vigiarConsole(page);
     await page.goto('/');
 
     // Sem concluir o onboarding, o modal bloqueante é o que está na tela
@@ -70,6 +108,7 @@ test.describe('Acessibilidade (axe · WCAG 2 A/AA)', () => {
 
     const { violations } = await analisar(page);
     expect(resumir(violations)).toBe('');
+    expect(erros).toEqual([]);
     await context.close();
   });
 
@@ -80,17 +119,18 @@ test.describe('Acessibilidade (axe · WCAG 2 A/AA)', () => {
     expect(ws.id).toBeTruthy();
 
     const page = await context.newPage();
+    const erros = vigiarConsole(page);
 
     // Início GLOBAL (ADR 0020): soma todos os workspaces, e é só leitura —
     // lançar despesa é ato de UMA casa, então o botão não mora aqui.
     await page.goto('/overview');
-    await expect(page.getByRole('heading', { name: 'Início' })).toBeVisible();
+    await expect(page.getByRole('heading', { name: /Início|Visão global/ })).toBeVisible();
     const global = await analisar(page);
     expect(resumir(global.violations)).toBe('');
 
     // Painel do workspace: é onde se lança
     await page.goto(`/w/${ws.id}`);
-    await expect(page.getByRole('heading', { name: 'Início' })).toBeVisible();
+    await expect(page.getByRole('heading', { name: /Workspace ·|Painel/ })).toBeVisible();
     const inicio = await analisar(page);
     expect(resumir(inicio.violations)).toBe('');
 
@@ -101,6 +141,8 @@ test.describe('Acessibilidade (axe · WCAG 2 A/AA)', () => {
 
     const form = await analisar(page, '[role="dialog"]');
     expect(resumir(form.violations)).toBe('');
+    // Pega o `DialogContent requires a DialogTitle` que só aparecia no log
+    expect(erros).toEqual([]);
     await context.close();
   });
 
@@ -109,11 +151,13 @@ test.describe('Acessibilidade (axe · WCAG 2 A/AA)', () => {
     await context.request.post(`${API}/auth/onboarding`, { data: { salary: 4000 } });
 
     const page = await context.newPage();
+    const erros = vigiarConsole(page);
     await page.goto('/reports');
     await expect(page.getByRole('heading', { name: /Relatórios/i })).toBeVisible();
 
     const { violations } = await analisar(page);
     expect(resumir(violations)).toBe('');
+    expect(erros).toEqual([]);
     await context.close();
   });
 });

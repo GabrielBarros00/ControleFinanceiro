@@ -1,6 +1,13 @@
 # ADR 0019 — O que é da pessoa pertence à pessoa; ao workspace, só por escolha
 
-**Status:** aceito (2026-07-30)
+**Status:** ~~aceito~~ **superseded** por [0021](0021-recurso-pessoal-sem-workspace.md) (2026-07-30)
+
+> O diagnóstico deste ADR está certo — renda, cartão, conta e financiamento são
+> da pessoa. O remédio não: manter o recurso ancorado num workspace e estendê-lo
+> por tabelas de vínculo produziu um vazamento (o nível `use` nunca chegou a ser
+> consultado, e todo cartão compartilhado entregava limite e fatura inteira) e um
+> recurso que ainda assim não podia ser usado no destino. O ADR 0021 remove o
+> `workspace_id` desses domínios.
 **Relacionado:** [0006](0006-moeda-base-brl-sem-soma-mista.md) (moeda-base),
 [0015](0015-conversao-na-entrada-e-taxa-cruzada.md) (conversão na entrada),
 [0018](0018-privacidade-papel-e-acesso-financeiro.md) (privacidade),

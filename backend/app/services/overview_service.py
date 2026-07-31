@@ -27,7 +27,7 @@ no rateio da viagem não é o mesmo que estar quitado: são pessoas e acordos
 diferentes. Os saldos são agrupados POR workspace, e o total é informativo.
 """
 import calendar
-from datetime import date, datetime
+from datetime import UTC, date, datetime
 from decimal import Decimal, ROUND_HALF_UP
 from typing import Any, Dict, List, Optional
 
@@ -233,7 +233,11 @@ class OverviewService:
         dono, e sair de um workspace tirava o próprio cartão da lista.
         """
         destino = currency or OverviewService.report_currency(db, user_id)
-        hoje = date.today()
+        # UTC, a mesma referência de `CreditCardService.is_overdue`. Com
+        # `date.today()` (local) as duas classificações discordavam no fim do dia
+        # em fuso negativo: a fatura era "vencida" para uma e "vence neste mês"
+        # para a outra, e o mesmo valor entrava nos dois totais.
+        hoje = datetime.now(UTC).date()
         fim_do_mes = date(
             hoje.year, hoje.month, calendar.monthrange(hoje.year, hoje.month)[1]
         )

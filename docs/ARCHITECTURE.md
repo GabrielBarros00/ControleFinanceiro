@@ -39,15 +39,15 @@ Entidades principais (`app/models/`) e seus vínculos:
 ```
 User ──< WorkspaceMembership >── Workspace ──< WorkspaceInvite
  │                                   │
+ │  PESSOAL (ADR 0021: sem           │  DO WORKSPACE
+ │  workspace_id — só o dono vê)     │
  ├──< RefreshSession                 ├──< Category            ├──< Tag
- └──< Notification                   ├──< PaymentAccount      ├──< Income
-      (pessoal: quem recebe          ├──< CreditCard ──< CardStatement ──< StatementPayment
-       um convite ainda não          ├──< RecurringExpense    ├──< RecurringIncome
-       é membro do workspace)        ├──< Financing ──< AmortizationInstallment
-                                     ├──< MonthlyEstimate
-                                     ├──< Settlement
-                                     ├──< ImportBatch ──< ImportRow
-                                     ├──< AuditLog        ├──< SyncEvent
+ ├──< Notification                   ├──< RecurringExpense    ├──< MonthlyEstimate
+ ├──< Income                         ├──< Settlement          ├──< SyncEvent
+ ├──< RecurringIncome                ├──< ImportBatch ──< ImportRow
+ ├──< PaymentAccount                 ├──< AuditLog
+ ├──< CreditCard ──< CardStatement ──< StatementPayment
+ └──< Financing ──< AmortizationInstallment
                                      └──< Transaction
                                             ├──< TransactionPayer      (quem pagou, quanto, de onde)
                                             ├──< TransactionSplit      (quem deve quanto)
@@ -61,7 +61,7 @@ ExchangeRate  (global, sem workspace: cotação moeda→BRL por dia, alimentada 
 
 Invariantes de despesa: `soma(pagadores) == total`, `total == soma(itens) + soma(ajustes)`, e a divisão soma exatamente o total (em centavos). A fatura (`statement_id`) é **sempre derivada no servidor** a partir de cartão + data (ADR 0002); nunca vem do cliente.
 
-Todas as entidades de conteúdo têm `workspace_id` (isolamento multi-tenant) e a maioria usa **soft delete** (`deleted_at`). A `Transaction` tem `occurrence_date` com unique `(recurring_expense_id, occurrence_date)` — a instância excluída deixa *tombstone* e não ressuscita (ADR 0012).
+As entidades DO WORKSPACE têm `workspace_id` (isolamento multi-tenant); as PESSOAIS não têm a coluna, e é essa ausência que garante a privacidade delas — nenhuma consulta escopada por workspace as alcança (ADR 0021). A maioria usa **soft delete** (`deleted_at`). A `Transaction` tem `occurrence_date` com unique `(recurring_expense_id, occurrence_date)` — a instância excluída deixa *tombstone* e não ressuscita (ADR 0012).
 
 ## Consultas financeiras — política única
 
@@ -92,14 +92,20 @@ então um convidado lia salário, lançamentos individuais, anexos, cartões e t
   papel × acesso × envolvimento) e `test_read_policy_coverage.py`, que percorre o router e
   falha quando um `GET` novo não consulta a política.
 
-## Escopo pessoal × workspace (ADR 0019/0020)
+## Escopo pessoal × workspace (ADR 0020/0021)
 
 Nem tudo pertence a um espaço de colaboração. Renda, cartão, conta e financiamento são da
 PESSOA; transação, divisão, acerto, categoria e anexo são do WORKSPACE.
 
-- **Pessoal:** `workspace_id` anulável (`null` = global) + tabela de vínculo por domínio
-  (`IncomeWorkspaceShare`, `CardWorkspaceAccess`, …) declarando a quais orçamentos o
-  recurso contribui. Vazio é privado — global para o dono não é público para a casa.
+- **Pessoal:** sem `workspace_id`, com dono NOT NULL, sob `/me/...`. O gate é
+  `personal_scope`, que **não consulta `financial_access`** — a assimetria é deliberada:
+  acesso completo governa dado do workspace, nunca recurso pessoal. A Onda 2 tentou o
+  meio-termo (recurso no workspace + tabela de vínculo com nível `use`/`full`) e o nível
+  `full` nunca chegou a ser consultado por rota nenhuma: todo cartão compartilhado
+  entregava limite e fatura inteira a quem tivesse acesso completo no destino.
+- **Usar ≠ pertencer:** o cartão é meu e eu o seleciono em qualquer workspace de que
+  participo; o gate de uso é `card.owner_user_id == quem lança`, e a conta informada por um
+  pagador tem de pertencer **àquele pagador**.
 - **Moeda:** `User.report_currency` é o destino de conversão do que é pessoal; o que é da
   casa segue a `Workspace.base_currency` (ADR 0015).
 - **Rotas `/me/*`** (`app/api/routes/me.py` + `overview_service.py`) somam todos os

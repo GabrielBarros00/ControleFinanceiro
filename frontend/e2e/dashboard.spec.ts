@@ -25,7 +25,7 @@ test.describe('Dashboard and Split Entry Form', () => {
     await page.goto(`/w/${ws.id}`);
 
     // Dashboard renderizado
-    await expect(page.getByRole('heading', { name: 'Início' })).toBeVisible();
+    await expect(page.getByRole('heading', { name: /Workspace ·|Início|Painel/ })).toBeVisible();
 
     // Abre o modal de Nova Despesa
     await page.locator('header').getByRole('button', { name: 'Nova despesa' }).click();

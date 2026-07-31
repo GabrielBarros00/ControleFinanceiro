@@ -30,7 +30,7 @@ Duas consequências que mudam o contrato das respostas:
 1. **Registro invisível responde `404`, não `403`** — um `403` confirmaria que ele existe naquele id.
 2. **Campo da casa suprimido vem `null`, nunca `0`.** Afeta `total_expenses`, `total_income`, `net_savings`, `categories` (em `/analytics/summary` e `/analytics/reports`), as barras de `monthly_history`, e praticamente toda a `/analytics/forecast` — que é projeção de caixa da casa e, sem acesso completo, devolve apenas `my_budget`. Os campos `my_*` **nunca** são suprimidos: são dados do próprio usuário. Clientes devem tratar `null` como "sem acesso" e não coagir para zero.
 
-Em `/debts`, `/debts/monthly` e `/liabilities/overview` o recorte acontece na **saída**: o ledger é calculado inteiro (o pareamento de dívidas precisa de todos os saldos para dar o valor certo) e depois filtrado nas linhas que envolvem você — com `totals` acompanhando o que ficou listado.
+Em `/debts` e `/debts/monthly` o recorte acontece na **saída**: o ledger é calculado inteiro (o pareamento de dívidas precisa de todos os saldos para dar o valor certo) e depois filtrado nas linhas que envolvem você — com `totals` acompanhando o que ficou listado.
 
 ### Escopo pessoal × workspace (ADR 0019)
 
@@ -85,21 +85,20 @@ Base: `/api/v1`. `{ws}` = `workspaces/{workspace_id}`.
 | **Workspaces** | `/workspaces` | `GET/POST/PUT/DELETE`; `GET /{id}/base-currency/preview?to=XXX` (dry-run da troca de moeda-base) |
 | **Membros / convites** | `/{ws}/members`, `/{ws}/invites` | listar/alterar papel/remover; criar/revogar convite (e-mail e link); `POST /{ws}/leave` |
 | **Convites (aceite)** | `/invites` | `GET /info/{token}`, `POST /accept/{token}`, `POST /decline/{token}` — fora do escopo de workspace: quem recebe ainda não é membro |
-| **Pessoal (global)** | `/me/overview`, `/me/commitments`, `/me/activity`, `/me/report-currency` | O mês da PESSOA somando todos os workspaces (ADR 0020). Sem `workspace_id` no caminho: o gate é só a sessão, e cada consulta filtra por `user_id`. Devolve **consumo** (minha parte), **saída de caixa** (o que saiu do meu bolso), **a pagar/receber** (por workspace, nunca compensados entre eles) e **resultado** (renda − consumo) |
+| **Pessoal — o mês** | `/me/overview`, `/me/activity`, `/me/report-currency` | O mês da PESSOA somando todos os workspaces (ADR 0020). Devolve **consumo** (minha parte), **saída de caixa** (o que saiu do meu bolso), **a pagar/receber** (por workspace, nunca compensados entre eles) e **resultado** (renda − consumo) |
+| **Pessoal — compromissos** | `/me/commitments` | Faturas e financiamentos, **separados por prazo**: `overdue`, `due_this_month`, `next_installments`, `outstanding_total`, `monthly_commitment`. O `total` único de antes somava a próxima fatura com o principal inteiro dos financiamentos |
+| **Pessoal — renda** | `/me/income`, `/me/recurring-income` | `GET` (filtro `month=YYYY-MM`, por competência), `POST/PUT/DELETE`; `POST /recurring-income/generate`. Moeda default = `User.report_currency` |
+| **Pessoal — cartões** | `/me/credit-cards` | CRUD (o `DELETE` devolve `409` se houver fatura em aberto — senão a dívida ficaria sem tela por onde ser quitada); `GET /{id}/statement-for?on=YYYY-MM-DD` (em qual fatura cairia uma compra nessa data — só leitura); `GET /{id}/statements`; `POST /{id}/statements/{sid}/close\|pay\|reopen` |
+| **Pessoal — contas** | `/me/payment-accounts` | `GET/POST/PUT/DELETE`. Nome único por DONO |
+| **Pessoal — financiamentos** | `/me/financing` | CRUD; `GET /{id}/schedule`; `POST /{id}/early-settlement`; `POST /{id}/installments/{n}/pay\|unpay` (o `pay` aceita `workspace_id` opcional: informado, lança também a despesa lá) |
 | **Notificações** | `/notifications` | `GET` (as suas + contagem de não lidas), `POST /{id}/read`, `POST /read-all` — escopo PESSOAL, sem `require_role` |
 | **Transações** | `/{ws}/transactions` | `GET` (filtros: mês, busca, categoria, método, tag), `POST`, `PUT`, `DELETE`; `POST /preview` (dry-run da divisão); `POST /bulk`; compra parcelada: `GET/PUT/DELETE /{id}/installment-group` (editar/excluir o grupo inteiro) + `POST /{id}/installment-group/cancel` |
 | **Anexos** | `/{ws}/transactions/{id}/attachments`, `/{ws}/attachments/{id}` | upload (magic bytes + hash), listar, download, excluir. O conteúdo fica fora do banco (ADR 0007); `404` no download significa objeto ausente no armazenamento, não anexo inexistente |
-| **Contas/carteiras** | `/{ws}/payment-accounts` | `GET/POST/PUT/DELETE` |
-| **Cartões e faturas** | `/{ws}/credit-cards` | CRUD do cartão (o `DELETE` devolve `409` se houver fatura em aberto — senão a dívida ficaria sem tela por onde ser quitada); `GET /{id}/statement-for?on=YYYY-MM-DD` (em qual fatura cairia uma compra nessa data — só leitura, não cria fatura); `POST /{id}/statements/{sid}/close\|pay\|reopen` |
 | **Categorias** | `/{ws}/categories` | `GET/POST/PUT/DELETE` |
 | **Tags** | `/{ws}/tags` | `GET/POST/PUT/DELETE` (nome reativável) |
-| **Renda** | `/{ws}/income` | `GET` (filtro `month=YYYY-MM`, por competência), `POST/PUT/DELETE` |
 | **Dívidas** | `/{ws}/debts` | `GET` (saldo líquido consolidado); `GET /monthly?month=YYYY-MM` (retrato do mês por `billing_month`) |
 | **Acertos** | `/{ws}/settlements` | `GET/POST/DELETE` (validado contra a dívida) |
 | **Recorrências (despesa)** | `/{ws}/recurring` | CRUD (`PUT` aceita `?scope=none\|future\|all`) + geração/materialização de instâncias |
-| **Recorrências (renda)** | `/{ws}/recurring-income` | CRUD + `POST /generate` (materializa as rendas recorrentes do mês) |
-| **Financiamentos** | `/{ws}/financing` | CRUD; `GET /{id}/schedule`; `POST /{id}/early-settlement`; `POST /{id}/installments/{n}/pay` |
-| **Endividamento** | `/{ws}/liabilities` | `GET` (panorama consolidado: financiamentos + faturas de cartão em aberto) |
 | **Importação CSV** | `/{ws}/imports` | `POST /parse` (mapeia colunas + marca duplicatas), `POST /commit` (decisão por linha, idempotente) |
 | **Analytics** | `/{ws}/analytics` | `GET /summary`, `/reports`, `/forecast`, `/exchange-rate`; estimativas: `GET/POST/PUT/DELETE /estimates` |
 | **Auditoria** | `/{ws}/audit` | `GET` (admin+; trilha por workspace) |
