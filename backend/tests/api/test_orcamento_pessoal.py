@@ -171,8 +171,15 @@ def test_previsao_separa_meta_da_casa_da_meta_pessoal(client, casa):
     ).json()
     assert para_bia["total_budget"] is None
     assert para_bia["actual_spent"] is None
-    assert para_bia["projected_net"] is None
+    assert para_bia["projected_eom"] is None
     assert Decimal(para_bia["my_budget"]) == Decimal("300.00")
+
+    # As DUAS respostas têm o mesmo conjunto de chaves — o que muda é o valor.
+    # Esta asserção afirmava `projected_net is None`, um campo que a resposta de
+    # acesso completo não devolve desde o ADR 0021 (renda saiu do workspace):
+    # o teste pinava a existência de um vestígio, e era o único lugar que
+    # notaria a divergência.
+    assert set(para_bia) == set(para_ana), "a rota muda de formato conforme o acesso"
 
 
 def test_minha_parte_por_categoria_fecha_com_minha_despesa(client, casa):

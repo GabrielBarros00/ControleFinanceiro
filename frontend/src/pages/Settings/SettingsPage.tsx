@@ -398,8 +398,24 @@ function MembersTab() {
             <CardDescription>Nome e configurações de "{currentWorkspace?.name}".</CardDescription>
           </CardHeader>
           <CardContent className="space-y-6">
-            <div className="flex gap-3">
-              <Input value={wsName} onChange={(e) => setWsName(e.target.value)} className="bg-background/50 border-border" />
+            {/* `items-end` para o botão continuar alinhado à base do campo agora
+                que ele ganhou um rótulo acima. */}
+            <div className="flex items-end gap-3">
+              {/* Rótulo visível, não só o título do cartão: o campo de renomear
+                  o workspace não tinha nome acessível nenhum — um leitor de tela
+                  anunciava "caixa de texto" com o nome da casa dentro e nada que
+                  dissesse o que ele edita. Era a única violação CRÍTICA de axe da
+                  tela, e ninguém a via porque a aba de Membros nunca era
+                  renderizada por teste. */}
+              <div className="flex-1 space-y-2">
+                <Label htmlFor="workspace-name">Nome do workspace</Label>
+                <Input
+                  id="workspace-name"
+                  value={wsName}
+                  onChange={(e) => setWsName(e.target.value)}
+                  className="bg-background/50 border-border"
+                />
+              </div>
               <Button
                 onClick={async () => {
                   try {
@@ -542,7 +558,16 @@ function MembersTab() {
                         } catch (err) { showError(err, 'Erro ao alterar papel.'); }
                       }}
                     >
-                      <SelectTrigger className="h-8 w-[112px] text-xs font-semibold"><SelectValue /></SelectTrigger>
+                      {/* Rótulo por LINHA, como o irmão de visibilidade ao lado:
+                          são N seletores iguais numa tabela, e sem nome
+                          acessível o leitor de tela anuncia só o valor atual
+                          ("Membro") — sem dizer de quem nem do quê. */}
+                      <SelectTrigger
+                        aria-label={`Papel de ${m.user_name}`}
+                        className="h-8 w-[112px] text-xs font-semibold"
+                      >
+                        <SelectValue />
+                      </SelectTrigger>
                       <SelectContent>
                         <SelectItem value="viewer">Leitor</SelectItem>
                         <SelectItem value="member">Membro</SelectItem>
@@ -618,7 +643,11 @@ function MembersTab() {
           </CardHeader>
           <CardContent className="space-y-4">
             <div className="flex flex-col md:flex-row gap-3">
+              {/* `placeholder` não é rótulo: some ao digitar e não é anunciado
+                  como nome do campo. Os seletores ao lado já tinham `aria-label`;
+                  o e-mail, que é o campo principal do formulário, não tinha. */}
               <Input
+                aria-label="E-mail de quem você quer convidar"
                 placeholder="email@exemplo.com"
                 value={inviteEmail}
                 onChange={(e) => setInviteEmail(e.target.value)}

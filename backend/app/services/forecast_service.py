@@ -58,10 +58,15 @@ class ForecastService:
         """
         Calculates a predictive forecast for the end of the month.
 
-        A previsão é, por natureza, projeção de CAIXA DA CASA: gasto do mês,
-        média diária, fixos a vencer, faturas pendentes, renda e sobra. Nada disso
-        é recorte pessoal. Sem acesso completo (ADR 0018) sobra o que é do próprio
-        usuário — a meta pessoal — e o resto sai `None`.
+        A previsão projeta o GASTO da casa: o que já saiu no mês, a média diária,
+        os fixos a vencer e a comparação com o orçamento. Renda e sobra NÃO estão
+        aqui desde o ADR 0021 — são pessoais, e "renda global − gasto de um
+        workspace" era o número enganoso que aquele ADR removeu; eles vivem em
+        `/me/overview`, que soma tudo.
+
+        Sem acesso completo (ADR 0018) sobra o que é do próprio usuário — a meta
+        pessoal — e o resto sai `None`, com as MESMAS chaves: uma rota que muda o
+        conjunto de campos conforme o acesso é contrato que diverge sozinho.
         """
         base_currency = workspace_base_currency(db, workspace_id)
         # 1. Current spent (Transactions in the month)
@@ -82,6 +87,15 @@ class ForecastService:
                     .where(MonthlyEstimate.deleted_at.is_(None))
                     .where(MonthlyEstimate.owner_user_id == user_id)
                 ).one() or Decimal("0.00")
+            # AS MESMAS CHAVES da saída completa, com `None` no que é da casa.
+            # Este bloco vinha listando cinco campos que a saída completa não
+            # devolve mais: `income_actual`, `income_pending`, `projected_income`
+            # e `projected_net` saíram no ADR 0021 (renda não é do workspace), e
+            # `card_statements_pending` deixou de ser calculado. O resultado é o
+            # tipo de deriva que produz bug de contrato: a MESMA rota respondia
+            # com conjuntos de chaves diferentes conforme o acesso de quem
+            # perguntava, e quatro delas anunciavam um número que o app não
+            # calcula mais em lugar nenhum.
             return {
                 "month": target_month.strftime("%Y-%m"),
                 "base_currency": base_currency,
@@ -92,13 +106,8 @@ class ForecastService:
                 "daily_average": None,
                 "remaining_days": None,
                 "fixed_costs_pending": None,
-                "card_statements_pending": None,
                 "total_budget": None,
                 "is_over_budget": None,
-                "income_actual": None,
-                "income_pending": None,
-                "projected_income": None,
-                "projected_net": None,
             }
 
         # Gastos em dinheiro do mês. Transações vinculadas a fatura de cartão

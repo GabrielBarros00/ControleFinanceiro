@@ -160,4 +160,52 @@ test.describe('Acessibilidade (axe · WCAG 2 A/AA)', () => {
     expect(erros).toEqual([]);
     await context.close();
   });
+
+  /*
+   * As DUAS telas de configuração, depois da separação pessoal × workspace.
+   *
+   * Nenhuma delas tinha cobertura: o audit de console visitava `/settings` com a
+   * aba PERFIL aberta, que era o padrão — a aba de Membros, com o formulário de
+   * convite, o seletor de moeda-base e a tabela de papéis, nunca chegou a ser
+   * renderizada por teste nenhum. Agora ela é o padrão do workspace, e
+   * `/me/settings` é uma tela nova inteira.
+   */
+  test('Configurações do workspace — a aba de Membros', async ({ browser }) => {
+    const context = await contaNova(browser);
+    const [ws] = await (await context.request.get(`${API}/workspaces/`)).json();
+    await context.request.post(`${API}/auth/onboarding`, { data: { salary: 4000 } });
+
+    const page = await context.newPage();
+    const erros = vigiarConsole(page);
+    await page.goto(`/w/${ws.id}/settings`);
+    await expect(
+      page.getByRole('heading', { name: /Configurações do workspace/i }),
+    ).toBeVisible();
+    // O que a aba padrão desenha: nome, moeda-base, convite e papéis.
+    await expect(page.getByText('Moeda-base')).toBeVisible();
+
+    const { violations } = await analisar(page);
+    expect(resumir(violations)).toBe('');
+    expect(erros).toEqual([]);
+    await context.close();
+  });
+
+  test('Configurações pessoais — alcançáveis sem workspace na URL', async ({ browser }) => {
+    const context = await contaNova(browser);
+    await context.request.post(`${API}/auth/onboarding`, { data: { salary: 4000 } });
+
+    const page = await context.newPage();
+    const erros = vigiarConsole(page);
+    // Sem `/w/:id` no caminho: perfil, senha, contas e aparência ficavam presos
+    // dentro do workspace, e quem não tivesse um válido não os alcançava.
+    await page.goto('/me/settings');
+    await expect(page.getByRole('heading', { name: /Suas configurações/i })).toBeVisible();
+    // A moeda de relatório: o `useSetReportCurrency` existia sem tela nenhuma.
+    await expect(page.getByText('Moeda de relatório')).toBeVisible();
+
+    const { violations } = await analisar(page);
+    expect(resumir(violations)).toBe('');
+    expect(erros).toEqual([]);
+    await context.close();
+  });
 });

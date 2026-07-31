@@ -73,7 +73,7 @@ const AUDIT = ['audit'];
 export const GLOBAIS = new Set([
   'credit-cards', 'statements', 'payment-accounts', 'financing', 'income',
   'recurring-income', 'me-overview', 'me-commitments', 'me-activity', 'me-reports',
-  'workspaces',
+  'statement-target', 'workspaces',
 ]);
 
 /**
@@ -106,6 +106,11 @@ const BY_PREFIX: Record<string, string[]> = {
   // o ADR 0022 — o caixa efetivo do mês em que a fatura foi paga.
   credit_card: [
     'credit-cards', 'statements', 'transactions', 'me-commitments', 'me-overview',
+    // Mudar dia de fechamento/vencimento — ou fechar a fatura do ciclo — muda
+    // a resposta de "vai para a fatura de Agosto/2026" no formulário. Sem
+    // isto o aviso ficava com a regra ANTIGA em cache, e ele existe
+    // justamente porque ninguém adivinha a regra olhando a tela.
+    'statement-target',
     'me-reports', ...AUDIT,
   ],
   category: ['categories', 'reports', 'transactions', ...AUDIT],

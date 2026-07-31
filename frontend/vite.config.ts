@@ -58,10 +58,10 @@ export default defineConfig({
        * sobe junto.
        */
       thresholds: {
-        statements: 58,
-        branches: 50,
-        functions: 46,
-        lines: 60,
+        statements: 60,
+        branches: 52,
+        functions: 48,
+        lines: 62,
       },
     },
   },
