@@ -54,7 +54,12 @@ export function useAuth() {
       return response.data;
     },
     onSuccess: async () => {
-      await queryClient.invalidateQueries({ queryKey: ['auth-me'] });
+      // `refetchQueries` AGUARDADO, não `invalidateQueries`. Invalidar só marca
+      // a query como suja e volta na hora; o `mutateAsync` do login resolvia
+      // antes de a sessão existir para o resto do app, e a tela navegava para
+      // uma rota protegida que ainda não sabia quem era o usuário. Aguardando o
+      // refetch, `loginMutation.isPending` cobre a transição inteira.
+      await queryClient.refetchQueries({ queryKey: ['auth-me'] });
     },
     onError: (error: unknown) => {
       setError(getApiErrorMessage(error, 'Erro ao realizar login'));
@@ -98,22 +103,25 @@ export function useAuth() {
   return {
     user: meQuery.data,
     isAuthenticated: !!meQuery.data,
-    // "Carregando" = **há requisição de sessão em voo E ainda não sei quem é**.
+    // "Carregando" = **ainda não sei se há sessão**. Nunca mais que isso.
     //
-    // As duas metades importam. Sem `isFetching`, o auto-login abria uma janela
-    // em que `isLoading` já era `false` e `data` ainda `undefined` — estado
-    // indistinguível de "sessão morta", e o `ProtectedRoute` redirecionava para
-    // `/login` no meio de um cadastro bem-sucedido (a intermitência do E2E).
+    // Três condições, cada uma por um defeito já visto:
     //
-    // Sem o `!meQuery.data`, o remédio vira outro defeito: `auth-me` refaz a
-    // consulta em segundo plano (foco da janela, reconexão) e o app inteiro
-    // piscava a tela de carregamento, desmontando o que estivesse aberto — um
-    // diálogo em preenchimento, por exemplo. Com usuário conhecido, refetch é
-    // invisível.
+    // - `isLoading` (a primeira carga, antes de qualquer resposta) e não
+    //   `isFetching`: com `isFetching` puro, um refetch em segundo plano
+    //   (foco da janela, reconexão) piscava a tela de carregamento e
+    //   DESMONTAVA o que estivesse aberto — um diálogo em preenchimento, por
+    //   exemplo.
+    // - **Sem `isError` no cálculo**, e é por isso que ele não aparece aqui:
+    //   sessão expirada tem de resolver para "não autenticado" e redirecionar
+    //   para `/login`. Uma condição que continuasse verdadeira no erro deixava
+    //   o usuário preso no spinner para sempre.
+    // - As mutações cobrem a transição de login/cadastro por inteiro, porque o
+    //   `onSuccess` do login AGUARDA o refetch de `auth-me` (ver acima). Era
+    //   essa janela — mutação concluída, sessão ainda desconhecida — que fazia o
+    //   cadastro cair em `/login` de forma intermitente.
     isLoading:
-      (meQuery.isFetching && !meQuery.data) ||
-      loginMutation.isPending ||
-      registerMutation.isPending,
+      meQuery.isLoading || loginMutation.isPending || registerMutation.isPending,
     error: loginMutation.error || registerMutation.error,
     login: loginMutation.mutateAsync,
     register: registerMutation.mutateAsync,

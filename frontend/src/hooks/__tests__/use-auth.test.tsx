@@ -6,6 +6,7 @@ import { http, HttpResponse } from 'msw';
 import { server } from '@/test/setup';
 import { describe, it, expect, beforeEach } from 'vitest';
 import { useAuthStore } from '@/stores';
+import { registerQueryClient } from '@/api/client';
 
 const createTestQueryClient = () => new QueryClient({
   defaultOptions: {
@@ -20,6 +21,10 @@ describe('useAuth', () => {
 
   beforeEach(() => {
     queryClient = createTestQueryClient();
+    // O interceptor de 401 age sobre o client REGISTRADO (o App faz isso no
+    // boot). Sem registrar o do teste, a limpeza de cache na sessão expirada
+    // não seria exercida e o teste mediria um caminho que não existe.
+    registerQueryClient(queryClient);
   });
 
   const wrapper = ({ children }: { children: React.ReactNode }) => (
@@ -129,6 +134,47 @@ describe('useAuth', () => {
     // importa é não sobrar dado do usuário anterior para quem entrar depois.
     expect(result.current.user).toBeFalsy();
     expect(result.current.isAuthenticated).toBe(false);
+  });
+
+  it('sessão expirada resolve para "não autenticado" sem entrar em laço', async () => {
+    /*
+     * A regressão que travou o app: com a sessão expirada, `/auth/me` dava 401,
+     * o interceptor tentava `/auth/refresh` (também 401) e limpava o cache
+     * INTEIRO — inclusive a própria `auth-me`. Remover uma query com observador
+     * montado faz o react-query refazê-la na hora, então o ciclo recomeçava:
+     * dezenas de me→refresh por segundo, e a tela presa no spinner porque
+     * `isLoading` nunca virava `false`.
+     *
+     * O teste mede as duas coisas que importam: o estado ASSENTA em "não
+     * autenticado" (é assim que o ProtectedRoute manda para /login) e o número
+     * de idas ao servidor é pequeno e PARA de crescer.
+     */
+    let chamadasMe = 0;
+    let chamadasRefresh = 0;
+    server.use(
+      http.get('http://localhost:8000/api/v1/auth/me', () => {
+        chamadasMe += 1;
+        return new HttpResponse(null, { status: 401 });
+      }),
+      http.post('http://localhost:8000/api/v1/auth/refresh', () => {
+        chamadasRefresh += 1;
+        return new HttpResponse(null, { status: 401 });
+      }),
+    );
+
+    // Cache de outra tela: tem de sumir mesmo com a `auth-me` preservada
+    queryClient.setQueryData(['transactions', 1], { items: [{ id: 7 }] });
+
+    const { result } = renderHook(() => useAuth(), { wrapper });
+
+    await waitFor(() => expect(result.current.isLoading).toBe(false));
+    expect(result.current.isAuthenticated).toBe(false);
+    expect(queryClient.getQueryData(['transactions', 1])).toBeUndefined();
+
+    const depoisDoPrimeiro = chamadasMe;
+    await new Promise((r) => setTimeout(r, 300));
+    expect(chamadasMe).toBe(depoisDoPrimeiro);
+    expect(chamadasRefresh).toBeLessThanOrEqual(2);
   });
 
   it('logout descarta o cache de TODAS as queries, não só o auth-me', async () => {

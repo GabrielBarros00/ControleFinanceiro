@@ -39,6 +39,7 @@ import { getApiErrorMessage } from '@/lib/api-error';
 import { toast } from '@/stores/toast';
 import { useConfirm } from '@/components/ui/confirm';
 import { todayLocalISO } from '@/lib/date';
+import { PageHeader } from '@/components/layout/PageHeader';
 
 // Base UI Select foge do focus-trap do Dialog (Radix) — dentro de modal usamos
 // <select> nativo, mesmo padrão de AmortizationTable/PaymentMethodField.
@@ -256,11 +257,14 @@ export function RecurringTransactionsPage() {
 
   return (
     <div className="space-y-6 animate-in fade-in duration-500">
-      <div className="flex items-center justify-between">
-        <div>
-          <h2 className="text-2xl font-bold tracking-tight text-foreground">Despesas Recorrentes</h2>
-          <p className="text-muted-foreground">Gerencie seus gastos fixos que são gerados automaticamente.</p>
-        </div>
+      {/* `h1` num `<header>`, como as demais telas: esta era mais uma sem
+          cabeçalho de página — só um `h2` solto, então o documento começava no
+          nível 2 e a navegação por títulos não tinha âncora. */}
+      <PageHeader
+        title="Recorrência"
+        subtitle="Seus gastos fixos, gerados automaticamente todo mês."
+      />
+      <div className="flex items-center justify-end">
         <div className="flex items-center gap-2">
           <Button variant="outline" onClick={handleGenerate} disabled={isGenerating} className="gap-2 font-bold">
             {isGenerating ? <Loader2 className="h-4 w-4 animate-spin" /> : <Repeat className="h-4 w-4" />}

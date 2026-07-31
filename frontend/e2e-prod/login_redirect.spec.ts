@@ -4,15 +4,28 @@ import { test, expect, Page } from '@playwright/test';
 // ao dashboard e qualquer rota protegida devolvia ao /login mesmo com cookie válido
 // (307 de barra final com Location sem porta → clearStore no use-auth).
 
+// Rotas PESSOAIS (`/me/...`) e do WORKSPACE, misturadas de propósito: o que se
+// mede aqui é que nenhuma delas devolve ao /login com a sessão válida.
+// `/income`, `/cards`, `/financing` e `/liabilities` são rotas ANTIGAS que
+// redirecionam para os equivalentes pessoais (ADR 0021) — deixá-las na lista
+// também cobre esse redirecionamento.
 const PAGES: Array<[string, string]> = [
-  ['/transactions', 'Lançamentos'],
+  // Pessoais (ADR 0021)
+  ['/overview', 'Início'],
+  ['/me/income', 'Rendas'],
+  ['/me/cards', 'Cartões'],
+  ['/me/financing', 'Financiamentos'],
+  ['/me/commitments', 'Compromissos financeiros'],
+  // Rotas ANTIGAS: redirecionam para os equivalentes pessoais — mantê-las aqui
+  // cobre o redirecionamento além do bounce.
   ['/income', 'Rendas'],
-  ['/cards', 'Cartões de Crédito'],
-  ['/financing', 'Financiamentos'],
+  ['/cards', 'Cartões'],
+  ['/liabilities', 'Compromissos financeiros'],
+  // Do workspace
+  ['/transactions', 'Lançamentos'],
   ['/reports', 'Relatórios'],
   ['/recurring', 'Recorrência'],
-  ['/debts', 'Dívidas & acertos'],
-  ['/liabilities', 'Endividamento'],
+  ['/debts', 'Acertos entre pessoas'],
   ['/import', 'Importar'],
   ['/settings', 'Configurações'],
 ];
@@ -38,8 +51,13 @@ test.describe('Sessão atrás do nginx (stack de produção)', () => {
     await page.getByLabel('Confirmar', { exact: true }).fill(password);
     await page.getByRole('button', { name: 'Cadastrar', exact: true }).click();
 
-    await expect(page).toHaveURL(/\/$/, { timeout: 15_000 });
-    await expect(page.getByRole('heading', { name: 'Início' })).toBeVisible({ timeout: 15_000 });
+    await expect(page).toHaveURL(/\/overview$/, { timeout: 15_000 });
+    // O que está na tela do usuário novo é o ONBOARDING, não o painel: ele é um
+    // diálogo modal e torna o resto da página inerte, então procurar o heading
+    // "Início" aqui é procurar algo que o leitor de tela também não alcança.
+    // A asserção passava por corrida — o modal abre num efeito, depois que
+    // `/auth/me` responde, e antes o login resolvia sem esperar essa resposta.
+    await expect(page.getByRole('dialog')).toBeVisible({ timeout: 15_000 });
 
     // 2. Onboarding mínimo (salário + pular cartão; "Pular" recarrega a página)
     await page.getByRole('button', { name: /Começar Setup/ }).click();
@@ -85,7 +103,10 @@ test.describe('Sessão atrás do nginx (stack de produção)', () => {
     await page.getByLabel('Senha', { exact: true }).fill(password);
     await page.getByRole('button', { name: /Acessar Conta/ }).click();
 
-    await expect(page).toHaveURL(/\/$/, { timeout: 15_000 });
-    await expect(page.getByRole('heading', { name: 'Início' })).toBeVisible({ timeout: 15_000 });
+    await expect(page).toHaveURL(/\/overview$/, { timeout: 15_000 });
+    // Conta recém-criada: quem está na tela é o onboarding (modal), que torna o
+    // resto da página inerte. O que este teste mede é o redirecionamento do
+    // login atrás do nginx — e ele aconteceu.
+    await expect(page.getByRole('dialog')).toBeVisible({ timeout: 15_000 });
   });
 });

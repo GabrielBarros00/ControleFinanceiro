@@ -55,9 +55,21 @@ apiClient.interceptors.response.use(
         await refreshPromise;
         return apiClient(original);
       } catch {
-        // Sessão realmente expirada: o ProtectedRoute redireciona ao ver o store
+        // Sessão realmente expirada: o ProtectedRoute redireciona ao ver que
+        // não há usuário.
         useAuthStore.getState().logout();
-        queryClientRef?.clear();
+        // Descarta o cache do usuário que saiu — MENOS a própria `auth-me`.
+        //
+        // `queryClient.clear()` removia tudo, inclusive ela. E remover uma query
+        // que tem observador montado faz o react-query montá-la de novo na hora:
+        // `/auth/me` → 401 → `/auth/refresh` → 401 → clear() → `/auth/me` …
+        // Era um laço fechado, dezenas de requisições por segundo, com a tela
+        // presa no spinner porque a sessão nunca resolvia. Deixando a `auth-me`
+        // no cache, ela fica em estado de ERRO — que é a resposta correta
+        // ("não há sessão") e não dispara nada.
+        queryClientRef?.removeQueries({
+          predicate: (query) => query.queryKey[0] !== 'auth-me',
+        });
       }
     }
     return Promise.reject(error);

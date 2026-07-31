@@ -28,7 +28,7 @@ test('importa CSV pela UI: parse, preview e confirmação', async ({ page, conte
 
   // Toast confirma a importação e a navegação volta ao dashboard
   await expect(page.getByText(/2 criada\(s\)/)).toBeVisible({ timeout: 15_000 });
-  await expect(page).toHaveURL(/\/$/, { timeout: 15_000 });
+  await expect(page).toHaveURL(/\/overview$/, { timeout: 15_000 });
   const list = await (await page.request.get(`/api/v1/workspaces/${ws.id}/transactions/`)).json();
   const titles = (list.items ?? list).map((t: { title: string }) => t.title);
   expect(titles).toContain('Mercado E2E');
