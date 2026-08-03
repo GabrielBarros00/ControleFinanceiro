@@ -47,7 +47,7 @@ export function PaymentMethodField({ allowInstallments = false }: PaymentMethodF
 
   return (
     <div className="space-y-2">
-    <div className="grid grid-cols-2 gap-6">
+    <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
       <div className="space-y-2">
         <Label htmlFor="payment_method" className="text-sm font-semibold text-foreground">Forma de pagamento</Label>
         <select id="payment_method" className={selectClass} {...register('payment_method')}>

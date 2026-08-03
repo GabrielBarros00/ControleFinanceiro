@@ -62,8 +62,16 @@ Alembic é o **único** caminho de schema (ADR 0005). Ao mudar um model:
 cd backend
 alembic revision -m "descrição curta"       # crie a revisão
 # edite o arquivo em alembic/versions/: escreva upgrade()/downgrade() IDEMPOTENTES
-alembic upgrade head                         # aplique em dev
+alembic upgrade head                         # aplique em dev  (ou: make migrate)
 ```
+
+> **Não confie no auto-upgrade do startup.** Ele só roda com
+> `APP_ENV == development`, e o `APP_ENV` vem do `.env` lido **relativo ao
+> diretório de onde você subiu o processo**: quem inicia o uvicorn da raiz pega o
+> `.env` de produção e o `dev.db` simplesmente não migra. A defasagem é
+> silenciosa — numa auditoria o `dev.db` estava 15 revisões atrás do head. Rode
+> **`make migrate`** (ou o `alembic upgrade head` acima) depois de trocar de
+> branch.
 
 - Mantenha a cadeia **linear** (um único *head*): `down_revision` aponta para o head anterior.
 - `upgrade()` deve ser idempotente (checar `inspector` antes de `add_column`/`create_table`) — o DDL do SQLite não é transacional.

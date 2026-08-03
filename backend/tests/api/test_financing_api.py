@@ -33,9 +33,13 @@ def test_pagar_parcela_gera_transacao(db_session, setup_data, override_get_sessi
     schedule = client.get(f"/api/v1/me/financing/{fin_id}/schedule", headers=headers).json()
     first = schedule[0]
 
+    # Paga ANTES do vencimento, de propósito: é a data efetiva do pagamento que
+    # manda, não a do vencimento. A asserção anterior afirmava o contrário e
+    # congelava o defeito — o caixa do mês em que o dinheiro saiu ficava zerado e
+    # a saída aparecia no mês de vencimento.
     resp = client.post(
         f"/api/v1/me/financing/{fin_id}/installments/1/pay",
-        json={"workspace_id": ws.id},
+        json={"workspace_id": ws.id, "paid_at": "2026-01-15T10:00:00Z"},
         headers=headers,
     )
     assert resp.status_code == 200, resp.text
@@ -46,7 +50,9 @@ def test_pagar_parcela_gera_transacao(db_session, setup_data, override_get_sessi
     tx = db_session.get(Transaction, tx_id)
     assert tx is not None
     assert str(tx.total_amount) == str(first["total_amount"])
-    assert tx.billing_month == first["due_date"][:7]  # YYYY-MM da data de vencimento
+    assert tx.billing_month == "2026-01"
+    assert tx.billing_month != first["due_date"][:7]
+    assert tx.transaction_date.strftime("%Y-%m-%d") == "2026-01-15"
     # Tem pagador e divisão → não é transação nua (entra em caixa/relatórios)
     assert len(tx.payers) == 1
     assert len(tx.splits) == 1

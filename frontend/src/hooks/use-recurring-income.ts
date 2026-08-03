@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { apiClient } from '@/api/client';
+import { invalidateForEvent } from '@/lib/ws-events';
 import type { MaterializeScope } from '@/lib/recurrence';
 
 export interface RecurringIncome {
@@ -34,10 +35,11 @@ export function useRecurringIncome() {
 
   const invalidateList = () => queryClient.invalidateQueries({ queryKey });
 
-  // Rendas geradas alimentam a lista de rendas e a visão global
+  // Pelo contrato único (`ws-events`), não à mão: a lista escrita aqui parava em
+  // `income` + `me-overview` e deixava "Seus relatórios" e a previsão com o
+  // número velho. `BY_PREFIX.recurring_income` já dizia quais famílias mexem.
   const invalidateIncome = () => {
-    queryClient.invalidateQueries({ queryKey: ['income'] });
-    queryClient.invalidateQueries({ queryKey: ['me-overview'] });
+    invalidateForEvent(queryClient, 'recurring_income.changed', null);
   };
 
   // Criar/editar/excluir template pode materializar (ou re-sincronizar) a renda

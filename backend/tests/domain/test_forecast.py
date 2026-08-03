@@ -12,14 +12,11 @@ def test_forecast_calculation(db_session: Session, seed_ws):
     workspace_id = seed_ws["ws"].id
     target_month = date(2026, 5, 1)
     
-    # We MUST patch where it is USED (imported), not where it is defined.
-    # In app/services/forecast_service.py: import calendar, date (from datetime)
-    with patch("app.services.forecast_service.date") as mock_date:
-        # Mock today as May 6th, 2026
-        mock_date.today.return_value = date(2026, 5, 6)
-        # Re-implement side effect so date(2026, 5, 1) etc still work
-        mock_date.side_effect = lambda *args, **kwargs: date(*args, **kwargs)
-        
+    # Patch onde é USADO (importado), não onde é definido. O serviço passou a
+    # chamar `today_local()` — o dia de calendário do fuso do app —, então um
+    # mock em `date.today` não o alcança mais.
+    with patch("app.services.forecast_service.today_local", return_value=date(2026, 5, 6)):
+
         # 1. Setup: 3 transactions in May (Total 300)
         t1 = Transaction(title="T1", total_amount=Decimal("100.00"), transaction_date=datetime(2026, 5, 1), workspace_id=workspace_id)
         t2 = Transaction(title="T2", total_amount=100.00, transaction_date=datetime(2026, 5, 2), workspace_id=workspace_id)
@@ -61,9 +58,9 @@ def test_tendencia_ignora_fixos_ja_lancados(db_session: Session, seed_ws):
     workspace_id = seed_ws["ws"].id
     target_month = date(2026, 5, 1)
 
-    with patch("app.services.forecast_service.date") as mock_date:
-        mock_date.today.return_value = date(2026, 5, 6)
-        mock_date.side_effect = lambda *args, **kwargs: date(*args, **kwargs)
+    # `today_local()` no lugar de `date.today()`: o serviço passou a usar o dia
+    # de calendário do fuso do APP, e um mock em `date` não o alcança mais.
+    with patch("app.services.forecast_service.today_local", return_value=date(2026, 5, 6)):
 
         aluguel = RecurringExpense(
             title="Aluguel", base_amount=Decimal("3000.00"), day_of_month=1,
@@ -105,9 +102,9 @@ def test_tendencia_ignora_parcelas(db_session: Session, seed_ws):
     workspace_id = seed_ws["ws"].id
     target_month = date(2026, 5, 1)
 
-    with patch("app.services.forecast_service.date") as mock_date:
-        mock_date.today.return_value = date(2026, 5, 6)
-        mock_date.side_effect = lambda *args, **kwargs: date(*args, **kwargs)
+    # `today_local()` no lugar de `date.today()`: o serviço passou a usar o dia
+    # de calendário do fuso do APP, e um mock em `date` não o alcança mais.
+    with patch("app.services.forecast_service.today_local", return_value=date(2026, 5, 6)):
 
         db_session.add(Transaction(
             title="Geladeira (1/10)", total_amount=Decimal("500.00"),
@@ -128,9 +125,9 @@ def test_forecast_past_month(db_session: Session, seed_ws):
     workspace_id = seed_ws["ws"].id
     target_month = date(2026, 4, 1) # April (Past)
     
-    with patch("app.services.forecast_service.date") as mock_date:
-        mock_date.today.return_value = date(2026, 5, 6)
-        mock_date.side_effect = lambda *args, **kwargs: date(*args, **kwargs)
+    # `today_local()` no lugar de `date.today()`: o serviço passou a usar o dia
+    # de calendário do fuso do APP, e um mock em `date` não o alcança mais.
+    with patch("app.services.forecast_service.today_local", return_value=date(2026, 5, 6)):
         
         # 400 spent in April
         t1 = Transaction(title="T1", total_amount=Decimal("400.00"), transaction_date=datetime(2026, 4, 10), workspace_id=workspace_id)
@@ -147,9 +144,9 @@ def test_forecast_future_month(db_session: Session, seed_ws):
     workspace_id = seed_ws["ws"].id
     target_month = date(2026, 6, 1) # June (Future)
     
-    with patch("app.services.forecast_service.date") as mock_date:
-        mock_date.today.return_value = date(2026, 5, 6)
-        mock_date.side_effect = lambda *args, **kwargs: date(*args, **kwargs)
+    # `today_local()` no lugar de `date.today()`: o serviço passou a usar o dia
+    # de calendário do fuso do APP, e um mock em `date` não o alcança mais.
+    with patch("app.services.forecast_service.today_local", return_value=date(2026, 5, 6)):
         
         # Recurring expense in future month (should all be pending)
         r1 = RecurringExpense(title="Rent", base_amount=1000.00, day_of_month=15, workspace_id=workspace_id, is_active=True)

@@ -24,9 +24,11 @@ from app.schemas.common import OptionalCurrencyCode
 from app.schemas.overview import (
     ActivityRead,
     CommitmentsRead,
+    LedgerRead,
     OverviewRead,
     SeriesRead,
 )
+from app.services.cashflow_service import CASH_SOURCES
 from app.services.overview_service import OverviewService
 from sqlmodel import Session
 
@@ -95,6 +97,47 @@ def get_reports(
     """
     return OverviewService.get_series(
         session, current_user.id, months=months, currency=_moeda(currency)
+    )
+
+
+@router.get("/ledger", response_model=LedgerRead)
+def get_ledger(
+    month: Optional[str] = None,
+    # Múltiplos: `?source=income&source=settlement_received`
+    source: Optional[List[str]] = Query(default=None),
+    workspace_id: Optional[int] = Query(default=None),
+    card_id: Optional[int] = Query(default=None),
+    counterparty_id: Optional[int] = Query(default=None),
+    currency: Optional[str] = Query(default=None),
+    limit: int = Query(100, ge=1, le=500),
+    offset: int = Query(0, ge=0),
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+):
+    """Extrato global: cada movimento de caixa do mês, em todos os workspaces.
+
+    É o detalhe de `/me/overview` — mesma origem de dados, então o extrato SEMPRE
+    fecha com os totais. Sem ele a Visão global respondia "saiu R$ 4.200" e não
+    tinha como explicar de onde.
+    """
+    if source:
+        invalidas = set(source) - set(CASH_SOURCES)
+        if invalidas:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Origem inválida: {', '.join(sorted(invalidas))}",
+            )
+    return OverviewService.get_ledger(
+        session,
+        current_user.id,
+        _mes(month),
+        currency=_moeda(currency),
+        sources=source,
+        workspace_id=workspace_id,
+        card_id=card_id,
+        counterparty_id=counterparty_id,
+        limit=limit,
+        offset=offset,
     )
 
 

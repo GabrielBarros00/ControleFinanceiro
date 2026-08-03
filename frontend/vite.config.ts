@@ -57,11 +57,14 @@ export default defineConfig({
        * para impedir REGRESSÃO; subir é trabalho de cada onda, e o número aqui
        * sobe junto.
        */
+      // Onda 7: 60/52/48/62 → 62/55/50/65. O que subiu foi o que a onda tocou —
+      // pagamento parcial de fatura, limiares dos relatórios, o extrato global
+      // (que nasceu coberto) e as duas listas de invalidação corrigidas.
       thresholds: {
-        statements: 60,
-        branches: 52,
-        functions: 48,
-        lines: 62,
+        statements: 62,
+        branches: 55,
+        functions: 50,
+        lines: 65,
       },
     },
   },

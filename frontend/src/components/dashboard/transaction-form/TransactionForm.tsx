@@ -136,7 +136,7 @@ export function TransactionForm({ initialValues, onSubmit, submitLabel, resetOnS
       <form onSubmit={handleSubmit(submit)}>
         <div className="space-y-5">
 
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div className="space-y-2">
               <Label htmlFor="title" className="text-sm font-semibold text-foreground">Título / Descrição</Label>
               <Input id="title" placeholder="Ex: Mercado" {...register('title')} className="bg-background border-border focus:ring-primary" />
@@ -181,7 +181,7 @@ export function TransactionForm({ initialValues, onSubmit, submitLabel, resetOnS
             </div>
           </div>
 
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <PayersEditor participants={participants} />
             <div className="space-y-2">
               <Label htmlFor="transaction_date" className="text-sm font-semibold text-foreground">Data</Label>

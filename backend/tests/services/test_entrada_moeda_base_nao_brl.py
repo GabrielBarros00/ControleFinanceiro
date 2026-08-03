@@ -25,6 +25,7 @@ import pytest
 from fastapi.testclient import TestClient
 from sqlmodel import Session, select
 
+from app.domain.dates import today_local
 from app.main import app
 from app.models.exchange_rate import ExchangeRate
 from app.models.income import Income
@@ -421,8 +422,11 @@ def test_onboarding_nasce_na_moeda_base(client, db_session, ws_usd):
     assert renda.currency == "USD"
     assert renda.user_id == user.id
 
-    # E a renda aparece de fato no painel PESSOAL — que é onde renda vive agora
-    mes = renda.received_at.strftime("%Y-%m")
+    # E a renda aparece de fato no painel PESSOAL — que é onde renda vive agora.
+    # O mês é o do CALENDÁRIO LOCAL: `received_at` é um instante UTC, e derivar
+    # o mês dele fazia o teste pedir agosto por uma renda criada às 21h de 31 de
+    # julho em São Paulo — exatamente a competência que o app agora acerta.
+    mes = today_local().strftime("%Y-%m")
     corpo = client.get(f"/api/v1/me/overview?month={mes}", headers=headers).json()
     assert Decimal(corpo["income"]) == Decimal("4000.00")
 

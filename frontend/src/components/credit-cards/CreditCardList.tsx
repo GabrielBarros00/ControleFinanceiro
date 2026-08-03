@@ -210,7 +210,7 @@ export function CreditCardList({ selectedCardId, onSelectCard }: CreditCardListP
               <Label htmlFor="card-limit">Limite</Label>
               <MoneyInput id="card-limit" value={limit} onChange={setLimit} prefix={currencySymbol(baseCurrency)} />
             </div>
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div className="space-y-2">
                 <Label htmlFor="closing-day">Dia de fechamento</Label>
                 <Input

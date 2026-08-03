@@ -57,6 +57,9 @@ export const GLOBAL_SECTION: NavSection = {
     // `/w/:id/reports` continuam existindo e são outro eixo: quanto ESTA casa
     // gastou. Depois do ADR 0021 eles nem podem mais falar de renda.
     { icon: BarChart3, label: 'Seus relatórios', to: '/me/reports' },
+    // As LINHAS por trás dos totais. A Visão global sabia dizer "saiu R$ 4.200"
+    // e de que origem, mas não tinha por onde explicar cada número.
+    { icon: Receipt, label: 'Extrato', to: '/me/ledger' },
     // Perfil, senha, contas de pagamento, tema e moeda de relatório. Ficavam
     // presos em `/w/:id/settings`, inalcançáveis para quem não tivesse um
     // workspace válido — e nenhum deles pertence a workspace nenhum.

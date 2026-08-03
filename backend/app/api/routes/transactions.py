@@ -13,7 +13,7 @@ from app.domain.access_policy import (
     get_visible_transaction,
     scope_transactions,
 )
-from app.domain.dates import add_months
+from app.domain.dates import add_months, month_key_local
 from app.models.workspace import WorkspaceMembership, WorkspaceRole
 from app.models.transaction import (
     Transaction,
@@ -48,8 +48,7 @@ from app.domain.query_policy import (
 from app.models.attachment import Attachment
 from app.models.tag import Tag, TransactionTagLink
 from app.services.attachment_storage import free_keys, keys_to_free
-from app.services.currency_service import ExchangeRateUnavailable
-from app.services.exchange_rate_store import ExchangeRateStore
+from app.services.base_conversion import compute_base_conversion
 from app.services.event_service import publish_event
 from app.services.transaction_service import (
     _allocate_proportional,
@@ -116,6 +115,43 @@ def _ensure_not_cancelled(db_transaction: Transaction):
         )
 
 
+#: Campos que definem a IDENTIDADE financeira da parcela espelhada. Mexer neles
+#: quebra o pareamento com a `AmortizationInstallment`.
+_VINCULO_FINANCIAMENTO_IMUTAVEL = {
+    "total_amount",
+    "transaction_date",
+    "billing_month",
+    "currency",
+    "workspace_id",
+}
+
+
+def _ensure_financing_link_intact(db_transaction: Transaction, update_keys: set):
+    """Despesa que espelha uma parcela de financiamento não muda de valor/data.
+
+    A deduplicação do caixa (`CashFlowService`) escolhe entre contar a despesa ou
+    contar a parcela. As duas nascem com a mesma data e o mesmo valor; deixar a
+    despesa ser editada livremente fazia a saída trocar de mês sem que a parcela
+    soubesse — e um valor editado passava a divergir do cronograma de amortização,
+    que é o contrato.
+
+    Mudar o resto (título, categoria, tags, divisão entre pessoas) continua
+    liberado: isso é sobre COMO a casa rateia a parcela, não sobre o pagamento.
+    """
+    if db_transaction.financing_installment_id is None:
+        return
+    proibidos = update_keys & _VINCULO_FINANCIAMENTO_IMUTAVEL
+    if proibidos:
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "Esta despesa é o pagamento de uma parcela de financiamento; "
+                f"{', '.join(sorted(proibidos))} vêm da parcela. Desfaça o "
+                "pagamento no financiamento e refaça-o com os dados corretos."
+            ),
+        )
+
+
 def _resync_item_amounts(session: Session, transaction_id: int, new_total: Decimal) -> None:
     """Rateia `new_total` entre os itens da transação, em centavos exatos.
 
@@ -145,52 +181,10 @@ def _resync_item_amounts(session: Session, transaction_id: int, new_total: Decim
         session.add(item)
 
 
-def _compute_base_conversion(
-    session: Session,
-    workspace_id: int,
-    *,
-    currency: Optional[str],
-    total_amount: Decimal,
-    transaction_date: datetime.datetime,
-    payment_method: Optional[PaymentMethod],
-) -> Optional[Dict]:
-    """Fator de conversão para a MOEDA-BASE DO WORKSPACE na ENTRADA: taxa do dia
-    × (1 + IOF no cartão). Retorna None se já for base; 422 se a taxa faltar. A
-    divisão (pagadores/splits/itens/ajustes) é convertida à parte por
-    `convert_division_to_base` — inclusive valor fixo, por item e multi-pagador."""
-    base = workspace_base_currency(session, workspace_id)
-    if not currency or currency == base:
-        return None
-
-    occ = transaction_date.date() if hasattr(transaction_date, "date") else transaction_date
-    try:
-        # rate_between (não get_or_fetch): a taxa tem que ser moeda→BASE. O store
-        # só guarda X→BRL, então num workspace não-BRL a taxa direta estava errada.
-        rate, source = ExchangeRateStore.rate_between(session, currency, base, occ)
-    except ExchangeRateUnavailable as exc:
-        raise HTTPException(status_code=422, detail=str(exc))
-
-    # IOF só em compra internacional no cartão (crédito/débito)
-    iof = (
-        settings.IOF_INTERNATIONAL_CARD_RATE
-        if payment_method in (PaymentMethod.credit_card, PaymentMethod.debit_card)
-        else Decimal("0")
-    )
-    factor = rate * (Decimal("1") + iof)
-    base_total = (total_amount * factor).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
-
-    return {
-        "base_currency": base,
-        "base_total": base_total,
-        "factor": factor,
-        "meta": {
-            "original_amount": total_amount,
-            "original_currency": currency,
-            "exchange_rate": rate,
-            "iof_rate": iof,
-            "rate_source": source,
-        },
-    }
+#: A regra mora em `services/base_conversion.py` desde que o pagamento de parcela
+#: de financiamento passou a precisar dela — rota não importa rota. O alias
+#: mantém os chamadores deste módulo como estavam.
+_compute_base_conversion = compute_base_conversion
 
 
 def _convert_create_to_base(
@@ -272,7 +266,7 @@ def create_transaction(
         exclude={"payers", "splits", "items", "adjustments", "tag_ids", "installments_count"}
     )
     if not transaction_data.get("billing_month"):
-        transaction_data["billing_month"] = transaction_in.transaction_date.strftime("%Y-%m")
+        transaction_data["billing_month"] = month_key_local(transaction_in.transaction_date)
 
     db_transaction = Transaction(
         **transaction_data,
@@ -467,7 +461,7 @@ def _create_installments(
                 title=inst_title,
                 total_amount=inst_amount,
                 transaction_date=inst_date,
-                billing_month=inst_date.strftime("%Y-%m"),
+                billing_month=month_key_local(inst_date),
                 workspace_id=workspace_id,
                 created_by_user_id=membership.user_id,
                 statement_id=statement_id,
@@ -677,6 +671,7 @@ def update_transaction(
 
     _ensure_not_cancelled(db_transaction)
     _ensure_not_paid(db_transaction, set(update_data.keys()))
+    _ensure_financing_link_intact(db_transaction, set(update_data.keys()))
 
     # Máquina de estados (ADR 0003)
     if "status" in update_data:
@@ -693,7 +688,7 @@ def update_transaction(
     # Mudou a data sem informar billing_month explicitamente? Recalcula —
     # senão a transação some do filtro do mês novo e continua no antigo
     if "transaction_date" in update_data and "billing_month" not in update_data:
-        update_data["billing_month"] = update_data["transaction_date"].strftime("%Y-%m")
+        update_data["billing_month"] = month_key_local(update_data["transaction_date"])
 
     # Coerência método de pagamento × cartão contra o estado EFETIVO
     if "payment_method" in update_data or "credit_card_id" in update_data:
@@ -1472,7 +1467,7 @@ def bulk_create_transactions(
             total_amount=amount,
             transaction_date=dt,
             # Sem billing_month a transação some do histórico filtrado por mês
-            billing_month=dt.strftime("%Y-%m"),
+            billing_month=month_key_local(dt),
             workspace_id=workspace_id,
             created_by_user_id=membership.user_id,
             # Moeda-base do workspace, não "BRL" fixo: com o literal, TODA linha

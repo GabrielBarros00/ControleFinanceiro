@@ -31,11 +31,21 @@ from app.api.routes.auth import get_current_user
 from app.db.session import get_session
 from app.domain.access_policy import assert_owns, personal_scope
 from app.domain.query_policy import resolve_personal_currency
-from app.models.credit_card import CardStatement, CreditCard, StatementStatus
+from app.models.credit_card import (
+    CardStatement,
+    CreditCard,
+    StatementPayment,
+    StatementStatus,
+)
 from app.models.payment_account import PaymentAccount
 from app.models.transaction import Transaction
 from app.models.user import User
 from app.schemas.common import DESCRIPTION_MAX, MAX_MONEY, NAME_MAX, OptionalCurrencyCode
+from app.schemas.credit_card import (
+    StatementDetailRead,
+    StatementListItemRead,
+    StatementRead,
+)
 from app.services.credit_card_service import CreditCardService, StatementStateError
 
 router = APIRouter(prefix="/me/credit-cards", tags=["me-credit-cards"])
@@ -97,11 +107,47 @@ def _get_statement_or_404(session: Session, card: CreditCard, statement_id: int)
     return stmt
 
 
-def _serialize_statement(session: Session, stmt: CardStatement) -> dict:
+def _payments_by_statement(
+    session: Session, statement_ids: list[int]
+) -> dict[int, list[StatementPayment]]:
+    """Pagamentos vivos agrupados por fatura, numa consulta só.
+
+    A lista de faturas serializa N linhas; buscar os pagamentos dentro de
+    `_serialize_statement` seria um SELECT por fatura.
+    """
+    if not statement_ids:
+        return {}
+    linhas = session.exec(
+        select(StatementPayment)
+        .where(StatementPayment.statement_id.in_(statement_ids))
+        .where(StatementPayment.deleted_at.is_(None))
+        .order_by(StatementPayment.paid_at)
+    ).all()
+    agrupado: dict[int, list[StatementPayment]] = {}
+    for p in linhas:
+        agrupado.setdefault(p.statement_id, []).append(p)
+    return agrupado
+
+
+def _serialize_statement(
+    session: Session,
+    stmt: CardStatement,
+    payments: Optional[list[StatementPayment]] = None,
+) -> dict:
+    """`payments=None` busca sozinho; quem serializa uma LISTA passa o grupo já
+    carregado para não disparar uma consulta por fatura."""
+    if payments is None:
+        payments = _payments_by_statement(session, [stmt.id]).get(stmt.id, [])
+    total = CreditCardService.effective_total(session, stmt)
+    pago = sum((p.amount for p in payments), Decimal("0.00"))
+    saldo = total - pago
     return {
         **stmt.model_dump(),
-        "computed_total": CreditCardService.effective_total(session, stmt),
+        "computed_total": total,
         "is_overdue": CreditCardService.is_overdue(stmt),
+        "paid_amount": pago,
+        "remaining_amount": saldo if saldo > 0 else Decimal("0.00"),
+        "payments": payments,
     }
 
 
@@ -240,7 +286,7 @@ def statement_for_date(
     return CreditCardService.preview_statement_target(session, card, on)
 
 
-@router.get("/{card_id}/statements")
+@router.get("/{card_id}/statements", response_model=list[StatementListItemRead])
 def list_statements(
     card_id: int,
     session: Session = Depends(get_session),
@@ -261,16 +307,20 @@ def list_statements(
         .where(CardStatement.card_id == card.id)
         .order_by(CardStatement.month.desc())
     ).all()
+    pagamentos = _payments_by_statement(session, [s.id for s in statements])
     # is_current marca o ciclo aberto de hoje. A tela não pode deduzir isso de
     # "a mais recente": uma compra lançada com data futura cria uma fatura à
     # frente, e ela não é a fatura atual.
     return [
-        {**_serialize_statement(session, s), "is_current": s.month == current_month}
+        {
+            **_serialize_statement(session, s, pagamentos.get(s.id, [])),
+            "is_current": s.month == current_month,
+        }
         for s in statements
     ]
 
 
-@router.get("/{card_id}/statements/{statement_id}")
+@router.get("/{card_id}/statements/{statement_id}", response_model=StatementDetailRead)
 def get_statement(
     card_id: int,
     statement_id: int,
@@ -309,7 +359,7 @@ def get_statement(
 # ou pagava a fatura de outra pessoa.
 
 
-@router.post("/{card_id}/statements/{statement_id}/close")
+@router.post("/{card_id}/statements/{statement_id}/close", response_model=StatementRead)
 def close_statement(
     card_id: int,
     statement_id: int,
@@ -327,7 +377,7 @@ def close_statement(
     return _serialize_statement(session, stmt)
 
 
-@router.post("/{card_id}/statements/{statement_id}/pay")
+@router.post("/{card_id}/statements/{statement_id}/pay", response_model=StatementRead)
 def pay_statement(
     card_id: int,
     statement_id: int,
@@ -366,7 +416,7 @@ def pay_statement(
     return _serialize_statement(session, stmt)
 
 
-@router.post("/{card_id}/statements/{statement_id}/reopen")
+@router.post("/{card_id}/statements/{statement_id}/reopen", response_model=StatementRead)
 def reopen_statement(
     card_id: int,
     statement_id: int,

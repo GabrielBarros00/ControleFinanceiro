@@ -1,3 +1,5 @@
+from datetime import date
+
 import pytest
 from fastapi.testclient import TestClient
 from sqlmodel import Session
@@ -179,3 +181,48 @@ def test_income_edicao_para_brl_limpa_original(income_setup, override_get_sessio
     assert upd["original_currency"] is None
     assert upd["original_amount"] is None
     assert upd["exchange_rate"] is None
+
+
+def test_mudar_so_a_data_reconverte_pelo_novo_dia(income_setup, override_get_session, monkeypatch):
+    """Mover uma renda estrangeira de dia tem de recotar o câmbio.
+
+    `update_income` só re-convertia quando o PUT trazia `amount` ou `currency`.
+    Mudar a data mantinha a cotação da data ANTERIOR: a renda passava a valer,
+    em moeda-base, um câmbio que não era o do recebimento — e nada avisava.
+    """
+    from decimal import Decimal
+    from app.services import currency_service as cs
+
+    taxas = {date(2026, 5, 10): Decimal("5.00"), date(2026, 6, 10): Decimal("6.00")}
+    monkeypatch.setattr(
+        cs.CurrencyService,
+        "get_rate_sync",
+        staticmethod(lambda _de, _para, quando, **k: (taxas[quando], "ptax")),
+    )
+
+    resp = client.post(
+        "/api/v1/me/income/",
+        json={
+            "title": "Freela USD", "amount": 100.0, "currency": "USD",
+            "received_at": "2026-05-10T10:00:00",
+        },
+        headers=income_setup["headers1"],
+    )
+    assert resp.status_code == 200, resp.text
+    income_id = resp.json()["id"]
+    assert resp.json()["amount"] == "500.00"
+
+    # PUT só com a data — sem amount, sem currency
+    resp = client.put(
+        f"/api/v1/me/income/{income_id}",
+        json={"received_at": "2026-06-10T10:00:00"},
+        headers=income_setup["headers1"],
+    )
+    assert resp.status_code == 200, resp.text
+    upd = resp.json()
+    assert upd["amount"] == "600.00", "a renda manteve a cotação do dia antigo"
+    assert upd["currency"] == "BRL"
+    # A proveniência sobrevive: o valor original em USD não muda por trocar o dia
+    assert upd["original_currency"] == "USD"
+    assert Decimal(upd["original_amount"]) == Decimal("100.00")
+    assert Decimal(upd["exchange_rate"]) == Decimal("6.00")

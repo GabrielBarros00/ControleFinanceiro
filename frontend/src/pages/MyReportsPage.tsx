@@ -1,4 +1,4 @@
-import { Link } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import {
   ArrowRight,
   BarChart3,
@@ -26,6 +26,7 @@ import { ExcludedForeignNotice } from '@/components/money/ExcludedForeignNotice'
 import { useMyReports } from '@/hooks/use-overview';
 import { useChartTheme } from '@/hooks/use-chart-theme';
 import { formatCompact, formatMoney } from '@/lib/money';
+import { cn } from '@/lib/utils';
 
 /**
  * Relatórios GLOBAIS e pessoais (ADR 0020 + 0021 + 0022).
@@ -40,7 +41,9 @@ import { formatCompact, formatMoney } from '@/lib/money';
  * Este é o lugar certo para a pergunta — e ele NÃO substitui os Relatórios do
  * workspace, que continuam operacionais e são outro eixo.
  */
-const MESES = 6;
+/** Períodos oferecidos. A API aceita 1..12 (`/me/reports`, `months`). */
+const PERIODOS = [3, 6, 12] as const;
+const MESES_PADRAO = 6;
 
 function rotuloMes(month: string): string {
   const [ano, mes] = month.split('-').map(Number);
@@ -50,7 +53,14 @@ function rotuloMes(month: string): string {
 }
 
 export function MyReportsPage() {
-  const { reports, isLoading } = useMyReports(MESES);
+  // Período na URL, como o mês no `OverviewPage`: recarregar ou compartilhar o
+  // link preserva o que se estava olhando. Era `const MESES = 6` fixo, embora a
+  // API já aceitasse de 1 a 12.
+  const [params, setParams] = useSearchParams();
+  const pedido = Number(params.get('months'));
+  const meses = PERIODOS.includes(pedido as (typeof PERIODOS)[number]) ? pedido : MESES_PADRAO;
+
+  const { reports, isLoading } = useMyReports(meses);
   const chart = useChartTheme();
 
   const moeda = reports?.currency ?? 'BRL';
@@ -65,8 +75,17 @@ export function MyReportsPage() {
     resultado: n(m.result),
     caixa: n(m.net_cash),
   }));
-  // Um único mês não desenha tendência nenhuma — a linha vira um ponto solto.
-  const temSerie = dados.filter((d) => d.renda !== 0 || d.consumo !== 0).length >= 2;
+  // Dois limiares, não um. A mesma condição controlava os dois gráficos, e um
+  // mês com valores — perfeitamente comparável em barras — escondia também o
+  // "Renda × consumo" com "ainda não há meses suficientes".
+  const mesesComValor = dados.filter((d) => d.renda !== 0 || d.consumo !== 0).length;
+  const temComparacao = mesesComValor >= 1;
+  // A tendência é que precisa de dois pontos: com um só, a linha é um ponto
+  // solto. Conta também `resultado`/`caixa`, que são as séries que ELA desenha —
+  // um mês com caixa e sem renda nem consumo não contava para o próprio gráfico.
+  const temSerie =
+    dados.filter((d) => d.renda !== 0 || d.consumo !== 0 || d.resultado !== 0 || d.caixa !== 0)
+      .length >= 2;
 
   const totais = reports?.totals;
   const resultado = n(totais?.result);
@@ -89,10 +108,38 @@ export function MyReportsPage() {
 
   return (
     <div className="space-y-6">
-      <PageHeader
-        title="Seus relatórios"
-        subtitle={`Últimos ${MESES} meses, somando todos os workspaces.`}
-      />
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <PageHeader
+          title="Seus relatórios"
+          subtitle={`Últimos ${meses} meses, somando todos os workspaces.`}
+        />
+        <div
+          role="group"
+          aria-label="Período do relatório"
+          className="inline-flex shrink-0 rounded-lg border border-border bg-background p-0.5"
+        >
+          {PERIODOS.map((p) => (
+            <button
+              key={p}
+              type="button"
+              aria-pressed={p === meses}
+              onClick={() => {
+                const proximo = new URLSearchParams(params);
+                proximo.set('months', String(p));
+                setParams(proximo, { replace: true });
+              }}
+              className={cn(
+                'rounded-md px-3 py-1.5 text-sm font-semibold transition-colors',
+                p === meses
+                  ? 'bg-brand text-primary-foreground'
+                  : 'text-muted-foreground hover:bg-muted',
+              )}
+            >
+              {p}m
+            </button>
+          ))}
+        </div>
+      </div>
 
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <StatTile
@@ -142,7 +189,7 @@ export function MyReportsPage() {
           </p>
         </div>
         <div className="h-[320px] p-4">
-          {temSerie ? (
+          {temComparacao ? (
             <ResponsiveContainer width="100%" height="100%">
               <BarChart data={dados}>
                 <CartesianGrid strokeDasharray="3 3" stroke={chart.grid} vertical={false} />
@@ -169,8 +216,12 @@ export function MyReportsPage() {
               </BarChart>
             </ResponsiveContainer>
           ) : (
-            <div className="flex h-full items-center justify-center text-muted-foreground italic">
-              Ainda não há meses suficientes para comparar.
+            <div className="flex h-full items-center justify-center">
+              <EmptyState
+                icon={Wallet}
+                title="Nenhum movimento no período"
+                description="Lance uma despesa ou registre uma renda para comparar os dois."
+              />
             </div>
           )}
         </div>
@@ -229,8 +280,12 @@ export function MyReportsPage() {
               </LineChart>
             </ResponsiveContainer>
           ) : (
-            <div className="flex h-full items-center justify-center text-muted-foreground italic">
-              Ainda não há meses suficientes para desenhar a evolução.
+            <div className="flex h-full items-center justify-center">
+              <EmptyState
+                icon={TrendingUp}
+                title="Ainda não dá para desenhar a evolução"
+                description="A tendência precisa de pelo menos dois meses com movimento."
+              />
             </div>
           )}
         </div>

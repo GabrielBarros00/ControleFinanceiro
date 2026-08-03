@@ -73,7 +73,7 @@ const AUDIT = ['audit'];
 export const GLOBAIS = new Set([
   'credit-cards', 'statements', 'payment-accounts', 'financing', 'income',
   'recurring-income', 'me-overview', 'me-commitments', 'me-activity', 'me-reports',
-  'statement-target', 'workspaces',
+  'me-ledger', 'statement-target', 'workspaces',
 ]);
 
 /**
@@ -89,23 +89,23 @@ const BY_PREFIX: Record<string, string[]> = {
   transaction: [
     'transactions', 'transaction', 'installment-group', 'reports', 'analytics-forecast',
     'debts', 'debts-monthly', 'statements', 'credit-cards', 'attachments',
-    'me-overview', 'me-reports', 'me-activity', 'me-commitments',
+    'me-overview', 'me-ledger', 'me-reports', 'me-activity', 'me-commitments',
     ...AUDIT,
   ],
-  income: ['income', 'reports', 'analytics-forecast', 'me-overview', 'me-reports', ...AUDIT],
+  income: ['income', 'reports', 'analytics-forecast', 'me-overview', 'me-ledger', 'me-reports', ...AUDIT],
   // Recorrente materializa lançamentos (possivelmente numa fatura de cartão)
   recurring: [
     'recurring', 'transactions', 'reports', 'analytics-forecast', 'debts', 'debts-monthly',
-    'statements', 'credit-cards', 'me-overview', 'me-reports', 'me-activity', 'me-commitments',
+    'statements', 'credit-cards', 'me-overview', 'me-ledger', 'me-reports', 'me-activity', 'me-commitments',
     ...AUDIT,
   ],
   recurring_income: [
-    'recurring-income', 'income', 'reports', 'analytics-forecast', 'me-overview', 'me-reports', ...AUDIT,
+    'recurring-income', 'income', 'reports', 'analytics-forecast', 'me-overview', 'me-ledger', 'me-reports', ...AUDIT,
   ],
   // Fechar/pagar/reabrir fatura muda limite comprometido, compromissos e — desde
   // o ADR 0022 — o caixa efetivo do mês em que a fatura foi paga.
   credit_card: [
-    'credit-cards', 'statements', 'transactions', 'me-commitments', 'me-overview',
+    'credit-cards', 'statements', 'transactions', 'me-commitments', 'me-overview', 'me-ledger',
     // Mudar dia de fechamento/vencimento — ou fechar a fatura do ciclo — muda
     // a resposta de "vai para a fatura de Agosto/2026" no formulário. Sem
     // isto o aviso ficava com a regra ANTIGA em cache, e ele existe
@@ -116,21 +116,32 @@ const BY_PREFIX: Record<string, string[]> = {
   category: ['categories', 'reports', 'transactions', ...AUDIT],
   tag: ['tags', 'transactions', ...AUDIT],
   estimate: ['estimates', 'analytics-forecast', 'reports', ...AUDIT],
-  financing: ['financing', 'me-commitments', 'me-overview', 'me-reports', ...AUDIT],
+  financing: ['financing', 'me-commitments', 'me-overview', 'me-ledger', 'me-reports', ...AUDIT],
   payment_account: ['payment-accounts', 'transactions', 'credit-cards', ...AUDIT],
   attachment: ['attachments', 'transactions', ...AUDIT],
   // O acerto mexe no saldo a pagar/receber E no caixa (é dinheiro que muda de mão)
   settlement: [
-    'settlements', 'debts', 'debts-monthly', 'me-overview', 'me-reports', 'reports',
+    'settlements', 'debts', 'debts-monthly', 'me-overview', 'me-ledger', 'me-reports', 'reports',
     ...AUDIT,
   ],
-  // Entrar/sair muda o rateio; renomear muda o nome exibido no extrato e nas dívidas
+  // Entrar/sair muda o RATEIO — e o rateio é a base dos relatórios (totais por
+  // categoria), da participação por workspace em `me-reports`, do `my_share` de
+  // cada linha em `me-activity` e da previsão. A lista parava em `me-overview`,
+  // então outra aba seguia exibindo consolidações calculadas com o quadro de
+  // membros antigo.
   member: [
-    'members', 'invites', 'debts', 'debts-monthly', 'transactions',
-    'workspaces', 'me-overview', ...AUDIT,
+    'members', 'invites', 'debts', 'debts-monthly', 'settlements', 'transactions',
+    'reports', 'analytics-forecast', 'workspaces',
+    'me-overview', 'me-ledger', 'me-reports', 'me-activity', ...AUDIT,
   ],
   invite: ['invites', 'members', ...AUDIT],
-  workspace: ['workspaces', 'me-overview', ...AUDIT],
+  // Renomear/excluir workspace: o NOME é renderizado em `me-reports`
+  // (`by_workspace`) e em `me-activity` (`workspace_name`), e excluir deixa as
+  // duas listas com linhas de um workspace que não existe mais.
+  workspace: [
+    'workspaces', 'transactions', 'reports',
+    'me-overview', 'me-ledger', 'me-reports', 'me-activity', 'me-commitments', ...AUDIT,
+  ],
 };
 
 /** Eventos que exigem resync completo (o tipo inteiro, não só o prefixo). */

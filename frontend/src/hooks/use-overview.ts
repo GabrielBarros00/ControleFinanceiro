@@ -33,6 +33,41 @@ export function useOverview(month?: string) {
 }
 
 /**
+ * Extrato global: as LINHAS que compõem o caixa do mês (ADR 0022).
+ *
+ * A Visão global tinha bons totais e nenhuma forma de explicar cada número. Este
+ * hook lê o mesmo `CashFlowService` que produz os totais — por isso o extrato
+ * sempre fecha com eles, em vez de ser uma segunda consulta parecida que
+ * diverge com o tempo.
+ */
+export type Ledger = components['schemas']['LedgerRead'];
+export type LedgerEntry = components['schemas']['LedgerEntry'];
+
+export interface LedgerFilters {
+  month?: string;
+  source?: string[];
+  workspace_id?: number;
+  card_id?: number;
+  counterparty_id?: number;
+  limit?: number;
+  offset?: number;
+}
+
+export function useLedger(filters: LedgerFilters = {}, enabled = true) {
+  const query = useQuery({
+    // A chave carrega os filtros: cada recorte é uma resposta diferente, e o
+    // drill-down troca de recorte sem sair da tela.
+    queryKey: ['me-ledger', filters],
+    queryFn: async (): Promise<Ledger> => {
+      const res = await apiClient.get('/me/ledger', { params: filters });
+      return res.data;
+    },
+    enabled,
+  });
+  return { ledger: query.data, isLoading: query.isLoading };
+}
+
+/**
  * Compromissos separados por PRAZO (ADR 0021).
  *
  * O `total` único que existia aqui somava a próxima fatura do cartão com o

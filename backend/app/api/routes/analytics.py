@@ -6,7 +6,7 @@ from datetime import date
 
 from app.db.session import get_session
 from app.domain.access_policy import has_full_access
-from app.domain.dates import InvalidMonth, parse_month
+from app.domain.dates import InvalidMonth, parse_month, today_local
 from app.models.workspace import WorkspaceMembership, WorkspaceRole
 from app.models.estimate import MonthlyEstimate
 from app.schemas.estimate import MonthlyEstimateCreate, MonthlyEstimateRead
@@ -151,7 +151,7 @@ def get_exchange_rate(
     rate_limit_outbound(f"{workspace_id}:exchange-rate")
     try:
         rate, source = ExchangeRateStore.rate_between(
-            session, from_currency, target, date.today()
+            session, from_currency, target, today_local()
         )
     except ExchangeRateUnavailable as exc:
         raise HTTPException(status_code=422, detail=str(exc))

@@ -135,8 +135,39 @@ def test_billing_month_e_derivado_quando_ausente(db_session: Session, ws):
     db_session.add(tx)
     db_session.commit()
     db_session.refresh(tx)
-    # Sem valor explícito, deriva da data (UTC — é tudo que o servidor conhece)
+    # O listener NÃO converte fuso: aqui a proveniência de `transaction_date` é
+    # desconhecida — ora instante, ora dia de calendário à meia-noite (CSV,
+    # cronograma, fixture) — e converter às cegas moveria o segundo caso para o
+    # mês anterior. Quem sabe que recebeu um instante converte na entrada; ver
+    # `test_lancamento_sem_billing_month_cai_no_mes_local` abaixo.
     assert tx.billing_month == "2026-08"
+
+
+def test_lancamento_sem_billing_month_cai_no_mes_local(client, ws):
+    """A ROTA sabe que recebeu um instante — e o converte para o mês local.
+
+    O formulário sempre mandou `billing_month` e mascarava o defeito. Quem chama
+    a API sem ele — script, integração, o próprio e2e — gravava competência de
+    AGOSTO num lançamento feito às 22h de 31 de julho em São Paulo, e a despesa
+    não aparecia em tela nenhuma: todas pedem julho.
+
+    Era exatamente o que reprovava `e2e-prod/realtime_invite`. O evento de
+    WebSocket chegava e a invalidação rodava; o lançamento é que estava no mês
+    seguinte.
+    """
+    res = client.post(
+        f"/api/v1/workspaces/{ws['id']}/transactions/",
+        json={
+            "title": "Sem competência explícita",
+            "total_amount": "50.00",
+            "transaction_date": INSTANTE_UTC.isoformat(),
+            "payers": [{"user_id": ws["user_id"], "amount": "50.00"}],
+            "splits": [{"user_id": ws["user_id"], "split_method": "equal", "input_value": 0}],
+        },
+        headers=ws["headers"],
+    )
+    assert res.status_code == 200, res.text
+    assert res.json()["billing_month"] == MES_LOCAL
 
 
 def test_historico_de_6_meses_usa_o_mesmo_mes(client, ws):

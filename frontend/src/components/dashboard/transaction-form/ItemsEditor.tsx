@@ -160,9 +160,11 @@ function ItemRow({ index, participants, onRemove }: ItemRowProps) {
       </div>
       {itemErrors?.title && <p className="text-[10px] text-destructive font-medium">{itemErrors.title.message as string}</p>}
 
-      {/* Quantidade × unitário (ou total direto) — cada campo rotulado */}
-      <div className="flex items-start gap-3">
-        <div className="w-20 space-y-1">
+      {/* Quantidade × unitário (ou total direto) — cada campo rotulado.
+          Quebra em duas linhas abaixo de `sm`: três campos numa linha de 312px
+          deixavam ~56px de dígitos em cada MoneyInput. */}
+      <div className="flex flex-wrap items-start gap-3">
+        <div className="w-20 shrink-0 space-y-1">
           <Label className="text-[11px] font-semibold text-muted-foreground">Qtd</Label>
           <Input
             type="number"
@@ -290,9 +292,17 @@ function ItemRow({ index, participants, onRemove }: ItemRowProps) {
               )}
             </div>
             {shareMethod !== 'equal' && (
-              // w-32, não w-24: com o prefixo da moeda dentro do campo, 96px
-              // cortavam valores de 4 dígitos ("R$ 1.234,56")
-              <div className={shareMethod === 'percentage' ? 'w-24' : 'w-32'}>
+              // Elástico, não fixo: com o prefixo da moeda dentro do campo,
+              // 96px cortavam "R$ 1.234,56", e mesmo 128px não davam conta de
+              // um valor de milhão. O `min-w` garante o piso, o `flex-1` usa o
+              // que sobrar da linha.
+              <div
+                className={
+                  shareMethod === 'percentage'
+                    ? 'w-24 shrink-0'
+                    : 'min-w-[7rem] flex-1 sm:max-w-[10rem]'
+                }
+              >
                 {shareMethod === 'percentage' ? (
                   <Input
                     type="number"

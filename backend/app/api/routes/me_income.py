@@ -27,7 +27,7 @@ from sqlmodel import Session, select
 from app.api.routes.auth import get_current_user
 from app.db.session import get_session
 from app.domain.access_policy import assert_owns, personal_scope
-from app.domain.dates import InvalidMonth, month_bounds, parse_month
+from app.domain.dates import InvalidMonth, month_bounds, parse_month, today_local
 from app.domain.query_policy import resolve_personal_currency, user_report_currency
 from app.domain.recurrence_rules import validate_frequency_fields as _validate_frequency_fields
 from app.models.income import Income
@@ -166,15 +166,32 @@ def update_income(
     income = _get_income_or_404(session, income_id, current_user.id)
 
     fields_set = income_in.model_dump(exclude_unset=True)
+    # A moeda/valor ORIGINAIS antes de o PUT sobrescrever os campos: uma renda
+    # estrangeira já gravada tem `currency == destino` (a conversão acontece na
+    # entrada) e guarda a proveniência em `original_*`. Sem ler isso ANTES, um
+    # PUT que mexesse só na data reconverteria "de destino para destino" —
+    # curto-circuito — e apagaria a proveniência.
+    moeda_anterior = income.original_currency
+    valor_anterior = income.original_amount
+
     for key, value in fields_set.items():
         setattr(income, key, value)
 
-    # Moeda: só re-converte se o PUT mexeu em valor OU moeda. Um PUT parcial que
-    # NÃO toca em amount/currency preserva o original congelado — senão editar só
-    # o título apagaria a proveniência ("era USD 100 @ 5,00").
-    if "amount" in fields_set or "currency" in fields_set:
+    # Re-converte quando o PUT mexeu em valor, moeda OU DATA. `received_at`
+    # faltava: mover uma renda estrangeira para outro dia mantinha a cotação da
+    # data antiga, e o valor em moeda-base ficava congelado num câmbio que não
+    # era o do recebimento. Um PUT que não toca em nenhum dos três preserva o
+    # original — senão editar só o título apagaria "era USD 100 @ 5,00".
+    if {"amount", "currency", "received_at"} & fields_set.keys():
+        # Moeda de ENTRADA: a que o PUT mandou; senão a original guardada (renda
+        # estrangeira); senão a própria, que já é a de destino.
+        moeda_entrada = fields_set.get("currency") or moeda_anterior or income.currency
+        valor_entrada = income.amount
+        if "amount" not in fields_set and valor_anterior is not None:
+            valor_entrada = valor_anterior
+
         conv = _convert_income_fields(
-            session, current_user.id, income.amount, income.currency, income.received_at
+            session, current_user.id, valor_entrada, moeda_entrada, income.received_at
         )
         if conv:
             for k, v in conv.items():
@@ -302,7 +319,7 @@ def generate_recurring_income(
 ):
     """Materializa as rendas recorrentes do mês corrente (idempotente)."""
     created = RecurringIncomeService.generate_due_income(
-        session, current_user.id, date.today()
+        session, current_user.id, today_local()
     )
     session.commit()
     return {"created": created}
@@ -333,7 +350,7 @@ def update_recurring_income(
     session.flush()
     # A edição vale do mês visualizado pra frente: reaplica ao lançamento do mês
     # corrente; meses anteriores (fechados) ficam congelados.
-    RecurringIncomeService.sync_current_month_income(session, db_rec, date.today())
+    RecurringIncomeService.sync_current_month_income(session, db_rec, today_local())
     RecurringMaterializationService.apply_scope(
         session, None, db_rec, materialize, is_income=True
     )

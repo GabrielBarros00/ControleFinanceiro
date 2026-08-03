@@ -119,6 +119,8 @@ typing-inspection==0.4.2
     #   fastapi
     #   pydantic
     #   pydantic-settings
+tzdata==2026.1
+    # via -r requirements.txt
 uvicorn==0.46.0
     # via -r requirements.txt
 uvloop==0.22.1

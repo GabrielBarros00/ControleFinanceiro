@@ -14,6 +14,15 @@ class Settings(BaseSettings):
     APP_ENV: str = "development"
     APP_VERSION: str = "4.0.0"
 
+    # Fuso do CALENDÁRIO do aplicativo: define que dia é "hoje" e onde um mês
+    # começa e termina. Era um contrato implícito de ambiente — só existia como
+    # `TZ` nos serviços do Compose, invisível para o `Settings` e ausente em
+    # qualquer uvicorn rodado à mão (dev, CI, Playwright). O efeito é o clássico
+    # de fuso negativo: das 21h à meia-noite em Brasília, `datetime.now(UTC)` já
+    # é o dia seguinte enquanto `date.today()` ainda é hoje, e as duas
+    # referências convivendo colocavam o mesmo movimento em dois meses.
+    APP_TIMEZONE: str = "America/Sao_Paulo"
+
     DATABASE_URL: str
     SECRET_KEY: str
 

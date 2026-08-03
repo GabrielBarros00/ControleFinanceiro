@@ -295,10 +295,11 @@ export function IncomePage() {
                     )}
                   </TableCell>
                   <TableCell>
-                    <div className="flex items-center justify-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                    <div className="flex items-center justify-center gap-2 transition-opacity sm:opacity-0 sm:group-hover:opacity-100 sm:group-focus-within:opacity-100">
                       <Button
                         variant="ghost"
                         size="sm"
+                        aria-label={`Editar renda ${income.title}`}
                         onClick={() => openEditIncome(income)}
                         className="h-8 w-8 p-0 text-primary hover:bg-primary/10"
                       >
@@ -307,6 +308,7 @@ export function IncomePage() {
                       <Button
                         variant="ghost"
                         size="sm"
+                        aria-label={`Excluir renda ${income.title}`}
                         onClick={() => handleDeleteIncome(income.id)}
                         className="h-8 w-8 p-0 text-destructive hover:bg-destructive/10"
                       >
@@ -376,10 +378,11 @@ export function IncomePage() {
                       <MoneyText value={item.base_amount} kind="income" currency={item.currency} className="font-semibold" />
                     </TableCell>
                     <TableCell>
-                      <div className="flex items-center justify-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                      <div className="flex items-center justify-center gap-2 transition-opacity sm:opacity-0 sm:group-hover:opacity-100 sm:group-focus-within:opacity-100">
                         <Button
                           variant="ghost"
                           size="sm"
+                          aria-label={`Editar renda recorrente ${item.title}`}
                           onClick={() => openEditRecurring(item)}
                           className="h-8 w-8 p-0 text-primary hover:bg-primary/10"
                         >
@@ -388,6 +391,7 @@ export function IncomePage() {
                         <Button
                           variant="ghost"
                           size="sm"
+                          aria-label={`Excluir renda recorrente ${item.title}`}
                           onClick={() => handleDeleteRecurring(item.id)}
                           className="h-8 w-8 p-0 text-destructive hover:bg-destructive/10"
                         >
@@ -440,7 +444,7 @@ export function IncomePage() {
               />
             </div>
 
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div className="space-y-2">
                 <Label htmlFor="income-amount">Valor</Label>
                 <div className="flex gap-2">

@@ -9,6 +9,7 @@ import {
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Loader2 } from 'lucide-react';
 import { useWorkspaces } from '@/hooks/use-workspaces';
@@ -77,8 +78,9 @@ export function WorkspaceCreateDialog({ open, onOpenChange }: WorkspaceCreateDia
           </div>
           <div className="space-y-2">
             <Label htmlFor="ws-desc">Descrição (opcional)</Label>
-            <Input
+            <Textarea
               id="ws-desc"
+              rows={3}
               placeholder="Para que serve este workspace?"
               value={description}
               onChange={(e) => setDescription(e.target.value)}

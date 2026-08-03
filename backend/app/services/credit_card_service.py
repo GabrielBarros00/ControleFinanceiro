@@ -5,6 +5,7 @@ from typing import Optional
 
 from sqlmodel import Session, select, func
 
+from app.domain.dates import today_local
 from app.domain.query_policy import REALIZED_STATUSES
 from app.models.credit_card import (
     CreditCard,
@@ -149,7 +150,7 @@ class CreditCardService:
         gastos deixava a tela do cartão mostrando a fatura do mês passado como se
         fosse a atual. É a mesma fatura para onde uma compra de hoje iria.
         """
-        ref = today or datetime.now(UTC).date()
+        ref = today or today_local()
         return CreditCardService.get_or_create_statement(
             db, card, datetime.combine(ref, datetime.min.time())
         )
@@ -189,6 +190,35 @@ class CreditCardService:
         if statement.status == StatementStatus.open:
             return CreditCardService.compute_statement_total(db, statement.id)
         return statement.total_amount
+
+    @staticmethod
+    def paid_amount(db: Session, statement: CardStatement) -> Decimal:
+        """Quanto já foi pago desta fatura, somando os pagamentos VIVOS.
+
+        `CardStatement.payments` sempre foi uma lista — o schema já admitia N
+        pagamentos —, mas ninguém somava: pagar R$ 1 de uma fatura de R$ 1.000
+        marcava a fatura como quitada e liberava o limite inteiro.
+        """
+        total = db.exec(
+            select(func.sum(StatementPayment.amount)).where(
+                StatementPayment.statement_id == statement.id,
+                StatementPayment.deleted_at.is_(None),
+            )
+        ).one()
+        return total or Decimal("0.00")
+
+    @staticmethod
+    def statement_balance(db: Session, statement: CardStatement) -> Decimal:
+        """O que ainda falta pagar: total efetivo − já pago.
+
+        É este número — e não o total — que compromete limite e que o próximo
+        pagamento pode quitar. Nunca é negativo: sobrepagamento é recusado na
+        entrada (`pay_statement`), como manda o ADR 0009 para acertos.
+        """
+        saldo = CreditCardService.effective_total(db, statement) - CreditCardService.paid_amount(
+            db, statement
+        )
+        return saldo if saldo > 0 else Decimal("0.00")
 
     @staticmethod
     def resync_open_statement_dates(db: Session, card: CreditCard) -> int:
@@ -234,13 +264,17 @@ class CreditCardService:
         resumo do cartão leem daqui."""
         if statement.status == StatementStatus.paid:
             return False
-        ref = today or datetime.now(UTC).date()
+        # Dia de calendário LOCAL: o vencimento é uma data do contrato, não um
+        # instante, e em UTC a fatura virava "vencida" três horas antes da
+        # meia-noite de quem a olha.
+        ref = today or today_local()
         return ref > statement.due_date.date()
 
     @staticmethod
     def card_committed(db: Session, card: CreditCard) -> Decimal:
-        """Limite comprometido: soma das faturas ainda NÃO pagas (aberta usa total
-        calculado; fechada usa o congelado). Fatura paga libera o limite."""
+        """Limite comprometido: soma do SALDO das faturas ainda não quitadas
+        (aberta usa total calculado; fechada usa o congelado; de ambos desconta o
+        que já foi pago). Quitar libera o limite; pagar parte libera a parte."""
         return CreditCardService.card_overview(db, card)["committed"]
 
     @staticmethod
@@ -248,14 +282,15 @@ class CreditCardService:
         """Uma passada só pelas faturas do cartão devolvendo limite comprometido
         E a fatura que pede atenção.
 
-        `attention` é a NÃO paga mais antiga com valor > 0 — a de vencimento mais
-        próximo, e por isso a que corre risco de atraso. `None` quando não há
+        `attention` é a NÃO quitada mais antiga com SALDO > 0 — a de vencimento
+        mais próximo, e por isso a que corre risco de atraso. `None` quando não há
         nada a pagar. A tela de cartões precisa disso para avisar de fatura
         fechada/vencendo/vencida sem buscar as faturas de cada cartão.
 
         Uma passada porque `effective_total` dispara um SUM por fatura aberta:
         calcular comprometido e alerta em varreduras separadas dobrava as
-        consultas por cartão.
+        consultas por cartão. Os pagamentos vêm numa consulta agrupada só, pelo
+        mesmo motivo — chamar `paid_amount` por fatura seria um SELECT por linha.
         """
         statements = db.exec(
             select(CardStatement)
@@ -263,17 +298,25 @@ class CreditCardService:
             .order_by(CardStatement.month)
         ).all()
 
+        pagos = CreditCardService._paid_by_statement(db, [s.id for s in statements])
+
         committed = Decimal("0.00")
         attention: Optional[CardStatement] = None
         attention_total = Decimal("0.00")
         for stmt in statements:
             if stmt.status == StatementStatus.paid:
                 continue
-            total = CreditCardService.effective_total(db, stmt)
-            committed += total
-            if attention is None and total > 0:
+            # SALDO, não total: com pagamento parcial a fatura segue `closed`, e
+            # comprometer o valor cheio manteria preso um limite que já foi pago.
+            saldo = CreditCardService.effective_total(db, stmt) - pagos.get(
+                stmt.id, Decimal("0.00")
+            )
+            if saldo <= 0:
+                continue
+            committed += saldo
+            if attention is None:
                 attention = stmt
-                attention_total = total
+                attention_total = saldo
 
         return {
             "committed": committed,
@@ -282,7 +325,23 @@ class CreditCardService:
             # As faturas já carregadas: quem precisa delas (panorama de
             # endividamento) reusa em vez de disparar um segundo SELECT.
             "statements": statements,
+            # Saldo já pago por fatura, para quem serializa a lista não repetir
+            # a consulta por linha.
+            "paid_by_statement": pagos,
         }
+
+    @staticmethod
+    def _paid_by_statement(db: Session, statement_ids: list[int]) -> dict[int, Decimal]:
+        """`{statement_id: total pago}` numa consulta só, para evitar N+1."""
+        if not statement_ids:
+            return {}
+        linhas = db.exec(
+            select(StatementPayment.statement_id, func.sum(StatementPayment.amount))
+            .where(StatementPayment.statement_id.in_(statement_ids))
+            .where(StatementPayment.deleted_at.is_(None))
+            .group_by(StatementPayment.statement_id)
+        ).all()
+        return {sid: (total or Decimal("0.00")) for sid, total in linhas}
 
     @staticmethod
     def available_limit(committed: Decimal, card: CreditCard) -> Decimal:
@@ -315,11 +374,31 @@ class CreditCardService:
         note: Optional[str],
         user_id: Optional[int],
     ) -> StatementPayment:
+        """Registra um pagamento (total ou parcial) e quita a fatura no zero.
+
+        Antes, QUALQUER valor positivo marcava a fatura como paga: R$ 1 numa
+        fatura de R$ 1.000 devolvia `status = paid`, liberava o limite inteiro e
+        ainda impedia completar o pagamento, porque a fatura já não estava
+        `closed`. Agora o saldo é cumulativo — a fatura continua `closed` até
+        chegar a zero — e o sobrepagamento é recusado, pela mesma razão do
+        ADR 0009 nos acertos: aceitar mais do que se deve inventa crédito.
+        """
         if statement.status != StatementStatus.closed:
             raise StatementStateError("Feche a fatura antes de pagá-la")
-        pay_amount = amount if amount is not None else statement.total_amount
+
+        saldo = CreditCardService.statement_balance(db, statement)
+        if saldo <= 0:
+            raise StatementStateError("Esta fatura já está quitada")
+
+        pay_amount = amount if amount is not None else saldo
         if pay_amount <= 0:
             raise StatementStateError("Valor do pagamento deve ser positivo")
+        if pay_amount > saldo:
+            card = db.get(CreditCard, statement.card_id)
+            moeda = card.currency if card else ""
+            raise StatementStateError(
+                f"Valor excede o saldo da fatura ({moeda} {saldo})".strip()
+            )
 
         payment = StatementPayment(
             statement_id=statement.id,
@@ -330,8 +409,9 @@ class CreditCardService:
             created_by_user_id=user_id,
         )
         db.add(payment)
-        statement.status = StatementStatus.paid
-        statement.paid_at = payment.paid_at
+        if pay_amount >= saldo:
+            statement.status = StatementStatus.paid
+            statement.paid_at = payment.paid_at
         statement.updated_at = datetime.now(UTC)
         db.add(statement)
         db.flush()
@@ -339,25 +419,33 @@ class CreditCardService:
 
     @staticmethod
     def reopen_statement(db: Session, statement: CardStatement) -> CardStatement:
-        """Desfaz um passo do ciclo: paga→fechada (estorna o pagamento) ou
-        fechada→aberta (volta a somar em tempo real)."""
+        """Desfaz um passo do ciclo: paga→fechada ou fechada→aberta (volta a somar
+        em tempo real). Os pagamentos são estornados nas DUAS transições.
+
+        Com saldo cumulativo uma fatura `closed` também pode ter pagamentos
+        parciais, e uma fatura aberta com pagamento seria contraditória — o total
+        volta a ser recalculado em tempo real, então não há saldo a que o
+        pagamento se refira.
+        """
         now = datetime.now(UTC)
+        if statement.status not in (StatementStatus.paid, StatementStatus.closed):
+            raise StatementStateError("Fatura já está aberta")
+
+        for payment in db.exec(
+            select(StatementPayment).where(
+                StatementPayment.statement_id == statement.id,
+                StatementPayment.deleted_at.is_(None),
+            )
+        ).all():
+            payment.deleted_at = now
+            db.add(payment)
+
         if statement.status == StatementStatus.paid:
-            for payment in db.exec(
-                select(StatementPayment).where(
-                    StatementPayment.statement_id == statement.id,
-                    StatementPayment.deleted_at.is_(None),
-                )
-            ).all():
-                payment.deleted_at = now
-                db.add(payment)
             statement.status = StatementStatus.closed
             statement.paid_at = None
-        elif statement.status == StatementStatus.closed:
+        else:
             statement.status = StatementStatus.open
             statement.closed_at = None
-        else:
-            raise StatementStateError("Fatura já está aberta")
         statement.updated_at = now
         db.add(statement)
         db.flush()

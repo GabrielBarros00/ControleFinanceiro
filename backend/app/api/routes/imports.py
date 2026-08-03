@@ -170,6 +170,9 @@ def commit_import(
                 title=title,
                 total_amount=row.total_amount,
                 transaction_date=row.transaction_date,
+                # Sem conversão de fuso: a data veio de uma LINHA DE CSV, que é
+                # um dia de calendário à meia-noite — não um instante. Converter
+                # jogaria "01/03" para 28/02 e mudaria a competência.
                 billing_month=row.transaction_date.strftime("%Y-%m"),
                 workspace_id=workspace_id,
                 created_by_user_id=membership.user_id,

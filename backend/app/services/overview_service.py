@@ -33,14 +33,14 @@ no rateio da viagem não é o mesmo que estar quitado: são pessoas e acordos
 diferentes. Os saldos são agrupados POR workspace, e o total é informativo.
 """
 import calendar
-from datetime import UTC, date, datetime
+from datetime import date
 from decimal import Decimal
 from typing import Any, Dict, List, Optional
 
 from sqlmodel import Session, func, select
 
 from app.domain.access_policy import involvement_filter
-from app.domain.dates import month_key
+from app.domain.dates import month_bounds_utc, month_key, today_local
 from app.domain.query_policy import REALIZED_STATUSES, workspace_base_currency
 from app.models.credit_card import CreditCard, StatementStatus
 from app.models.financing import AmortizationInstallment, Financing, FinancingStatus
@@ -89,6 +89,89 @@ class OverviewService:
 
     # ------------------------------------------------------------------
     @staticmethod
+    def get_ledger(
+        db: Session,
+        user_id: int,
+        target_month: date,
+        currency: Optional[str] = None,
+        *,
+        sources: Optional[List[str]] = None,
+        workspace_id: Optional[int] = None,
+        card_id: Optional[int] = None,
+        counterparty_id: Optional[int] = None,
+        limit: int = 100,
+        offset: int = 0,
+    ) -> Dict[str, Any]:
+        """Extrato global: as LINHAS que compõem o caixa do mês.
+
+        A Visão global tinha os totais e o detalhamento por origem, mas nenhuma
+        forma de chegar aos movimentos. Como isto usa o mesmo
+        `CashFlowService.list_movements` que alimenta `get_overview`, o extrato e
+        o total não têm como divergir — o defeito clássico de relatório em que o
+        drill-down é uma segunda consulta parecida.
+        """
+        destino = currency or OverviewService.report_currency(db, user_id)
+        primeiro = date(target_month.year, target_month.month, 1)
+        inicio, fim = month_bounds_utc(primeiro)
+
+        movimentos = CashFlowService.list_movements(
+            db, user_id, destino, inicio, fim,
+            sources=sources, workspace_id=workspace_id,
+        )
+        # Filtros de recorte fino aplicados sobre as linhas: são atributos do
+        # movimento, não das seis consultas.
+        if card_id is not None:
+            movimentos = [m for m in movimentos if m.card_id == card_id]
+        if counterparty_id is not None:
+            movimentos = [m for m in movimentos if m.counterparty_id == counterparty_id]
+
+        entrada = ZERO
+        saida = ZERO
+        excluidos = 0
+        for mov in movimentos:
+            if mov.converted is None:
+                excluidos += 1
+            elif mov.direction == "in":
+                entrada += mov.converted
+            else:
+                saida += mov.converted
+
+        # Mais recentes primeiro: um extrato se lê de cima para baixo.
+        movimentos.sort(key=lambda m: (m.occurred_on, m.reference_id or 0), reverse=True)
+        pagina = movimentos[offset : offset + limit]
+        rotulos = CashFlowService.resolve_labels(db, pagina)
+
+        return {
+            "currency": destino,
+            "month": month_key(target_month),
+            "total": len(movimentos),
+            "cash_in": entrada,
+            "cash_out": saida,
+            "net_cash": entrada - saida,
+            "excluded_foreign_count": excluidos,
+            "entries": [
+                {
+                    "source": m.source,
+                    "direction": m.direction,
+                    "occurred_on": m.occurred_on,
+                    "amount": m.amount,
+                    "currency": m.currency,
+                    "converted_amount": m.converted,
+                    "title": m.title,
+                    "workspace_id": m.workspace_id,
+                    "workspace_name": rotulos["workspaces"].get(m.workspace_id),
+                    "card_id": m.card_id,
+                    "financing_id": m.financing_id,
+                    "counterparty_id": m.counterparty_id,
+                    "counterparty_name": rotulos["users"].get(m.counterparty_id),
+                    "reference_id": m.reference_id,
+                }
+                for m in pagina
+            ],
+        }
+
+    # ------------------------------------------------------------------
+    @staticmethod
     def get_overview(
         db: Session,
         user_id: int,
@@ -111,11 +194,11 @@ class OverviewService:
         destino = currency or OverviewService.report_currency(db, user_id)
         mes = month_key(target_month)
         primeiro = date(target_month.year, target_month.month, 1)
-        ultimo_dia = calendar.monthrange(target_month.year, target_month.month)[1]
-        inicio = datetime.combine(primeiro, datetime.min.time())
-        fim = datetime.combine(
-            date(target_month.year, target_month.month, ultimo_dia), datetime.max.time()
-        )
+        # A janela é o mês de CALENDÁRIO LOCAL convertido para UTC, não um
+        # `datetime.combine` ingênuo: as colunas guardam instantes UTC, e a
+        # versão anterior tirava do mês uma renda recebida às 22h do dia 31 em
+        # São Paulo — gravada como 01/08 01:00Z.
+        inicio, fim = month_bounds_utc(primeiro)
 
         workspaces = OverviewService._workspaces_do_usuario(db, user_id)
 
@@ -279,7 +362,7 @@ class OverviewService:
         "quanto do meu ano foi para a Casa e quanto foi para a Viagem".
         """
         destino = currency or OverviewService.report_currency(db, user_id)
-        hoje = datetime.now(UTC).date()
+        hoje = today_local()
 
         serie: List[Dict[str, Any]] = []
         por_workspace: Dict[int, Dict[str, Any]] = {}
@@ -356,11 +439,13 @@ class OverviewService:
         dono, e sair de um workspace tirava o próprio cartão da lista.
         """
         destino = currency or OverviewService.report_currency(db, user_id)
-        # UTC, a mesma referência de `CreditCardService.is_overdue`. Com
-        # `date.today()` (local) as duas classificações discordavam no fim do dia
-        # em fuso negativo: a fatura era "vencida" para uma e "vence neste mês"
-        # para a outra, e o mesmo valor entrava nos dois totais.
-        hoje = datetime.now(UTC).date()
+        # `today_local()`, a MESMA referência de `CreditCardService.is_overdue`.
+        # O ponto do comentário original continua valendo — as duas
+        # classificações têm de concordar, senão a fatura é "vencida" para uma e
+        # "vence neste mês" para a outra e o valor entra nos dois totais. O que
+        # mudou é a âncora: era UTC, e em fuso negativo isso antecipava a virada
+        # do dia em três horas para quem olhava o calendário local.
+        hoje = today_local()
         fim_do_mes = date(
             hoje.year, hoje.month, calendar.monthrange(hoje.year, hoje.month)[1]
         )

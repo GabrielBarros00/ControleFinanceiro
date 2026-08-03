@@ -86,7 +86,9 @@ export function SplitEditor({ participants }: SplitEditorProps) {
               </div>
 
               {splitMethod !== 'equal' && (
-                <div className="w-28">
+                // 112px fixos deixavam 64px de dígitos no modo "valor fixo",
+                // depois do prefixo da moeda.
+                <div className="min-w-[6.5rem] flex-1 sm:max-w-[9rem]">
                   {splitMethod === 'percentage' ? (
                     <Input
                       type="number"

@@ -8,7 +8,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
+import { Textarea } from "@/components/ui/textarea";
 import { Label } from '@/components/ui/label';
 import { MoneyInput } from '@/components/ui/MoneyInput';
 import { AlertCircle, HandCoins } from 'lucide-react';
@@ -97,7 +97,7 @@ export function SettlementDialog({ open, onOpenChange, draft, members }: Settlem
         </DialogHeader>
 
         <div className="space-y-4 py-2">
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div className="space-y-2">
               <Label htmlFor="settlement-from" className="text-sm font-semibold">Quem pagou</Label>
               <select id="settlement-from" className={selectClass} value={fromId} onChange={(e) => setFromId(e.target.value)}>
@@ -125,8 +125,9 @@ export function SettlementDialog({ open, onOpenChange, draft, members }: Settlem
 
           <div className="space-y-2">
             <Label htmlFor="settlement-note" className="text-sm font-semibold">Observação (opcional)</Label>
-            <Input
+            <Textarea
               id="settlement-note"
+              rows={2}
               placeholder="Ex: Pix em 18/07"
               value={note}
               onChange={(e) => setNote(e.target.value)}

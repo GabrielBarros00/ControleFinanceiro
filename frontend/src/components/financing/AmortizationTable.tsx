@@ -173,7 +173,7 @@ function CreateFinancingDialog({ open, onOpenChange }: { open: boolean; onOpenCh
             <Label>Título</Label>
             <Input placeholder="Ex: Apartamento, Carro..." value={title} onChange={(e) => setTitle(e.target.value)} className="bg-background/50" />
           </div>
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div className="space-y-2">
               <Label>Valor Financiado</Label>
               <MoneyInput value={totalAmount} onChange={setTotalAmount} prefix={currencySymbol(baseCurrency)} className="bg-background/50" />
@@ -183,7 +183,7 @@ function CreateFinancingDialog({ open, onOpenChange }: { open: boolean; onOpenCh
               <Input type="text" inputMode="decimal" value={interestRate} onChange={(e) => setInterestRate(e.target.value)} className="bg-background/50" />
             </div>
           </div>
-          <div className="grid grid-cols-3 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
             <div className="space-y-2">
               <Label>Parcelas</Label>
               <Input type="number" min={1} max={600} value={installments} onChange={(e) => setInstallments(Number(e.target.value))} className="bg-background/50" />

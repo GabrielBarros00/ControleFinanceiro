@@ -532,7 +532,12 @@ function MembersTab() {
         </CardHeader>
         <CardContent className="space-y-3">
           {members.map((m) => (
-            <div key={m.user_id} className="flex items-center justify-between p-3 rounded-xl bg-accent/30 border border-border/50">
+            // Empilha abaixo de `sm`: os dois seletores fixos (112px + 168px) e
+            // o botão de remover somam 328px que se recusavam a encolher
+            // (`shrink-0`), contra ~272px disponíveis num telefone de 393px — o
+            // seletor de visibilidade e a exclusão ficavam cortados fora do
+            // cartão, sem rolagem que os alcançasse.
+            <div key={m.user_id} className="flex flex-col gap-3 p-3 rounded-xl bg-accent/30 border border-border/50 sm:flex-row sm:items-center sm:justify-between">
               <div className="flex items-center gap-3 min-w-0">
                 <div className="w-9 h-9 rounded-full bg-primary/10 flex items-center justify-center font-bold text-primary shrink-0">
                   {m.user_name[0]}
@@ -542,7 +547,7 @@ function MembersTab() {
                   <p className="text-xs text-muted-foreground truncate">{m.user_email}</p>
                 </div>
               </div>
-              <div className="flex items-center gap-2 shrink-0">
+              <div className="flex flex-wrap items-center gap-2 sm:shrink-0">
                 {isAdmin && m.role !== 'owner' && m.user_id !== user?.id ? (
                   <>
                     <Select
@@ -564,7 +569,7 @@ function MembersTab() {
                           ("Membro") — sem dizer de quem nem do quê. */}
                       <SelectTrigger
                         aria-label={`Papel de ${m.user_name}`}
-                        className="h-8 w-[112px] text-xs font-semibold"
+                        className="h-9 w-[112px] text-xs font-semibold"
                       >
                         <SelectValue />
                       </SelectTrigger>
@@ -593,7 +598,7 @@ function MembersTab() {
                       >
                         <SelectTrigger
                           aria-label={`Visibilidade financeira de ${m.user_name}`}
-                          className="h-8 w-[168px] text-xs font-semibold"
+                          className="h-9 w-[168px] text-xs font-semibold"
                         >
                           <SelectValue />
                         </SelectTrigger>
@@ -603,8 +608,13 @@ function MembersTab() {
                         </SelectContent>
                       </Select>
                     )}
+                    {/* `aria-label` pelo mesmo motivo dos dois seletores acima
+                        (linha 561): é um botão só de ícone, repetido por linha,
+                        e sem nome acessível o leitor de tela anuncia "botão" —
+                        numa ação destrutiva. Aqui ele tinha passado batido. */}
                     <Button
                       variant="ghost" size="sm"
+                      aria-label={`Remover ${m.user_name} do workspace`}
                       onClick={async () => {
                         const ok = await confirm({
                           title: 'Remover membro',
@@ -616,7 +626,7 @@ function MembersTab() {
                         try { await removeMember(m.user_id); }
                         catch (err) { showError(err, 'Erro ao remover.'); }
                       }}
-                      className="h-8 w-8 p-0 text-destructive hover:bg-destructive/10"
+                      className="h-9 w-9 p-0 text-destructive hover:bg-destructive/10"
                     >
                       <Trash2 className="h-4 w-4" />
                     </Button>
@@ -812,13 +822,13 @@ function CategoriesTab() {
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
-          <div className="flex gap-3">
+          <div className="flex flex-wrap gap-3">
             <Input
               placeholder="Nova categoria..."
               value={newName}
               onChange={(e) => setNewName(e.target.value)}
               onKeyDown={(e) => e.key === 'Enter' && handleCreate()}
-              className="bg-background/50 border-border"
+              className="min-w-[12rem] flex-1 bg-background/50 border-border"
             />
             <Button onClick={handleCreate} disabled={newName.trim().length < 2} className="bg-primary font-bold gap-2">
               <Plus className="h-4 w-4" /> Criar
@@ -846,7 +856,7 @@ function CategoriesTab() {
                       <CategoryGlyph category={cat} size="sm" />
                       <span className="text-sm font-medium truncate">{cat.name}</span>
                     </div>
-                    <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
+                    <div className="flex items-center gap-1 transition-opacity sm:opacity-0 sm:group-hover:opacity-100 sm:group-focus-within:opacity-100 shrink-0">
                       <Button
                         variant="ghost" size="sm"
                         className="h-7 text-xs"
@@ -856,6 +866,7 @@ function CategoriesTab() {
                       </Button>
                       <Button
                         variant="ghost" size="sm"
+                        aria-label={`Excluir a categoria ${cat.name}`}
                         className="h-7 w-7 p-0 text-destructive hover:bg-destructive/10"
                         onClick={async () => {
                           const ok = await confirm({
@@ -911,16 +922,16 @@ function AccountsTab() {
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
-          <div className="flex gap-3">
+          <div className="flex flex-wrap gap-3">
             <Input
               placeholder="Nova conta... (ex: Nubank)"
               value={newName}
               onChange={(e) => setNewName(e.target.value)}
               onKeyDown={(e) => e.key === 'Enter' && handleCreate()}
-              className="bg-background/50 border-border"
+              className="min-w-[12rem] flex-1 bg-background/50 border-border"
             />
             <Select items={ACCOUNT_TYPE_OPTIONS} value={newType} onValueChange={(value) => setNewType(value as PaymentAccountType)}>
-              <SelectTrigger aria-label="Tipo da conta" className="h-10 w-[150px] text-sm"><SelectValue /></SelectTrigger>
+              <SelectTrigger aria-label="Tipo da conta" className="h-10 w-full text-sm sm:w-[150px]"><SelectValue /></SelectTrigger>
               <SelectContent>
                 {ACCOUNT_TYPE_OPTIONS.map((o) => (
                   <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>
@@ -946,7 +957,7 @@ function AccountsTab() {
                     <span className="text-[10px] text-muted-foreground">{accountTypeLabel(account.type)}</span>
                   </div>
                 </div>
-                <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
+                <div className="flex items-center gap-1 transition-opacity sm:opacity-0 sm:group-hover:opacity-100 sm:group-focus-within:opacity-100 shrink-0">
                   <Button
                     variant="ghost" size="sm"
                     className="h-7 text-xs"
@@ -959,6 +970,7 @@ function AccountsTab() {
                   </Button>
                   <Button
                     variant="ghost" size="sm"
+                    aria-label={`Excluir a conta ${account.name}`}
                     className="h-7 w-7 p-0 text-destructive hover:bg-destructive/10"
                     onClick={async () => {
                       const ok = await confirm({

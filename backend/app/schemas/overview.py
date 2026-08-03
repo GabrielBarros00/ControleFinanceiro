@@ -166,6 +166,53 @@ class WorkspaceShare(BaseModel):
     consumption: Decimal
 
 
+class LedgerEntry(BaseModel):
+    """Um movimento de caixa, explicado.
+
+    A Visão global tinha bons totais e nenhuma forma de explicar cada número: o
+    usuário via "saiu R$ 4.200" e o detalhamento por origem, mas não conseguia
+    chegar às LINHAS. Este é o mesmo `CashFlowService` que produz os totais,
+    devolvendo as linhas em vez de somá-las — o detalhe não tem como divergir do
+    total porque é a mesma consulta.
+    """
+    #: Uma das seis fontes do ADR 0022 (`transaction`, `statement_payment`,
+    #: `settlement_sent`, `settlement_received`, `financing_installment`,
+    #: `income`).
+    source: str
+    #: `in` | `out`.
+    direction: str
+    #: A data EFETIVA do movimento — quando o dinheiro se moveu, não quando o
+    #: compromisso foi assumido.
+    occurred_on: date
+    #: Valor na moeda de origem, e a moeda dela.
+    amount: Decimal
+    currency: str
+    #: Valor na moeda de relatório. `None` = sem cotação para a data efetiva; a
+    #: linha aparece assim mesmo, marcada, em vez de sumir (ADR 0006).
+    converted_amount: Optional[Decimal] = None
+    title: Optional[str] = None
+    workspace_id: Optional[int] = None
+    workspace_name: Optional[str] = None
+    card_id: Optional[int] = None
+    financing_id: Optional[int] = None
+    counterparty_id: Optional[int] = None
+    counterparty_name: Optional[str] = None
+    reference_id: Optional[int] = None
+
+
+class LedgerRead(BaseModel):
+    """Extrato global consolidado, com filtros e paginação."""
+    currency: str
+    month: str
+    entries: List[LedgerEntry]
+    #: Total de linhas ANTES da paginação — a UI precisa saber se há mais.
+    total: int
+    cash_in: Decimal
+    cash_out: Decimal
+    net_cash: Decimal
+    excluded_foreign_count: int
+
+
 class SeriesRead(BaseModel):
     """Relatório GLOBAL e pessoal: vários meses somando todos os workspaces.
 

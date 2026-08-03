@@ -19,6 +19,7 @@ import pytest
 from fastapi.testclient import TestClient
 from sqlmodel import Session
 
+from app.domain.dates import today_local
 from app.main import app
 from app.models.credit_card import CardStatement, CreditCard, StatementStatus
 from app.models.financing import AmortizationInstallment, Financing
@@ -26,11 +27,11 @@ from app.models.transaction import Transaction
 
 client = TestClient(app)
 
-# UTC, a mesma referência que `is_overdue` e `get_commitments` usam. Com
-# `date.today()` (local) o fixture ficava frágil em fuso negativo: perto da meia-
-# noite UTC já era o dia seguinte, e a fatura montada para "vencer hoje"
-# aparecia como vencida.
-HOJE = datetime.now(UTC).date()
+# `today_local()`, a mesma referência que `is_overdue` e `get_commitments` usam.
+# O fixture tem de compartilhar a âncora do código, senão a fatura montada para
+# "vencer neste mês" cai fora do mês que o endpoint considera — era o que
+# acontecia com `datetime.now(UTC)` das 21h à meia-noite em São Paulo.
+HOJE = today_local()
 FIM_DO_MES = date(HOJE.year, HOJE.month, calendar.monthrange(HOJE.year, HOJE.month)[1])
 
 

@@ -69,6 +69,34 @@ describe('keysForEvent', () => {
     expect(keys).toContainEqual(['me-overview']);
   });
 
+  // Regressão: entrar/sair de um workspace muda o RATEIO, e o rateio alimenta
+  // relatórios, previsão, participação por workspace e o `my_share` de cada
+  // linha da atividade. A lista parava em `me-overview`, então outra aba seguia
+  // mostrando consolidações calculadas com o quadro de membros antigo.
+  it('mudar o quadro de membros atualiza relatórios e atividade', () => {
+    for (const tipo of ['member.added', 'member.removed']) {
+      const keys = keysForEvent(tipo, WS_ID) as unknown[][];
+      expect(keys, tipo).toContainEqual(['reports', WS_ID]);
+      expect(keys, tipo).toContainEqual(['me-reports']);
+      expect(keys, tipo).toContainEqual(['me-activity']);
+      expect(keys, tipo).toContainEqual(['analytics-forecast', WS_ID]);
+    }
+  });
+
+  // Regressão: o NOME do workspace é renderizado em `me-reports` (by_workspace)
+  // e em `me-activity` (workspace_name) — as duas chaves nunca eram invalidadas,
+  // então renomear deixava o nome velho na tela de outra aba, e excluir deixava
+  // linhas de um workspace que já não existe.
+  it('renomear ou excluir workspace atualiza onde o nome aparece', () => {
+    for (const tipo of ['workspace.updated', 'workspace.deleted']) {
+      const keys = keysForEvent(tipo, WS_ID) as unknown[][];
+      expect(keys, tipo).toContainEqual(['workspaces']);
+      expect(keys, tipo).toContainEqual(['me-reports']);
+      expect(keys, tipo).toContainEqual(['me-activity']);
+      expect(keys, tipo).toContainEqual(['me-overview']);
+    }
+  });
+
   // Regressão: 'recurring_income' caía no case 'recurring' de ninguém e devolvia
   // lista vazia — renda recorrente nunca atualizava em tempo real.
   it('renda recorrente tem destino próprio', () => {

@@ -44,6 +44,7 @@ from app.models.transaction import (
 from app.services.currency_service import ExchangeRateUnavailable
 from app.services.exchange_rate_store import ExchangeRateStore
 from app.services.transaction_service import _allocate_proportional, _cents
+from app.domain.dates import today_local
 
 
 class MissingRates(Exception):
@@ -189,7 +190,7 @@ class BaseCurrencyService:
         # caminho de leitura. O store é a fonte; o que faltar vira MissingRates e
         # o operador roda `scripts/backfill_rates.py` antes de tentar de novo.
         resolver = _FactorResolver(db, old_currency, new_currency, allow_fetch=False)
-        today = date.today()
+        today = today_local()
 
         # Passo 1: resolver TODOS os fatores primeiro. Se faltar taxa, nada é
         # escrito — meia conversão deixaria o workspace sem interpretação.

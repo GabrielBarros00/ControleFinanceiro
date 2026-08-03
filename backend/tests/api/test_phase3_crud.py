@@ -316,8 +316,16 @@ def test_financing_full_flow(ws_team):
     )
     assert res.status_code == 400
 
-    # Delete soft
+    # Arquivar um financiamento ATIVO com parcelas em aberto é recusado: apagar
+    # o cadastro apagava a dívida junto, sem nenhuma tela por onde quitá-la.
     res = client.delete(f"/api/v1/me/financing/{fin_id}", headers=_headers(users["member"]))
+    assert res.status_code == 409
+
+    # Com o cancelamento CONFIRMADO (contrato encerrado fora do app), arquiva.
+    res = client.delete(
+        f"/api/v1/me/financing/{fin_id}?cancel_open_installments=true",
+        headers=_headers(users["member"]),
+    )
     assert res.status_code == 200
     res = client.get("/api/v1/me/financing", headers=_headers(users["member"]))
     assert res.json() == []

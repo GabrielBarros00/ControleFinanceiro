@@ -20,6 +20,7 @@ const AmortizationTable = React.lazy(() => import('./components/financing/Amorti
 const ReportsPage = React.lazy(() => import('./pages/Reports/ReportsPage').then(m => ({ default: m.ReportsPage })));
 const SettingsPage = React.lazy(() => import('./pages/Settings/SettingsPage').then(m => ({ default: m.SettingsPage })));
 const MyReportsPage = React.lazy(() => import('./pages/MyReportsPage').then(m => ({ default: m.MyReportsPage })));
+const GlobalLedgerPage = React.lazy(() => import('./pages/GlobalLedgerPage').then(m => ({ default: m.GlobalLedgerPage })));
 const PersonalSettingsPage = React.lazy(() => import('./pages/Settings/SettingsPage').then(m => ({ default: m.PersonalSettingsPage })));
 const RecurringTransactionsPage = React.lazy(() => import('./pages/RecurringTransactionsPage').then(m => ({ default: m.RecurringTransactionsPage })));
 const DebtsPage = React.lazy(() => import('./pages/DebtsPage').then(m => ({ default: m.DebtsPage })));
@@ -173,6 +174,9 @@ function AppContent() {
           } />
           <Route path="/me/reports" element={
             <ProtectedRoute><Layout><MyReportsPage /></Layout></ProtectedRoute>
+          } />
+          <Route path="/me/ledger" element={
+            <ProtectedRoute><Layout><GlobalLedgerPage /></Layout></ProtectedRoute>
           } />
           <Route path="/me/commitments" element={
             <ProtectedRoute>

@@ -3,7 +3,7 @@ from datetime import date
 from typing import List, Dict, Any, Optional
 from sqlmodel import Session, select, func
 from app.domain.access_policy import involvement_filter
-from app.domain.dates import add_months, month_key
+from app.domain.dates import add_months, month_key, today_local
 from app.domain.query_policy import REALIZED_STATUSES, workspace_base_currency
 from app.models.transaction import (
     SplitMode,
@@ -355,7 +355,7 @@ class ReportService:
         que não suprimir nada — daria o total da casa mês a mês na mesma resposta.
         """
         base_currency = workspace_base_currency(db, workspace_id)
-        first_of_month = (ref_month or date.today()).replace(day=1)
+        first_of_month = (ref_month or today_local()).replace(day=1)
         months = [add_months(first_of_month, -i) for i in range(5, -1, -1)]
         month_keys = [month_key(d) for d in months]
 

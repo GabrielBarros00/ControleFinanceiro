@@ -56,3 +56,8 @@ httpx==0.28.1
 structlog==25.5.0
 anyio==4.13.0
 python-dotenv==1.2.2
+# Base de fusos para `zoneinfo`. O calendário do app é `APP_TIMEZONE`
+# (America/Sao_Paulo por padrão) e o Windows não tem base de fusos do sistema —
+# sem este pacote, `ZoneInfo` levanta ModuleNotFoundError no desenvolvimento
+# local e o backend degradava para UTC justamente onde a diferença importa.
+tzdata==2026.1

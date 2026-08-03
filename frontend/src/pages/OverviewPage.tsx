@@ -61,15 +61,19 @@ export function OverviewPage() {
 
   // Detalhamento da saída: só as linhas com valor, para o quadro não virar uma
   // lista de zeros em quem não tem cartão nem financiamento.
+  // `origem` leva ao extrato já filtrado: o número deixa de ser um total que o
+  // usuário tem de acreditar e passa a ter as linhas por trás dele, a um clique.
   const quebra = overview?.cash_out_breakdown;
-  const saidas: [string, number][] = (
-    [
-      ['Lançamentos à vista', n(quebra?.transactions)],
-      ['Faturas de cartão pagas', n(quebra?.statement_payments)],
-      ['Acertos enviados', n(quebra?.settlements_sent)],
-      ['Parcelas de financiamento', n(quebra?.financing_installments)],
-    ] as [string, number][]
-  ).filter(([, valor]) => valor !== 0);
+  const entradas = overview?.cash_in_breakdown;
+  type LinhaCaixa = { rotulo: string; valor: number; origem: string };
+  const saidas: LinhaCaixa[] = [
+    { rotulo: 'Lançamentos à vista', valor: n(quebra?.transactions), origem: 'transaction' },
+    { rotulo: 'Faturas de cartão pagas', valor: n(quebra?.statement_payments), origem: 'statement_payment' },
+    { rotulo: 'Acertos enviados', valor: n(quebra?.settlements_sent), origem: 'settlement_sent' },
+    { rotulo: 'Parcelas de financiamento', valor: n(quebra?.financing_installments), origem: 'financing_installment' },
+    { rotulo: 'Rendas recebidas', valor: n(entradas?.income), origem: 'income' },
+    { rotulo: 'Acertos recebidos', valor: n(entradas?.settlements_received), origem: 'settlement_received' },
+  ].filter((l) => l.valor !== 0);
 
   return (
     <div className="space-y-6">
@@ -101,7 +105,10 @@ export function OverviewPage() {
               kind="income"
               icon={TrendingUp}
               currency={moeda}
-              hint="Suas entradas, em todos os workspaces"
+              // "em todos os workspaces" era impreciso — renda não pertence a
+              // workspace nenhum (ADR 0021) — e repetia o subtítulo da página,
+              // 40px acima, fazendo a Renda parecer o único número consolidado.
+              hint="Suas entradas do mês — renda é pessoal, não de um workspace"
             />
             <StatTile
               label="Consumo"
@@ -111,13 +118,20 @@ export function OverviewPage() {
               currency={moeda}
               hint="Sua parte das despesas"
             />
+            {/* `neutral`, não `expense`: com `kind="expense"` o MoneyText
+                imprime o valor NEGATIVO e em vermelho, ao lado do Consumo e com
+                a mesma cara. O resultado é renda − consumo, e "Adiantado" não
+                entra nessa conta — mas a tela sugeria que deveria, e um
+                adiantamento maior que o consumo (o normal para quem paga a
+                conta do grupo) parecia um rombo. O mesmo número já aparece
+                neutro na lista por workspace, logo abaixo. */}
             <StatTile
               label="Adiantado nos lançamentos"
               value={n(overview?.paid_in_transactions)}
-              kind="expense"
+              kind="neutral"
               icon={ArrowUpRight}
               currency={moeda}
-              hint="O que você assumiu das despesas"
+              hint="Valor que você assumiu nos lançamentos; não é gasto nem saída de caixa"
             />
             <StatTile
               label="Resultado do mês"
@@ -166,13 +180,21 @@ export function OverviewPage() {
               />
             </div>
             <dl className="grid gap-x-6 gap-y-1 border-t border-border px-4 py-3 text-sm sm:grid-cols-2">
-              {saidas.map(([rotulo, valor]) => (
-                <div key={rotulo} className="flex items-center justify-between gap-4">
-                  <dt className="text-muted-foreground">{rotulo}</dt>
-                  <dd className="tabular-nums text-foreground">{fmt(valor)}</dd>
+              {saidas.map(({ rotulo, valor, origem }) => (
+                <div key={rotulo} className="contents">
+                  <Link
+                    to={`/me/ledger?month=${month}&source=${origem}`}
+                    className="-mx-2 flex items-center justify-between gap-4 rounded-md px-2 py-1 hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  >
+                    <dt className="text-muted-foreground">{rotulo}</dt>
+                    <dd className="tabular-nums text-foreground">{fmt(valor)}</dd>
+                  </Link>
                 </div>
               ))}
             </dl>
+            <p className="px-4 pb-3 text-xs text-muted-foreground">
+              Clique em uma linha para ver os movimentos que a compõem.
+            </p>
           </section>
 
           {(aPagar > 0 || aReceber > 0) && (

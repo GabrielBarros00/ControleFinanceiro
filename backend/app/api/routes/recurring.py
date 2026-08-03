@@ -22,6 +22,7 @@ from app.services.recurring_service import (
 from pydantic import BaseModel, Field
 
 from app.schemas.common import DESCRIPTION_MAX, MAX_MONEY, OptionalCurrencyCode, TITLE_MAX
+from app.domain.dates import today_local
 from decimal import Decimal
 
 router = APIRouter(prefix="/workspaces/{workspace_id}/recurring", tags=["recurring"])
@@ -207,7 +208,7 @@ def generate_recurring_instances(
     membership: WorkspaceMembership = Depends(require_role(WorkspaceRole.member))
 ):
     """Materializa as instâncias vencidas do mês corrente (idempotente)."""
-    created = RecurringService.generate_due_instances(session, workspace_id, date.today())
+    created = RecurringService.generate_due_instances(session, workspace_id, today_local())
     if created:
         publish_event(
             session, workspace_id, "transaction.bulk_created", "transaction", None, membership.user_id

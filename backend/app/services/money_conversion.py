@@ -15,7 +15,7 @@ Quem chama tem de decidir o que fazer com o `None` — e a decisão certa, no AD
 """
 from datetime import date
 from decimal import Decimal, ROUND_HALF_UP
-from typing import Optional
+from typing import Dict, Optional, Tuple
 
 from sqlmodel import Session
 
@@ -40,3 +40,44 @@ def converte(
     except ExchangeRateUnavailable:
         return None
     return (valor * taxa).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+
+
+class ConversorPorData:
+    """`converte` com a taxa memoizada por (moeda, dia), para um destino fixo.
+
+    O caixa converte cada movimento pela DATA EFETIVA dele (ADR 0022), e não mais
+    pelo dia 1º do mês. Chamar `converte` por linha significaria uma consulta ao
+    store por linha; os pares (moeda, dia) distintos de um mês são poucos — no
+    máximo 31 por moeda —, então memoizar transforma N consultas em uma por par.
+
+    Mantém o contrato do `None`: taxa ausente devolve `None`, e quem chama decide
+    (a política do ADR 0006 é omitir E contar, nunca virar zero).
+    """
+
+    __slots__ = ("_db", "_destino", "_cache")
+
+    def __init__(self, db: Session, destino: str) -> None:
+        self._db = db
+        self._destino = destino
+        self._cache: Dict[Tuple[str, date], Optional[Decimal]] = {}
+
+    @property
+    def destino(self) -> str:
+        return self._destino
+
+    def __call__(self, valor: Decimal, de: str, quando: date) -> Optional[Decimal]:
+        if valor == ZERO or de == self._destino:
+            return valor
+        chave = (de, quando)
+        if chave not in self._cache:
+            try:
+                taxa, _fonte = ExchangeRateStore.rate_between(
+                    self._db, de, self._destino, quando, allow_fetch=False
+                )
+            except ExchangeRateUnavailable:
+                taxa = None
+            self._cache[chave] = taxa
+        taxa = self._cache[chave]
+        if taxa is None:
+            return None
+        return (valor * taxa).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)

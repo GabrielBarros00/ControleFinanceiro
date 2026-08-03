@@ -32,7 +32,7 @@ export function RecurrenceEditor({ value, onChange, idPrefix = 'rec' }: Recurren
 
   return (
     <div className="space-y-4">
-      <div className="grid grid-cols-2 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
         <div className="space-y-2">
           <Label htmlFor={`${idPrefix}-frequency`}>Frequência</Label>
           <select
@@ -116,7 +116,7 @@ export function RecurrenceEditor({ value, onChange, idPrefix = 'rec' }: Recurren
 
       {/* Personalizado: "a cada N períodos" a partir de uma data-âncora */}
       {value.custom && (
-        <div className="grid grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <div className="space-y-2">
             <Label htmlFor={`${idPrefix}-interval`}>A cada</Label>
             <div className="flex gap-2">

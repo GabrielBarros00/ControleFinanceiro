@@ -217,10 +217,17 @@ def _transaction_stamp_on_insert(mapper, connection, target: Transaction) -> Non
     _stamp_status(target, target.status, datetime.now(UTC))
     # billing_month é o MÊS ÚNICO das agregações (dívidas, relatórios, previsão,
     # extrato). A coluna é nullable e uma linha sem ela sumiria de todas elas de
-    # uma vez. Hoje os quatro caminhos de criação preenchem — mas isso é
-    # disciplina de quem escreve o código, não uma garantia. Aqui vira invariante:
-    # sem valor explícito, deriva da data. O valor mandado pelo cliente (o mês
-    # LOCAL dele) continua vencendo, que é o certo — o servidor só conhece UTC.
+    # uma vez. Hoje os caminhos de criação preenchem — mas isso é disciplina de
+    # quem escreve o código, não uma garantia. Aqui vira invariante: sem valor
+    # explícito, deriva da data. O valor explícito continua vencendo.
+    #
+    # **Sem conversão de fuso, de propósito.** Aqui a PROVENIÊNCIA é
+    # desconhecida: `transaction_date` chega ora como instante de verdade (o
+    # cliente manda `new Date().toISOString()`), ora como data de CALENDÁRIO à
+    # meia-noite (linha de CSV, cronograma, fixture). Converter às cegas move a
+    # segunda para o dia anterior — `datetime(2026, 5, 1)` viraria competência de
+    # abril. Quem SABE que recebeu um instante converte na entrada, com
+    # `month_key_local` (ver `routes/transactions.py`).
     if not target.billing_month and target.transaction_date is not None:
         target.billing_month = target.transaction_date.strftime("%Y-%m")
 

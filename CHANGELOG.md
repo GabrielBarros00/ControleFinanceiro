@@ -11,6 +11,75 @@ segue [SemVer](https://semver.org/lang/pt-BR/).
 
 ## [Não lançado]
 
+### Saldo de fatura, arquivamento e data efetiva de verdade (ADR 0023)
+
+Uma auditoria externa sobre a onda anterior aprovou a separação Global × Workspace e não
+achou regressão, mas encontrou um P0 e cinco P1 na camada financeira. Três deles tinham a
+mesma causa: **um número agregado nascia de uma consulta própria**, com o seu filtro e a
+sua data, em vez de sair das linhas que ele resume.
+
+- **Fatura podia ser encerrada pagando R$ 1.** Qualquer valor positivo marcava a fatura
+  como paga, liberava o limite inteiro do cartão e ainda impedia completar o pagamento — a
+  fatura já não estava `closed`. Nada somava `StatementPayment.amount`, embora o schema
+  sempre tenha admitido N pagamentos por fatura. Agora o saldo é cumulativo, o limite
+  comprometido é o SALDO (pagar metade libera metade), sobrepagamento é recusado citando o
+  saldo (a regra do ADR 0009), e a fatura só vira `paid` no zero.
+- **Excluir cartão ou financiamento apagava o passado.** As consultas de caixa filtravam
+  `deleted_at`, então arquivar o cadastro reescrevia meses fechados. O filtro saiu: o fato é
+  o pagamento, o cadastro é rótulo. Financiamento ativo com parcelas em aberto passou a
+  exigir confirmação explícita para ser arquivado.
+- **A parcela de financiamento ia para o mês do vencimento, na moeda crua.** Pagar
+  adiantado zerava o caixa do mês em que o dinheiro saiu; e uma parcela em USD num workspace
+  BRL virava uma despesa que nenhuma agregação somava (todas filtram `currency == base`).
+  Agora `paid_at` é informável, é dele que sai a data da despesa, e a conversão passa pelo
+  mesmo pipeline dos lançamentos comuns (sem IOF — parcela não é compra no cartão).
+- **Cancelar a despesa vinculada fazia a saída sumir dos dois lados.** A dedup só perguntava
+  "existe uma transação?", sem olhar o status. Agora exige que ela CONTE; e os campos que
+  definem a identidade financeira do vínculo ficaram imutáveis.
+- **O caixa convertia tudo pela cotação do dia 1º do mês.** USD 100 pagos no dia 25 com o
+  dólar a 6 entravam como se fossem 5. `CashFlowService` virou uma lista de linhas — cada
+  movimento com a sua data efetiva —, e os totais e os dois `breakdown` passaram a sair
+  dessas mesmas linhas.
+- **O aplicativo tinha duas noções de "hoje".** `datetime.now(UTC)` na fatura vencida e nos
+  compromissos, `date.today()` na recorrência, na previsão e na data de cotação; em fuso
+  negativo elas discordam entre 21h e a meia-noite. O fuso existia só como `TZ` no Compose,
+  invisível para o `Settings` e ausente em qualquer uvicorn iniciado à mão. Agora há
+  `APP_TIMEZONE` e `today_local()`/`month_bounds_utc()`: a janela do mês é o calendário
+  LOCAL convertido para UTC, e uma renda recebida às 22h de 31 de julho em São Paulo
+  pertence a julho.
+- **`billing_month` derivado de UTC punha o lançamento no mês seguinte.** Quem chama a
+  API sem `billing_month` — script, integração, o próprio e2e — tinha a despesa carimbada
+  em agosto ao lançar às 22h de 31 de julho, e ela não aparecia em tela nenhuma (todas
+  pedem julho). O formulário sempre mandou o campo e mascarava o defeito. As rotas passam
+  a converter com `month_key_local`, porque sabem que receberam um instante ISO; o import
+  de CSV e o listener de mapper **não** convertem, porque ali `transaction_date` é (ou
+  pode ser) um dia de calendário à meia-noite, e converter jogaria "01/03" para fevereiro.
+  Era esta a causa da falha do `e2e-prod/realtime_invite`: o evento de WebSocket chegava e
+  a invalidação rodava; o lançamento é que estava no mês errado.
+
+**Extrato global** (`/me/ledger`): o refactor do caixa entregou-o de graça — é a mesma lista
+de linhas, filtrada por origem, workspace, cartão ou contraparte. Os blocos de caixa da
+Visão global levam a ele já filtrados, então o detalhe fecha com o total por construção. Os
+relatórios pessoais ganharam seletor de 3/6/12 meses (a API já aceitava 1..12).
+
+**O gate de `npm audit` podia ficar verde sem ter auditado nada.** Quando o registry falha,
+o npm imprime um JSON de erro em stdout com código != 0; ele passava pelo `catch`, não tinha
+a chave `vulnerabilities`, e o `?? {}` transformava isso em "nenhuma vulnerabilidade". Agora
+o gate valida a forma do relatório, cruza com `metadata.vulnerabilities` e falha fechado.
+
+**Inputs que não cabiam o valor digitado.** Dentro do diálogo de Nova Despesa num telefone
+de 360px, o campo "Valor Total" tinha 48px — dos quais 36 eram o padding do prefixo "R$" —
+porque o seletor de moeda ocupava 92px fixos numa coluna de `grid-cols-2` sem prefixo
+responsivo. Os grids dos formulários passaram a quebrar abaixo de `sm`, as larguras fixas
+viraram elásticas, nasceu um `Textarea` (as descrições eram campo de uma linha) e a sintaxe
+Tailwind v4 que não compila em v3 — e por isso não emitia CSS nenhum — foi convertida.
+
+**Acessibilidade.** A linha de membros transbordava o cartão em 393px (328px de controles
+que se recusavam a encolher); as ações de editar/excluir eram invisíveis no toque em cinco
+telas; o cartão de crédito tinha `<span role="button">` dentro de `<button>`, sem ativação
+por teclado; e a gaveta "Mais" era um `role="dialog"` sem nome acessível, focus trap, Escape
+ou trava de rolagem — agora usa o `Dialog` do projeto, que já era um bottom sheet no mobile.
+
 ### Recurso financeiro é da pessoa e não mora em workspace nenhum (ADR 0021)
 
 Uma auditoria externa encontrou um vazamento de privacidade em cartão de crédito, e a causa

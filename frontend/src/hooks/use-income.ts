@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { apiClient } from '@/api/client';
+import { invalidateForEvent } from '@/lib/ws-events';
 
 export interface Income {
   id: number;
@@ -31,10 +32,13 @@ export function useIncome(month?: string) {
     },
   });
 
+  // Pelo contrato único (`ws-events`), não à mão: a lista escrita aqui já tinha
+  // divergido dele — faltavam `me-overview` e `me-reports`, que `BY_PREFIX.income`
+  // inclui —, então lançar uma renda não atualizava a Visão global nem "Seus
+  // relatórios" até um F5. Duas cópias da mesma regra divergem na primeira
+  // mudança; foi essa a lição do `GLOBAIS`.
   const invalidate = () => {
-    queryClient.invalidateQueries({ queryKey: ['income'] });
-    queryClient.invalidateQueries({ queryKey: ['reports'] });
-    queryClient.invalidateQueries({ queryKey: ['analytics-forecast'] });
+    invalidateForEvent(queryClient, 'income.changed', null);
   };
 
   const createMutation = useMutation({

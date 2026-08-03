@@ -18,21 +18,28 @@ moeda de relatório do dono, e o resultado do mês existe num lugar só —
 `/me/overview`, onde o denominador é o consumo somado de TODOS os workspaces.
 Este arquivo é o gate dessa correção.
 """
-from datetime import UTC, datetime
+from datetime import UTC, datetime, time
 from decimal import Decimal
 
 import pytest
 from fastapi.testclient import TestClient
 
 from app.core.jwt import create_access_token
+from app.domain.dates import today_local
 from app.main import app
 from app.models.income import Income
 from app.models.user import User
 
 client = TestClient(app)
 
-MES = datetime.now(UTC).strftime("%Y-%m")
-QUANDO = datetime.now(UTC).replace(day=15, hour=12, minute=0, second=0, microsecond=0)
+# Mês de CALENDÁRIO LOCAL, não o do relógio UTC: em fuso negativo os dois
+# discordam das 21h à meia-noite, e o teste pedia à API um mês em que a renda
+# recém-criada — datada pelo calendário do usuário — ainda não existe.
+MES = today_local().strftime("%Y-%m")
+# Dia 15 do mês LOCAL, ao meio-dia UTC (= 9h em São Paulo, o mesmo dia nos dois
+# calendários). Ancorar em `datetime.now(UTC)` colocava a renda no mês seguinte
+# quando o teste rodava depois das 21h do último dia do mês.
+QUANDO = datetime.combine(today_local().replace(day=15), time(12, 0), tzinfo=UTC)
 
 
 def _h(user: User) -> dict:
@@ -240,7 +247,7 @@ def test_salario_recorrente_materializa_sem_passar_por_workspace(pessoa):
     curto-circuito devolvia False e o salário global nunca era gerado ali. Agora
     ela roda na leitura de `/me/income`, que é onde a renda vive.
     """
-    hoje = datetime.now(UTC)
+    hoje = today_local()
     res = client.post(
         "/api/v1/me/recurring-income",
         json={

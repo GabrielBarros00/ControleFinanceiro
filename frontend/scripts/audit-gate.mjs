@@ -13,8 +13,14 @@
  * falhando em qualquer high/critical, e a exceção é uma linha versionada, com
  * motivo escrito e data de revisão — quando ela vence, o gate volta a falhar e
  * alguém decide de novo.
+ *
+ * `--relatorio <arquivo>` lê um relatório de arquivo em vez de rodar o npm.
+ * Existe para os testes provarem que o gate falha FECHADO diante de um payload
+ * ruim — a falha que ele precisa ter é a mais difícil de observar por acidente,
+ * porque só acontece quando o registry está fora do ar.
  */
 import { execSync } from 'node:child_process';
+import { readFileSync } from 'node:fs';
 
 /**
  * Cada entrada é uma decisão de risco explícita, não um "silencia isso".
@@ -33,7 +39,60 @@ const ACEITOS = [
   },
 ];
 
+/** Aborta o gate com uma mensagem — nunca deixa passar verde por omissão. */
+function abortar(motivo) {
+  console.error(`\nNão foi possível auditar as dependências: ${motivo}`);
+  console.error(
+    'O gate falha FECHADO de propósito: um relatório que não é um relatório ' +
+    'não é prova de que não há vulnerabilidade.\n',
+  );
+  process.exit(1);
+}
+
+/**
+ * Valida que o payload é mesmo um relatório do `npm audit`.
+ *
+ * Aqui morava o buraco: o laço lia `relatorio.vulnerabilities ?? {}`, e o `??`
+ * transformava "isto não é um relatório" em "nenhuma vulnerabilidade". Quando o
+ * registry falha, o npm imprime um JSON de ERRO **em stdout** e sai com código
+ * != 0 — ou seja, ele passa pelo `catch` abaixo, faz `JSON.parse` sem problema,
+ * não tem a chave `vulnerabilities`, e o gate terminava com "Sem
+ * vulnerabilidades" e código zero. Auditoria nenhuma tinha rodado.
+ */
+function validarRelatorio(relatorio) {
+  if (!relatorio || typeof relatorio !== 'object' || Array.isArray(relatorio)) {
+    abortar('a saída do npm audit não é um objeto JSON.');
+  }
+  if (relatorio.error) {
+    const e = relatorio.error;
+    abortar(`o registry respondeu com erro (${e.code ?? '?'}): ${e.summary ?? e.detail ?? ''}`);
+  }
+  if (typeof relatorio.vulnerabilities !== 'object' || relatorio.vulnerabilities === null) {
+    abortar('o relatório não traz a seção `vulnerabilities` (formato inesperado).');
+  }
+  const contadores = relatorio.metadata?.vulnerabilities;
+  if (typeof contadores !== 'object' || contadores === null) {
+    abortar('o relatório não traz `metadata.vulnerabilities` (formato inesperado).');
+  }
+  for (const nivel of ['high', 'critical']) {
+    if (typeof contadores[nivel] !== 'number') {
+      abortar(`\`metadata.vulnerabilities.${nivel}\` ausente ou não numérico.`);
+    }
+  }
+  return contadores;
+}
+
 function auditar() {
+  const i = process.argv.indexOf('--relatorio');
+  if (i !== -1) {
+    const caminho = process.argv[i + 1];
+    if (!caminho) abortar('`--relatorio` exige o caminho de um arquivo.');
+    try {
+      return JSON.parse(readFileSync(caminho, 'utf8'));
+    } catch (erro) {
+      abortar(`não foi possível ler ${caminho}: ${erro.message}`);
+    }
+  }
   try {
     // `execSync` com comando CONSTANTE: `execFileSync('npm.cmd', [...])` falha
     // com EINVAL no Node ≥20 (arquivos .cmd exigem shell) e, com `shell: true`,
@@ -45,23 +104,34 @@ function auditar() {
   } catch (erro) {
     // `npm audit` sai com código != 0 quando ENCONTRA algo — é o caso normal
     // aqui. Sem stdout, aí sim foi falha de verdade (rede, lockfile inválido).
-    if (!erro.stdout) throw erro;
-    return JSON.parse(erro.stdout);
+    if (!erro.stdout) {
+      abortar(erro.message ?? String(erro));
+    }
+    try {
+      return JSON.parse(erro.stdout);
+    } catch {
+      abortar('a saída do npm audit não é JSON válido.');
+    }
   }
 }
 
 const hoje = new Date().toISOString().slice(0, 10);
 const relatorio = auditar();
+const contadores = validarRelatorio(relatorio);
 const graves = [];
 const silenciados = [];
+const casados = new Set();
+let encontradas = 0;
 
-for (const [nome, vuln] of Object.entries(relatorio.vulnerabilities ?? {})) {
+for (const [nome, vuln] of Object.entries(relatorio.vulnerabilities)) {
   if (!['high', 'critical'].includes(vuln.severity)) continue;
+  encontradas += 1;
 
   // `via` mistura strings (dependência transitiva) e objetos (o advisory em si).
   const advisories = (vuln.via ?? []).filter((v) => typeof v === 'object');
   for (const adv of advisories) {
     const aceito = ACEITOS.find((a) => adv.url?.includes(a.id));
+    if (aceito) casados.add(aceito.id);
     if (aceito && aceito.revisar_em > hoje) {
       silenciados.push(`${nome}: ${aceito.id} (revisar até ${aceito.revisar_em})`);
     } else if (aceito) {
@@ -72,6 +142,29 @@ for (const [nome, vuln] of Object.entries(relatorio.vulnerabilities ?? {})) {
     } else {
       graves.push(`${nome} [${vuln.severity}]: ${adv.title ?? adv.url}`);
     }
+  }
+}
+
+// Contagem cruzada: o laço acima anda por `vulnerabilities`, os contadores vêm
+// de `metadata`. Se discordarem, o formato do relatório mudou e a varredura
+// deixou de enxergar o que deveria — falhar é a única resposta honesta.
+const esperadas = contadores.high + contadores.critical;
+if (encontradas !== esperadas) {
+  abortar(
+    `o relatório declara ${esperadas} vulnerabilidade(s) high/critical em ` +
+    `metadata, mas a varredura encontrou ${encontradas}. O formato do ` +
+    'npm audit provavelmente mudou.',
+  );
+}
+
+// Exceção que não casa com nada é lixo acumulando: ou o pacote foi corrigido (e
+// a linha deve sair), ou o advisory mudou de id (e o gate está cego para ele).
+for (const aceito of ACEITOS) {
+  if (!casados.has(aceito.id)) {
+    console.warn(
+      `atenção · a exceção ${aceito.id} (${aceito.pacote}) não corresponde a ` +
+      'nenhuma vulnerabilidade do relatório. Remova-a de scripts/audit-gate.mjs.',
+    );
   }
 }
 

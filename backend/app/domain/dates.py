@@ -1,17 +1,112 @@
-"""Aritmética de datas por MÊS DE CALENDÁRIO (não 30 dias).
+"""Aritmética de datas por MÊS DE CALENDÁRIO (não 30 dias) e o fuso do aplicativo.
 
 Parcelamento, financiamento e recorrência avançam por mês real — somar
 `timedelta(days=30)` desloca o vencimento e erra o rótulo de mês.
+
+E aqui mora a referência ÚNICA de "hoje". O backend tinha duas, convivendo:
+`datetime.now(UTC)` (fatura vencida, compromissos, carimbos) e `date.today()`
+(recorrência, previsão, data de cotação). Num fuso negativo elas discordam todo
+dia entre 21h e a meia-noite, e um movimento feito às 22h de 31 de julho em São
+Paulo pertencia a julho para uma e a agosto para a outra. O fuso vinha só de
+`TZ` nos serviços do Compose — ausente em qualquer processo iniciado à mão.
 """
 import calendar
-from datetime import date, datetime
+from datetime import UTC, date, datetime, time, tzinfo
+from functools import lru_cache
 from typing import Optional, TypeVar
+from zoneinfo import ZoneInfo
+
+from app.core.config import settings
 
 D = TypeVar("D", date, datetime)
 
 
 class InvalidMonth(ValueError):
     """Mês fora do formato YYYY-MM (o chamador traduz para 400)."""
+
+
+@lru_cache(maxsize=8)
+def _resolve_tz(nome: str) -> tzinfo:
+    """Resolve o nome do fuso uma vez só. `ZoneInfo` lê disco/pacote a cada
+    construção, e isto é chamado em laço (uma vez por mês da série)."""
+    try:
+        return ZoneInfo(nome)
+    except Exception:
+        # `timezone.utc`, NÃO `ZoneInfo("UTC")`: sem a base de fusos instalada
+        # (Windows sem `tzdata`) o fallback levantaria a mesma exceção que
+        # deveria absorver, e o processo caía em vez de degradar.
+        return UTC
+
+
+def app_tz() -> tzinfo:
+    """O fuso do calendário do aplicativo (`settings.APP_TIMEZONE`).
+
+    Fuso desconhecido cai em UTC em vez de derrubar a aplicação: uma variável de
+    ambiente com erro de digitação não deve impedir o backend de subir, e UTC é
+    o comportamento que já existia.
+    """
+    return _resolve_tz(settings.APP_TIMEZONE)
+
+
+def today_local() -> date:
+    """O dia de calendário de HOJE no fuso do aplicativo.
+
+    Substitui tanto `date.today()` (que segue o fuso do PROCESSO — UTC no CI e
+    em qualquer uvicorn sem `TZ`) quanto `datetime.now(UTC).date()` (que vira o
+    dia seguinte três horas antes em Brasília).
+    """
+    return datetime.now(app_tz()).date()
+
+
+def to_local(momento: datetime) -> datetime:
+    """O mesmo INSTANTE, lido no fuso do aplicativo.
+
+    `datetime` naive é assumido UTC — é como as colunas guardam (o SQLite não
+    tem fuso, e `datetime.now(UTC)` perde o tzinfo ao ser gravado).
+    """
+    if momento.tzinfo is None:
+        momento = momento.replace(tzinfo=UTC)
+    return momento.astimezone(app_tz())
+
+
+def month_key_local(momento: datetime) -> str:
+    """Mês de calendário LOCAL de um instante → `"YYYY-MM"`.
+
+    É o que `billing_month` sempre quis dizer. Derivar com
+    `momento.strftime("%Y-%m")` trata um instante UTC como se fosse uma data de
+    calendário: uma despesa lançada às 22h de 31 de julho em São Paulo é gravada
+    como `2026-08-01T01:00Z` e virava competência de AGOSTO — invisível em todas
+    as telas, que pedem julho. O formulário mandava o mês certo e mascarava o
+    defeito; quem chama a API sem `billing_month` (import, script, integração)
+    caía nele por três horas todo dia.
+    """
+    return month_key(to_local(momento))
+
+
+def month_bounds_utc(reference: date) -> tuple[datetime, datetime]:
+    """Limites do mês de calendário LOCAL, expressos como instantes UTC.
+
+    As colunas de data guardam instantes UTC (`datetime.now(UTC)`), mas o mês
+    que o usuário enxerga é o do fuso dele. Comparar um contra o outro com
+    `datetime.combine` ingênuo — como o caixa fazia — jogava uma renda recebida
+    às 22h de 31/07 em São Paulo (gravada como `2026-08-01T01:00Z`) para o mês
+    seguinte.
+
+    Devolve instantes **naive em UTC**, porque as colunas do SQLite são naive e
+    comparar naive com aware levanta TypeError.
+    """
+    tz = app_tz()
+    ultimo = calendar.monthrange(reference.year, reference.month)[1]
+    inicio = datetime.combine(
+        date(reference.year, reference.month, 1), time.min, tzinfo=tz
+    )
+    fim = datetime.combine(
+        date(reference.year, reference.month, ultimo), time.max, tzinfo=tz
+    )
+    return (
+        inicio.astimezone(UTC).replace(tzinfo=None),
+        fim.astimezone(UTC).replace(tzinfo=None),
+    )
 
 
 def parse_month(month: Optional[str], *, default: Optional[date] = None) -> date:
@@ -24,7 +119,7 @@ def parse_month(month: Optional[str], *, default: Optional[date] = None) -> date
     sinal para o usuário.
     """
     if not month:
-        return default or date.today()
+        return default or today_local()
     try:
         year_str, month_str = month.split("-")
         return date(int(year_str), int(month_str), 1)

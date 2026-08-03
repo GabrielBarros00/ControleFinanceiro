@@ -41,8 +41,10 @@ from app.models.transaction import (
 from app.models.user import User
 from app.models.workspace import WorkspaceMembership
 from app.schemas.common import DESCRIPTION_MAX, MAX_MONEY, OptionalCurrencyCode, TITLE_MAX
+from app.services.base_conversion import compute_base_conversion
 from app.services.event_service import publish_event
 from app.services.financing_service import FinancingService
+from app.domain.dates import today_local
 
 router = APIRouter(prefix="/me/financing", tags=["me-financing"])
 
@@ -93,13 +95,20 @@ class EarlySettlementRequest(BaseModel):
 
 
 class InstallmentPayRequest(BaseModel):
-    """Onde registrar a despesa do pagamento, se em algum lugar.
+    """Onde e QUANDO registrar a despesa do pagamento.
 
-    `None` = só marca a parcela como paga (o compromisso é pessoal e o caixa dele
-    aparece em `/me/commitments`). Um workspace = cria também a despesa lá, para
-    quem quer a parcela visível — e divisível — no orçamento da casa.
+    `workspace_id=None` = só marca a parcela como paga (o compromisso é pessoal e
+    o caixa dele aparece em `/me/commitments`). Um workspace = cria também a
+    despesa lá, para quem quer a parcela visível — e divisível — no orçamento da
+    casa.
+
+    `paid_at` é a data EFETIVA do pagamento, e omitido vale agora. Ela existe
+    porque a despesa vinculada nascia com a data de VENCIMENTO da parcela: uma
+    parcela que vence em setembro e é paga em agosto zerava o caixa de agosto e
+    fazia a saída aparecer em setembro — um mês em que o dinheiro não saiu.
     """
     workspace_id: Optional[int] = None
+    paid_at: Optional[datetime] = None
 
 
 # Campos cuja mudança obriga a recalcular o cronograma inteiro
@@ -197,7 +206,7 @@ def simulate_early_settlement(
     current_user: User = Depends(get_current_user),
 ):
     financing = _get_financing_or_404(session, financing_id, current_user.id)
-    settlement_date = data.settlement_date or date.today()
+    settlement_date = data.settlement_date or today_local()
 
     remaining = session.exec(
         select(AmortizationInstallment)
@@ -325,37 +334,62 @@ def pay_installment(
     if installment.is_paid:
         raise HTTPException(status_code=400, detail="Parcela já está paga")
 
+    pago_em = body.paid_at or datetime.now(UTC)
     installment.is_paid = True
-    installment.paid_at = datetime.now(UTC)
+    installment.paid_at = pago_em
     session.add(installment)
 
     transaction_id = None
     if body.workspace_id is not None:
         _assert_member(session, body.workspace_id, current_user.id)
-        due = installment.due_date
+        # A despesa segue a data EFETIVA do pagamento, não o vencimento: o caixa
+        # é sobre quando o dinheiro saiu, e a parcela e a despesa vinculada
+        # precisam cair no mesmo mês (é a dedup do `CashFlowService` que depende
+        # disso — com datas diferentes, a saída trocava de mês).
+        valor = installment.total_amount
+        moeda = financing.currency
+        conversao_meta = {}
+        # MESMO pipeline dos lançamentos comuns (ADR 0015). Sem ele a despesa
+        # nascia na moeda do financiamento dentro de um workspace de outra base,
+        # e sumia de todas as agregações — que filtram `currency == base`.
+        # `payment_method=None`: parcela não é compra no cartão, então sem IOF.
+        conv = compute_base_conversion(
+            session,
+            body.workspace_id,
+            currency=moeda,
+            total_amount=valor,
+            transaction_date=pago_em,
+            payment_method=None,
+        )
+        if conv is not None:
+            valor = conv["base_total"]
+            moeda = conv["base_currency"]
+            conversao_meta = conv["meta"]
+
         payment_tx = Transaction(
             title=f"{financing.title} — Parcela {installment_number}/{financing.installments_count}",
-            total_amount=installment.total_amount,
-            transaction_date=datetime(due.year, due.month, due.day, tzinfo=UTC),
-            billing_month=f"{due.year:04d}-{due.month:02d}",
-            currency=financing.currency,
+            total_amount=valor,
+            transaction_date=pago_em,
+            billing_month=f"{pago_em.year:04d}-{pago_em.month:02d}",
+            currency=moeda,
             workspace_id=body.workspace_id,
             created_by_user_id=current_user.id,
             status=TransactionStatus.confirmed,
             # Identidade da parcela: é por aqui que o estorno reencontra a despesa.
             # Pelo título, renomear o financiamento deixava a despesa órfã.
             financing_installment_id=installment.id,
+            **conversao_meta,
         )
         session.add(payment_tx)
         session.flush()
         session.add(TransactionPayer(
             transaction_id=payment_tx.id, user_id=current_user.id,
-            amount=installment.total_amount,
+            amount=valor,
         ))
         session.add(TransactionSplit(
             transaction_id=payment_tx.id, user_id=current_user.id,
             split_method=SplitMethod.equal, input_value=Decimal("100"),
-            computed_amount=installment.total_amount,
+            computed_amount=valor,
         ))
         transaction_id = payment_tx.id
         publish_event(
@@ -441,10 +475,46 @@ def unpay_installment(
 @router.delete("/{financing_id}")
 def delete_financing(
     financing_id: int,
+    # Cancelamento DELIBERADO de um financiamento com parcelas em aberto. Sem
+    # ele a rota recusa (409). Não é burocracia: a diferença entre "arquivei um
+    # contrato encerrado" e "apaguei uma dívida de quinze anos por engano" não
+    # está no verbo HTTP, e o app não tem como adivinhar qual dos dois é.
+    cancel_open_installments: bool = False,
     session: Session = Depends(get_session),
     current_user: User = Depends(get_current_user),
 ):
+    """Arquiva o financiamento. O histórico de caixa continua de pé.
+
+    Duas correções aqui. A primeira é que **não havia guarda nenhuma**: um
+    financiamento ativo com quinze anos de parcelas em aberto sumia num DELETE, e
+    a dívida ia junto — sem nenhuma tela por onde ser quitada, exatamente o que o
+    guard do cartão (`me_cards.py:188`) já impedia do outro lado.
+
+    A segunda é que arquivar deixou de reescrever o passado: o `CashFlowService`
+    não filtra mais `Financing.deleted_at`, então as parcelas já pagas continuam
+    no fluxo de caixa dos meses delas. O cancelamento é auditável porque as
+    parcelas não pagas continuam gravadas como não pagas — o que ficou por pagar
+    é reconstituível, em vez de sumir junto com o cadastro.
+    """
     financing = _get_financing_or_404(session, financing_id, current_user.id)
+
+    if financing.status == FinancingStatus.active and not cancel_open_installments:
+        abertas = session.exec(
+            select(AmortizationInstallment).where(
+                AmortizationInstallment.financing_id == financing.id,
+                AmortizationInstallment.is_paid.is_(False),
+            )
+        ).all()
+        if abertas:
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    f"Este financiamento tem {len(abertas)} parcela(s) em aberto. "
+                    "Quite-as antes de arquivar — ou confirme o cancelamento, se "
+                    "o contrato foi encerrado fora do app."
+                ),
+            )
+
     financing.deleted_at = datetime.now(UTC)
     session.add(financing)
     session.commit()

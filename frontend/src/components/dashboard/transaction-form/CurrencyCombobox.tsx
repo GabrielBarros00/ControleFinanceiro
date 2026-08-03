@@ -67,13 +67,17 @@ export function CurrencyCombobox({ value, onChange }: CurrencyComboboxProps) {
 
   return (
     <div ref={ref} className="relative">
+      {/* Largura fixa só a partir de `sm:`. Num telefone de 360px, uma coluna
+          de `grid-cols-2` tem ~148px: com 92px fixos e `shrink-0`, o MoneyInput
+          ao lado ficava com 48px — dos quais 36 são o padding do prefixo "R$" —
+          e o valor digitado não cabia. Abaixo de `sm` o seletor encolhe. */}
       <button
         type="button"
         aria-label="Moeda"
         aria-haspopup="listbox"
         aria-expanded={open}
         onClick={() => (open ? setOpen(false) : openMenu())}
-        className="flex h-10 w-[92px] shrink-0 items-center justify-between rounded-md border border-border bg-background px-2 text-sm font-semibold text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+        className="flex h-10 min-w-[64px] shrink items-center justify-between gap-1 rounded-md border border-border bg-background px-2 text-sm font-semibold text-foreground focus:outline-none focus:ring-2 focus:ring-ring sm:w-[92px] sm:shrink-0"
       >
         {value}
         <ChevronDown className="h-3.5 w-3.5 text-muted-foreground" />

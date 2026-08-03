@@ -823,6 +823,30 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/me/ledger": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Ledger
+         * @description Extrato global: cada movimento de caixa do mês, em todos os workspaces.
+         *
+         *     É o detalhe de `/me/overview` — mesma origem de dados, então o extrato SEMPRE
+         *     fecha com os totais. Sem ele a Visão global respondia "saiu R$ 4.200" e não
+         *     tinha como explicar de onde.
+         */
+        get: operations["get_ledger_api_v1_me_ledger_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/me/commitments": {
         parameters: {
             query?: never;
@@ -1211,7 +1235,21 @@ export interface paths {
          */
         put: operations["update_financing_api_v1_me_financing__financing_id__put"];
         post?: never;
-        /** Delete Financing */
+        /**
+         * Delete Financing
+         * @description Arquiva o financiamento. O histórico de caixa continua de pé.
+         *
+         *     Duas correções aqui. A primeira é que **não havia guarda nenhuma**: um
+         *     financiamento ativo com quinze anos de parcelas em aberto sumia num DELETE, e
+         *     a dívida ia junto — sem nenhuma tela por onde ser quitada, exatamente o que o
+         *     guard do cartão (`me_cards.py:188`) já impedia do outro lado.
+         *
+         *     A segunda é que arquivar deixou de reescrever o passado: o `CashFlowService`
+         *     não filtra mais `Financing.deleted_at`, então as parcelas já pagas continuam
+         *     no fluxo de caixa dos meses delas. O cancelamento é auditável porque as
+         *     parcelas não pagas continuam gravadas como não pagas — o que ficou por pagar
+         *     é reconstituível, em vez de sumir junto com o cadastro.
+         */
         delete: operations["delete_financing_api_v1_me_financing__financing_id__delete"];
         options?: never;
         head?: never;
@@ -2178,15 +2216,23 @@ export interface components {
         };
         /**
          * InstallmentPayRequest
-         * @description Onde registrar a despesa do pagamento, se em algum lugar.
+         * @description Onde e QUANDO registrar a despesa do pagamento.
          *
-         *     `None` = só marca a parcela como paga (o compromisso é pessoal e o caixa dele
-         *     aparece em `/me/commitments`). Um workspace = cria também a despesa lá, para
-         *     quem quer a parcela visível — e divisível — no orçamento da casa.
+         *     `workspace_id=None` = só marca a parcela como paga (o compromisso é pessoal e
+         *     o caixa dele aparece em `/me/commitments`). Um workspace = cria também a
+         *     despesa lá, para quem quer a parcela visível — e divisível — no orçamento da
+         *     casa.
+         *
+         *     `paid_at` é a data EFETIVA do pagamento, e omitido vale agora. Ela existe
+         *     porque a despesa vinculada nascia com a data de VENCIMENTO da parcela: uma
+         *     parcela que vence em setembro e é paga em agosto zerava o caixa de agosto e
+         *     fazia a saída aparecer em setembro — um mês em que o dinheiro não saiu.
          */
         InstallmentPayRequest: {
             /** Workspace Id */
             workspace_id?: number | null;
+            /** Paid At */
+            paid_at?: string | null;
         };
         /** InviteCreate */
         InviteCreate: {
@@ -2298,6 +2344,71 @@ export interface components {
          * @enum {string}
          */
         InviteStatus: "pending" | "accepted" | "revoked";
+        /**
+         * LedgerEntry
+         * @description Um movimento de caixa, explicado.
+         *
+         *     A Visão global tinha bons totais e nenhuma forma de explicar cada número: o
+         *     usuário via "saiu R$ 4.200" e o detalhamento por origem, mas não conseguia
+         *     chegar às LINHAS. Este é o mesmo `CashFlowService` que produz os totais,
+         *     devolvendo as linhas em vez de somá-las — o detalhe não tem como divergir do
+         *     total porque é a mesma consulta.
+         */
+        LedgerEntry: {
+            /** Source */
+            source: string;
+            /** Direction */
+            direction: string;
+            /**
+             * Occurred On
+             * Format: date
+             */
+            occurred_on: string;
+            /** Amount */
+            amount: string;
+            /** Currency */
+            currency: string;
+            /** Converted Amount */
+            converted_amount?: string | null;
+            /** Title */
+            title?: string | null;
+            /** Workspace Id */
+            workspace_id?: number | null;
+            /** Workspace Name */
+            workspace_name?: string | null;
+            /** Card Id */
+            card_id?: number | null;
+            /** Financing Id */
+            financing_id?: number | null;
+            /** Counterparty Id */
+            counterparty_id?: number | null;
+            /** Counterparty Name */
+            counterparty_name?: string | null;
+            /** Reference Id */
+            reference_id?: number | null;
+        };
+        /**
+         * LedgerRead
+         * @description Extrato global consolidado, com filtros e paginação.
+         */
+        LedgerRead: {
+            /** Currency */
+            currency: string;
+            /** Month */
+            month: string;
+            /** Entries */
+            entries: components["schemas"]["LedgerEntry"][];
+            /** Total */
+            total: number;
+            /** Cash In */
+            cash_in: string;
+            /** Cash Out */
+            cash_out: string;
+            /** Net Cash */
+            net_cash: string;
+            /** Excluded Foreign Count */
+            excluded_foreign_count: number;
+        };
         /** LoginRequest */
         LoginRequest: {
             /** Email */
@@ -2904,6 +3015,111 @@ export interface components {
          * @enum {string}
          */
         SplitMode: "transaction" | "item";
+        /** StatementDetailRead */
+        StatementDetailRead: {
+            /** Id */
+            id: number;
+            /** Card Id */
+            card_id: number;
+            /** Month */
+            month: string;
+            /**
+             * Closing Date
+             * Format: date-time
+             */
+            closing_date: string;
+            /**
+             * Due Date
+             * Format: date-time
+             */
+            due_date: string;
+            status: components["schemas"]["StatementStatus"];
+            /** Total Amount */
+            total_amount: string;
+            /** Closed At */
+            closed_at?: string | null;
+            /** Paid At */
+            paid_at?: string | null;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
+            /** Computed Total */
+            computed_total: string;
+            /** Is Overdue */
+            is_overdue: boolean;
+            /** Paid Amount */
+            paid_amount: string;
+            /** Remaining Amount */
+            remaining_amount: string;
+            /**
+             * Payments
+             * @default []
+             */
+            payments: components["schemas"]["StatementPaymentRead"][];
+            /**
+             * Transactions
+             * @default []
+             */
+            transactions: components["schemas"]["StatementTransactionRead"][];
+        };
+        /** StatementListItemRead */
+        StatementListItemRead: {
+            /** Id */
+            id: number;
+            /** Card Id */
+            card_id: number;
+            /** Month */
+            month: string;
+            /**
+             * Closing Date
+             * Format: date-time
+             */
+            closing_date: string;
+            /**
+             * Due Date
+             * Format: date-time
+             */
+            due_date: string;
+            status: components["schemas"]["StatementStatus"];
+            /** Total Amount */
+            total_amount: string;
+            /** Closed At */
+            closed_at?: string | null;
+            /** Paid At */
+            paid_at?: string | null;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
+            /** Computed Total */
+            computed_total: string;
+            /** Is Overdue */
+            is_overdue: boolean;
+            /** Paid Amount */
+            paid_amount: string;
+            /** Remaining Amount */
+            remaining_amount: string;
+            /**
+             * Payments
+             * @default []
+             */
+            payments: components["schemas"]["StatementPaymentRead"][];
+            /** Is Current */
+            is_current: boolean;
+        };
         /** StatementPayRequest */
         StatementPayRequest: {
             /** Account Id */
@@ -2914,6 +3130,127 @@ export interface components {
             paid_at?: string | null;
             /** Note */
             note?: string | null;
+        };
+        /**
+         * StatementPaymentRead
+         * @description Um pagamento da fatura. São vários desde que o saldo virou cumulativo.
+         */
+        StatementPaymentRead: {
+            /** Id */
+            id: number;
+            /** Amount */
+            amount: string;
+            /**
+             * Paid At
+             * Format: date-time
+             */
+            paid_at: string;
+            /** Account Id */
+            account_id?: number | null;
+            /** Note */
+            note?: string | null;
+        };
+        /**
+         * StatementRead
+         * @description A fatura como a tela precisa dela.
+         *
+         *     `total_amount` é o valor CONGELADO no fechamento (zero enquanto aberta);
+         *     `computed_total` é o total efetivo — calculado quando aberta, congelado
+         *     depois. Os dois convivem desde o ADR 0011 e não são intercambiáveis.
+         */
+        StatementRead: {
+            /** Id */
+            id: number;
+            /** Card Id */
+            card_id: number;
+            /** Month */
+            month: string;
+            /**
+             * Closing Date
+             * Format: date-time
+             */
+            closing_date: string;
+            /**
+             * Due Date
+             * Format: date-time
+             */
+            due_date: string;
+            status: components["schemas"]["StatementStatus"];
+            /** Total Amount */
+            total_amount: string;
+            /** Closed At */
+            closed_at?: string | null;
+            /** Paid At */
+            paid_at?: string | null;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
+            /** Computed Total */
+            computed_total: string;
+            /** Is Overdue */
+            is_overdue: boolean;
+            /** Paid Amount */
+            paid_amount: string;
+            /** Remaining Amount */
+            remaining_amount: string;
+            /**
+             * Payments
+             * @default []
+             */
+            payments: components["schemas"]["StatementPaymentRead"][];
+        };
+        /**
+         * StatementStatus
+         * @enum {string}
+         */
+        StatementStatus: "open" | "closed" | "paid" | "overdue";
+        /**
+         * StatementTransactionRead
+         * @description A compra como ela aparece DENTRO da fatura.
+         *
+         *     Enxuto de propósito: `TransactionRead` carrega payers/splits/items/tags, e
+         *     tipar a lista com ele obrigaria a carregar essas relações — um N+1 por linha
+         *     da fatura para dados que esta tela não desenha.
+         */
+        StatementTransactionRead: {
+            /** Id */
+            id: number;
+            /** Title */
+            title: string;
+            /**
+             * Transaction Date
+             * Format: date-time
+             */
+            transaction_date: string;
+            /** Total Amount */
+            total_amount: string;
+            /** Currency */
+            currency: string;
+            /** Status */
+            status: string;
+            /** Workspace Id */
+            workspace_id: number;
+            /** Installment No */
+            installment_no?: number | null;
+            /** Installments Of */
+            installments_of?: number | null;
+            /** Original Amount */
+            original_amount?: string | null;
+            /** Original Currency */
+            original_currency?: string | null;
+            /** Exchange Rate */
+            exchange_rate?: string | null;
+            /** Iof Rate */
+            iof_rate?: string | null;
+            /** Rate Source */
+            rate_source?: string | null;
         };
         /** TagCreate */
         TagCreate: {
@@ -5671,6 +6008,46 @@ export interface operations {
             };
         };
     };
+    get_ledger_api_v1_me_ledger_get: {
+        parameters: {
+            query?: {
+                month?: string | null;
+                source?: string[] | null;
+                workspace_id?: number | null;
+                card_id?: number | null;
+                counterparty_id?: number | null;
+                currency?: string | null;
+                limit?: number;
+                offset?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: {
+                access_token?: string | null;
+            };
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LedgerRead"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     get_commitments_api_v1_me_commitments_get: {
         parameters: {
             query?: {
@@ -6275,7 +6652,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["StatementListItemRead"][];
                 };
             };
             /** @description Validation Error */
@@ -6309,7 +6686,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["StatementDetailRead"];
                 };
             };
             /** @description Validation Error */
@@ -6343,7 +6720,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["StatementRead"];
                 };
             };
             /** @description Validation Error */
@@ -6381,7 +6758,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["StatementRead"];
                 };
             };
             /** @description Validation Error */
@@ -6415,7 +6792,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["StatementRead"];
                 };
             };
             /** @description Validation Error */
@@ -6703,7 +7080,9 @@ export interface operations {
     };
     delete_financing_api_v1_me_financing__financing_id__delete: {
         parameters: {
-            query?: never;
+            query?: {
+                cancel_open_installments?: boolean;
+            };
             header?: never;
             path: {
                 financing_id: number;

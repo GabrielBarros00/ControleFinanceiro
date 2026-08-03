@@ -8,13 +8,17 @@ import {
   Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle,
 } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
+import { MoneyInput } from "@/components/ui/MoneyInput";
 import { Loader2, Lock, LockOpen, CheckCircle2, ChevronLeft, ChevronRight, AlertTriangle, Clock, Info } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { statementAlert, type StatementAlert } from '@/lib/statement-alert';
-import { useCardStatements, useStatementDetail, useStatementActions } from '@/hooks/use-credit-cards';
+import {
+  useCardStatements, useStatementDetail, useStatementActions,
+  type StatementTransaction,
+} from '@/hooks/use-credit-cards';
 import { usePaymentAccounts } from '@/hooks/use-payment-accounts';
 import { getApiErrorMessage } from '@/lib/api-error';
-import { formatCurrency } from '@/lib/money';
+import { currencySymbol, formatCurrency } from '@/lib/money';
 import { useBaseCurrency } from '@/hooks/use-base-currency';
 import { useTxDetailStore } from '@/stores';
 import { parseApiDate, parseApiDay } from '@/lib/date';
@@ -43,19 +47,8 @@ function statementMonthLabel(month: string): string {
   return s.charAt(0).toUpperCase() + s.slice(1);
 }
 
-interface StatementTx {
-  id: number;
-  title: string;
-  transaction_date: string;
-  total_amount: string;
-  original_currency?: string | null;
-  original_amount?: string | null;
-  exchange_rate?: string | null;
-  iof_rate?: string | null;
-}
-
 // IOF em BRL de uma compra estrangeira = valor original × câmbio × alíquota.
-function iofBrl(tx: StatementTx): number {
+function iofBrl(tx: StatementTransaction): number {
   if (!tx.original_amount || !tx.exchange_rate || !tx.iof_rate) return 0;
   return parseFloat(tx.original_amount) * parseFloat(tx.exchange_rate) * parseFloat(tx.iof_rate);
 }
@@ -105,6 +98,7 @@ export function StatementView({ cardId }: { cardId: number | null }) {
 
   const [payOpen, setPayOpen] = React.useState(false);
   const [payAccountId, setPayAccountId] = React.useState<number | null>(null);
+  const [payAmount, setPayAmount] = React.useState<number | undefined>(undefined);
   const [actionError, setActionError] = React.useState<string | null>(null);
 
   if (!cardId) {
@@ -155,17 +149,34 @@ export function StatementView({ cardId }: { cardId: number | null }) {
     }
   };
 
+  // Saldo pendente: a fatura aceita pagamentos parciais e só vira "paga" quando
+  // chega a zero, então o número que importa nos botões e no diálogo é este —
+  // não o total da fatura.
+  const paidSoFar = statement ? parseFloat(statement.paid_amount) : 0;
+  const remaining = statement ? parseFloat(statement.remaining_amount) : 0;
+  const partiallyPaid = paidSoFar > 0 && statement?.status !== 'paid';
+
+  const openPayDialog = () => {
+    setPayAccountId(null);
+    setPayAmount(remaining);
+    setActionError(null);
+    setPayOpen(true);
+  };
+
   const handlePay = async () => {
     if (!statement) return;
     setActionError(null);
     try {
-      await pay({ statementId: statement.id, account_id: payAccountId });
+      await pay({ statementId: statement.id, account_id: payAccountId, amount: payAmount });
       setPayOpen(false);
       setPayAccountId(null);
-      // Pagou: mostra a próxima fatura (a mais nova), que é onde as compras a
-      // partir de agora vão cair. Sem isso o usuário ficava olhando um mês
-      // quitado e precisava avançar na mão.
-      if (statementIndex > 0) setSelectedStatementId(statements[statementIndex - 1].id);
+      // Só avança quando o pagamento QUITA a fatura: num pagamento parcial ela
+      // continua fechada e com saldo, e pular para o mês seguinte esconderia
+      // justamente o que ainda falta pagar.
+      const quitou = payAmount === undefined || payAmount >= remaining;
+      if (quitou && statementIndex > 0) {
+        setSelectedStatementId(statements[statementIndex - 1].id);
+      }
     } catch (err) {
       setActionError(getApiErrorMessage(err, 'Erro ao registrar o pagamento da fatura.'));
     }
@@ -270,7 +281,7 @@ export function StatementView({ cardId }: { cardId: number | null }) {
                       Nenhuma transação nesta fatura.
                     </TableCell>
                   </TableRow>
-                ) : statement.transactions.map((tx: StatementTx) => (
+                ) : statement.transactions.map((tx: StatementTransaction) => (
                   <TableRow
                     key={tx.id}
                     onClick={() => openDetail(tx.id)}
@@ -301,7 +312,7 @@ export function StatementView({ cardId }: { cardId: number | null }) {
             </Table>
 
             {(() => {
-              const iofTotal = statement.transactions.reduce((a: number, tx: StatementTx) => a + iofBrl(tx), 0);
+              const iofTotal = statement.transactions.reduce((a: number, tx: StatementTransaction) => a + iofBrl(tx), 0);
               return iofTotal > 0 ? (
                 <div className="mt-3 flex justify-end text-xs text-muted-foreground">
                   IOF total da fatura:{' '}
@@ -329,10 +340,11 @@ export function StatementView({ cardId }: { cardId: number | null }) {
                     <Button
                       type="button"
                       disabled={isPending}
-                      onClick={() => { setPayAccountId(null); setActionError(null); setPayOpen(true); }}
+                      onClick={openPayDialog}
                       className="gap-2 bg-primary hover:bg-primary/90 text-primary-foreground font-bold"
                     >
-                      <CheckCircle2 className="h-4 w-4" /> Pagar fatura
+                      <CheckCircle2 className="h-4 w-4" />
+                      {partiallyPaid ? 'Pagar saldo restante' : 'Pagar fatura'}
                     </Button>
                     <Button
                       type="button"
@@ -363,6 +375,20 @@ export function StatementView({ cardId }: { cardId: number | null }) {
                   <span>Total da Fatura</span>
                   <span className="text-primary">{formatCurrency(parseFloat(statement.computed_total), baseCurrency)}</span>
                 </div>
+                {/* Só aparece quando houve pagamento parcial: numa fatura paga
+                    de uma vez, "pago" e "total" seriam a mesma linha repetida. */}
+                {partiallyPaid && (
+                  <div className="mt-3 space-y-1 border-t border-border pt-3 text-sm">
+                    <div className="flex justify-between text-muted-foreground">
+                      <span>Pago até agora</span>
+                      <span>{formatCurrency(paidSoFar, baseCurrency)}</span>
+                    </div>
+                    <div className="flex justify-between font-semibold text-foreground">
+                      <span>Saldo restante</span>
+                      <span>{formatCurrency(remaining, baseCurrency)}</span>
+                    </div>
+                  </div>
+                )}
               </div>
             </div>
 
@@ -376,12 +402,23 @@ export function StatementView({ cardId }: { cardId: number | null }) {
       <Dialog open={payOpen} onOpenChange={setPayOpen}>
         <DialogContent className="bg-card border-border sm:max-w-[425px]">
           <DialogHeader>
-            <DialogTitle>Pagar fatura</DialogTitle>
+            <DialogTitle>{partiallyPaid ? 'Pagar saldo restante' : 'Pagar fatura'}</DialogTitle>
             <DialogDescription>
-              Registre de qual conta saiu o pagamento. O valor pago é o total fechado da fatura.
+              Registre quanto foi pago e de qual conta saiu. Pagar menos que o saldo
+              mantém a fatura em aberto com o restante pendente.
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4 py-4">
+            <div className="space-y-2">
+              <Label htmlFor="pay-amount">Valor pago</Label>
+              <MoneyInput
+                id="pay-amount"
+                value={payAmount}
+                onChange={setPayAmount}
+                prefix={currencySymbol(baseCurrency)}
+                className="font-bold"
+              />
+            </div>
             <div className="space-y-2">
               <Label htmlFor="pay-account">Conta de origem (opcional)</Label>
               <select
@@ -398,7 +435,11 @@ export function StatementView({ cardId }: { cardId: number | null }) {
             </div>
             {statement && (
               <p className="text-sm text-muted-foreground">
-                Total a pagar: <span className="font-bold text-foreground">{formatCurrency(parseFloat(statement.computed_total), baseCurrency)}</span>
+                {partiallyPaid && (
+                  <>Já pago: {formatCurrency(paidSoFar, baseCurrency)}<br /></>
+                )}
+                Saldo a pagar:{' '}
+                <span className="font-bold text-foreground">{formatCurrency(remaining, baseCurrency)}</span>
               </p>
             )}
             {actionError && <p role="alert" className="text-xs text-destructive font-medium">{actionError}</p>}

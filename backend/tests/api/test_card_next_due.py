@@ -4,13 +4,14 @@ A tela de cartões precisa avisar "fechada", "vence em N dias" ou "vencida" para
 CADA cartão. Sem este campo ela teria que buscar as faturas de cada cartão só
 para descobrir se existe algo a pagar.
 """
-from datetime import datetime, timedelta, UTC
+from datetime import datetime, timedelta
 from decimal import Decimal
 
 import pytest
 from fastapi.testclient import TestClient
 from sqlmodel import Session
 
+from app.domain.dates import today_local
 from app.main import app
 from app.models.credit_card import CreditCard, CardStatement, StatementStatus
 from app.services.credit_card_service import CreditCardService
@@ -120,8 +121,12 @@ def test_fatura_zerada_nao_vira_alerta(card_ws, override_get_session, db_session
 def test_is_overdue_marca_vencida_e_ignora_paga(db_session, card_ws):
     """`is_overdue` é derivado da data — não depende de job carimbando status."""
     card = card_ws["card"]
-    ontem = datetime.now(UTC).replace(tzinfo=None) - timedelta(days=1)
-    amanha = datetime.now(UTC).replace(tzinfo=None) + timedelta(days=1)
+    # Ancorado no dia de calendário LOCAL, que é a referência de `is_overdue`.
+    # Com `datetime.now(UTC)` o teste falhava das 21h à meia-noite em São Paulo:
+    # o "ontem" do UTC ainda é HOJE no calendário do usuário.
+    hoje = today_local()
+    ontem = datetime.combine(hoje - timedelta(days=1), datetime.min.time())
+    amanha = datetime.combine(hoje + timedelta(days=1), datetime.min.time())
 
     vencida = CardStatement(
         card_id=card.id, month="2020-01", closing_date=ontem, due_date=ontem,

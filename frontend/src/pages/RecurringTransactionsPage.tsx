@@ -16,6 +16,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { MoneyInput } from "@/components/ui/MoneyInput";
@@ -339,10 +340,11 @@ export function RecurringTransactionsPage() {
                     </span>
                   </TableCell>
                   <TableCell>
-                    <div className="flex items-center justify-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                    <div className="flex items-center justify-center gap-2 transition-opacity sm:opacity-0 sm:group-hover:opacity-100 sm:group-focus-within:opacity-100">
                       <Button
                         variant="ghost"
                         size="sm"
+                        aria-label={`Editar recorrência ${item.title}`}
                         onClick={() => openEdit(item)}
                         className="h-8 w-8 p-0 text-primary hover:bg-primary/10"
                       >
@@ -351,6 +353,7 @@ export function RecurringTransactionsPage() {
                       <Button
                         variant="ghost"
                         size="sm"
+                        aria-label={`Excluir recorrência ${item.title}`}
                         onClick={() => handleDelete(item.id)}
                         className="h-8 w-8 p-0 text-destructive hover:bg-destructive/10"
                       >
@@ -390,8 +393,9 @@ export function RecurringTransactionsPage() {
 
             <div className="space-y-2">
               <Label htmlFor="description">Descrição (Opcional)</Label>
-              <Input
+              <Textarea
                 id="description"
+                rows={3}
                 placeholder="Detalhes adicionais..."
                 {...register('description')}
                 className="bg-background/50"
@@ -439,7 +443,7 @@ export function RecurringTransactionsPage() {
             {/* Forma de pagamento + cartão: no crédito, cada ocorrência é roteada
                 para a fatura do ciclo dela — sem isso a assinatura ficava fora
                 da fatura e do limite comprometido. */}
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div className="space-y-2">
                 <Label htmlFor="rec-payment-method">Forma de pagamento</Label>
                 <select id="rec-payment-method" className={selectClass} {...register('payment_method')}>

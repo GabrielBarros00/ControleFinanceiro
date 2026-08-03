@@ -6,6 +6,7 @@ import structlog
 
 from app.core.config import settings
 from app.domain.query_policy import InvalidCurrencyCode, normalize_currency_code  # noqa: F401
+from app.domain.dates import today_local
 
 logger = structlog.get_logger()
 
@@ -56,7 +57,7 @@ class CurrencyService:
         if from_code == to_code:
             return Decimal("1.0"), "base"
         if target_date is None:
-            target_date = date.today()
+            target_date = today_local()
 
         cache_key = f"{from_code}_{to_code}_{target_date.isoformat()}"
         if cache_key in cls._cache_sync:
@@ -109,7 +110,7 @@ class CurrencyService:
         # "latest" só faz sentido para hoje/futuro (taxa mais recente). Para datas
         # passadas NÃO cai no "latest" — senão gravaria a taxa de hoje num dia antigo.
         labels = [target_date.isoformat()]
-        if target_date >= date.today():
+        if target_date >= today_local():
             labels.append("latest")
         candidates = []
         for d in labels:

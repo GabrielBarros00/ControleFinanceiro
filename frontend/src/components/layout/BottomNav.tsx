@@ -1,6 +1,9 @@
 import * as React from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { Plus, MoreHorizontal, LogOut } from 'lucide-react';
+import {
+  Dialog, DialogContent, DialogDescription, DialogTitle,
+} from '@/components/ui/dialog';
 import { cn } from '@/lib/utils';
 import { activeNavPath, navFlat, mobilePrimaryPaths, type NavItem } from './nav-items';
 import { useWorkspaceId, useWorkspaceIdFromUrl } from '@/hooks/use-workspace-id';
@@ -8,17 +11,37 @@ import { useNewTxStore } from '@/stores';
 import { useAuth } from '@/hooks/use-auth';
 
 
-function MoreSheet({ open, onClose }: { open: boolean; onClose: () => void }) {
+/**
+ * Gaveta "Mais" da navegação inferior.
+ *
+ * Era um `<div role="dialog" aria-modal="true">` feito à mão, e "à mão" custava
+ * tudo o que um diálogo precisa ter: nenhum nome acessível (o leitor de tela
+ * anunciava "diálogo" e mais nada), nenhum focus trap (o Tab saía para a página
+ * atrás), nenhum Escape, nenhuma devolução de foco ao fechar, nenhuma trava de
+ * rolagem, e um overlay que era `<div onClick>` — inalcançável por teclado.
+ *
+ * O `DialogContent` do projeto (Radix) entrega os seis, e o estilo dele em
+ * mobile JÁ é um bottom sheet — não houve o que redesenhar.
+ */
+function MoreSheet({ open, onOpenChange }: { open: boolean; onOpenChange: (v: boolean) => void }) {
   const location = useLocation();
   const navigate = useNavigate();
   const { logout } = useAuth();
   const workspaceId = useWorkspaceId();
   const itens = navFlat(workspaceId);
-  if (!open) return null;
   return (
-    <div className="fixed inset-0 z-[60] md:hidden" role="dialog" aria-modal="true">
-      <div className="absolute inset-0 bg-foreground/20 animate-in fade-in" onClick={onClose} />
-      <div className="absolute inset-x-0 bottom-0 rounded-t-2xl border-t border-border bg-card p-4 pb-8 shadow-lg animate-in slide-in-from-bottom duration-200">
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent
+        showCloseButton={false}
+        className="border-t border-border p-4 pb-8 md:hidden sm:max-w-none"
+      >
+        {/* O título é obrigatório: sem ele o Radix emite um erro em console que
+            a suíte de a11y trata como falha dura — e, antes disso, é o nome que
+            o leitor de tela anuncia. `sr-only` porque a gaveta é visual. */}
+        <DialogTitle className="sr-only">Mais opções de navegação</DialogTitle>
+        <DialogDescription className="sr-only">
+          Todas as seções do aplicativo e a opção de sair da conta.
+        </DialogDescription>
         <div className="mx-auto mb-4 h-1 w-10 rounded-full bg-muted" />
         <div className="grid grid-cols-3 gap-2">
           {itens.map((item) => {
@@ -27,7 +50,7 @@ function MoreSheet({ open, onClose }: { open: boolean; onClose: () => void }) {
               <Link
                 key={item.to}
                 to={item.to}
-                onClick={onClose}
+                onClick={() => onOpenChange(false)}
                 className={cn(
                   'flex flex-col items-center gap-1.5 rounded-xl p-3 text-xs',
                   active ? 'bg-brand-subtle text-brand' : 'text-muted-foreground hover:bg-muted',
@@ -46,8 +69,8 @@ function MoreSheet({ open, onClose }: { open: boolean; onClose: () => void }) {
         >
           <LogOut className="h-4 w-4" /> Sair da conta
         </button>
-      </div>
-    </div>
+      </DialogContent>
+    </Dialog>
   );
 }
 
@@ -103,13 +126,15 @@ export function BottomNav() {
         <button
           type="button"
           onClick={() => setMoreOpen(true)}
+          aria-haspopup="dialog"
+          aria-expanded={moreOpen}
           className="flex flex-1 flex-col items-center gap-0.5 py-2 text-[11px] text-muted-foreground"
         >
           <MoreHorizontal className="h-5 w-5" />
           Mais
         </button>
       </nav>
-      <MoreSheet open={moreOpen} onClose={() => setMoreOpen(false)} />
+      <MoreSheet open={moreOpen} onOpenChange={setMoreOpen} />
     </>
   );
 }

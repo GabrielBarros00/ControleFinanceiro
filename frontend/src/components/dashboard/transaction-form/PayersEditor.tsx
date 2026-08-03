@@ -72,7 +72,10 @@ export function PayersEditor({ participants }: PayersEditorProps) {
                 )}
               </div>
               {multi && (
-                <div className="w-32">
+                // `min-w` + `flex-1` no lugar de `w-32`: o MoneyInput reserva
+                // ~48px para o prefixo da moeda e a borda, então 128px fixos
+                // deixavam 80px de dígitos — um valor de milhar já não cabia.
+                <div className="min-w-[7rem] flex-1 sm:max-w-[10rem]">
                   <Controller
                     name={`payers.${index}.amount` as const}
                     control={control}

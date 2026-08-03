@@ -129,8 +129,14 @@ npm install
 npm run dev
 ```
 
-Diferenças do modo dev: SQLite (`dev.db`), schema criado automaticamente no
-startup, cookies sem `Secure`, links de email no console do uvicorn.
+Diferenças do modo dev: SQLite (`dev.db`), cookies sem `Secure`, links de email
+no console do uvicorn.
+
+O schema é migrado no startup, mas **só se o uvicorn subir de dentro de
+`backend/`**: o `APP_ENV=development` que habilita o auto-upgrade vem do
+`backend/.env`, e o `.env` é lido relativo ao diretório atual. Subindo da raiz,
+o processo lê o `.env` de produção e o banco fica para trás sem avisar. Depois de
+trocar de branch, rode `make migrate`.
 
 ## Testes
 

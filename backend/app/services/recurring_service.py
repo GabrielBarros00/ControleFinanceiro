@@ -35,6 +35,7 @@ from app.services.transaction_service import (
 )
 from app.services.currency_service import ExchangeRateUnavailable
 from app.services.exchange_rate_store import ExchangeRateStore
+from app.domain.dates import today_local
 
 logger = structlog.get_logger("app.recurring")
 
@@ -600,7 +601,7 @@ class RecurringService:
             .where(Transaction.deleted_at.is_(None))
         )
         if scope == "future":
-            today = date.today()
+            today = today_local()
             stmt = stmt.where(Transaction.billing_month >= f"{today.year:04d}-{today.month:02d}")
 
         unpaid_txs = db.exec(stmt).all()
@@ -846,7 +847,7 @@ class RecurringMaterializationService:
                   senão a materialização preguiçosa recriaria o mês corrente
                   na primeira tela aberta.
         """
-        today = today or date.today()
+        today = today or today_local()
         if scope not in MATERIALIZE_SCOPES:
             raise ValueError(f"scope deve ser um de {list(MATERIALIZE_SCOPES)}")
 
@@ -909,7 +910,7 @@ class RecurringMaterializationService:
 
         Best-effort e sem eventos, pelas mesmas razões de `ensure_and_commit`.
         """
-        today = today or date.today()
+        today = today or today_local()
         try:
             ativo = db.exec(
                 select(RecurringIncome.id)
@@ -966,7 +967,7 @@ class RecurringMaterializationService:
             if not RecurringMaterializationService._tem_template_ativo(db, workspace_id):
                 return vazio
             result = RecurringMaterializationService.ensure_current_month(
-                db, workspace_id, today or date.today()
+                db, workspace_id, today or today_local()
             )
             # Nada mudou: o commit era puro custo (a sessão está limpa)
             if any(result.values()):

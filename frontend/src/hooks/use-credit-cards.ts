@@ -1,21 +1,19 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { apiClient } from '@/api/client';
 import { invalidateForEvent } from '@/lib/ws-events';
+import type { components } from '@/types/api.gen';
 
-export interface CardStatement {
-  id: number;
-  month: string;
-  closing_date: string;
-  due_date: string;
-  status: 'open' | 'closed' | 'paid' | 'overdue';
-  computed_total: string;
-  closed_at: string | null;
-  paid_at: string | null;
-  is_overdue: boolean;
-  // Ciclo aberto de hoje (calculado no backend a partir do dia de fechamento).
-  // Não é o mesmo que "a mais recente": compra com data futura cria fatura à frente.
-  is_current: boolean;
-}
+/**
+ * Derivado do OpenAPI, não escrito à mão: a interface manual daqui já divergiu do
+ * backend em silêncio uma vez, e `paid_amount`/`remaining_amount` (pagamento
+ * parcial) nasceriam invisíveis para o TypeScript pelo mesmo caminho.
+ *
+ * `is_current` marca o ciclo aberto de hoje — não é "a mais recente": compra com
+ * data futura cria uma fatura à frente que não é a atual.
+ */
+export type CardStatement = components['schemas']['StatementListItemRead'];
+export type CardStatementDetail = components['schemas']['StatementDetailRead'];
+export type StatementTransaction = components['schemas']['StatementTransactionRead'];
 
 /** Fatura que pede atenção: a NÃO paga mais antiga com valor > 0 (ou null). */
 export interface CardNextDue {
@@ -155,7 +153,7 @@ export function useStatementDetail(cardId: number | null, statementId: number | 
 
   const detailQuery = useQuery({
     queryKey: ['statements', cardId, statementId],
-    queryFn: async () => {
+    queryFn: async (): Promise<CardStatementDetail> => {
       const response = await apiClient.get(
         `/me/credit-cards/${cardId}/statements/${statementId}`
       );
@@ -172,6 +170,7 @@ export function useStatementDetail(cardId: number | null, statementId: number | 
 
 export interface PayStatementInput {
   account_id?: number | null;
+  /** Omitido = quita o saldo restante. Maior que o saldo é recusado (409). */
   amount?: number;
   note?: string;
 }

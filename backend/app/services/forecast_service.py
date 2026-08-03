@@ -2,7 +2,7 @@ from decimal import Decimal, ROUND_HALF_UP
 from datetime import date
 from typing import Any, Dict, Optional
 from sqlmodel import Session, select, func
-from app.domain.dates import month_key
+from app.domain.dates import month_key, today_local
 from app.domain.query_policy import (
     FORECAST_STATUSES,
     workspace_base_currency,
@@ -146,7 +146,7 @@ class ForecastService:
         # Esse número agora vive em `/me/commitments`, separado por prazo.
 
         # 2. Daily Average (Trend-based)
-        today = date.today()
+        today = today_local()
         if today.month == target_month.month and today.year == target_month.year:
             days_passed = today.day
             remaining_days = last_day_num - days_passed
