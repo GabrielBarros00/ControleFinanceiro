@@ -1,6 +1,19 @@
 """Borda de fechamento da fatura: dia exato do fechamento, virada de ano e
-posição do vencimento. Roteamento é server-side (CreditCardService)."""
-from datetime import datetime
+posição do vencimento. Roteamento é server-side (CreditCardService).
+
+**Instante × dia de calendário.** O roteamento decide pelo DIA no fuso do app, e
+as duas formas de dizer "que dia" chegam por caminhos diferentes:
+
+- o formulário manda um INSTANTE (hoje = agora; retroativo = meio-dia local
+  convertido para UTC) — os testes abaixo usam meio-dia pelo mesmo motivo pelo
+  qual o formulário usa: meio-dia ± 12h nunca troca de dia;
+- recorrência, ciclo corrente e o preview do formulário mandam um `date`.
+
+Passar meia-noite crua não representa nenhum dos dois: é um dia de calendário
+disfarçado de instante, e lido no fuso do app vira o dia anterior. Era essa
+ambiguidade que fazia o preview anunciar uma fatura e o POST gravar em outra.
+"""
+from datetime import date, datetime
 from decimal import Decimal
 
 import pytest
@@ -33,7 +46,26 @@ def test_dia_anterior_ao_fechamento_fica_no_mes(db_session, card):
 
 def test_dia_do_fechamento_vai_para_o_proximo(db_session, card):
     # dia 25 >= fechamento 25 → fatura do mês seguinte
-    assert _month(db_session, card, "2026-03-25T00:00:00") == "2026-04"
+    assert _month(db_session, card, "2026-03-25T12:00:00") == "2026-04"
+
+
+def test_dia_de_calendario_roteia_pelo_proprio_dia(db_session, card):
+    """Recorrência e ciclo corrente mandam `date` — tem de valer o dia que é.
+
+    Era aqui que a ocorrência do dia de fechamento escapava: envolvida em
+    meia-noite UTC, ela voltava um dia e caía na fatura do mês anterior.
+    """
+    stmt = CreditCardService.get_or_create_statement(db_session, card, date(2026, 3, 25))
+    assert stmt.month == "2026-04"
+
+
+def test_compra_tarde_da_noite_nao_atravessa_o_fechamento(db_session, card):
+    """24/03 às 22h em São Paulo == 25/03 01:00Z.
+
+    Pelo dia em UTC a compra cruzava o fechamento (25) e ia para abril, um mês
+    inteiro depois de onde o usuário a viu acontecer.
+    """
+    assert _month(db_session, card, "2026-03-25T01:00:00") == "2026-03"
 
 
 def test_virada_de_ano(db_session, card):

@@ -2,7 +2,11 @@
 testpaths = ['tests']
 python_files = 'test_*.py'
 markers = [
-    "concurrency: exercita duas ou mais requisições ao mesmo tempo (banco em arquivo)",
+    # Postgres quando TEST_DATABASE_URL aponta para um (leg backend-postgres do
+    # CI), SQLite em arquivo senão. As invariantes que dependem de MVCC ficam
+    # marcadas com `precisa_de_mvcc` e SÓ valem no primeiro caso: o SQLite admite
+    # um escritor por vez e mascara o lê-depois-escreve.
+    "concurrency: exercita duas ou mais requisições ao mesmo tempo",
 ]
 filterwarnings = [
     # Deprecação INTERNA do Starlette ao acessar o status 422 no seu próprio

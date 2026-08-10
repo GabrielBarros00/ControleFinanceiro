@@ -35,7 +35,7 @@ from app.services.transaction_service import (
 )
 from app.services.currency_service import ExchangeRateUnavailable
 from app.services.exchange_rate_store import ExchangeRateStore
-from app.domain.dates import today_local
+from app.domain.dates import local_day, today_local
 
 logger = structlog.get_logger("app.recurring")
 
@@ -106,9 +106,10 @@ def _statement_for(db: Session, template: RecurringExpense, occ: date) -> Option
             motivo="cartão inexistente, apagado ou de outra pessoa",
         )
         return None
-    statement = CreditCardService.get_or_create_statement(
-        db, card, datetime(occ.year, occ.month, occ.day, tzinfo=UTC)
-    )
+    # `occ` direto: a ocorrência JÁ é um dia de calendário. Embrulhá-la em
+    # meia-noite UTC a transformava num instante que, lido no fuso do app, é o
+    # dia ANTERIOR — a ocorrência do dia de fechamento ia para a fatura errada.
+    statement = CreditCardService.get_or_create_statement(db, card, occ)
     return statement.id
 
 
@@ -612,7 +613,10 @@ class RecurringService:
         base_currency = workspace_base_currency(db, template.workspace_id)
         for tx in unpaid_txs:
             # Re-converte cada instância na SUA data (meses diferentes, taxas diferentes)
-            occ = tx.transaction_date.date() if hasattr(tx.transaction_date, "date") else tx.transaction_date
+            # `local_day` pelo mesmo motivo da renda recorrente: a reconversão e
+            # a materialização precisam concordar sobre QUE DIA é a ocorrência,
+            # senão editar o template move o valor sem que nada de valor mude.
+            occ = local_day(tx.transaction_date)
             converted, rate, iof, source, factor = _recurring_conversion(
                 db, template.workspace_id, template.base_amount, template.currency, occ, template.payment_method
             )
@@ -789,7 +793,11 @@ class RecurringIncomeService:
         # Mesma regra da materialização: destino é a moeda de relatório do dono.
         destino = _moeda_do_usuario(db, template.user_id)
         for inc in rows:
-            occ = inc.received_at.date() if hasattr(inc.received_at, "date") else inc.received_at
+            # `local_day`: a cotação da reconversão tem de ser a MESMA que a
+            # materialização usou. Lendo em UTC, uma ocorrência gravada às 22h
+            # pegava o câmbio do dia seguinte e o valor mudava sozinho ao editar
+            # o template.
+            occ = local_day(inc.received_at)
             converted, rate, _iof, source, _factor = _conversao_para(
                 db, destino, template.base_amount, template.currency, occ,
             )

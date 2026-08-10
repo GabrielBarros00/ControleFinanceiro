@@ -42,24 +42,33 @@ const FATURA_INTOCADA = {
 
 let detalhe: typeof FATURA_PARCIAL = FATURA_PARCIAL;
 
+const reopen = vi.fn();
+const confirmar = vi.fn();
+
 vi.mock('@/hooks/use-credit-cards', () => ({
   useCardStatements: () => ({
     statements: [{ ...FATURA_PARCIAL, is_current: true }],
     isLoading: false,
   }),
+  // A fatura é denominada na moeda DO CARTÃO, não na do workspace aberto.
+  useCreditCards: () => ({ cards: [{ id: 1, name: 'Nubank', currency: 'BRL' }] }),
   useStatementDetail: () => ({ statement: detalhe, isLoading: false }),
-  useStatementActions: () => ({ close: vi.fn(), pay, reopen: vi.fn(), isPending: false }),
+  useStatementActions: () => ({ close: vi.fn(), pay, reopen, isPending: false }),
 }));
 vi.mock('@/hooks/use-payment-accounts', () => ({
   usePaymentAccounts: () => ({ activeAccounts: [] }),
 }));
-vi.mock('@/hooks/use-base-currency', () => ({ useBaseCurrency: () => 'BRL' }));
+vi.mock('@/components/ui/confirm', () => ({ useConfirm: () => confirmar }));
 vi.mock('@/stores', () => ({ useTxDetailStore: () => vi.fn() }));
 
 describe('StatementView — saldo da fatura', () => {
   beforeEach(() => {
     pay.mockReset();
     pay.mockResolvedValue({});
+    reopen.mockReset();
+    reopen.mockResolvedValue({});
+    confirmar.mockReset();
+    confirmar.mockResolvedValue(true);
     detalhe = FATURA_PARCIAL;
   });
 
@@ -105,5 +114,57 @@ describe('StatementView — saldo da fatura', () => {
 
     await waitFor(() => expect(pay).toHaveBeenCalled());
     expect(pay.mock.calls[0][0].amount).toBe(200);
+  });
+});
+
+/**
+ * Reabrir ESTORNA os pagamentos.
+ *
+ * Com saldo cumulativo, uma fatura ainda "fechada" pode ter pagamentos parciais.
+ * O botão dela dizia só "Reabrir" e agia na hora: um clique tirava dinheiro do
+ * caixa e mexia no limite sem avisar — enquanto o botão da fatura PAGA já dizia
+ * "estornar pagamento".
+ */
+describe('StatementView — reabrir com pagamento parcial', () => {
+  beforeEach(() => {
+    reopen.mockReset();
+    reopen.mockResolvedValue({});
+    confirmar.mockReset();
+    confirmar.mockResolvedValue(true);
+    detalhe = FATURA_PARCIAL;
+  });
+
+  it('o rótulo anuncia o estorno quando há o que estornar', () => {
+    render(<StatementView cardId={1} />);
+    expect(
+      screen.getByRole('button', { name: /Reabrir \(estornar pagamentos\)/ }),
+    ).toBeInTheDocument();
+  });
+
+  it('pede confirmação dizendo quanto será estornado', async () => {
+    render(<StatementView cardId={1} />);
+    fireEvent.click(screen.getByRole('button', { name: /Reabrir/ }));
+
+    await waitFor(() => expect(confirmar).toHaveBeenCalled());
+    expect(confirmar.mock.calls[0][0].description).toContain('300,00');
+    await waitFor(() => expect(reopen).toHaveBeenCalledWith(10));
+  });
+
+  it('cancelar NÃO estorna', async () => {
+    confirmar.mockResolvedValue(false);
+    render(<StatementView cardId={1} />);
+    fireEvent.click(screen.getByRole('button', { name: /Reabrir/ }));
+
+    await waitFor(() => expect(confirmar).toHaveBeenCalled());
+    expect(reopen).not.toHaveBeenCalled();
+  });
+
+  it('sem pagamento nenhum, reabre direto — confirmação seria ruído', async () => {
+    detalhe = FATURA_INTOCADA;
+    render(<StatementView cardId={1} />);
+    fireEvent.click(screen.getByRole('button', { name: /Reabrir/ }));
+
+    await waitFor(() => expect(reopen).toHaveBeenCalledWith(10));
+    expect(confirmar).not.toHaveBeenCalled();
   });
 });

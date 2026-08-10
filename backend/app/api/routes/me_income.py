@@ -27,7 +27,14 @@ from sqlmodel import Session, select
 from app.api.routes.auth import get_current_user
 from app.db.session import get_session
 from app.domain.access_policy import assert_owns, personal_scope
-from app.domain.dates import InvalidMonth, month_bounds, parse_month, today_local
+from app.domain.dates import (
+    InvalidMonth,
+    local_day,
+    month_bounds_utc,
+    month_key,
+    parse_month,
+    today_local,
+)
 from app.domain.query_policy import resolve_personal_currency, user_report_currency
 from app.domain.recurrence_rules import validate_frequency_fields as _validate_frequency_fields
 from app.models.income import Income
@@ -73,7 +80,9 @@ def _convert_income_fields(
     destino = user_report_currency(session, user_id)
     if not currency or currency == destino:
         return {}
-    occ = received_at.date() if hasattr(received_at, "date") else received_at
+    # `local_day`: a taxa é a do dia do RECEBIMENTO no fuso de quem recebeu. Lida
+    # em UTC, uma renda das 22h do dia 31 pegava a cotação do dia seguinte.
+    occ = local_day(received_at)
     try:
         # rate_between: a taxa precisa ser moeda→DESTINO, e o store só guarda X→BRL
         rate, source = ExchangeRateStore.rate_between(session, currency, destino, occ)
@@ -132,8 +141,11 @@ def list_income(
     # Materializa recorrências vencidas só quando o mês pedido é o corrente: a
     # materialização é sempre restrita ao mês de hoje, então em mês fechado seria
     # trabalho perdido (e não casaria com o filtro).
-    agora = datetime.now(UTC)
-    mes_corrente = f"{agora.year:04d}-{agora.month:02d}"
+    # `today_local`, não `datetime.now(UTC)`: entre 21h e a meia-noite em São
+    # Paulo o UTC já é o mês seguinte, e nessas três horas do último dia do mês a
+    # tela pedia o mês corrente e a materialização era pulada por "não é o mês
+    # de hoje" — o salário do mês não aparecia até o dia virar de verdade.
+    mes_corrente = month_key(today_local())
     if month is None or month == mes_corrente:
         RecurringMaterializationService.ensure_income_and_commit(session, current_user.id)
 
@@ -150,7 +162,13 @@ def list_income(
             ref = parse_month(month)
         except InvalidMonth as exc:
             raise HTTPException(status_code=400, detail=str(exc))
-        inicio, fim = month_bounds(ref)
+        # `month_bounds_utc`, a MESMA janela de `/me/overview` e do extrato:
+        # `received_at` é um instante gravado em UTC e o mês é o do fuso do
+        # usuário. Com o `month_bounds` ingênuo as duas telas discordavam — uma
+        # renda das 22h de 31/07 aparecia na Visão global de julho e faltava na
+        # página Rendas de julho, o pior tipo de divergência, porque cada tela
+        # sozinha parece certa.
+        inicio, fim = month_bounds_utc(ref)
         statement = statement.where(Income.received_at >= inicio, Income.received_at <= fim)
 
     return session.exec(statement.order_by(Income.received_at.desc())).all()

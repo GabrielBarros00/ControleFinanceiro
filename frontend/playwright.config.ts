@@ -1,4 +1,5 @@
 import { defineConfig, devices } from '@playwright/test';
+import fs from 'node:fs';
 import path from 'node:path';
 
 // Python do VENV do projeto, não o do PATH. `python -m uvicorn` pegava qualquer
@@ -20,13 +21,32 @@ const VENV_PYTHON = path.resolve(
 );
 const PYTHON = JSON.stringify(process.env.E2E_PYTHON ?? VENV_PYTHON);
 
-// Apaga o banco descartável antes de cada rodada. `del` no cmd.exe, `rm -f` no
-// resto; ambos com o "não falhe se não existir", porque a primeira rodada numa
-// máquina limpa não tem o arquivo.
-const DELETA_E2E_DB =
-  process.platform === 'win32'
-    ? 'if exist e2e.db del /f /q e2e.db &&'
-    : 'rm -f e2e.db &&';
+/*
+ * Apaga o banco descartável antes da rodada.
+ *
+ * Isto morava no `command` do `webServer`, encadeado com `&&`
+ * (`if exist e2e.db del /f /q e2e.db && python -m uvicorn ...`). O encadeamento
+ * obriga o Playwright a subir um SHELL, e o uvicorn vira NETO do processo que
+ * ele controla — no Windows, matar o shell não leva a árvore junto. O efeito era
+ * `npx playwright test` terminar os testes e ficar vivo por 240–300 s até o
+ * timeout: os specs passavam e o comando não devolvia o terminal.
+ *
+ * Aqui e não num `globalSetup`: o Playwright sobe o `webServer` ANTES de rodar o
+ * globalSetup, então lá o backend já abriu o arquivo e o `rm` falha com EPERM no
+ * Windows. O corpo do módulo de config é avaliado antes de qualquer processo ser
+ * criado, que é exatamente a janela necessária.
+ */
+const E2E_DB = path.resolve(import.meta.dirname, '..', 'backend', 'e2e.db');
+// Só no processo PRINCIPAL: o Playwright reimporta a config em cada worker, e lá
+// o backend já está de pé com o arquivo aberto — apagar de novo falharia com
+// EPERM no Windows (e, pior, apagaria o banco no meio da rodada em outros SOs).
+// `TEST_WORKER_INDEX` só existe nos workers.
+if (process.env.TEST_WORKER_INDEX === undefined) {
+  // `-wal`/`-shm` junto: sem eles o SQLite reconstrói o estado recém-apagado.
+  for (const arquivo of [E2E_DB, `${E2E_DB}-wal`, `${E2E_DB}-shm`]) {
+    fs.rmSync(arquivo, { force: true });
+  }
+}
 
 export default defineConfig({
   testDir: './e2e',
@@ -63,10 +83,10 @@ export default defineConfig({
   ],
   webServer: [
     {
-      // `rm -f e2e.db` antes de subir: o banco é descartável POR DEFINIÇÃO, e um
-      // resíduo da rodada anterior (usuário já cadastrado, workspace com nome
-      // repetido) faz specs falharem por motivo que não é o código.
-      command: `${DELETA_E2E_DB} ${PYTHON} -m uvicorn app.main:app --port 8000`,
+      // Executável PURO, sem `&&`: com encadeamento o Playwright sobe um shell e
+      // não consegue encerrar o uvicorn no Windows. A limpeza do e2e.db mudou-se
+      // para o `globalSetup` por causa disso.
+      command: `${PYTHON} -m uvicorn app.main:app --port 8000`,
       cwd: '../backend',
       url: 'http://localhost:8000/api/v1/health',
       // NUNCA reutilizar: com `true`, um uvicorn de desenvolvimento já ligado na

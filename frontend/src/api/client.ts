@@ -20,6 +20,13 @@ export const apiClient = axios.create({
   headers: {
     'Content-Type': 'application/json',
   },
+  // FastAPI lê lista como parâmetro REPETIDO (`?source=a&source=b`); o padrão do
+  // Axios serializa `source[]=a`, que o backend ignora SEM ERRO — 200, resposta
+  // completa, filtro nenhum. No Extrato global o botão ficava marcado, a URL da
+  // tela dizia `?source=income` e a tabela continuava mostrando tudo, totais
+  // inclusive. O teste que existia mockava o hook e só via o array em memória:
+  // a serialização HTTP nunca era exercitada (ver use-overview.serializacao).
+  paramsSerializer: { indexes: null },
 });
 
 // Rotas de auth nunca disparam refresh (evita loop em login/refresh inválidos)

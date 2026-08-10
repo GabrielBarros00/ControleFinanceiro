@@ -15,7 +15,7 @@ import { MoneyInput } from '@/components/ui/MoneyInput';
 import { EmptyState } from '@/components/ui/empty-state';
 import { CreditCardVisual } from './CreditCardVisual';
 import { useCreditCards, type CardNextDue } from '@/hooks/use-credit-cards';
-import { useBaseCurrency } from '@/hooks/use-base-currency';
+import { useReportCurrency } from '@/hooks/use-report-currency';
 import { currencySymbol } from '@/lib/money';
 import { statementAlert } from '@/lib/statement-alert';
 import { parseApiDay } from '@/lib/date';
@@ -35,6 +35,10 @@ interface CardRow {
   due_day: number;
   committed_amount: string;
   available_limit: string;
+  // A moeda é DO CARTÃO. Sem ela aqui, a tela caía na moeda-base do workspace
+  // aberto — um cartão em USD aparecia com limite e fatura em R$ só porque o
+  // último workspace visitado era brasileiro.
+  currency: string;
   next_due: CardNextDue | null;
 }
 
@@ -46,7 +50,10 @@ const dueLabelOf = (next: CardNextDue | null) =>
 
 export function CreditCardList({ selectedCardId, onSelectCard }: CreditCardListProps) {
   const { cards, isLoading, create, update, remove } = useCreditCards();
-  const baseCurrency = useBaseCurrency();
+  // Cartão é PESSOAL (ADR 0021) e não herda moeda de workspace nenhum: o backend
+  // cria na moeda de RELATÓRIO do dono. `useBaseCurrency` (a do workspace atual)
+  // fazia a tela prometer uma moeda e o backend gravar outra.
+  const reportCurrency = useReportCurrency();
   const confirm = useConfirm();
   const [dialogOpen, setDialogOpen] = React.useState(false);
   const [editingId, setEditingId] = React.useState<number | null>(null);
@@ -56,6 +63,14 @@ export function CreditCardList({ selectedCardId, onSelectCard }: CreditCardListP
   const [dueDay, setDueDay] = React.useState(10);
   const [saving, setSaving] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
+
+  // Editando, vale a moeda DO CARTÃO (que não muda ao trocar de workspace nem ao
+  // trocar a moeda de relatório); criando, a de relatório, que é a que o backend
+  // vai usar.
+  const dialogCurrency =
+    (editingId != null
+      ? (cards as CardRow[]).find((c) => c.id === editingId)?.currency
+      : undefined) ?? reportCurrency;
 
   // Auto-seleciona o primeiro cartão (mata o "Selecione um cartão acima" — H6)
   React.useEffect(() => {
@@ -166,8 +181,8 @@ export function CreditCardList({ selectedCardId, onSelectCard }: CreditCardListP
               committed={parseFloat(card.committed_amount)}
               closingDay={card.closing_day}
               dueDay={card.due_day}
-              currency={baseCurrency}
-              alert={card.next_due ? statementAlert({ ...card.next_due, amount: parseFloat(card.next_due.amount) }, baseCurrency) : null}
+              currency={card.currency}
+              alert={card.next_due ? statementAlert({ ...card.next_due, amount: parseFloat(card.next_due.amount) }, card.currency) : null}
               dueLabel={dueLabelOf(card.next_due)}
               selected={selectedCardId === card.id}
               onClick={() => onSelectCard?.(card.id)}
@@ -208,7 +223,7 @@ export function CreditCardList({ selectedCardId, onSelectCard }: CreditCardListP
             </div>
             <div className="space-y-2">
               <Label htmlFor="card-limit">Limite</Label>
-              <MoneyInput id="card-limit" value={limit} onChange={setLimit} prefix={currencySymbol(baseCurrency)} />
+              <MoneyInput id="card-limit" value={limit} onChange={setLimit} prefix={currencySymbol(dialogCurrency)} />
             </div>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div className="space-y-2">

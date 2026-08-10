@@ -179,16 +179,30 @@ export function OverviewPage() {
                 currency={moeda}
               />
             </div>
+            {/* O <Link> fica DENTRO do <dd>, nunca entre o <dl> e o par.
+                Envolvendo <dt>/<dd> ele os desqualificava como filhos da lista
+                de definição — o Axe acusava `definition-list` e `dlitem`, e um
+                leitor de tela deixava de anunciar "rótulo/valor". A linha
+                inteira continua clicável porque o <dd> ocupa a faixa toda e o
+                <dt> vira rótulo do link via aria-labelledby. */}
             <dl className="grid gap-x-6 gap-y-1 border-t border-border px-4 py-3 text-sm sm:grid-cols-2">
               {saidas.map(({ rotulo, valor, origem }) => (
-                <div key={rotulo} className="contents">
-                  <Link
-                    to={`/me/ledger?month=${month}&source=${origem}`}
-                    className="-mx-2 flex items-center justify-between gap-4 rounded-md px-2 py-1 hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                  >
-                    <dt className="text-muted-foreground">{rotulo}</dt>
-                    <dd className="tabular-nums text-foreground">{fmt(valor)}</dd>
-                  </Link>
+                <div
+                  key={rotulo}
+                  className="-mx-2 flex items-center justify-between gap-4 rounded-md px-2 py-1 hover:bg-muted focus-within:bg-muted"
+                >
+                  <dt id={`saida-${origem}`} className="text-muted-foreground">
+                    {rotulo}
+                  </dt>
+                  <dd className="tabular-nums text-foreground">
+                    <Link
+                      to={`/me/ledger?month=${month}&source=${origem}`}
+                      aria-labelledby={`saida-${origem}`}
+                      className="block rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                    >
+                      {fmt(valor)}
+                    </Link>
+                  </dd>
                 </div>
               ))}
             </dl>

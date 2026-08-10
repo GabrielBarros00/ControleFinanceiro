@@ -1,11 +1,12 @@
 import calendar
 from datetime import datetime, date, UTC
 from decimal import Decimal
-from typing import Optional
+from typing import Optional, Union
 
+from sqlalchemy import update
 from sqlmodel import Session, select, func
 
-from app.domain.dates import today_local
+from app.domain.dates import local_day, today_local
 from app.domain.query_policy import REALIZED_STATUSES
 from app.models.credit_card import (
     CreditCard,
@@ -50,7 +51,7 @@ class CreditCardService:
     def resolve_statement_target(
         db: Session,
         card: CreditCard,
-        transaction_date: datetime,
+        transaction_date: Union[datetime, date],
     ) -> tuple[int, int, Optional[CardStatement]]:
         """Para qual fatura esta compra vai — SEM criar nada (ADR 0002).
 
@@ -63,8 +64,18 @@ class CreditCardService:
         o destino enquanto o usuário preenche o formulário sem, com isso, criar
         faturas vazias a cada tecla. As duas rotinas compartilham esta função —
         duas cópias da regra de roteamento divergiriam na primeira mudança.
+
+        **Aceita instante OU dia de calendário, e a diferença importa.** O
+        formulário manda um INSTANTE (hoje = agora; retroativo = meio-dia local
+        convertido para UTC), e lê-lo com `.date()` colocava uma compra das 22h
+        do dia 30 no dia 31 — cruzando o fechamento e indo parar na fatura do mês
+        seguinte. `local_day` resolve isso. Quem já tem um dia de calendário (a
+        ocorrência de uma recorrência, o ciclo corrente, o preview do formulário)
+        passa um `date` e ele atravessa intacto — construir meia-noite para
+        "virar datetime" reintroduziria o erro pelo outro lado, retrocedendo um
+        dia em fuso negativo.
         """
-        t_date = transaction_date.date()
+        t_date = local_day(transaction_date)
 
         # A partir do fechamento, a compra pertence à fatura do mês seguinte
         if t_date.day >= card.closing_day:
@@ -89,7 +100,7 @@ class CreditCardService:
     def get_or_create_statement(
         db: Session,
         card: CreditCard,
-        transaction_date: datetime,
+        transaction_date: Union[datetime, date],
     ) -> CardStatement:
         """Fatura correta para uma transação (ADR 0002), criando-a se ainda não
         existe. A regra de roteamento vive em `resolve_statement_target`."""
@@ -116,7 +127,7 @@ class CreditCardService:
     def preview_statement_target(
         db: Session,
         card: CreditCard,
-        transaction_date: datetime,
+        transaction_date: Union[datetime, date],
     ) -> dict:
         """Destino da compra em formato de leitura, sem efeito colateral."""
         year, month, statement = CreditCardService.resolve_statement_target(
@@ -127,7 +138,9 @@ class CreditCardService:
         # Mês "natural" pelo ciclo (só a regra do dia de fechamento, sem rolagem).
         # A diferença entre ele e o destino real é exatamente o caso que
         # surpreende: a fatura daquele mês já estava fechada/paga.
-        t_date = transaction_date.date()
+        # `local_day` pelo mesmo motivo de `resolve_statement_target`: o preview
+        # tem de anunciar exatamente a fatura para onde a compra vai.
+        t_date = local_day(transaction_date)
         if t_date.day >= card.closing_day:
             natural = _advance_month(t_date.year, t_date.month)
         else:
@@ -151,9 +164,11 @@ class CreditCardService:
         fosse a atual. É a mesma fatura para onde uma compra de hoje iria.
         """
         ref = today or today_local()
-        return CreditCardService.get_or_create_statement(
-            db, card, datetime.combine(ref, datetime.min.time())
-        )
+        # `ref` direto, sem `datetime.combine`: já é o dia de calendário certo.
+        # Envelopá-lo em meia-noite o faria ser reinterpretado como instante UTC
+        # e voltar um dia — no dia 1º do mês, o ciclo corrente seria o do mês
+        # passado.
+        return CreditCardService.get_or_create_statement(db, card, ref)
 
     # ---- Totais e limite ----------------------------------------------------
 
@@ -382,10 +397,42 @@ class CreditCardService:
         `closed`. Agora o saldo é cumulativo — a fatura continua `closed` até
         chegar a zero — e o sobrepagamento é recusado, pela mesma razão do
         ADR 0009 nos acertos: aceitar mais do que se deve inventa crédito.
+
+        **A recusa só vale se for ATÔMICA.** Ler o saldo, validar e só então
+        inserir deixava duas requisições simultâneas de R$ 700 numa fatura de
+        R$ 1.000 passarem as duas: R$ 1.400 pagos, fatura `paid`, saldo zero. O
+        `UPDATE` condicional abaixo é a PRIMEIRA escrita da operação justamente
+        para serializar — e é `UPDATE`, não `SELECT ... FOR UPDATE`, porque o
+        dialeto SQLite ignora o segundo em silêncio e dev/CI/`tests/concurrency`
+        rodam em SQLite. Um `INSERT ... SELECT` com a validação no `WHERE`
+        também não serviria: sob snapshot isolation a subconsulta não enxerga a
+        escrita não commitada da concorrente.
         """
         if statement.status != StatementStatus.closed:
             raise StatementStateError("Feche a fatura antes de pagá-la")
 
+        # Trava a fatura. No Postgres (READ COMMITTED) a transação concorrente
+        # bloqueia aqui e REAVALIA o WHERE contra a versão já commitada — é isso
+        # que serializa; `rowcount == 0` significa que outra requisição reabriu
+        # ou quitou a fatura no meio do caminho.
+        travou = db.execute(
+            update(CardStatement)
+            .where(CardStatement.id == statement.id)
+            .where(CardStatement.status == StatementStatus.closed)
+            .values(updated_at=datetime.now(UTC))
+        ).rowcount
+        if not travou:
+            raise StatementStateError(
+                "A fatura mudou de estado durante o pagamento. Recarregue e tente de novo."
+            )
+        # O UPDATE direto não passa pela sessão: sem expirar, o objeto em memória
+        # seguiria com os valores lidos ANTES da trava.
+        db.expire(statement)
+
+        # Só agora — já serializado — o saldo é confiável. A fatura está
+        # `closed`, então `effective_total` é o total CONGELADO: o único termo
+        # que a concorrente poderia ter mudado é a soma dos pagamentos, e esta
+        # consulta roda depois da trava.
         saldo = CreditCardService.statement_balance(db, statement)
         if saldo <= 0:
             raise StatementStateError("Esta fatura já está quitada")

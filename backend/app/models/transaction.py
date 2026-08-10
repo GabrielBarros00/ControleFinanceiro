@@ -2,7 +2,7 @@ from datetime import datetime, date, UTC
 from enum import Enum
 from typing import Optional, List, TYPE_CHECKING
 from decimal import Decimal
-from sqlalchemy import event, Index
+from sqlalchemy import event, Index, text
 from sqlalchemy.orm import attributes
 from sqlmodel import SQLModel, Field, Relationship, UniqueConstraint
 
@@ -56,6 +56,15 @@ class TransactionBase(SQLModel):
     split_mode: SplitMode = Field(default=SplitMode.transaction)
     payment_method: Optional[PaymentMethod] = Field(default=None, index=True)
 
+# Predicado do índice parcial abaixo. Fora da classe DE PROPÓSITO: um atributo
+# no corpo de um modelo SQLModel é interpretado como campo, e um nome com
+# underscore vira atributo privado do Pydantic — nos dois casos a tabela sai
+# errada, sem erro na importação.
+_DESPESA_DE_PARCELA_VIVA = text(
+    "financing_installment_id IS NOT NULL AND deleted_at IS NULL"
+)
+
+
 class Transaction(TransactionBase, table=True):
     # uq(recurring, occurrence_date): uma instância por ocorrência da recorrência.
     # A instância excluída mantém a linha (tombstone) e ocupa a vaga → a unique
@@ -63,8 +72,24 @@ class Transaction(TransactionBase, table=True):
     # occurrence_date NULL e não colidem (NULLs são distintos na unique).
     # Índice único (não constraint) para casar com o schema das migrações
     # (o banco sempre teve isto como UNIQUE INDEX uq_recurring_occurrence).
+    #
+    # uq_transaction_financing_installment: uma despesa VIVA por parcela de
+    # financiamento. Segunda linha de defesa da reivindicação atômica em
+    # `me_financing.pay_installment` — sem ela, qualquer caminho futuro que crie
+    # a despesa sem reivindicar a parcela volta a duplicar caixa e relatórios.
+    # PARCIAL, e `deleted_at IS NULL` é obrigatório no predicado:
+    # `unpay_installment` faz SOFT delete e deixa o `financing_installment_id`
+    # preenchido, então um unique simples proibiria o fluxo legítimo pagar →
+    # estornar → pagar de novo.
     __table_args__ = (
         Index("uq_recurring_occurrence", "recurring_expense_id", "occurrence_date", unique=True),
+        Index(
+            "uq_transaction_financing_installment",
+            "financing_installment_id",
+            unique=True,
+            sqlite_where=_DESPESA_DE_PARCELA_VIVA,
+            postgresql_where=_DESPESA_DE_PARCELA_VIVA,
+        ),
     )
 
     id: Optional[int] = Field(default=None, primary_key=True)

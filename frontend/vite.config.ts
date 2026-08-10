@@ -60,10 +60,18 @@ export default defineConfig({
       // Onda 7: 60/52/48/62 → 62/55/50/65. O que subiu foi o que a onda tocou —
       // pagamento parcial de fatura, limiares dos relatórios, o extrato global
       // (que nasceu coberto) e as duas listas de invalidação corrigidas.
+      //
+      // Onda 8: 62/55/50/65 → 63/55/51/65 (medido 63,21/55,55/51,92/65,98). A
+      // auditoria apontou que a margem estava raspando o piso justamente nas
+      // áreas dos defeitos, e a subida veio de testes escritos onde eles
+      // moravam: a serialização HTTP dos filtros (o teste antigo mockava o hook
+      // e por isso não via nada), a paginação do extrato e o estorno ao reabrir
+      // fatura. Branches e lines ficam onde estão — a folga real é de meio
+      // ponto, e um piso que já falha vira ruído.
       thresholds: {
-        statements: 62,
+        statements: 63,
         branches: 55,
-        functions: 50,
+        functions: 51,
         lines: 65,
       },
     },

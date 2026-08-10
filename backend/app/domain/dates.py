@@ -32,18 +32,21 @@ def _resolve_tz(nome: str) -> tzinfo:
     try:
         return ZoneInfo(nome)
     except Exception:
-        # `timezone.utc`, NÃO `ZoneInfo("UTC")`: sem a base de fusos instalada
-        # (Windows sem `tzdata`) o fallback levantaria a mesma exceção que
-        # deveria absorver, e o processo caía em vez de degradar.
+        # `timezone.utc`, NÃO `ZoneInfo("UTC")`: sem a base de fusos instalada o
+        # fallback levantaria a mesma exceção que deveria absorver.
         return UTC
 
 
 def app_tz() -> tzinfo:
     """O fuso do calendário do aplicativo (`settings.APP_TIMEZONE`).
 
-    Fuso desconhecido cai em UTC em vez de derrubar a aplicação: uma variável de
-    ambiente com erro de digitação não deve impedir o backend de subir, e UTC é
-    o comportamento que já existia.
+    O fallback para UTC em `_resolve_tz` é rede de segurança para código que
+    escreve em `settings` em tempo de execução (testes) — **não** é a política.
+    Um `APP_TIMEZONE` inválido derruba o boot em `core/config._validate_timezone`,
+    porque cair em UTC em silêncio deslocava a competência de todo mundo em três
+    horas sem emitir sinal nenhum: a despesa da noite ia para o mês errado, a
+    fatura vencia um dia antes e a cotação vinha do dia seguinte. Num sistema
+    financeiro, erro de configuração tem de falhar alto.
     """
     return _resolve_tz(settings.APP_TIMEZONE)
 
@@ -67,6 +70,26 @@ def to_local(momento: datetime) -> datetime:
     if momento.tzinfo is None:
         momento = momento.replace(tzinfo=UTC)
     return momento.astimezone(app_tz())
+
+
+def local_day(momento: D) -> date:
+    """Dia de calendário LOCAL de um INSTANTE.
+
+    O par diário de `month_key_local`, e com a mesma ressalva: só serve para quem
+    SABE que recebeu um instante. `momento.date()` lê a data em UTC, e num fuso
+    negativo isso é o dia seguinte das 21h à meia-noite — o caixa selecionava
+    corretamente o movimento para julho e o exibia como 1º de agosto, a cotação
+    do câmbio era buscada para o dia errado, e a compra feita às 22h do dia 31
+    era roteada para a fatura do mês seguinte.
+
+    Quem NÃO sabe a procedência não deve chamar aqui: `date` puro atravessa
+    intacto, mas um `datetime` de meia-noite vindo de CSV/cronograma/fixture é
+    uma data de calendário disfarçada e retrocederia um dia (ver o listener de
+    `billing_month` em `models/transaction.py`).
+    """
+    if isinstance(momento, datetime):
+        return to_local(momento).date()
+    return momento
 
 
 def month_key_local(momento: datetime) -> str:

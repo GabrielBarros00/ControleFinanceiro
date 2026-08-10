@@ -19,7 +19,7 @@ num workspace. Aqui o gate é `get_current_user` + `CreditCard.owner_user_id`, e
 não existe caminho de leitura por workspace: a fatura de outra pessoa responde
 404 em qualquer papel.
 """
-from datetime import datetime, UTC
+from datetime import date, datetime, UTC
 from decimal import Decimal
 from typing import Optional
 
@@ -271,11 +271,16 @@ def delete_credit_card(
 @router.get("/{card_id}/statement-for")
 def statement_for_date(
     card_id: int,
-    on: datetime,
+    # `date`, não `datetime`: o formulário tem um `<input type="date">` e manda
+    # `YYYY-MM-DD`. Tipado como `datetime` isso virava meia-noite NAIVE, que o
+    # roteamento lê como instante UTC e resolve para o dia anterior — o preview
+    # anunciaria uma fatura e o POST gravaria em outra. Um preview que mente
+    # sobre o destino é pior que preview nenhum.
+    on: date,
     session: Session = Depends(get_session),
     current_user: User = Depends(get_current_user),
 ):
-    """Em qual fatura cairia uma compra neste cartão nesta data (ADR 0002).
+    """Em qual fatura cairia uma compra neste cartão neste DIA (ADR 0002).
 
     A fatura é derivada no SERVIDOR, e a regra não é óbvia: a partir do dia de
     fechamento a compra vai para o mês seguinte, e se essa fatura já estiver

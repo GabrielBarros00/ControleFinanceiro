@@ -62,6 +62,14 @@ vi.mock('@/hooks/use-overview', () => ({
 vi.mock('@/hooks/use-workspaces', () => ({
   useWorkspaces: () => ({ workspaces: [{ id: 1, name: 'Casa' }, { id: 2, name: 'Viagem' }] }),
 }));
+vi.mock('@/hooks/use-credit-cards', () => ({
+  useCreditCards: () => ({
+    cards: [
+      { id: 9, name: 'Nubank', currency: 'BRL' },
+      { id: 10, name: 'Inter', currency: 'BRL' },
+    ],
+  }),
+}));
 
 function renderPage(ledger: unknown = LEDGER, rota = '/me/ledger?month=2026-07') {
   mockLedger.mockReturnValue({ ledger, isLoading: false });
@@ -132,5 +140,79 @@ describe('Extrato global', () => {
     renderPage({ ...LEDGER, entries: [], total: 0 }, '/me/ledger?source=income');
     expect(screen.getByText(/Limpe-os para ver o mês inteiro/)).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Limpar filtros' })).toBeInTheDocument();
+  });
+
+  it('filtra por cartão quando há mais de um', () => {
+    renderPage();
+    fireEvent.change(screen.getByLabelText('Filtrar por cartão'), { target: { value: '9' } });
+    expect(mockLedger).toHaveBeenLastCalledWith(
+      expect.objectContaining({ card_id: 9 }),
+    );
+  });
+});
+
+/**
+ * Paginação.
+ *
+ * A tela fixava `limit: 200` e, passando disso, mandava "use os filtros para
+ * estreitar o recorte" — que não é resposta para quem tem mais de 200
+ * movimentos no mês: o resto do extrato ficava inalcançável. O backend sempre
+ * aceitou `limit`/`offset`.
+ */
+describe('Extrato global — paginação', () => {
+  beforeEach(() => mockLedger.mockReset());
+
+  const MUITOS = { ...LEDGER, total: 312 };
+
+  it('pede a primeira página com limite e offset', () => {
+    renderPage(MUITOS);
+    expect(mockLedger).toHaveBeenCalledWith(
+      expect.objectContaining({ limit: 100, offset: 0 }),
+    );
+  });
+
+  it('mostra o intervalo e o total, não só "mostrando N de M"', () => {
+    renderPage(MUITOS);
+    expect(screen.getByText(/Mostrando 1–3 de 312 movimentos/)).toBeInTheDocument();
+  });
+
+  it('a página vem da URL — o recorte é compartilhável', () => {
+    renderPage(MUITOS, '/me/ledger?month=2026-07&page=2');
+    expect(mockLedger).toHaveBeenCalledWith(
+      expect.objectContaining({ offset: 200 }),
+    );
+    expect(screen.getByText(/Mostrando 201–203 de 312/)).toBeInTheDocument();
+  });
+
+  it('"Anterior" fica desabilitado na primeira página', () => {
+    renderPage(MUITOS);
+    expect(screen.getByRole('button', { name: 'Anterior' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Próxima' })).toBeEnabled();
+  });
+
+  it('"Próxima" fica desabilitado na última página', () => {
+    renderPage(MUITOS, '/me/ledger?month=2026-07&page=3');
+    expect(screen.getByRole('button', { name: 'Próxima' })).toBeDisabled();
+  });
+
+  it('avançar muda o offset pedido', () => {
+    renderPage(MUITOS);
+    fireEvent.click(screen.getByRole('button', { name: 'Próxima' }));
+    expect(mockLedger).toHaveBeenLastCalledWith(
+      expect.objectContaining({ offset: 100 }),
+    );
+  });
+
+  it('trocar de filtro volta para a primeira página', () => {
+    renderPage(MUITOS, '/me/ledger?month=2026-07&page=2');
+    fireEvent.click(screen.getByRole('button', { name: 'Faturas' }));
+    expect(mockLedger).toHaveBeenLastCalledWith(
+      expect.objectContaining({ offset: 0 }),
+    );
+  });
+
+  it('cabendo numa página, não há paginador', () => {
+    renderPage(LEDGER);
+    expect(screen.queryByRole('button', { name: 'Próxima' })).not.toBeInTheDocument();
   });
 });

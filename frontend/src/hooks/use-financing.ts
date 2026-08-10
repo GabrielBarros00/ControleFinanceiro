@@ -12,6 +12,11 @@ export interface Financing {
   installments_count: number;
   method: 'SAC' | 'PRICE';
   status: 'active' | 'settled' | 'simulated';
+  // O backend sempre devolveu — a interface é que não declarava, e sem ela a
+  // tela caía na moeda-base do WORKSPACE aberto. Um financiamento em USD
+  // aparecia com saldo devedor e parcelas em R$ porque o último workspace
+  // visitado era brasileiro.
+  currency: string;
 }
 
 export interface Installment {

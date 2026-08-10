@@ -24,6 +24,7 @@ from fastapi import HTTPException
 from sqlmodel import Session
 
 from app.core.config import settings
+from app.domain.dates import local_day
 from app.domain.query_policy import workspace_base_currency
 from app.models.transaction import PaymentMethod
 from app.services.currency_service import ExchangeRateUnavailable
@@ -50,7 +51,11 @@ def compute_base_conversion(
     if not currency or currency == base:
         return None
 
-    occ = transaction_date.date() if hasattr(transaction_date, "date") else transaction_date
+    # `local_day`: a cotação é do DIA em que a compra aconteceu para quem a fez.
+    # Lendo o instante em UTC, uma compra das 22h de 31 de julho em São Paulo
+    # buscava a taxa de 1º de agosto — e o valor em moeda-base ficava gravado com
+    # o câmbio de um dia em que a compra ainda não existia.
+    occ = local_day(transaction_date)
     try:
         # rate_between (não get_or_fetch): a taxa tem que ser moeda→BASE. O store
         # só guarda X→BRL, então num workspace não-BRL a taxa direta estava errada.

@@ -13,13 +13,13 @@ import { Loader2, Lock, LockOpen, CheckCircle2, ChevronLeft, ChevronRight, Alert
 import { cn } from '@/lib/utils';
 import { statementAlert, type StatementAlert } from '@/lib/statement-alert';
 import {
-  useCardStatements, useStatementDetail, useStatementActions,
-  type StatementTransaction,
+  useCardStatements, useCreditCards, useStatementDetail, useStatementActions,
+  type CreditCardSummary, type StatementTransaction,
 } from '@/hooks/use-credit-cards';
 import { usePaymentAccounts } from '@/hooks/use-payment-accounts';
 import { getApiErrorMessage } from '@/lib/api-error';
 import { currencySymbol, formatCurrency } from '@/lib/money';
-import { useBaseCurrency } from '@/hooks/use-base-currency';
+import { useConfirm } from '@/components/ui/confirm';
 import { useTxDetailStore } from '@/stores';
 import { parseApiDate, parseApiDay } from '@/lib/date';
 
@@ -94,7 +94,16 @@ export function StatementView({ cardId }: { cardId: number | null }) {
   const { statement, isLoading: detailLoading } = useStatementDetail(cardId, statementOfThisCard);
   const { close, pay, reopen, isPending } = useStatementActions(cardId);
   const { activeAccounts } = usePaymentAccounts();
-  const baseCurrency = useBaseCurrency();
+  // A fatura é denominada na moeda DO CARTÃO (é assim que
+  // `compute_statement_total` a calcula, ADR 0021) — não na moeda-base do
+  // workspace aberto. Com `useBaseCurrency`, um cartão em USD tinha total,
+  // saldo, IOF e cada linha da fatura rotulados em R$ porque o último workspace
+  // visitado era brasileiro: os números certos com o símbolo errado, que é a
+  // forma mais convincente de mentir.
+  const { cards } = useCreditCards();
+  const cardCurrency =
+    (cards as CreditCardSummary[]).find((c) => c.id === cardId)?.currency ?? 'BRL';
+  const confirm = useConfirm();
 
   const [payOpen, setPayOpen] = React.useState(false);
   const [payAccountId, setPayAccountId] = React.useState<number | null>(null);
@@ -163,6 +172,31 @@ export function StatementView({ cardId }: { cardId: number | null }) {
     setPayOpen(true);
   };
 
+  /**
+   * Reabrir ESTORNA todos os pagamentos da fatura (`reopen_statement`), e com
+   * saldo cumulativo uma fatura ainda "fechada" já pode ter pagamentos parciais.
+   * O botão dela dizia só "Reabrir", a ação era imediata, e um clique tirava
+   * dinheiro do caixa e mexia no limite disponível sem nenhum aviso — enquanto o
+   * botão da fatura PAGA já avisava "estornar pagamento". Confirmação só quando
+   * há o que estornar: pedi-la para uma fatura sem pagamento seria ruído.
+   */
+  const handleReopen = async () => {
+    if (!statement) return;
+    if (paidSoFar > 0) {
+      const ok = await confirm({
+        title: 'Reabrir e estornar os pagamentos?',
+        description:
+          `Esta fatura já tem ${formatCurrency(paidSoFar, cardCurrency)} pago. ` +
+          'Reabrir estorna esse valor: ele volta a sair do seu caixa do mês e o ' +
+          'limite do cartão volta a ficar comprometido.',
+        confirmLabel: 'Reabrir e estornar',
+        destructive: true,
+      });
+      if (!ok) return;
+    }
+    await runAction(() => reopen(statement.id), 'Erro ao reabrir a fatura.');
+  };
+
   const handlePay = async () => {
     if (!statement) return;
     setActionError(null);
@@ -192,7 +226,7 @@ export function StatementView({ cardId }: { cardId: number | null }) {
           amount: parseFloat(statement.computed_total),
           is_overdue: statement.is_overdue,
         },
-        baseCurrency,
+        cardCurrency,
       )
     : null;
 
@@ -304,7 +338,7 @@ export function StatementView({ cardId }: { cardId: number | null }) {
                       </div>
                     </TableCell>
                     <TableCell className="text-right">
-                      <MoneyText value={tx.total_amount} kind="expense" currency={baseCurrency} className="font-semibold" />
+                      <MoneyText value={tx.total_amount} kind="expense" currency={cardCurrency} className="font-semibold" />
                     </TableCell>
                   </TableRow>
                 ))}
@@ -316,7 +350,7 @@ export function StatementView({ cardId }: { cardId: number | null }) {
               return iofTotal > 0 ? (
                 <div className="mt-3 flex justify-end text-xs text-muted-foreground">
                   IOF total da fatura:{' '}
-                  <span className="ml-1 font-semibold text-foreground">{formatCurrency(iofTotal, baseCurrency)}</span>
+                  <span className="ml-1 font-semibold text-foreground">{formatCurrency(iofTotal, cardCurrency)}</span>
                 </div>
               ) : null;
             })()}
@@ -350,10 +384,14 @@ export function StatementView({ cardId }: { cardId: number | null }) {
                       type="button"
                       variant="ghost"
                       disabled={isPending}
-                      onClick={() => runAction(() => reopen(statement.id), 'Erro ao reabrir a fatura.')}
+                      onClick={handleReopen}
                       className="gap-2"
                     >
-                      <LockOpen className="h-4 w-4" /> Reabrir
+                      {/* O rótulo já anuncia o estorno quando há o que estornar:
+                          numa fatura fechada com pagamento parcial, "Reabrir"
+                          sozinho escondia metade do que o botão faz. */}
+                      <LockOpen className="h-4 w-4" />
+                      {partiallyPaid ? 'Reabrir (estornar pagamentos)' : 'Reabrir'}
                     </Button>
                   </>
                 )}
@@ -362,7 +400,7 @@ export function StatementView({ cardId }: { cardId: number | null }) {
                     type="button"
                     variant="ghost"
                     disabled={isPending}
-                    onClick={() => runAction(() => reopen(statement.id), 'Erro ao estornar o pagamento.')}
+                    onClick={handleReopen}
                     className="gap-2"
                   >
                     <LockOpen className="h-4 w-4" /> Reabrir (estornar pagamento)
@@ -373,7 +411,7 @@ export function StatementView({ cardId }: { cardId: number | null }) {
               <div className="bg-accent/40 p-6 rounded-xl border border-border min-w-[300px]">
                 <div className="flex justify-between text-lg font-bold">
                   <span>Total da Fatura</span>
-                  <span className="text-primary">{formatCurrency(parseFloat(statement.computed_total), baseCurrency)}</span>
+                  <span className="text-primary">{formatCurrency(parseFloat(statement.computed_total), cardCurrency)}</span>
                 </div>
                 {/* Só aparece quando houve pagamento parcial: numa fatura paga
                     de uma vez, "pago" e "total" seriam a mesma linha repetida. */}
@@ -381,11 +419,11 @@ export function StatementView({ cardId }: { cardId: number | null }) {
                   <div className="mt-3 space-y-1 border-t border-border pt-3 text-sm">
                     <div className="flex justify-between text-muted-foreground">
                       <span>Pago até agora</span>
-                      <span>{formatCurrency(paidSoFar, baseCurrency)}</span>
+                      <span>{formatCurrency(paidSoFar, cardCurrency)}</span>
                     </div>
                     <div className="flex justify-between font-semibold text-foreground">
                       <span>Saldo restante</span>
-                      <span>{formatCurrency(remaining, baseCurrency)}</span>
+                      <span>{formatCurrency(remaining, cardCurrency)}</span>
                     </div>
                   </div>
                 )}
@@ -415,7 +453,7 @@ export function StatementView({ cardId }: { cardId: number | null }) {
                 id="pay-amount"
                 value={payAmount}
                 onChange={setPayAmount}
-                prefix={currencySymbol(baseCurrency)}
+                prefix={currencySymbol(cardCurrency)}
                 className="font-bold"
               />
             </div>
@@ -436,10 +474,10 @@ export function StatementView({ cardId }: { cardId: number | null }) {
             {statement && (
               <p className="text-sm text-muted-foreground">
                 {partiallyPaid && (
-                  <>Já pago: {formatCurrency(paidSoFar, baseCurrency)}<br /></>
+                  <>Já pago: {formatCurrency(paidSoFar, cardCurrency)}<br /></>
                 )}
                 Saldo a pagar:{' '}
-                <span className="font-bold text-foreground">{formatCurrency(remaining, baseCurrency)}</span>
+                <span className="font-bold text-foreground">{formatCurrency(remaining, cardCurrency)}</span>
               </p>
             )}
             {actionError && <p role="alert" className="text-xs text-destructive font-medium">{actionError}</p>}

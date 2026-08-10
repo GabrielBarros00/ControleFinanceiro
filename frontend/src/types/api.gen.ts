@@ -1048,7 +1048,7 @@ export interface paths {
         };
         /**
          * Statement For Date
-         * @description Em qual fatura cairia uma compra neste cartão nesta data (ADR 0002).
+         * @description Em qual fatura cairia uma compra neste cartão neste DIA (ADR 0002).
          *
          *     A fatura é derivada no SERVIDOR, e a regra não é óbvia: a partir do dia de
          *     fechamento a compra vai para o mês seguinte, e se essa fatura já estiver

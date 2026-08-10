@@ -13,6 +13,7 @@ import { PageHeader } from '@/components/layout/PageHeader';
 import { PeriodPicker } from '@/components/layout/PeriodPicker';
 import { useMonthParam } from '@/hooks/use-month-param';
 import { useLedger, type LedgerEntry } from '@/hooks/use-overview';
+import { useCreditCards, type CreditCardSummary } from '@/hooks/use-credit-cards';
 import { useWorkspaces } from '@/hooks/use-workspaces';
 import { parseApiDay } from '@/lib/date';
 import { formatMoney } from '@/lib/money';
@@ -43,50 +44,99 @@ const ROTULO_ORIGEM: Record<string, string> = Object.fromEntries(
   ORIGENS.map((o) => [o.value, o.label]),
 );
 
+/**
+ * Movimentos por página.
+ *
+ * A tela pedia 200 de uma vez e, passando disso, só mandava "use os filtros para
+ * estreitar o recorte" — o que não é resposta para quem simplesmente tem mais de
+ * 200 movimentos no mês: o resto do extrato ficava inalcançável. O backend
+ * sempre aceitou `limit`/`offset` e devolve `total`; faltava a tela usar.
+ */
+const POR_PAGINA = 100;
+
 export function GlobalLedgerPage() {
   const [month, setMonth] = useMonthParam();
   const [params, setParams] = useSearchParams();
   const { workspaces } = useWorkspaces();
+  const { cards } = useCreditCards();
 
   const origensAtivas = params.getAll('source');
   const workspaceFiltro = params.get('workspace_id');
+  const cartaoFiltro = params.get('card_id');
+  // A página vive na URL junto do resto do recorte: um extrato é coisa que se
+  // manda para alguém, e o link tem de reabrir onde estava.
+  const pagina = Math.max(0, Number(params.get('page') ?? '0') || 0);
 
   const { ledger, isLoading } = useLedger({
     month,
     source: origensAtivas.length ? origensAtivas : undefined,
     workspace_id: workspaceFiltro ? Number(workspaceFiltro) : undefined,
-    limit: 200,
+    card_id: cartaoFiltro ? Number(cartaoFiltro) : undefined,
+    limit: POR_PAGINA,
+    offset: pagina * POR_PAGINA,
   });
 
   const moeda = ledger?.currency ?? 'BRL';
   const n = (v: unknown) => Number(v ?? 0);
 
-  const alternarOrigem = (valor: string) => {
+  const total = ledger?.total ?? 0;
+  const nesta = ledger?.entries.length ?? 0;
+  const ultimaPagina = Math.max(0, Math.ceil(total / POR_PAGINA) - 1);
+  const primeiroDaPagina = pagina * POR_PAGINA + 1;
+
+  /** Todo filtro reancora na página 1 — senão trocar o recorte cairia num offset
+   *  que já não existe e a tela ficaria vazia sem explicação. */
+  const aplicar = (mudar: (p: URLSearchParams) => void) => {
     const proximo = new URLSearchParams(params);
-    const atuais = proximo.getAll('source');
-    proximo.delete('source');
-    const novo = atuais.includes(valor)
-      ? atuais.filter((v) => v !== valor)
-      : [...atuais, valor];
-    novo.forEach((v) => proximo.append('source', v));
+    mudar(proximo);
+    proximo.delete('page');
     setParams(proximo, { replace: true });
   };
 
-  const definirWorkspace = (valor: string) => {
+  const alternarOrigem = (valor: string) =>
+    aplicar((proximo) => {
+      const atuais = proximo.getAll('source');
+      proximo.delete('source');
+      const novo = atuais.includes(valor)
+        ? atuais.filter((v) => v !== valor)
+        : [...atuais, valor];
+      novo.forEach((v) => proximo.append('source', v));
+    });
+
+  const definirWorkspace = (valor: string) =>
+    aplicar((proximo) => {
+      if (valor) proximo.set('workspace_id', valor);
+      else proximo.delete('workspace_id');
+    });
+
+  const definirCartao = (valor: string) =>
+    aplicar((proximo) => {
+      if (valor) proximo.set('card_id', valor);
+      else proximo.delete('card_id');
+    });
+
+  const limparFiltros = () =>
+    aplicar((proximo) => {
+      proximo.delete('source');
+      proximo.delete('workspace_id');
+      proximo.delete('card_id');
+    });
+
+  const irParaPagina = (alvo: number) => {
     const proximo = new URLSearchParams(params);
-    if (valor) proximo.set('workspace_id', valor);
-    else proximo.delete('workspace_id');
+    if (alvo <= 0) proximo.delete('page');
+    else proximo.set('page', String(alvo));
     setParams(proximo, { replace: true });
   };
 
-  const limparFiltros = () => {
-    const proximo = new URLSearchParams(params);
-    proximo.delete('source');
-    proximo.delete('workspace_id');
-    setParams(proximo, { replace: true });
+  // Trocar de mês é trocar de recorte: a página tem de voltar ao início.
+  const trocarMes = (novo: string) => {
+    irParaPagina(0);
+    setMonth(novo);
   };
 
-  const temFiltro = origensAtivas.length > 0 || Boolean(workspaceFiltro);
+  const temFiltro =
+    origensAtivas.length > 0 || Boolean(workspaceFiltro) || Boolean(cartaoFiltro);
 
   return (
     <div className="space-y-6">
@@ -95,7 +145,7 @@ export function GlobalLedgerPage() {
           title="Extrato"
           subtitle="Cada movimento de caixa do mês, em todos os workspaces."
         />
-        <PeriodPicker value={month} onChange={setMonth} />
+        <PeriodPicker value={month} onChange={trocarMes} />
       </div>
 
       <div className="grid gap-4 sm:grid-cols-3">
@@ -147,6 +197,21 @@ export function GlobalLedgerPage() {
                 <option value="">Todos os workspaces</option>
                 {workspaces.map((w) => (
                   <option key={w.id} value={w.id}>{w.name}</option>
+                ))}
+              </select>
+            )}
+            {/* O backend já aceitava `card_id` e a tela não oferecia: quem tem
+                dois cartões não tinha como perguntar "o que paguei no Nubank". */}
+            {cards.length > 1 && (
+              <select
+                aria-label="Filtrar por cartão"
+                value={cartaoFiltro ?? ''}
+                onChange={(e) => definirCartao(e.target.value)}
+                className="h-10 min-w-[10rem] rounded-md border border-border bg-background px-3 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+              >
+                <option value="">Todos os cartões</option>
+                {(cards as CreditCardSummary[]).map((c) => (
+                  <option key={c.id} value={c.id}>{c.name}</option>
                 ))}
               </select>
             )}
@@ -236,11 +301,36 @@ export function GlobalLedgerPage() {
                   ))}
                 </TableBody>
               </Table>
-              {(ledger?.total ?? 0) > (ledger?.entries.length ?? 0) && (
-                <p className="mt-3 text-center text-xs text-muted-foreground">
-                  Mostrando {ledger?.entries.length} de {ledger?.total} movimentos. Use os
-                  filtros para estreitar o recorte.
-                </p>
+              {total > POR_PAGINA && (
+                <nav
+                  aria-label="Paginação do extrato"
+                  className="mt-3 flex flex-wrap items-center justify-between gap-3"
+                >
+                  <p className="text-xs text-muted-foreground" aria-live="polite">
+                    Mostrando {primeiroDaPagina}–{primeiroDaPagina + nesta - 1} de {total}{' '}
+                    movimentos
+                  </p>
+                  <div className="flex items-center gap-2">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      disabled={pagina === 0}
+                      onClick={() => irParaPagina(pagina - 1)}
+                    >
+                      Anterior
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      disabled={pagina >= ultimaPagina}
+                      onClick={() => irParaPagina(pagina + 1)}
+                    >
+                      Próxima
+                    </Button>
+                  </div>
+                </nav>
               )}
             </div>
           )}

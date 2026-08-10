@@ -64,6 +64,7 @@ from typing import Any, Dict, List, Optional
 
 from sqlmodel import Session, select
 
+from app.domain.dates import local_day
 from app.domain.query_policy import REALIZED_STATUSES, workspace_base_currency
 from app.models.credit_card import CardStatement, CreditCard, StatementPayment
 from app.models.financing import AmortizationInstallment, Financing
@@ -122,10 +123,20 @@ class CashMovement:
 
 
 def _dia(momento: Optional[datetime]) -> date:
-    """Data efetiva de um instante. `None` só acontece em linha corrompida."""
+    """Data efetiva de um instante, no fuso do aplicativo.
+
+    `local_day` e não `.date()`: a janela do mês já vem de `month_bounds_utc`, e
+    a discordância entre as duas aparecia na borda. Um movimento gravado como
+    `2026-08-01T01:00Z` (22h de 31 de julho em São Paulo) ERA selecionado para
+    julho pela janela e depois exibido como 01/08 — um extrato de julho com uma
+    linha de agosto. E como `occurred_on` também é a data que
+    `ConversorPorData` usa, a cotação vinha do dia errado junto.
+
+    `None` só acontece em linha corrompida.
+    """
     if momento is None:
         return date.min
-    return momento.date() if isinstance(momento, datetime) else momento
+    return local_day(momento)
 
 
 class CashFlowService:

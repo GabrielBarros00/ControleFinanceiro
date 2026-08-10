@@ -36,6 +36,51 @@ def test_settings_override(monkeypatch):
     assert settings.COOKIE_SECURE is True
 
 
+def test_fuso_invalido_derruba_o_boot(monkeypatch):
+    """`APP_TIMEZONE` com erro de digitação NÃO pode cair em UTC em silêncio.
+
+    O fuso define que dia é "hoje" e onde um mês começa. Degradando para UTC, o
+    app subia inteiro com a competência de todo mundo deslocada em três horas —
+    despesa da noite no mês errado, fatura vencida um dia antes, cotação do dia
+    seguinte — e nada no sistema dizia que isso tinha acontecido.
+    """
+    import pytest
+
+    monkeypatch.setenv("DATABASE_URL", "sqlite:///test.db")
+    monkeypatch.setenv("SECRET_KEY", STRONG_SECRET)
+    # Erro de digitação plausível — o underscore que falta. (`Sao_paulo`, com
+    # 'p' minúsculo, NÃO serve como caso de teste: o `zoneinfo` resolve o nome
+    # pelo sistema de arquivos, que é insensível a maiúsculas no Windows e
+    # sensível no Linux — o mesmo .env passaria na máquina do dev e derrubaria o
+    # container.)
+    monkeypatch.setenv("APP_TIMEZONE", "America/SaoPaulo")
+
+    with pytest.raises(ValueError, match="APP_TIMEZONE inválido"):
+        Settings(_env_file=None)
+
+
+def test_fuso_invalido_derruba_o_boot_tambem_em_desenvolvimento(monkeypatch):
+    """Vale em TODO ambiente: com regras de calendário diferentes entre dev/CI e
+    produção, o CI deixa de provar o que produção faz."""
+    import pytest
+
+    monkeypatch.setenv("APP_ENV", "development")
+    monkeypatch.setenv("DATABASE_URL", "sqlite:///test.db")
+    monkeypatch.setenv("SECRET_KEY", "test-secret")
+    monkeypatch.setenv("APP_TIMEZONE", "Marte/Olympus_Mons")
+
+    with pytest.raises(ValueError, match="APP_TIMEZONE inválido"):
+        Settings(_env_file=None)
+
+
+def test_fuso_valido_passa(monkeypatch):
+    monkeypatch.setenv("DATABASE_URL", "sqlite:///test.db")
+    monkeypatch.setenv("SECRET_KEY", STRONG_SECRET)
+    monkeypatch.setenv("APP_TIMEZONE", "UTC")
+
+    assert Settings(_env_file=None).APP_TIMEZONE == "UTC"
+
+
 def test_staging_recusa_secret_fraca(monkeypatch):
     """`staging` é o modo de deploy que o SETUP.md recomenda para rede local —
     antes ele pulava TODA a validação porque ela só olhava para `production`."""

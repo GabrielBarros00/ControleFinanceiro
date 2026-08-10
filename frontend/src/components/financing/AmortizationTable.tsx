@@ -13,7 +13,7 @@ import { MoneyInput } from "@/components/ui/MoneyInput";
 import { ChevronLeft, ChevronRight, Loader2, Trash2 } from 'lucide-react';
 import { useFinancing, useFinancingSchedule, type Financing } from '@/hooks/use-financing';
 import { useWorkspaces } from '@/hooks/use-workspaces';
-import { useBaseCurrency } from '@/hooks/use-base-currency';
+import { useReportCurrency } from '@/hooks/use-report-currency';
 import { currencySymbol, formatMoney } from '@/lib/money';
 import { toast } from '@/stores/toast';
 import { useConfirm } from '@/components/ui/confirm';
@@ -126,7 +126,10 @@ function PagarParcelaDialog({
 
 function CreateFinancingDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (o: boolean) => void }) {
   const { create } = useFinancing();
-  const baseCurrency = useBaseCurrency();
+  // Criando, vale a moeda de RELATÓRIO do dono — é com ela que o backend
+  // (`resolve_personal_currency`) vai gravar o contrato. A moeda-base do
+  // workspace prometia uma coisa e o backend gravava outra.
+  const reportCurrency = useReportCurrency();
   const [title, setTitle] = React.useState('');
   const [totalAmount, setTotalAmount] = React.useState(0);
   const [interestRate, setInterestRate] = React.useState('1.00'); // % ao mês
@@ -176,7 +179,7 @@ function CreateFinancingDialog({ open, onOpenChange }: { open: boolean; onOpenCh
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div className="space-y-2">
               <Label>Valor Financiado</Label>
-              <MoneyInput value={totalAmount} onChange={setTotalAmount} prefix={currencySymbol(baseCurrency)} className="bg-background/50" />
+              <MoneyInput value={totalAmount} onChange={setTotalAmount} prefix={currencySymbol(reportCurrency)} className="bg-background/50" />
             </div>
             <div className="space-y-2">
               <Label>Juros (% ao mês)</Label>
@@ -219,8 +222,10 @@ function CreateFinancingDialog({ open, onOpenChange }: { open: boolean; onOpenCh
 
 function FinancingDetail({ financing }: { financing: Financing }) {
   const { schedule, settlement } = useFinancingSchedule(financing.id);
-  const baseCurrency = useBaseCurrency();
-  const fmt = (value: number | string) => formatMoney(value, { currency: baseCurrency });
+  // A moeda é DO CONTRATO, não do workspace aberto: o financiamento é pessoal
+  // (ADR 0021) e não muda de denominação porque o usuário trocou de casa.
+  const fmt = (value: number | string) =>
+    formatMoney(value, { currency: financing.currency });
   // Número da parcela em pagamento (o diálogo pergunta se ela vira despesa).
   const [pagando, setPagando] = React.useState<number | null>(null);
 

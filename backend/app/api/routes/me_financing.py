@@ -19,6 +19,8 @@ from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
+from sqlalchemy import update
+from sqlalchemy.exc import IntegrityError
 from sqlmodel import Session, select
 
 from app.api.routes.auth import get_current_user
@@ -44,7 +46,7 @@ from app.schemas.common import DESCRIPTION_MAX, MAX_MONEY, OptionalCurrencyCode,
 from app.services.base_conversion import compute_base_conversion
 from app.services.event_service import publish_event
 from app.services.financing_service import FinancingService
-from app.domain.dates import today_local
+from app.domain.dates import month_key_local, today_local
 
 router = APIRouter(prefix="/me/financing", tags=["me-financing"])
 
@@ -335,9 +337,30 @@ def pay_installment(
         raise HTTPException(status_code=400, detail="Parcela já está paga")
 
     pago_em = body.paid_at or datetime.now(UTC)
-    installment.is_paid = True
-    installment.paid_at = pago_em
-    session.add(installment)
+
+    # REIVINDICA a parcela antes de qualquer outra escrita. A checagem acima
+    # sozinha é lê-depois-escreve: duas requisições simultâneas liam
+    # `is_paid=False`, ambas passavam e cada uma criava a sua despesa — a mesma
+    # parcela virava dois lançamentos, dobrando caixa, relatórios e gasto do
+    # workspace. Este `UPDATE` condicional é atômico nos dois motores (no
+    # Postgres a concorrente bloqueia e reavalia o WHERE contra a versão já
+    # commitada; no SQLite é uma sentença só). `FOR UPDATE` não serviria: o
+    # dialeto SQLite o ignora em silêncio.
+    reivindicou = session.execute(
+        update(AmortizationInstallment)
+        .where(AmortizationInstallment.id == installment.id)
+        .where(AmortizationInstallment.is_paid.is_(False))
+        .values(is_paid=True, paid_at=pago_em)
+    ).rowcount
+    if not reivindicou:
+        # 409, não 400: quem chamou não errou nada — perdeu a corrida.
+        raise HTTPException(
+            status_code=409,
+            detail="Esta parcela acabou de ser paga por outra requisição.",
+        )
+    # O UPDATE direto não passa pela sessão; sem expirar, o objeto em memória
+    # seguiria com `is_paid=False` e o cálculo de quitação abaixo erraria.
+    session.expire(installment)
 
     transaction_id = None
     if body.workspace_id is not None:
@@ -370,7 +393,11 @@ def pay_installment(
             title=f"{financing.title} — Parcela {installment_number}/{financing.installments_count}",
             total_amount=valor,
             transaction_date=pago_em,
-            billing_month=f"{pago_em.year:04d}-{pago_em.month:02d}",
+            # `month_key_local`: `pago_em` é um INSTANTE. Derivar o mês do
+            # ano/mês em UTC dava competência de agosto a uma parcela paga às
+            # 22h de 31 de julho em São Paulo — e a despesa sumia de todas as
+            # telas, que pedem julho.
+            billing_month=month_key_local(pago_em),
             currency=moeda,
             workspace_id=body.workspace_id,
             created_by_user_id=current_user.id,
@@ -409,7 +436,18 @@ def pay_installment(
         financing.status = FinancingStatus.settled
         session.add(financing)
 
-    session.commit()
+    try:
+        session.commit()
+    except IntegrityError:
+        # `uq_transaction_financing_installment` (segunda linha de defesa da
+        # reivindicação atômica lá em cima). Se um caminho futuro criar a despesa
+        # sem passar pela reivindicação, o banco recusa — e a resposta é 409, não
+        # o 500 que um IntegrityError vazado produziria.
+        session.rollback()
+        raise HTTPException(
+            status_code=409,
+            detail="Esta parcela já tem uma despesa lançada.",
+        )
     return {"status": "ok", "transaction_id": transaction_id}
 
 

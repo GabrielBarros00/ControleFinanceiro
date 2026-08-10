@@ -1,5 +1,7 @@
 from decimal import Decimal
 from typing import List, Optional
+from zoneinfo import ZoneInfo
+
 from pydantic import model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -107,6 +109,32 @@ class Settings(BaseSettings):
         HTTPS (COOKIE_SECURE) é relaxado em staging; o resto vale para os dois.
         """
         return self.APP_ENV in ("production", "staging")
+
+    @model_validator(mode="after")
+    def _validate_timezone(self):
+        """Recusa boot com `APP_TIMEZONE` que não existe — em QUALQUER ambiente.
+
+        O fuso define que dia é "hoje" e onde um mês começa e termina. Um erro de
+        digitação (`America/Sao_paulo`, `America/SaoPaulo`) caía em UTC
+        silenciosamente: nada quebrava, o app subia, e todo mundo passava a ter a
+        competência deslocada em três horas — despesa da noite no mês errado,
+        fatura vencida um dia antes, cotação do dia seguinte. Um erro de
+        configuração que muda o resultado financeiro sem emitir sinal é a pior
+        combinação possível.
+
+        Isto vale em dev e no CI também, não só em produção: se as regras de
+        calendário divergirem entre os ambientes, o CI deixa de provar o que
+        produção faz. O motivo original do fallback — Windows sem base de fusos —
+        deixou de existir quando `tzdata` entrou no `requirements.txt`.
+        """
+        try:
+            ZoneInfo(self.APP_TIMEZONE)
+        except Exception as exc:
+            raise ValueError(
+                f"APP_TIMEZONE inválido: {self.APP_TIMEZONE!r} ({exc}). "
+                "Use um nome da base IANA, como America/Sao_Paulo ou UTC."
+            )
+        return self
 
     @model_validator(mode="after")
     def _validate_deployment(self):
