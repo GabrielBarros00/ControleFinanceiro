@@ -48,7 +48,11 @@ from app.domain.query_policy import (
 from app.models.attachment import Attachment
 from app.models.tag import Tag, TransactionTagLink
 from app.services.attachment_storage import free_keys, keys_to_free
-from app.services.base_conversion import compute_base_conversion
+from app.services.base_conversion import (
+    apply_statement_leg,
+    compute_base_conversion,
+    compute_statement_conversion,
+)
 from app.services.event_service import publish_event
 from app.services.transaction_service import (
     _allocate_proportional,
@@ -187,6 +191,23 @@ def _resync_item_amounts(session: Session, transaction_id: int, new_total: Decim
 _compute_base_conversion = compute_base_conversion
 
 
+def _statement_leg(session: Session, card, transaction_in) -> dict:
+    """A perna de fatura do lançamento, ou `{}` quando não há cartão.
+
+    Devolve dict para poder ser espalhado direto no construtor da `Transaction`,
+    como `conv_meta` — assim nenhum caminho de criação precisa lembrar dos três
+    campos separadamente.
+    """
+    if card is None:
+        return {}
+    return compute_statement_conversion(
+        session, card,
+        currency=transaction_in.currency,
+        total_amount=transaction_in.total_amount,
+        transaction_date=transaction_in.transaction_date,
+    )
+
+
 def _convert_create_to_base(
     session: Session, workspace_id: int, transaction_in: TransactionCreate
 ):
@@ -245,12 +266,19 @@ def create_transaction(
     transaction_in = transaction_in.model_copy(update={
         "currency": resolve_currency(session, workspace_id, transaction_in.currency)
     })
+    # A perna de FATURA sai daqui, ANTES da conversão contábil: ela precisa da
+    # moeda em que a compra foi feita, e `_convert_create_to_base` a substitui
+    # pela moeda-base do workspace (ADR 0024).
+    stmt_meta = _statement_leg(session, card, transaction_in)
     # Moeda estrangeira: converte para a base na entrada (taxa do dia + IOF no cartão)
     transaction_in, conv_meta = _convert_create_to_base(session, workspace_id, transaction_in)
 
     # Parcelamento: N transações irmãs, uma por mês/fatura
     if transaction_in.installments_count and transaction_in.installments_count > 1:
-        first_tx = _create_installments(session, workspace_id, transaction_in, membership, card, conv_meta=conv_meta)
+        first_tx = _create_installments(
+            session, workspace_id, transaction_in, membership, card,
+            conv_meta=conv_meta, stmt_meta=stmt_meta,
+        )
         # Evento ÚNICO agregado — N parcelas não podem virar N refetches
         publish_event(session, workspace_id, "transaction.bulk_created", "transaction", None, membership.user_id)
         session.commit()
@@ -274,6 +302,7 @@ def create_transaction(
         created_by_user_id=membership.user_id,
         statement_id=statement_id,
         **(conv_meta or {}),
+        **stmt_meta,
     )
     session.add(db_transaction)
     # flush (não commit): mantém a criação ATÔMICA — se payers/splits/itens
@@ -414,6 +443,7 @@ def _create_installments(
     card: Optional[CreditCard],
     group_id: Optional[str] = None,
     conv_meta: Optional[Dict] = None,
+    stmt_meta: Optional[Dict] = None,
 ):
     """Cria N transações irmãs (i/N), cada uma roteada para a fatura do seu mês,
     fatiando a divisão pelos N meses (igual/porcentagem/valor fixo, pela despesa
@@ -427,6 +457,13 @@ def _create_installments(
     payer = transaction_in.payers[0]
     plans = _installment_plan(transaction_in, count)
     orig_slices = _split_amounts(conv_meta["original_amount"], count) if conv_meta else None
+    # A fatura é fatiada pelo MESMO `_split_amounts` do total, e não recalculada
+    # parcela a parcela: é ele que garante que as N parcelas somem exatamente a
+    # compra, com o centavo da sobra num lugar só. Recalcular por parcela deixaria
+    # a soma da fatura diferente do valor comprado por arredondamento.
+    stmt_slices = (
+        _split_amounts(stmt_meta["statement_amount"], count) if stmt_meta else None
+    )
 
     base_data = transaction_in.model_dump(exclude={
         "payers", "splits", "items", "adjustments", "tag_ids", "installments_count",
@@ -455,6 +492,12 @@ def _create_installments(
                     "iof_rate": conv_meta["iof_rate"],
                     "rate_source": conv_meta.get("rate_source"),
                 }
+            if stmt_meta:
+                inst_meta.update({
+                    "statement_amount": stmt_slices[i],
+                    "statement_currency": stmt_meta["statement_currency"],
+                    "statement_exchange_rate": stmt_meta["statement_exchange_rate"],
+                })
 
             db_transaction = Transaction(
                 **base_data,
@@ -795,11 +838,30 @@ def update_transaction(
     for key, value in update_data.items():
         setattr(db_transaction, key, value)
 
+    _resync_statement_leg(session, db_transaction, membership)
     session.add(db_transaction)
     publish_event(session, workspace_id, "transaction.updated", "transaction", db_transaction.id, membership.user_id)
     session.commit()
     session.refresh(db_transaction)
     return db_transaction
+
+
+def _resync_statement_leg(
+    session: Session, tx: Transaction, membership: WorkspaceMembership
+) -> None:
+    """Reancora a perna de fatura no estado FINAL do lançamento.
+
+    Chamada depois dos `setattr`, de propósito: valor, moeda, data e cartão podem
+    ter mudado em qualquer combinação, e cada um deles muda o que a fatura cobra.
+    Deduzir isso ramo a ramo era o que fazia o valor de fatura ficar para trás
+    numa das combinações.
+    """
+    card = None
+    if tx.credit_card_id:
+        card = session.get(CreditCard, tx.credit_card_id)
+        if card and (card.deleted_at or card.owner_user_id != membership.user_id):
+            card = None
+    apply_statement_leg(session, tx, card)
 
 
 def _full_edit(
@@ -872,6 +934,7 @@ def _full_edit(
             continue
         setattr(db_transaction, key, value)
     db_transaction.split_mode = effective_mode
+    _resync_statement_leg(session, db_transaction, membership)
     session.add(db_transaction)
     session.flush()
 
@@ -1145,6 +1208,7 @@ def _recompute_open_installments(
     card: Optional[CreditCard],
     membership: WorkspaceMembership,
     conv_meta: Optional[Dict] = None,
+    stmt_meta: Optional[Dict] = None,
 ) -> Transaction:
     """Congela as parcelas pagas e recalcula as em aberto para fechar o novo
     total da compra (total − já pago), fatiando o restante entre as parcelas em
@@ -1205,8 +1269,29 @@ def _recompute_open_installments(
         if card:
             statement = CreditCardService.get_or_create_statement(session, card, sib.transaction_date)
             sib.statement_id = statement.id
+            # A perna de fatura acompanha o novo valor da parcela. Sem isto ela
+            # ficaria com o valor ANTIGO e o total da fatura deixaria de bater
+            # com a compra que a UI mostra — exatamente o tipo de divergência
+            # que este ADR existe para fechar. `statement_exchange_rate` já traz
+            # a taxa × IOF congelados na compra, então a parcela reconvertida
+            # usa o mesmo câmbio das irmãs, e não o de hoje.
+            taxa = (stmt_meta or {}).get("statement_exchange_rate") or Decimal("1")
+            # O multiplicando é o valor na moeda de ENTRADA, porque é dela que a
+            # taxa parte. Numa compra estrangeira `inst_amount` já está na base do
+            # workspace, e `original_amount` (recalculado logo acima) é a fatia
+            # desta parcela na moeda comprada — usar o valor errado aqui aplicaria
+            # um câmbio a um número que já foi convertido uma vez.
+            na_entrada = sib.original_amount if conv_meta else inst_amount
+            sib.statement_currency = (stmt_meta or {}).get("statement_currency") or card.currency
+            sib.statement_amount = (na_entrada * taxa).quantize(
+                Decimal("0.01"), rounding=ROUND_HALF_UP
+            ) if na_entrada is not None else inst_amount
+            sib.statement_exchange_rate = taxa
         else:
             sib.statement_id = None
+            sib.statement_amount = None
+            sib.statement_currency = None
+            sib.statement_exchange_rate = None
         session.add(sib)
 
         items = plan["items"]
@@ -1371,6 +1456,8 @@ def update_installment_group(
         if not card or card.deleted_at or card.owner_user_id != membership.user_id:
             raise HTTPException(status_code=400, detail="Cartão de crédito inválido")
 
+    # Perna de fatura antes da contábil, pelo mesmo motivo do create (ADR 0024)
+    stmt_meta = _statement_leg(session, card, transaction_in)
     # Moeda estrangeira: converte o total da compra para BRL (PTAX do dia + IOF)
     transaction_in, conv_meta = _convert_create_to_base(session, workspace_id, transaction_in)
 
@@ -1398,7 +1485,8 @@ def update_installment_group(
             )
         try:
             first_tx = _recompute_open_installments(
-                session, workspace_id, transaction_in, siblings, paid, card, membership, conv_meta=conv_meta
+                session, workspace_id, transaction_in, siblings, paid, card, membership,
+                conv_meta=conv_meta, stmt_meta=stmt_meta,
             )
         except ValueError as exc:
             session.rollback()
@@ -1413,7 +1501,8 @@ def update_installment_group(
             session.add(t)
         session.flush()
         first_tx = _create_installments(
-            session, workspace_id, transaction_in, membership, card, group_id=group_id, conv_meta=conv_meta
+            session, workspace_id, transaction_in, membership, card,
+            group_id=group_id, conv_meta=conv_meta, stmt_meta=stmt_meta,
         )
         session.flush()
         # O recibo é da COMPRA, não da linha: as parcelas antigas viraram

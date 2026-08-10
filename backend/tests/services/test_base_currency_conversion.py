@@ -15,6 +15,7 @@ from decimal import Decimal
 import pytest
 from sqlmodel import Session, select
 
+from app.domain.dates import civil_instant
 from app.models.exchange_rate import ExchangeRate
 from app.models.income import Income
 from app.models.transaction import (
@@ -33,7 +34,11 @@ from app.models.workspace import Workspace, WorkspaceMembership, WorkspaceRole
 from app.services.base_currency_service import BaseCurrencyService, MissingRates
 from app.services.debt_service import DebtService
 
-OCC = datetime(2026, 7, 10, tzinfo=UTC)
+# `civil_instant` e não `datetime(2026, 7, 10)`: a reconversão cota pelo DIA
+# LOCAL da despesa (Onda 9), e meia-noite UTC é dia 9 em São Paulo — a cotação
+# seria buscada para um dia sem taxa semeada. Meia-noite aqui era uma data civil
+# disfarçada de instante, a mesma confusão que o `local_day` desfaz.
+OCC = civil_instant(date(2026, 7, 10))
 
 
 @pytest.fixture(autouse=True)

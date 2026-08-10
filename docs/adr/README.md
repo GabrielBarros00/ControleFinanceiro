@@ -29,6 +29,8 @@ Cada ADR registra **uma decisão** relevante do projeto: o contexto, a decisão 
 | [0021](0021-recurso-pessoal-sem-workspace.md) | Recurso pessoal não tem `workspace_id`; acesso financeiro completo não o alcança (supersede 0019) | Propriedade / privacidade |
 | [0022](0022-caixa-efetivo.md) | Caixa é quando o dinheiro se move; o `cash_out` antigo vira `paid_in_transactions` | Relatórios / caixa |
 | [0023](0023-saldo-de-fatura-arquivo-e-data-efetiva.md) | Fatura tem saldo cumulativo; arquivar preserva o histórico; caixa converte pela data efetiva e o app tem um fuso único | Integridade financeira |
+| [0024](0024-fatura-na-moeda-do-cartao.md) | Fatura é denominada na moeda do CARTÃO; o lançamento tem perna contábil e perna de fatura | Cartões / moeda |
+| [0025](0025-data-civil-e-instante.md) | Data civil vira instante ancorado ao MEIO-DIA local (`civil_instant`), par de `local_day` | Datas / fuso |
 
 ## Escrevendo um novo ADR
 

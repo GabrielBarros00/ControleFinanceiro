@@ -15,6 +15,13 @@ import type { components } from '@/types/api.gen';
  * mesmo arranjo que, em Configurações, fez a confirmação de uma operação
  * destrutiva imprimir `undefined` três vezes com o TypeScript verde. Agora
  * divergir é erro de compilação.
+ *
+ * **Todos devolvem `isError` e `refetch`.** Este grupo era o único do app que
+ * não o fazia (`use-debts`, `use-transactions` e outros oito sempre devolveram),
+ * e a consequência era pior do que uma tela sem botão de tentar de novo: sem
+ * `isError`, uma falha de API vira `data === undefined`, os totais caem no
+ * `?? 0` e a Visão global anuncia "Entrou R$ 0,00 / Saiu R$ 0,00" com toda a
+ * confiança. Um mês zerado é uma informação financeira — e era falsa.
  */
 export type Overview = components['schemas']['OverviewRead'];
 export type OverviewWorkspace = components['schemas']['WorkspaceSlice'];
@@ -29,7 +36,7 @@ export function useOverview(month?: string) {
       return res.data;
     },
   });
-  return { overview: query.data, isLoading: query.isLoading };
+  return { overview: query.data, isLoading: query.isLoading, isError: query.isError, refetch: query.refetch };
 }
 
 /**
@@ -64,7 +71,7 @@ export function useLedger(filters: LedgerFilters = {}, enabled = true) {
     },
     enabled,
   });
-  return { ledger: query.data, isLoading: query.isLoading };
+  return { ledger: query.data, isLoading: query.isLoading, isError: query.isError, refetch: query.refetch };
 }
 
 /**
@@ -85,7 +92,7 @@ export function useCommitments() {
       return res.data;
     },
   });
-  return { commitments: query.data, isLoading: query.isLoading };
+  return { commitments: query.data, isLoading: query.isLoading, isError: query.isError, refetch: query.refetch };
 }
 
 export type ActivityItem = components['schemas']['ActivityRead'];
@@ -107,7 +114,7 @@ export function useMyReports(months = 6) {
       return res.data;
     },
   });
-  return { reports: query.data, isLoading: query.isLoading };
+  return { reports: query.data, isLoading: query.isLoading, isError: query.isError, refetch: query.refetch };
 }
 
 export function useMyActivity(limit = 8) {
@@ -118,5 +125,5 @@ export function useMyActivity(limit = 8) {
       return res.data;
     },
   });
-  return { activity: query.data ?? [], isLoading: query.isLoading };
+  return { activity: query.data ?? [], isLoading: query.isLoading, isError: query.isError, refetch: query.refetch };
 }

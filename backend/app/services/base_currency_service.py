@@ -44,7 +44,7 @@ from app.models.transaction import (
 from app.services.currency_service import ExchangeRateUnavailable
 from app.services.exchange_rate_store import ExchangeRateStore
 from app.services.transaction_service import _allocate_proportional, _cents
-from app.domain.dates import today_local
+from app.domain.dates import local_day, today_local
 
 
 class MissingRates(Exception):
@@ -89,7 +89,20 @@ class ConversionReport:
 
 
 def _as_date(value) -> date:
-    return value.date() if hasattr(value, "date") else value
+    """O DIA LOCAL do instante — é a data da cotação que vale para quem gastou.
+
+    Era `value.date()`, o dia em UTC. Uma despesa das 22h de 31 de julho em São
+    Paulo está gravada como `2026-08-01T01:00Z`, então a reconversão do histórico
+    ia buscar a taxa de 1º de agosto: com o dólar a 5 na véspera e a 10 no dia
+    seguinte, R$ 100 viravam US$ 10 em vez de US$ 20. E o erro é silencioso dos
+    dois lados — no dry-run a data faltante é REPORTADA errada em
+    `missing_rates`, mandando o operador buscar a cotação de um dia que não é o
+    da despesa.
+
+    `local_day` deixa `date` puro atravessar, então competência (`estimates`) e
+    cronograma continuam intactos.
+    """
+    return local_day(value)
 
 
 class _FactorResolver:

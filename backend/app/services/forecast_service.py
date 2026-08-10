@@ -169,14 +169,20 @@ class ForecastService:
         # Ocorrências que JÁ têm instância lançada no mês não entram de novo
         # (a instância já está em total_spent) — evita contagem dupla.
         # Semanal deduplica por data exata; mensal/anual por template no mês.
+        #
+        # `occurrence_date` (a data canônica da ocorrência) e não
+        # `transaction_date.date()`: o instante pode ter sido editado depois, e aí
+        # a previsão deixava de reconhecer a instância já lançada e somava a
+        # ocorrência DE NOVO por cima dela. Mesma chave que o dedup da
+        # materialização usa (`recurring_service.generate_due_instances`).
         instanced = db.exec(
-            select(Transaction.recurring_expense_id, Transaction.transaction_date)
+            select(Transaction.recurring_expense_id, Transaction.occurrence_date)
             .where(Transaction.workspace_id == workspace_id)
             .where(Transaction.billing_month == billing_month)
             .where(Transaction.recurring_expense_id.is_not(None))
             .where(Transaction.deleted_at.is_(None))
         ).all()
-        instanced_dates = {(rid, dt.date()) for rid, dt in instanced}
+        instanced_dates = {(rid, occ) for rid, occ in instanced if occ is not None}
         instanced_templates = {rid for rid, _ in instanced}
 
         # Diária/semanal deduplicam por data exata; mensal/anual por template no mês

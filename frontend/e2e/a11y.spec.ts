@@ -190,6 +190,71 @@ test.describe('Acessibilidade (axe · WCAG 2 A/AA)', () => {
     await context.close();
   });
 
+  test('Extrato global — a página que o scanner nunca tinha visitado', async ({ browser }) => {
+    const context = await contaNova(browser);
+    await context.request.post(`${API}/auth/onboarding`, { data: { salary: 4000 } });
+
+    const page = await context.newPage();
+    const erros = vigiarConsole(page);
+    await page.goto('/me/ledger');
+    await expect(page.getByRole('heading', { name: /Extrato/i })).toBeVisible();
+
+    const { violations } = await analisar(page);
+    expect(resumir(violations)).toBe('');
+    expect(erros).toEqual([]);
+    await context.close();
+  });
+
+  test('o par de aviso do tema passa o contraste nos DOIS temas', async ({ browser }) => {
+    // O axe só vê o que está na tela, e o aviso de "valores sem cotação" só
+    // aparece quando há valores sem cotação — um estado que nenhum spec produz.
+    // A violação real (2,42:1) vivia no TOKEN `--warning`, usado como cor de
+    // texto em uma dúzia de componentes; medi-lo direto cobre todos de uma vez.
+    //
+    // Os pixels e não `getComputedStyle`: o Chromium devolve a string `oklch()`
+    // crua, que não dá para comparar. O canvas entrega o que o olho recebe.
+    const context = await contaNova(browser);
+    const page = await context.newPage();
+    await page.goto('/');
+
+    for (const tema of ['light', 'dark'] as const) {
+      const razao = await page.evaluate((t) => {
+        document.documentElement.classList.toggle('dark', t === 'dark');
+        const sonda = document.createElement('div');
+        sonda.className = 'bg-warning-subtle text-warning';
+        document.body.appendChild(sonda);
+        const cs = getComputedStyle(sonda);
+        const fgCss = cs.color;
+        const bgCss = cs.backgroundColor;
+        sonda.remove();
+
+        const cv = document.createElement('canvas');
+        cv.width = 2;
+        cv.height = 2;
+        const ctx = cv.getContext('2d')!;
+        const px = (cor: string) => {
+          ctx.clearRect(0, 0, 2, 2);
+          ctx.fillStyle = cor;
+          ctx.fillRect(0, 0, 2, 2);
+          const d = ctx.getImageData(0, 0, 1, 1).data;
+          return [d[0], d[1], d[2]] as const;
+        };
+        const lin = (c: number) => {
+          const v = c / 255;
+          return v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4);
+        };
+        const L = (v: readonly [number, number, number]) =>
+          0.2126 * lin(v[0]) + 0.7152 * lin(v[1]) + 0.0722 * lin(v[2]);
+        const a = L(px(fgCss));
+        const b = L(px(bgCss));
+        return (Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05);
+      }, tema);
+
+      expect(razao, `contraste do aviso no tema ${tema}`).toBeGreaterThanOrEqual(4.5);
+    }
+    await context.close();
+  });
+
   test('Configurações pessoais — alcançáveis sem workspace na URL', async ({ browser }) => {
     const context = await contaNova(browser);
     await context.request.post(`${API}/auth/onboarding`, { data: { salary: 4000 } });

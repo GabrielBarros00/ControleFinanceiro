@@ -173,15 +173,38 @@ class CreditCardService:
     # ---- Totais e limite ----------------------------------------------------
 
     @staticmethod
+    def statement_population(statement_id: int, card: CreditCard):
+        """Os critérios do que COMPÕE uma fatura, num lugar só.
+
+        Existir como função é o ponto: o total e a listagem tinham cada um a sua
+        cópia dos filtros, e elas divergiam em DOIS eixos — a listagem não
+        filtrava status (rascunho e cancelada apareciam) nem moeda. A tela
+        mostrava N linhas e o rodapé somava outro conjunto. Um item da fatura é
+        agora, por definição, o que este predicado devolve.
+        """
+        return (
+            Transaction.statement_id == statement_id,
+            Transaction.deleted_at.is_(None),
+            Transaction.status.in_(REALIZED_STATUSES),
+            Transaction.statement_currency == card.currency,
+        )
+
+    @staticmethod
     def compute_statement_total(db: Session, statement_id: int) -> Decimal:
         """Soma server-side das transações realizadas da fatura (fonte de verdade
-        enquanto aberta). Ignora rascunho/cancelada e moeda diferente da do CARTÃO.
+        enquanto aberta), na moeda do CARTÃO.
 
-        A moeda de referência é `card.currency`, não a base de um workspace
-        (ADR 0021). O cartão é pessoal e pode receber compras lançadas em
-        workspaces de moedas-base diferentes; a fatura é denominada na moeda do
-        cartão, e o que não bate fica de fora em vez de entrar com uma conversão
-        inventada — mesma política do `excluded_foreign_count` (ADR 0006).
+        Soma `statement_amount` — a perna de fatura do ADR 0024 —, não
+        `total_amount`. A versão anterior somava a perna CONTÁBIL e filtrava
+        `currency == card.currency`; como todo lançamento é gravado na moeda-base
+        do WORKSPACE, um cartão em USD usado num workspace em BRL não casava com
+        linha nenhuma e a fatura somava 0,00 para sempre. A compra aparecia na
+        tela, não consumia limite, e o fechamento congelava o zero.
+
+        O filtro por moeda continua — agora sobre `statement_currency`, que a
+        entrada garante ser a do cartão. Ele deixou de ser uma regra de negócio e
+        virou o que sempre deveria ter sido: uma rede contra linha legada, contada
+        em `excluded_from_total_count` em vez de sumir calada.
         """
         stmt = db.get(CardStatement, statement_id)
         if not stmt:
@@ -190,14 +213,73 @@ class CreditCardService:
         if not card:
             return Decimal("0.00")
         total = db.exec(
-            select(func.sum(Transaction.total_amount)).where(
-                Transaction.statement_id == statement_id,
-                Transaction.deleted_at.is_(None),
-                Transaction.status.in_(REALIZED_STATUSES),
-                Transaction.currency == card.currency,
+            select(func.sum(Transaction.statement_amount)).where(
+                *CreditCardService.statement_population(statement_id, card)
             )
         ).one()
         return total or Decimal("0.00")
+
+    @staticmethod
+    def excluded_from_total_count(db: Session, statement_id: int, card: CreditCard) -> int:
+        """Quantos lançamentos VIVOS da fatura ficam fora do total.
+
+        Só linha legada (anterior ao ADR 0024, sem perna de fatura) cai aqui. Ela
+        continua fora — reconverter histórico a posteriori inventaria um câmbio
+        que ninguém cobrou —, mas o usuário passa a saber que existe, como já
+        acontece no `excluded_foreign_count` da visão global e do caixa. Ficar em
+        silêncio é o que fazia a fatura parecer certa estando errada.
+        """
+        total_vivas = db.exec(
+            select(func.count()).select_from(Transaction).where(
+                Transaction.statement_id == statement_id,
+                Transaction.deleted_at.is_(None),
+                Transaction.status.in_(REALIZED_STATUSES),
+            )
+        ).one()
+        contadas = db.exec(
+            select(func.count()).select_from(Transaction).where(
+                *CreditCardService.statement_population(statement_id, card)
+            )
+        ).one()
+        return int(total_vivas or 0) - int(contadas or 0)
+
+    @staticmethod
+    def excluded_counts(
+        db: Session, statement_ids: list[int], card: CreditCard
+    ) -> dict[int, int]:
+        """`excluded_from_total_count` de VÁRIAS faturas, em duas consultas.
+
+        A versão por fatura é correta e cara: a listagem do cartão serializa
+        todas as faturas do histórico, e duas contagens por linha viram ~120
+        consultas num cartão com 60 meses de vida — só para descobrir que a
+        resposta é zero em todas. Mesma razão de existir de `_payments_by_statement`
+        na rota: o que a listagem faz N vezes tem de caber num `GROUP BY`.
+
+        Os predicados são os mesmos de `excluded_from_total_count`, e não uma
+        segunda redação deles: `statement_population` continua sendo a definição
+        única do que compõe a fatura.
+        """
+        if not statement_ids:
+            return {}
+
+        def _por_fatura(*extra):
+            linhas = db.exec(
+                select(Transaction.statement_id, func.count())
+                .where(Transaction.statement_id.in_(statement_ids), *extra)
+                .group_by(Transaction.statement_id)
+            ).all()
+            return {sid: int(n) for sid, n in linhas}
+
+        vivas = _por_fatura(
+            Transaction.deleted_at.is_(None),
+            Transaction.status.in_(REALIZED_STATUSES),
+        )
+        contadas = _por_fatura(
+            Transaction.deleted_at.is_(None),
+            Transaction.status.in_(REALIZED_STATUSES),
+            Transaction.statement_currency == card.currency,
+        )
+        return {sid: vivas.get(sid, 0) - contadas.get(sid, 0) for sid in statement_ids}
 
     @staticmethod
     def effective_total(db: Session, statement: CardStatement) -> Decimal:

@@ -36,9 +36,16 @@ jobs:
       # O lock é o que a imagem instala (ver backend/Dockerfile). Se ele não
       # bater com o requirements.txt, o ambiente testado aqui não é o que vai
       # para produção — e a divergência apareceria só no deploy.
+      #
+      # O `pip-compile` roda EM CIMA do lock versionado, e não num arquivo novo:
+      # sem o arquivo de saída presente, o pip-tools perde as preferências de
+      # versão e reresolve tudo para o mais recente do PyPI — o gate ficaria
+      # vermelho a cada release de transitiva, sem uma linha de código ter mudado.
+      # `pip-tools` sai do requirements-dev.txt, onde está FIXADO, pela mesma
+      # razão: instalado sem versão, ele próprio é uma fonte de vermelho
+      # espontâneo.
       - name: Lock de dependências em dia
         run: |
-          pip install pip-tools
           cd backend
           pip-compile --output-file=requirements.lock --strip-extras --quiet requirements.txt
           git diff --exit-code -- requirements.lock || {

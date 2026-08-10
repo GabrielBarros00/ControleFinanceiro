@@ -92,6 +92,32 @@ def local_day(momento: D) -> date:
     return momento
 
 
+def civil_instant(dia: date) -> datetime:
+    """Data CIVIL → instante ancorado ao MEIO-DIA local. O par de `local_day`.
+
+    `local_day` sabe ler um instante; faltava quem soubesse ESCREVER um. Sem
+    isso cada produtor de data civil (recorrência, import de CSV) inventava a
+    sua âncora, e todos escolheram meia-noite: `datetime(2026, 8, 1)` lido em
+    São Paulo é **31 de julho**, e a recorrência do dia 1º saía do mês — some
+    de `/me/income?month=`, do `/me/overview` e do caixa, enquanto o
+    `billing_month` gravado ao lado dela continuava dizendo agosto. Duas fontes
+    de verdade discordando na mesma linha.
+
+    Meio-dia porque ±12h nunca troca de dia: `local_day` e `.date()` devolvem a
+    mesma data em qualquer fuso de UTC-11 a UTC+11, então um leitor que erre o
+    helper ainda acerta o dia. É a mesma âncora que o formulário já usa do outro
+    lado (`new Date(\"...T12:00:00\").toISOString()`).
+
+    Devolve UTC **naive**: nenhuma coluna do projeto usa `timezone=True`, e o
+    tzinfo seria descartado na gravação de qualquer forma.
+    """
+    return (
+        datetime.combine(dia, time(12), tzinfo=app_tz())
+        .astimezone(UTC)
+        .replace(tzinfo=None)
+    )
+
+
 def month_key_local(momento: datetime) -> str:
     """Mês de calendário LOCAL de um instante → `"YYYY-MM"`.
 
@@ -163,12 +189,11 @@ def month_key(reference: date) -> str:
     return f"{reference.year:04d}-{reference.month:02d}"
 
 
-def month_bounds(reference: date) -> tuple[datetime, datetime]:
-    """Primeiro instante e último instante do mês de `reference`."""
-    last_day = calendar.monthrange(reference.year, reference.month)[1]
-    start = datetime.combine(date(reference.year, reference.month, 1), datetime.min.time())
-    end = datetime.combine(date(reference.year, reference.month, last_day), datetime.max.time())
-    return start, end
+# `month_bounds` (a janela do mês SEM fuso) morava aqui e foi removida na Onda 9.
+# Não tinha um único chamador — todos migraram para `month_bounds_utc` — e era
+# exatamente a armadilha que este módulo existe para fechar: um `datetime.combine`
+# ingênuo tratando meia-noite local como meia-noite UTC. Deixá-la disponível era
+# convidar o próximo caminho de leitura a reintroduzir o bug da virada do mês.
 
 
 def add_months(when: D, months: int) -> D:

@@ -127,6 +127,24 @@ class Transaction(TransactionBase, table=True):
     # Fonte da taxa: 'ptax' (oficial) | 'market' (referência) | None (BRL nativo)
     rate_source: Optional[str] = Field(default=None)
 
+    # A PERNA DE FATURA (ADR 0024). `currency`/`total_amount` acima são a perna
+    # CONTÁBIL, na moeda-base do WORKSPACE; estes são o mesmo lançamento na moeda
+    # do CARTÃO, que é onde a fatura é cobrada. None = lançamento sem cartão.
+    #
+    # As duas moedas são independentes por construção: desde o ADR 0021 o cartão
+    # é pessoal e nasce na moeda de relatório do dono, enquanto o lançamento é
+    # convertido para a base do workspace onde foi feito. Enquanto existia um
+    # valor só, as duas leituras disputavam a mesma coluna e a fatura perdia:
+    # `compute_statement_total` filtrava `currency == card.currency`, não achava
+    # nada, e um cartão em USD num workspace em BRL somava R$ 0,00 com a compra
+    # listada na tela. O limite nunca era consumido e o fechamento CONGELAVA o
+    # zero — o erro virava histórico.
+    statement_amount: Optional[Decimal] = Field(default=None, decimal_places=2, max_digits=20)
+    statement_currency: Optional[str] = Field(default=None)
+    statement_exchange_rate: Optional[Decimal] = Field(
+        default=None, decimal_places=6, max_digits=20
+    )
+
     confirmed_at: Optional[datetime] = None
     paid_at: Optional[datetime] = None
     cancelled_at: Optional[datetime] = None
@@ -255,6 +273,19 @@ def _transaction_stamp_on_insert(mapper, connection, target: Transaction) -> Non
     # `month_key_local` (ver `routes/transactions.py`).
     if not target.billing_month and target.transaction_date is not None:
         target.billing_month = target.transaction_date.strftime("%Y-%m")
+    # Perna de fatura (ADR 0024), pelo mesmo motivo do `billing_month` acima: a
+    # coluna é nullable, e uma linha ligada a uma fatura sem ela sairia do total
+    # — que é exatamente o defeito que a perna veio fechar. O default é a
+    # IDENTIDADE (o valor contábil, na moeda em que foi gravado), o mesmo do
+    # backfill da migração: correto quando cartão e workspace compartilham a
+    # moeda, e honesto quando não, porque não inventa câmbio nenhum.
+    #
+    # Quem SABE a moeda do cartão — as rotas, via `apply_statement_leg` — grava o
+    # valor convertido antes de chegar aqui, e o valor explícito continua vencendo.
+    if target.statement_id is not None and target.statement_amount is None:
+        target.statement_amount = target.total_amount
+        target.statement_currency = target.currency
+        target.statement_exchange_rate = Decimal("1")
 
 
 @event.listens_for(Transaction, "before_update")

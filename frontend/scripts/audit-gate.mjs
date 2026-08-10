@@ -14,7 +14,9 @@
  * motivo escrito e data de revisão — quando ela vence, o gate volta a falhar e
  * alguém decide de novo.
  *
- * `--relatorio <arquivo>` lê um relatório de arquivo em vez de rodar o npm.
+ * `--relatorio <arquivo>` lê um relatório de arquivo em vez de rodar o npm, e
+ * `--aceitos <arquivo>` substitui a lista de exceções. Ambos existem só para
+ * os testes — o gate real não recebe nenhum dos dois.
  * Existe para os testes provarem que o gate falha FECHADO diante de um payload
  * ruim — a falha que ele precisa ter é a mais difícil de observar por acidente,
  * porque só acontece quando o registry está fora do ar.
@@ -26,18 +28,36 @@ import { readFileSync } from 'node:fs';
  * Cada entrada é uma decisão de risco explícita, não um "silencia isso".
  * `revisar_em` no passado = o gate falha e a decisão é retomada.
  */
-const ACEITOS = [
-  {
-    id: 'GHSA-qwww-vcr4-c8h2',
-    pacote: 'react-router',
-    motivo:
-      'Bypass de CSRF restrito ao modo RSC (React Server Components). Este app é ' +
-      'SPA com BrowserRouter, não usa RSC nem Server Actions, e não há caminho ' +
-      'explorável. A correção só existe para trás (downgrade para 7.11.0), o que ' +
-      'custaria sete versões de correções por um risco que não corremos.',
-    revisar_em: '2026-11-01',
-  },
-];
+// Vazia hoje, e é assim que deve ficar: exceção aberta é dívida de segurança.
+//
+// A entrada `GHSA-qwww-vcr4-c8h2` (react-router, bypass de CSRF no modo RSC)
+// saiu na Onda 9. O aviso de "não corresponde a nenhuma vulnerabilidade do
+// relatório" — que o próprio gate emite, logo abaixo — apontou que ela já não
+// casava com nada em `react-router@7.18.2`. Uma exceção que sobrevive à
+// vulnerabilidade que a justificou vira uma porta destrancada de que ninguém
+// lembra.
+const ACEITOS = carregarAceitos();
+
+/**
+ * A lista, ou a de um arquivo via `--aceitos <arquivo>`.
+ *
+ * Mesmo motivo do `--relatorio`: as regras de exceção (silenciar uma high
+ * coberta, avisar de uma exceção que já não casa com nada) precisam de teste, e
+ * testá-las contra a lista de PRODUÇÃO acoplava a suíte ao seu conteúdo — foi o
+ * que quebrou quando a exceção do react-router saiu. A lista certa é vazia; o
+ * comportamento dela tem de continuar coberto mesmo assim.
+ */
+function carregarAceitos() {
+  const i = process.argv.indexOf('--aceitos');
+  if (i === -1) return [];
+  const caminho = process.argv[i + 1];
+  if (!caminho) abortar('`--aceitos` exige o caminho de um arquivo.');
+  try {
+    return JSON.parse(readFileSync(caminho, 'utf8'));
+  } catch (erro) {
+    abortar(`não foi possível ler ${caminho}: ${erro.message}`);
+  }
+}
 
 /** Aborta o gate com uma mensagem — nunca deixa passar verde por omissão. */
 function abortar(motivo) {

@@ -26,7 +26,7 @@ export function MaterializeScopeField({
 }: MaterializeScopeFieldProps) {
   const noun = kind === 'income' ? 'rendas' : 'despesas';
   return (
-    <div className="space-y-2 rounded-lg border border-amber-500/30 bg-amber-500/5 p-3">
+    <div className="space-y-2 rounded-lg border border-warning/30 bg-warning-subtle p-3">
       <Label htmlFor={`${idPrefix}-scope`}>A data de início é anterior a este mês. Lançar…</Label>
       <select
         id={`${idPrefix}-scope`}

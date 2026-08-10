@@ -5,6 +5,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { EmptyState } from '@/components/ui/empty-state';
+import { ErrorState } from '@/components/ui/error-state';
 import { Skeleton } from '@/components/ui/skeleton';
 import { StatTile } from '@/components/ui/stat-tile';
 import { MoneyText } from '@/components/money/MoneyText';
@@ -61,17 +62,35 @@ export function GlobalLedgerPage() {
   const { cards } = useCreditCards();
 
   const origensAtivas = params.getAll('source');
-  const workspaceFiltro = params.get('workspace_id');
-  const cartaoFiltro = params.get('card_id');
+  // A URL é entrada do usuário: ela é editada à mão, colada truncada e sobrevive
+  // a um link velho. `Number('abc')` é `NaN`, e `NaN` viajava no query string
+  // como `workspace_id=NaN` — a API respondia 422 e a tela dizia "nenhum
+  // movimento com estes filtros", culpando o recorte por um erro de validação.
+  //
+  // `Number.isInteger` e não só `isFinite`: id é chave primária, e `1.5` é tão
+  // inválido quanto `abc`. Sem a checagem ele viajava inteiro na query string,
+  // a API respondia 422 e a tela dizia "não foi possível carregar o extrato"
+  // por um valor que ela mesma podia ter descartado.
+  const idValido = (bruto: string | null): number | undefined => {
+    if (bruto === null) return undefined;
+    const n = Number(bruto);
+    return Number.isInteger(n) && n > 0 ? n : undefined;
+  };
+  const workspaceFiltro = idValido(params.get('workspace_id'));
+  const cartaoFiltro = idValido(params.get('card_id'));
   // A página vive na URL junto do resto do recorte: um extrato é coisa que se
   // manda para alguém, e o link tem de reabrir onde estava.
-  const pagina = Math.max(0, Number(params.get('page') ?? '0') || 0);
+  //
+  // `Math.floor` pela mesma razão: a página multiplica `POR_PAGINA`, então
+  // `page=1.5` virava `offset=150` — um recorte que o usuário não pediu e que a
+  // tela anunciava como "esta página não existe".
+  const pagina = Math.max(0, Math.floor(Number(params.get('page') ?? '0') || 0));
 
-  const { ledger, isLoading } = useLedger({
+  const { ledger, isLoading, isError, refetch } = useLedger({
     month,
     source: origensAtivas.length ? origensAtivas : undefined,
-    workspace_id: workspaceFiltro ? Number(workspaceFiltro) : undefined,
-    card_id: cartaoFiltro ? Number(cartaoFiltro) : undefined,
+    workspace_id: workspaceFiltro,
+    card_id: cartaoFiltro,
     limit: POR_PAGINA,
     offset: pagina * POR_PAGINA,
   });
@@ -148,6 +167,16 @@ export function GlobalLedgerPage() {
         <PeriodPicker value={month} onChange={trocarMes} />
       </div>
 
+      {/* Antes do resto: com a API fora, os `StatTile` abaixo mostrariam
+          "Entrou R$ 0,00" — um mês zerado é uma afirmação financeira, e essa
+          seria falsa (regra ERR-001, `components/ui/error-state.tsx`). */}
+      {isError ? (
+        <ErrorState
+          message="Não foi possível carregar o extrato."
+          onRetry={() => void refetch()}
+        />
+      ) : (
+      <>
       <div className="grid gap-4 sm:grid-cols-3">
         <StatTile label="Entrou" value={n(ledger?.cash_in)} kind="income" icon={ArrowDownLeft} currency={moeda} />
         <StatTile label="Saiu" value={n(ledger?.cash_out)} kind="expense" icon={ArrowUpRight} currency={moeda} />
@@ -229,15 +258,33 @@ export function GlobalLedgerPage() {
               ))}
             </div>
           ) : (ledger?.entries.length ?? 0) === 0 ? (
-            <EmptyState
-              icon={Wallet}
-              title="Nenhum movimento neste recorte"
-              description={
-                temFiltro
-                  ? 'Nenhum movimento com estes filtros. Limpe-os para ver o mês inteiro.'
-                  : 'Nada entrou nem saiu neste mês.'
-              }
-            />
+            // Três vazios diferentes, três explicações diferentes. O terceiro —
+            // página fora do intervalo — não tinha saída nenhuma: `?page=999`
+            // dizia "nada entrou nem saiu neste mês" e a paginação sumia junto,
+            // porque ela só é desenhada quando há linhas. Ficava um beco sem
+            // volta, com uma frase falsa.
+            pagina > 0 ? (
+              <EmptyState
+                icon={Wallet}
+                title="Esta página não existe"
+                description={`O extrato deste recorte tem ${ultimaPagina + 1} página(s).`}
+                action={
+                  <Button type="button" variant="outline" size="sm" onClick={() => irParaPagina(0)}>
+                    Voltar para a primeira página
+                  </Button>
+                }
+              />
+            ) : (
+              <EmptyState
+                icon={Wallet}
+                title="Nenhum movimento neste recorte"
+                description={
+                  temFiltro
+                    ? 'Nenhum movimento com estes filtros. Limpe-os para ver o mês inteiro.'
+                    : 'Nada entrou nem saiu neste mês.'
+                }
+              />
+            )
           ) : (
             <div className="overflow-x-auto">
               <Table>
@@ -336,6 +383,8 @@ export function GlobalLedgerPage() {
           )}
         </CardContent>
       </Card>
+      </>
+      )}
     </div>
   );
 }

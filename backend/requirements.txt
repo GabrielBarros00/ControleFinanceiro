@@ -44,6 +44,14 @@ psycopg2-binary==2.9.12
 # acumula CVEs (confusão de algoritmo, "JWT bomb"). PyJWT é mantido e exige
 # `algorithms=` explícito na verificação.
 PyJWT[crypto]==2.13.0
+# Piso da `cryptography`, que entra pelo extra `[crypto]` acima e não tinha
+# restrição própria: o resolvedor congelou a 49.0.0 e o `pip-audit --strict` do
+# CI passou a reprovar por PYSEC-2026-3552 (oracle Bleichenbacher na
+# descriptografia PKCS#7, corrigida na 50.0.0), bloqueando qualquer release.
+# Este app não usa as APIs PKCS#7 e assina JWT só com HS256, então a
+# explorabilidade aqui é baixa — o que não é motivo para carregar a versão
+# vulnerável, e sim a razão de isto ser um piso e não um pin exato.
+cryptography>=50.0.0
 # argon2 é o algoritmo primário de senha (ver app/core/security.py). passlib
 # segue apenas para VERIFICAR hashes antigos (pbkdf2_sha256/bcrypt) e permitir o
 # rehash transparente no login; sai daqui quando não houver mais hash legado.

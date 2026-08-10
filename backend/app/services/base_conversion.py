@@ -84,3 +84,107 @@ def compute_base_conversion(
             "rate_source": source,
         },
     }
+
+
+def compute_statement_conversion(
+    session: Session,
+    card,
+    *,
+    currency: Optional[str],
+    total_amount: Decimal,
+    transaction_date: Union[datetime, date],
+    allow_fetch: bool = True,
+) -> Dict:
+    """A compra na moeda do CARTÃO — a perna de fatura do ADR 0024.
+
+    Irmã de `compute_base_conversion`, e deliberadamente separada dela: as duas
+    respondem perguntas diferentes sobre o mesmo lançamento. A contábil é "quanto
+    isto vale no orçamento desta casa"; esta é "quanto o banco vai cobrar na
+    fatura". Elas coincidem quando a moeda do cartão é a moeda-base do workspace,
+    e é por isso que a divergência passou tanto tempo invisível.
+
+    Diferente da contábil, esta NUNCA devolve `None`: todo lançamento com cartão
+    precisa de um valor de fatura, mesmo (principalmente) quando não há conversão
+    nenhuma. Sem valor, a linha volta a ficar fora do total — que é o defeito.
+
+    **IOF.** Aqui ele incide quando a compra é internacional PARA O CARTÃO
+    (`currency != card.currency`), que é quem de fato paga o imposto na conversão.
+    A perna contábil continua aplicando o dela pela moeda-base do workspace; nos
+    cenários multimoeda os dois critérios divergem, e isso está registrado como
+    questão em aberto no ADR 0024 em vez de resolvido por baixo do pano — mexer
+    no critério contábil mudaria valores já gravados.
+
+    `allow_fetch=False` proíbe ir à rede atrás de cotação que falte: a taxa sai do
+    store ou a chamada levanta 422. É o que o caminho de LEITURA quer (a
+    materialização preguiçosa roda em GET e não pode virar uma chamada HTTP por
+    ocorrência) e o que um backfill quer (uma rodada não pode depender da rede
+    linha a linha; o que faltar vira lista para o operador).
+    """
+    destino = (card.currency or "").upper()
+    origem = (currency or destino).upper()
+
+    # Mesma moeda dos dois lados: não houve conversão, então não há taxa e **não
+    # há IOF**. O imposto é de compra internacional; cobrá-lo aqui inventaria
+    # 3,5% em cima de uma compra que o banco cobrou pelo valor cheio.
+    if origem == destino:
+        return {
+            "statement_amount": total_amount,
+            "statement_currency": destino,
+            "statement_exchange_rate": Decimal("1"),
+        }
+
+    # `local_day` pelo mesmo motivo da perna contábil: a cotação é a do dia em que
+    # a compra aconteceu para quem a fez.
+    occ = local_day(transaction_date)
+    try:
+        rate, _source = ExchangeRateStore.rate_between(
+            session, origem, destino, occ, allow_fetch=allow_fetch
+        )
+    except ExchangeRateUnavailable as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
+
+    iof = settings.IOF_INTERNATIONAL_CARD_RATE
+    factor = rate * (Decimal("1") + iof)
+    return {
+        "statement_amount": (total_amount * factor).quantize(
+            Decimal("0.01"), rounding=ROUND_HALF_UP
+        ),
+        "statement_currency": destino,
+        "statement_exchange_rate": factor,
+    }
+
+
+def apply_statement_leg(session: Session, tx, card, *, allow_fetch: bool = True) -> None:
+    """Recalcula a perna de fatura a partir do estado PERSISTIDO do lançamento.
+
+    Existe porque os caminhos de EDIÇÃO não têm mais a moeda de entrada em mãos:
+    quando chegam ao ponto de gravar, `currency`/`total_amount` já são a perna
+    contábil. Mas a de entrada nunca se perde de verdade — está congelada em
+    `original_*` quando houve conversão, e é a própria perna contábil quando não
+    houve. Reconstituí-la aqui evita que cada rota de edição carregue o par de
+    valores pré-conversão por conta própria (e esqueça num dos ramos).
+
+    Sem cartão, os três campos voltam a `None`: tirar o cartão de um lançamento
+    tem de tirá-lo da fatura junto, senão o total continua somando uma compra que
+    não está mais lá.
+
+    `allow_fetch` repassa para `compute_statement_conversion` — ver lá.
+    """
+    if card is None or tx.statement_id is None:
+        tx.statement_amount = None
+        tx.statement_currency = None
+        tx.statement_exchange_rate = None
+        return
+
+    meta = compute_statement_conversion(
+        session, card,
+        currency=tx.original_currency or tx.currency,
+        total_amount=(
+            tx.original_amount if tx.original_amount is not None else tx.total_amount
+        ),
+        transaction_date=tx.transaction_date,
+        allow_fetch=allow_fetch,
+    )
+    tx.statement_amount = meta["statement_amount"]
+    tx.statement_currency = meta["statement_currency"]
+    tx.statement_exchange_rate = meta["statement_exchange_rate"]

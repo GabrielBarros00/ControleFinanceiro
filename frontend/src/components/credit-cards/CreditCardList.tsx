@@ -21,6 +21,7 @@ import { statementAlert } from '@/lib/statement-alert';
 import { parseApiDay } from '@/lib/date';
 import { toast } from '@/stores/toast';
 import { useConfirm } from '@/components/ui/confirm';
+import { CurrencyCombobox } from '@/components/dashboard/transaction-form/CurrencyCombobox';
 
 interface CreditCardListProps {
   selectedCardId?: number | null;
@@ -61,16 +62,21 @@ export function CreditCardList({ selectedCardId, onSelectCard }: CreditCardListP
   const [limit, setLimit] = React.useState(0);
   const [closingDay, setClosingDay] = React.useState(1);
   const [dueDay, setDueDay] = React.useState(10);
+  // A moeda do cartão é característica PERMANENTE do contrato, não preferência
+  // de visualização. Sem este campo, criar um cartão em dólar exigia trocar a
+  // moeda de relatório em Configurações, criar, e destrocar — e o cartão saía
+  // com a moeda que por acaso estivesse ativa naquele instante.
+  const [currency, setCurrency] = React.useState(reportCurrency);
   const [saving, setSaving] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
 
-  // Editando, vale a moeda DO CARTÃO (que não muda ao trocar de workspace nem ao
-  // trocar a moeda de relatório); criando, a de relatório, que é a que o backend
-  // vai usar.
-  const dialogCurrency =
-    (editingId != null
-      ? (cards as CardRow[]).find((c) => c.id === editingId)?.currency
-      : undefined) ?? reportCurrency;
+  // O estado `currency` é a resposta nos dois modos, e é por isso que não existe
+  // mais um `dialogCurrency` ao lado dele: `openEdit` o carrega do cartão e
+  // `resetForm` o devolve à moeda de relatório. A variável paralela derivava de
+  // `editingId` e caía em `reportCurrency` durante a CRIAÇÃO — então escolher USD
+  // no seletor trocava o rótulo do seletor e deixava o campo Limite anunciando
+  // `R$ 10.000,00` para um cartão que nasceria em dólar. Duas fontes para o mesmo
+  // fato, discordando na única tela em que isso aparece.
 
   // Auto-seleciona o primeiro cartão (mata o "Selecione um cartão acima" — H6)
   React.useEffect(() => {
@@ -82,6 +88,7 @@ export function CreditCardList({ selectedCardId, onSelectCard }: CreditCardListP
     setLimit(0);
     setClosingDay(1);
     setDueDay(10);
+    setCurrency(reportCurrency);
     setError(null);
   };
 
@@ -97,6 +104,7 @@ export function CreditCardList({ selectedCardId, onSelectCard }: CreditCardListP
     setLimit(parseFloat(card.limit));
     setClosingDay(card.closing_day);
     setDueDay(card.due_day);
+    setCurrency(card.currency);
     setError(null);
     setDialogOpen(true);
   };
@@ -111,9 +119,12 @@ export function CreditCardList({ selectedCardId, onSelectCard }: CreditCardListP
     try {
       const data = { name: name.trim(), limit, closing_day: closingDay, due_day: dueDay };
       if (editingId != null) {
+        // `currency` fica de fora do update: a moeda de um cartão já emitido não
+        // muda, e o backend nem a expõe em `CreditCardUpdate`. Mudá-la
+        // reinterpretaria retroativamente todas as faturas dele.
         await update({ id: editingId, data });
       } else {
-        await create(data);
+        await create({ ...data, currency });
       }
       setDialogOpen(false);
       setEditingId(null);
@@ -223,7 +234,30 @@ export function CreditCardList({ selectedCardId, onSelectCard }: CreditCardListP
             </div>
             <div className="space-y-2">
               <Label htmlFor="card-limit">Limite</Label>
-              <MoneyInput id="card-limit" value={limit} onChange={setLimit} prefix={currencySymbol(dialogCurrency)} />
+              <MoneyInput id="card-limit" value={limit} onChange={setLimit} prefix={currencySymbol(currency)} />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="card-currency">Moeda do cartão</Label>
+              {editingId != null ? (
+                // Imutável depois de emitido: as faturas passadas foram cobradas
+                // nesta moeda, e trocá-la reinterpretaria o histórico inteiro.
+                <p className="text-sm text-muted-foreground" id="card-currency">
+                  {currency} — a moeda de um cartão não muda depois de criado.
+                </p>
+              ) : (
+                <>
+                  <CurrencyCombobox
+                    id="card-currency"
+                    ariaLabel="Moeda do cartão"
+                    value={currency}
+                    onChange={setCurrency}
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    Em que moeda o banco cobra a fatura. É diferente da moeda dos
+                    seus relatórios.
+                  </p>
+                </>
+              )}
             </div>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div className="space-y-2">

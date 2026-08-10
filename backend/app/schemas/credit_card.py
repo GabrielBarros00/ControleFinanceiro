@@ -61,6 +61,10 @@ class StatementRead(BaseModel):
     #: e o teto do próximo pagamento.
     remaining_amount: Decimal
     payments: List[StatementPaymentRead] = []
+    #: Lançamentos vivos da fatura que o total NÃO soma — só linha legada, de
+    #: antes da perna de fatura existir (ADR 0024). Normalmente 0; quando não é,
+    #: a tela avisa em vez de deixar um total incompleto parecer completo.
+    excluded_from_total_count: int = 0
 
 
 class StatementListItemRead(StatementRead):
@@ -85,6 +89,12 @@ class StatementTransactionRead(BaseModel):
     workspace_id: int
     installment_no: Optional[int] = None
     installments_of: Optional[int] = None
+    # O valor COBRADO nesta fatura, na moeda do cartão (ADR 0024). É este que a
+    # linha exibe e o que o rodapé soma. `total_amount`/`currency` continuam
+    # viajando porque são a perna contábil — quanto a compra pesa no orçamento do
+    # workspace —, e a tela mostra os dois quando divergem.
+    statement_amount: Optional[Decimal] = None
+    statement_currency: Optional[str] = None
     # Conversão congelada quando a compra foi estrangeira — a tela calcula o IOF
     # em moeda-base a partir daqui (original × câmbio × alíquota).
     original_amount: Optional[Decimal] = None

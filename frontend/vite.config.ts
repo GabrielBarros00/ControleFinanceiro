@@ -68,11 +68,20 @@ export default defineConfig({
       // e por isso não via nada), a paginação do extrato e o estorno ao reabrir
       // fatura. Branches e lines ficam onde estão — a folga real é de meio
       // ponto, e um piso que já falha vira ruído.
+      //
+      // Onda 9: 63/55/51/65 → 63/56/52/66 (medido 63,48/56,46/52,36/66,11). A
+      // auditoria anterior observou que a margem estava raspando o piso — e os
+      // quatro defeitos graves desta onda confirmaram o diagnóstico ao passarem
+      // por 2.348 testes de backend e 236 de frontend sem encostar em nenhum.
+      // Os testes novos vão onde eles moravam: o valor de fatura na moeda do
+      // cartão, o erro que virava um mês de zeros, o id inválido na URL e a
+      // página fora do intervalo. `statements` fica em 63 de propósito — subiu
+      // meio ponto, e um piso a meio ponto do medido falha no primeiro refactor.
       thresholds: {
         statements: 63,
-        branches: 55,
-        functions: 51,
-        lines: 65,
+        branches: 56,
+        functions: 52,
+        lines: 66,
       },
     },
   },

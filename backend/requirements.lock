@@ -32,8 +32,10 @@ cffi==2.1.0
     #   cryptography
 click==8.4.2
     # via uvicorn
-cryptography==49.0.0
-    # via pyjwt
+cryptography==50.0.0
+    # via
+    #   -r requirements.txt
+    #   pyjwt
 dnspython==2.8.0
     # via email-validator
 email-validator==2.3.0

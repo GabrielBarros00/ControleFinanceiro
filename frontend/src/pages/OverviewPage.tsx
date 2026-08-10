@@ -12,6 +12,7 @@ import { PeriodPicker } from '@/components/layout/PeriodPicker';
 import { Skeleton } from '@/components/ui/skeleton';
 import { StatTile } from '@/components/ui/stat-tile';
 import { EmptyState } from '@/components/ui/empty-state';
+import { ErrorState } from '@/components/ui/error-state';
 import { ExcludedForeignNotice } from '@/components/money/ExcludedForeignNotice';
 import { useOverview, useMyActivity } from '@/hooks/use-overview';
 import { useAuth } from '@/hooks/use-auth';
@@ -46,7 +47,7 @@ export function OverviewPage() {
   // única tela que soma todos os workspaces não deixava olhar o mês passado, e
   // "como foi meu mês" só valia para o mês corrente.
   const [month, setMonth] = useMonthParam();
-  const { overview, isLoading } = useOverview(month);
+  const { overview, isLoading, isError, refetch } = useOverview(month);
   const { activity, isLoading: activityLoading } = useMyActivity(8);
 
   const firstName = user?.name?.split(' ')[0];
@@ -96,6 +97,15 @@ export function OverviewPage() {
           </div>
           <Skeleton className="h-56 w-full" />
         </div>
+      ) : isError ? (
+        // Sem este ramo, a falha da API virava um mês inteiro de zeros: os
+        // `StatTile` abaixo leem `n(overview?.x)`, que é `Number(undefined ?? 0)`.
+        // "Renda R$ 0,00, Consumo R$ 0,00" é uma resposta, não um erro — e o
+        // usuário não teria como saber que ela não foi calculada (regra ERR-001).
+        <ErrorState
+          message="Não foi possível carregar a sua visão do mês."
+          onRetry={() => void refetch()}
+        />
       ) : (
         <>
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
@@ -182,23 +192,32 @@ export function OverviewPage() {
             {/* O <Link> fica DENTRO do <dd>, nunca entre o <dl> e o par.
                 Envolvendo <dt>/<dd> ele os desqualificava como filhos da lista
                 de definição — o Axe acusava `definition-list` e `dlitem`, e um
-                leitor de tela deixava de anunciar "rótulo/valor". A linha
-                inteira continua clicável porque o <dd> ocupa a faixa toda e o
-                <dt> vira rótulo do link via aria-labelledby. */}
+                leitor de tela deixava de anunciar "rótulo/valor".
+
+                O alvo de clique é estendido por `after:inset-0` sobre a linha
+                `relative` (stretched link), e não pelo <dd>: o <dd> não tem
+                `flex-1` dentro de um `justify-between`, então ele encolhe ao
+                número — a área clicável media ~53px de uma linha de ~475px,
+                enquanto o `hover:bg-muted` realçava a faixa toda e a legenda
+                abaixo prometia "clique em uma linha". Prometia o que não fazia.
+
+                `aria-labelledby` cita os DOIS ids: ele SUBSTITUI o conteúdo como
+                nome acessível, então citar só o rótulo anunciava "Lançamentos à
+                vista" e deixava o valor de fora — justamente o dado da linha. */}
             <dl className="grid gap-x-6 gap-y-1 border-t border-border px-4 py-3 text-sm sm:grid-cols-2">
               {saidas.map(({ rotulo, valor, origem }) => (
                 <div
                   key={rotulo}
-                  className="-mx-2 flex items-center justify-between gap-4 rounded-md px-2 py-1 hover:bg-muted focus-within:bg-muted"
+                  className="relative -mx-2 flex items-center justify-between gap-4 rounded-md px-2 py-1 hover:bg-muted focus-within:bg-muted"
                 >
                   <dt id={`saida-${origem}`} className="text-muted-foreground">
                     {rotulo}
                   </dt>
-                  <dd className="tabular-nums text-foreground">
+                  <dd id={`valor-${origem}`} className="tabular-nums text-foreground">
                     <Link
                       to={`/me/ledger?month=${month}&source=${origem}`}
-                      aria-labelledby={`saida-${origem}`}
-                      className="block rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                      aria-labelledby={`saida-${origem} valor-${origem}`}
+                      className="block rounded-sm after:absolute after:inset-0 after:rounded-md after:content-[''] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                     >
                       {fmt(valor)}
                     </Link>

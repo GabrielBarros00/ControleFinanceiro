@@ -63,7 +63,13 @@
 
     /* ---- Feedback / status ---- */
     --success: oklch(0.55 0.15 152);
-    --warning: oklch(0.70 0.14 75);
+    /* L=0.52 e não 0.70: este token é usado como COR DE TEXTO (status-pill,
+       avisos), e a 0.70 ele dava 2,4:1 sobre `--warning-subtle` — reprovava o
+       mínimo de 4,5:1 do WCAG AA e o Axe acusava em /overview e /me/ledger.
+       Agora dá ~5:1, e o amarelo passa a estar na mesma faixa de luminosidade
+       dos irmãos que já serviam de texto (`--expense` 0.47, `--success` 0.55).
+       O modo escuro não precisou mudar: lá já eram 6,2:1. */
+    --warning: oklch(0.52 0.14 75);
     --warning-subtle: oklch(0.96 0.05 85);
     --destructive: oklch(0.55 0.19 27);
     --destructive-foreground: oklch(0.99 0 0);

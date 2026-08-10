@@ -50,7 +50,24 @@ test.describe('Sessão atrás do nginx (stack de produção)', () => {
     await page.getByLabel('E-mail').fill(email);
     await page.getByLabel('Senha', { exact: true }).fill(password);
     await page.getByLabel('Confirmar', { exact: true }).fill(password);
-    await page.getByRole('button', { name: 'Cadastrar', exact: true }).click();
+    // O rate limit de auth (5/min por IP+rota) vale aqui como em produção — é
+    // deliberado não desligá-lo. O resto da suíte o absorve com `postWithRetry`,
+    // mas este teste registra pelo FORMULÁRIO de propósito (o que ele verifica é
+    // o redirecionamento do navegador atrás do nginx), e um formulário não tem
+    // como ser "retentado" por um helper de request. Sem isto, a suíte inteira
+    // gasta a janela em ~9 registros e este teste falha por vez sim, vez não —
+    // um gate de deploy que reprova sozinho ensina a ignorar o vermelho.
+    for (let tentativa = 0; tentativa < 8; tentativa++) {
+      await page.getByRole('button', { name: 'Cadastrar', exact: true }).click();
+      try {
+        await expect(page).toHaveURL(/\/overview$/, { timeout: 8_000 });
+        break;
+      } catch {
+        // Continua em /register: janela estourada. Espera e reenvia o mesmo
+        // formulário — os campos seguem preenchidos.
+        await page.waitForTimeout(10_000);
+      }
+    }
 
     await expect(page).toHaveURL(/\/overview$/, { timeout: 15_000 });
     // O que está na tela do usuário novo é o ONBOARDING, não o painel: ele é um

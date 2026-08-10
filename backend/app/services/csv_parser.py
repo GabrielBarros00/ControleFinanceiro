@@ -1,8 +1,10 @@
 import csv
 from typing import TextIO, Dict, Any
 from pydantic import BaseModel
-from datetime import datetime, UTC
+from datetime import datetime
 from decimal import Decimal
+
+from app.domain.dates import civil_instant
 
 class CSVColumnMapping(BaseModel):
     date_column: str
@@ -39,9 +41,18 @@ class CSVParserService:
                 continue
 
             # Parse Date
+            #
+            # `civil_instant`: a coluna de data de um extrato é um DIA DE
+            # CALENDÁRIO, e `strptime` de um formato só-data devolve meia-noite.
+            # Carimbar isso como UTC produzia uma data civil disfarçada de
+            # instante — "01/08" ficava gravado como `2026-08-01T00:00Z`, que
+            # todo leitor de fuso negativo lê como 31 de julho. A linha do dia 1º
+            # do mês entrava na competência anterior. Ancorar aqui, na fronteira
+            # onde ainda se sabe que aquilo é uma data, deixa o resto do caminho
+            # tratando um instante de verdade.
             try:
-                dt = datetime.strptime(raw_date.strip(), mapping.date_format)
-                dt = dt.replace(tzinfo=UTC)
+                dia = datetime.strptime(raw_date.strip(), mapping.date_format).date()
+                dt = civil_instant(dia)
             except ValueError:
                 skipped.append({
                     "line": line_no,

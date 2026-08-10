@@ -28,7 +28,7 @@ const ALERTA_POR_TOM: Record<
   { box: string; icone: string; icon: typeof AlertTriangle }
 > = {
   danger: { box: 'border-destructive/30 bg-destructive/10', icone: 'text-destructive', icon: AlertTriangle },
-  warning: { box: 'border-amber-500/30 bg-amber-500/10', icone: 'text-amber-500', icon: Clock },
+  warning: { box: 'border-warning/30 bg-warning-subtle', icone: 'text-warning', icon: Clock },
   info: { box: 'border-border bg-muted/50', icone: 'text-muted-foreground', icon: Info },
   success: { box: 'border-emerald-500/30 bg-emerald-500/10', icone: 'text-emerald-500', icon: CheckCircle2 },
 };
@@ -185,9 +185,13 @@ export function StatementView({ cardId }: { cardId: number | null }) {
     if (paidSoFar > 0) {
       const ok = await confirm({
         title: 'Reabrir e estornar os pagamentos?',
+        // O sentido do caixa estava INVERTIDO aqui. `reopen` faz soft delete dos
+        // `StatementPayment` (credit_card_service), e é o pagamento de fatura que
+        // constitui a saída de caixa (ADR 0022) — estorná-lo devolve o dinheiro
+        // ao mês, não o faz sair de novo. Só o limite volta a ficar preso.
         description:
           `Esta fatura já tem ${formatCurrency(paidSoFar, cardCurrency)} pago. ` +
-          'Reabrir estorna esse valor: ele volta a sair do seu caixa do mês e o ' +
+          'Reabrir estorna esse valor: ele volta para o seu caixa do mês e o ' +
           'limite do cartão volta a ficar comprometido.',
         confirmLabel: 'Reabrir e estornar',
         destructive: true,
@@ -335,10 +339,30 @@ export function StatementView({ cardId }: { cardId: number | null }) {
                               ` · IOF ${(parseFloat(tx.iof_rate) * 100).toLocaleString('pt-BR', { maximumFractionDigits: 2 })}%`}
                           </span>
                         )}
+                        {/* Quando a compra foi lançada num workspace de outra
+                            moeda, o valor contábil dela é um número diferente do
+                            que a fatura cobra. Mostrar os dois é o que evita a
+                            pergunta "por que R$ 100 viraram US$ 20?". */}
+                        {tx.statement_currency && tx.currency !== tx.statement_currency && (
+                          <span className="text-xs text-muted-foreground">
+                            {formatCurrency(parseFloat(tx.total_amount), tx.currency)} no workspace
+                          </span>
+                        )}
                       </div>
                     </TableCell>
                     <TableCell className="text-right">
-                      <MoneyText value={tx.total_amount} kind="expense" currency={cardCurrency} className="font-semibold" />
+                      {/* `statement_amount`/`statement_currency`: o valor DE
+                          FATURA (ADR 0024). Antes esta célula desenhava
+                          `total_amount` — a perna contábil, na moeda-base do
+                          workspace — rotulado com a moeda do cartão, então uma
+                          compra de R$ 100 num cartão em dólar aparecia como
+                          US$ 100 e não entrava no total logo abaixo. */}
+                      <MoneyText
+                        value={tx.statement_amount ?? tx.total_amount}
+                        kind="expense"
+                        currency={tx.statement_currency ?? cardCurrency}
+                        className="font-semibold"
+                      />
                     </TableCell>
                   </TableRow>
                 ))}

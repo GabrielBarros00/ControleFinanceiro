@@ -77,10 +77,10 @@ export function TransactionDialog({
         {isPaid ? (
           <div className="space-y-4 py-4">
             <TransactionSummary transaction={transaction} />
-            <div className="p-4 rounded-lg bg-amber-500/10 border border-amber-500/20 flex items-start gap-3">
-              <AlertCircle className="h-5 w-5 text-amber-500 mt-0.5" />
+            <div className="p-4 rounded-lg bg-warning-subtle border border-warning/20 flex items-start gap-3">
+              <AlertCircle className="h-5 w-5 text-warning mt-0.5" />
               <div className="space-y-1">
-                <p className="text-sm font-bold text-amber-500">Despesa paga</p>
+                <p className="text-sm font-bold text-warning">Despesa paga</p>
                 <p className="text-xs text-muted-foreground">
                   Despesas pagas ficam travadas para proteger o histórico de acertos.
                   Reabra para poder editar ou excluir.

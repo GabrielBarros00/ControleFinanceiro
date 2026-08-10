@@ -14,6 +14,7 @@ import { ChevronLeft, ChevronRight, Loader2, Trash2 } from 'lucide-react';
 import { useFinancing, useFinancingSchedule, type Financing } from '@/hooks/use-financing';
 import { useWorkspaces } from '@/hooks/use-workspaces';
 import { useReportCurrency } from '@/hooks/use-report-currency';
+import { CurrencyCombobox } from '@/components/dashboard/transaction-form/CurrencyCombobox';
 import { currencySymbol, formatMoney } from '@/lib/money';
 import { toast } from '@/stores/toast';
 import { useConfirm } from '@/components/ui/confirm';
@@ -132,6 +133,10 @@ function CreateFinancingDialog({ open, onOpenChange }: { open: boolean; onOpenCh
   const reportCurrency = useReportCurrency();
   const [title, setTitle] = React.useState('');
   const [totalAmount, setTotalAmount] = React.useState(0);
+  // A moeda do CONTRATO, não a de visualização: um financiamento assinado em
+  // dólar continua em dólar quando os relatórios passam a ser em real. Sem o
+  // campo, ele nascia com a moeda de relatório ativa no momento da criação.
+  const [currency, setCurrency] = React.useState(reportCurrency);
   const [interestRate, setInterestRate] = React.useState('1.00'); // % ao mês
   const [installments, setInstallments] = React.useState(12);
   const [method, setMethod] = React.useState<'SAC' | 'PRICE'>('SAC');
@@ -154,9 +159,11 @@ function CreateFinancingDialog({ open, onOpenChange }: { open: boolean; onOpenCh
         start_date: startDate,
         installments_count: installments,
         method,
+        currency,
       });
       onOpenChange(false);
       setTitle(''); setTotalAmount(0); setInterestRate('1.00'); setInstallments(12);
+      setCurrency(reportCurrency);
     } catch {
       setError('Erro ao criar financiamento.');
     } finally {
@@ -179,12 +186,21 @@ function CreateFinancingDialog({ open, onOpenChange }: { open: boolean; onOpenCh
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div className="space-y-2">
               <Label>Valor Financiado</Label>
-              <MoneyInput value={totalAmount} onChange={setTotalAmount} prefix={currencySymbol(reportCurrency)} className="bg-background/50" />
+              <MoneyInput value={totalAmount} onChange={setTotalAmount} prefix={currencySymbol(currency)} className="bg-background/50" />
             </div>
             <div className="space-y-2">
               <Label>Juros (% ao mês)</Label>
               <Input type="text" inputMode="decimal" value={interestRate} onChange={(e) => setInterestRate(e.target.value)} className="bg-background/50" />
             </div>
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="financing-currency">Moeda do contrato</Label>
+            <CurrencyCombobox
+              id="financing-currency"
+              ariaLabel="Moeda do contrato"
+              value={currency}
+              onChange={setCurrency}
+            />
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
             <div className="space-y-2">

@@ -1,5 +1,7 @@
 """Observabilidade e desempenho da Onda D."""
 from datetime import date, datetime, UTC
+
+from app.domain.dates import civil_instant
 from decimal import Decimal
 
 import pytest
@@ -208,9 +210,13 @@ def test_parse_so_consulta_a_janela_do_arquivo(db_session: Session, ws, override
         transaction_date=datetime(2019, 1, 5, tzinfo=UTC), billing_month="2019-01",
         workspace_id=ws["ws"].id,
     ))
+    # `civil_instant` e não meia-noite: a heurística de duplicata compara o DIA
+    # LOCAL dos dois lados, e `2026-08-10T00:00Z` é dia 9 em São Paulo — a linha
+    # de 10/08 do CSV não seria a mesma despesa. Meia-noite aqui era uma data
+    # civil disfarçada de instante, a mesma confusão que a Onda 9 desfez.
     db_session.add(Transaction(
         title="Na janela", total_amount=Decimal("50.00"), currency="BRL",
-        transaction_date=datetime(2026, 8, 10, tzinfo=UTC), billing_month="2026-08",
+        transaction_date=civil_instant(date(2026, 8, 10)), billing_month="2026-08",
         workspace_id=ws["ws"].id,
     ))
     db_session.commit()

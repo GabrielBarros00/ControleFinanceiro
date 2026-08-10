@@ -1,11 +1,13 @@
 import calendar
-from datetime import date, datetime, timedelta, UTC
+from datetime import date, timedelta
 from decimal import Decimal, ROUND_HALF_UP
 from typing import List, Optional, Tuple
 
 import structlog
 from sqlalchemy.exc import IntegrityError
 from sqlmodel import Session, select
+
+from fastapi import HTTPException
 
 from app.core.config import settings
 from app.domain.query_policy import BASE_CURRENCY, workspace_base_currency
@@ -27,6 +29,7 @@ from app.models.transaction import (
     PaymentMethod,
 )
 from app.schemas.transaction import TransactionPayerBase, TransactionSplitBase
+from app.services.base_conversion import apply_statement_leg
 from app.services.credit_card_service import CreditCardService
 from app.services.transaction_service import (
     persist_transaction_children,
@@ -35,7 +38,7 @@ from app.services.transaction_service import (
 )
 from app.services.currency_service import ExchangeRateUnavailable
 from app.services.exchange_rate_store import ExchangeRateStore
-from app.domain.dates import local_day, today_local
+from app.domain.dates import civil_instant, local_day, today_local
 
 logger = structlog.get_logger("app.recurring")
 
@@ -333,7 +336,12 @@ class RecurringService:
             payment_method=template.payment_method,
             credit_card_id=template.credit_card_id,
             statement_id=_statement_for(db, template, occ),
-            transaction_date=datetime(occ.year, occ.month, occ.day, tzinfo=UTC),
+            # `civil_instant`, não `datetime(y, m, d)`: a ocorrência é uma DATA
+            # de calendário ("todo dia 1"), e meia-noite UTC a joga para o dia 31
+            # do mês anterior em qualquer fuso negativo — a despesa do dia 1º
+            # saía do mês enquanto o `billing_month` da linha ao lado dizia o
+            # contrário.
+            transaction_date=civil_instant(occ),
             billing_month=billing_month,
             occurrence_date=occ,
             workspace_id=template.workspace_id,
@@ -346,6 +354,23 @@ class RecurringService:
             iof_rate=iof if is_foreign else None,
             rate_source=source if is_foreign else None,
         )
+        # Perna de fatura (ADR 0024) na moeda do cartão. A recorrência não podia
+        # ficar de fora: uma assinatura mensal no cartão é justamente o lançamento
+        # que ninguém relança à mão, então o buraco na fatura só cresceria.
+        # `allow_fetch=False` no caminho de leitura é a mesma política da perna
+        # contábil — sem cotação, a ocorrência espera o backfill.
+        card = db.get(CreditCard, template.credit_card_id) if template.credit_card_id else None
+        try:
+            apply_statement_leg(db, tx, card, allow_fetch=allow_fetch)
+        except HTTPException:
+            logger.warning(
+                "recurring_skip_sem_taxa_fatura",
+                template_id=template.id,
+                workspace_id=template.workspace_id,
+                card_currency=card.currency if card else None,
+                occurrence=occ.isoformat(),
+            )
+            return None
         db.add(tx)
         db.flush()
 
@@ -466,14 +491,21 @@ class RecurringService:
         if not templates:
             return 0
 
-        # Inclui excluídas de propósito: tombstone bloqueia recriação
+        # Inclui excluídas de propósito: tombstone bloqueia recriação.
+        #
+        # `occurrence_date` e não `transaction_date.date()`: a coluna é a data
+        # CANÔNICA da ocorrência (é ela que a unique `uq_recurring_occurrence`
+        # protege), enquanto `transaction_date` é um instante que o usuário pode
+        # ter editado depois. Derivar a chave do instante fazia o dedup deixar de
+        # reconhecer a própria instância assim que alguém corrigia a data dela —
+        # e a materialização seguinte criava uma segunda.
         existing = db.exec(
-            select(Transaction.recurring_expense_id, Transaction.transaction_date)
+            select(Transaction.recurring_expense_id, Transaction.occurrence_date)
             .where(Transaction.workspace_id == workspace_id)
             .where(Transaction.billing_month == billing_month)
             .where(Transaction.recurring_expense_id.is_not(None))
         ).all()
-        existing_dates = {(rid, dt.date()) for rid, dt in existing}
+        existing_dates = {(rid, occ) for rid, occ in existing if occ is not None}
         existing_templates = {rid for rid, _ in existing}
 
         per_occurrence = (RecurrenceFrequency.daily, RecurrenceFrequency.weekly)
@@ -611,6 +643,13 @@ class RecurringService:
 
         payer_user, splits = RecurringService._participants(template)
         base_currency = workspace_base_currency(db, template.workspace_id)
+        # Uma vez só, fora do laço: `credit_card_id` é do TEMPLATE, então é o
+        # mesmo cartão para todas as instâncias.
+        card = (
+            db.get(CreditCard, template.credit_card_id)
+            if template.credit_card_id is not None
+            else None
+        )
         for tx in unpaid_txs:
             # Re-converte cada instância na SUA data (meses diferentes, taxas diferentes)
             # `local_day` pelo mesmo motivo da renda recorrente: a reconversão e
@@ -635,6 +674,24 @@ class RecurringService:
             tx.exchange_rate = rate if is_foreign else None
             tx.iof_rate = iof if is_foreign else None
             tx.rate_source = source if is_foreign else None
+            # A perna de FATURA (ADR 0024) tem de acompanhar. Sem isto, editar o
+            # valor de uma assinatura em cartão de moeda diferente movia só a
+            # perna contábil: o lançamento virava R$ 200 e a fatura continuava
+            # cobrando os US$ 20,70 do valor antigo, com o limite disponível
+            # preso ao número velho. Trocar o CARTÃO era pior — a instância
+            # migrava para a fatura nova carregando a perna monetária da antiga,
+            # e caía fora do total dela (`excluded_from_total_count`).
+            #
+            # Depois de `original_*`/`statement_id`, porque `apply_statement_leg`
+            # reconstitui a moeda de ENTRADA a partir deles. Sem cartão ou sem
+            # fatura ele zera os três campos, que é o certo para quem acabou de
+            # tirar o cartão do template.
+            #
+            # A 422 por falta de cotação PROPAGA de propósito: aqui é caminho de
+            # escrita interativo (PUT), a rota comita no fim, e desfazer tudo é
+            # melhor que gravar metade da edição. No caminho de LEITURA
+            # (`_create_instance`) ela é capturada e a ocorrência espera.
+            apply_statement_leg(db, tx, card)
             db.add(tx)
             # Recria os filhos no valor novo (senão payer/split divergem do total)
             if payer_user is not None and splits:
@@ -766,7 +823,12 @@ class RecurringIncomeService:
                             exchange_rate=rate if estrangeira else None,
                             rate_source=source if estrangeira else None,
                             category=template.category,
-                            received_at=datetime(occ.year, occ.month, occ.day, tzinfo=UTC),
+                            # Mesma âncora da despesa (ver `_materialize`): o
+                            # salário "todo dia 1" é data civil. Com meia-noite,
+                            # `/me/income?month=` — que filtra por
+                            # `month_bounds_utc` — devolvia a renda de agosto
+                            # dentro de julho, e o mês de agosto vinha vazio.
+                            received_at=civil_instant(occ),
                             user_id=template.user_id,
                             recurring_income_id=template.id,
                             billing_month=billing_month,

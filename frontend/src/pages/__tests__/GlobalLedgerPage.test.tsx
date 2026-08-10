@@ -71,8 +71,17 @@ vi.mock('@/hooks/use-credit-cards', () => ({
   }),
 }));
 
-function renderPage(ledger: unknown = LEDGER, rota = '/me/ledger?month=2026-07') {
-  mockLedger.mockReturnValue({ ledger, isLoading: false });
+function renderPage(
+  ledger: unknown = LEDGER,
+  rota = '/me/ledger?month=2026-07',
+  extra: { isError?: boolean; refetch?: () => void } = {},
+) {
+  mockLedger.mockReturnValue({
+    ledger,
+    isLoading: false,
+    isError: extra.isError ?? false,
+    refetch: extra.refetch ?? vi.fn(),
+  });
   return render(
     <MemoryRouter initialEntries={[rota]}>
       <GlobalLedgerPage />
@@ -214,5 +223,63 @@ describe('Extrato global — paginação', () => {
   it('cabendo numa página, não há paginador', () => {
     renderPage(LEDGER);
     expect(screen.queryByRole('button', { name: 'Próxima' })).not.toBeInTheDocument();
+  });
+
+  // --- Erro nunca pode parecer "mês vazio" (Onda 9) ------------------------
+
+  it('falha da API vira erro com retry, não um mês zerado', () => {
+    // O defeito: `useLedger` descartava `isError`, então uma falha chegava como
+    // `ledger === undefined` e os StatTile liam `Number(undefined ?? 0)`. A tela
+    // anunciava "Entrou R$ 0,00 / Saiu R$ 0,00" — uma afirmação financeira que
+    // não tinha como ser verdadeira, porque nada foi calculado.
+    const refetch = vi.fn();
+    renderPage(undefined, '/me/ledger?month=2026-07', { isError: true, refetch });
+
+    expect(screen.getByText(/Não foi possível carregar o extrato/i)).toBeInTheDocument();
+    expect(screen.queryByText('Nada entrou nem saiu neste mês.')).not.toBeInTheDocument();
+    expect(screen.queryByText('Entrou')).not.toBeInTheDocument();
+  });
+
+  it('id inválido na URL não vira requisição', () => {
+    // `?workspace_id=abc` virava `Number('abc')` = NaN, viajava como
+    // `workspace_id=NaN`, a API respondia 422 — e a tela culpava o filtro,
+    // dizendo "nenhum movimento com estes filtros".
+    renderPage(LEDGER, '/me/ledger?month=2026-07&workspace_id=abc');
+    expect(mockLedger).toHaveBeenLastCalledWith(
+      expect.objectContaining({ workspace_id: undefined }),
+    );
+  });
+
+  it('id fracionário na URL é descartado como qualquer outro lixo', () => {
+    // `Number.isFinite(1.5)` é `true`, então `?workspace_id=1.5` passava pela
+    // validação, viajava inteiro e a API devolvia 422 — o mesmo beco do `abc`,
+    // por um valor que a tela podia ter descartado sozinha. Id é chave primária.
+    renderPage(LEDGER, '/me/ledger?month=2026-07&workspace_id=1.5&card_id=2.7');
+    expect(mockLedger).toHaveBeenLastCalledWith(
+      expect.objectContaining({ workspace_id: undefined, card_id: undefined }),
+    );
+  });
+
+  it('página fracionária não vira um offset que ninguém pediu', () => {
+    // `?page=1.5` × 100 por página = `offset=150`, um recorte no meio de uma
+    // página que a tela então anunciava como "esta página não existe".
+    renderPage(LEDGER, '/me/ledger?month=2026-07&page=1.5');
+    expect(mockLedger).toHaveBeenLastCalledWith(
+      expect.objectContaining({ offset: 100 }),
+    );
+  });
+
+  it('página fora do intervalo oferece a volta, em vez de um beco sem saída', () => {
+    // `?page=999` dizia "nada entrou nem saiu neste mês" — falso, e sem
+    // paginação para voltar, porque ela só é desenhada quando há linhas.
+    renderPage({ ...LEDGER, total: 3, entries: [] }, '/me/ledger?month=2026-07&page=999');
+
+    expect(screen.getByText('Esta página não existe')).toBeInTheDocument();
+    expect(screen.queryByText('Nada entrou nem saiu neste mês.')).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: /primeira página/i }));
+    expect(mockLedger).toHaveBeenLastCalledWith(
+      expect.objectContaining({ offset: 0 }),
+    );
   });
 });

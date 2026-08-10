@@ -6,12 +6,26 @@ import { cn } from '@/lib/utils';
 interface CurrencyComboboxProps {
   value: string;
   onChange: (code: string) => void;
+  /** `id` do CONTROLE, para o `<Label htmlFor>` de quem o usa. Sem ele o label
+   *  fica solto: `htmlFor` procura um elemento com esse id e não achava nenhum,
+   *  então "Moeda do cartão" e "Moeda do contrato" não chegavam à árvore de
+   *  acessibilidade — o leitor de tela anunciava só "Moeda", sem dizer de quê. */
+  id?: string;
+  /** Nome acessível do botão. O default genérico serve ao formulário de despesa,
+   *  onde o seletor é vizinho do campo de valor e o contexto é óbvio; onde há um
+   *  label visível, passe o mesmo texto dele. */
+  ariaLabel?: string;
 }
 
 // Combobox de moeda com busca e navegação por teclado (↑/↓/Enter/Esc). Renderiza
 // a lista INLINE (sem portal), então funciona dentro do Dialog do form sem
 // escapar do focus-trap.
-export function CurrencyCombobox({ value, onChange }: CurrencyComboboxProps) {
+export function CurrencyCombobox({
+  value,
+  onChange,
+  id,
+  ariaLabel = 'Moeda',
+}: CurrencyComboboxProps) {
   const [open, setOpen] = React.useState(false);
   const [query, setQuery] = React.useState('');
   const [highlight, setHighlight] = React.useState(0);
@@ -73,7 +87,8 @@ export function CurrencyCombobox({ value, onChange }: CurrencyComboboxProps) {
           e o valor digitado não cabia. Abaixo de `sm` o seletor encolhe. */}
       <button
         type="button"
-        aria-label="Moeda"
+        id={id}
+        aria-label={ariaLabel}
         aria-haspopup="listbox"
         aria-expanded={open}
         onClick={() => (open ? setOpen(false) : openMenu())}

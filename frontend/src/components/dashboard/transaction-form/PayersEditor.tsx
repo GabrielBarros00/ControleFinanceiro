@@ -151,7 +151,7 @@ export function PayersEditor({ participants }: PayersEditorProps) {
       {multi && (
         <p
           data-testid="payers-summary"
-          className={`text-xs font-semibold ${closed ? 'text-emerald-500' : 'text-amber-500'}`}
+          className={`text-xs font-semibold ${closed ? 'text-income' : 'text-warning'}`}
         >
           {closed
             ? `Pagadores fecham ${fmt(watchedTotal ?? 0)}`

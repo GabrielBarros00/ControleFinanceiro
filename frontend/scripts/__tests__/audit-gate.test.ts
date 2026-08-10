@@ -22,12 +22,31 @@ const DIR = mkdtempSync(join(tmpdir(), 'audit-gate-'));
 
 /** `spawnSync` (não `execFileSync`) para capturar stdout E stderr também no
  *  caminho de sucesso — os avisos do gate saem por stderr. */
-function rodar(payload: unknown): { code: number; saida: string } {
-  const arquivo = join(DIR, `relatorio-${Math.random().toString(36).slice(2)}.json`);
+function rodar(payload: unknown, aceitos?: unknown[]): { code: number; saida: string } {
+  const sufixo = Math.random().toString(36).slice(2);
+  const arquivo = join(DIR, `relatorio-${sufixo}.json`);
   writeFileSync(arquivo, typeof payload === 'string' ? payload : JSON.stringify(payload));
-  const r = spawnSync(process.execPath, [GATE, '--relatorio', arquivo], { encoding: 'utf8' });
+  const args = [GATE, '--relatorio', arquivo];
+  // A lista de exceções também é injetada: em produção ela é VAZIA (exceção
+  // aberta é dívida de segurança), e testar as regras dela contra a lista real
+  // fazia estes casos dependerem de haver alguma vulnerabilidade tolerada no
+  // momento — eles quebraram quando a última saiu.
+  if (aceitos) {
+    const arquivoAceitos = join(DIR, `aceitos-${sufixo}.json`);
+    writeFileSync(arquivoAceitos, JSON.stringify(aceitos));
+    args.push('--aceitos', arquivoAceitos);
+  }
+  const r = spawnSync(process.execPath, args, { encoding: 'utf8' });
   return { code: r.status ?? 1, saida: `${r.stdout ?? ''}${r.stderr ?? ''}` };
 }
+
+/** Uma exceção fictícia e vigente, no formato real da lista. */
+const ACEITO_FICTICIO = [{
+  id: 'GHSA-tttt-uuuu-vvvv',
+  pacote: 'pacote-de-teste',
+  motivo: 'Exceção de teste — não corresponde a nada real.',
+  revisar_em: '2099-01-01',
+}];
 
 /** Relatório limpo mínimo, no formato real do `npm audit --json`. */
 const LIMPO = {
@@ -94,20 +113,29 @@ describe('audit-gate', () => {
   it('silencia a high que tem exceção vigente', () => {
     const { code, saida } = rodar({
       vulnerabilities: {
-        'react-router': {
+        'pacote-de-teste': {
           severity: 'high',
-          via: [{ url: 'https://github.com/advisories/GHSA-qwww-vcr4-c8h2', title: 'CSRF' }],
+          via: [{ url: 'https://github.com/advisories/GHSA-tttt-uuuu-vvvv', title: 'CSRF' }],
         },
       },
       metadata: { vulnerabilities: { info: 0, low: 0, moderate: 0, high: 1, critical: 0 } },
-    });
+    }, ACEITO_FICTICIO);
     expect(code).toBe(0);
-    expect(saida).toContain('GHSA-qwww-vcr4-c8h2');
+    expect(saida).toContain('GHSA-tttt-uuuu-vvvv');
   });
 
   it('avisa quando uma exceção não corresponde a nada no relatório', () => {
-    const { code, saida } = rodar(LIMPO);
+    const { code, saida } = rodar(LIMPO, ACEITO_FICTICIO);
     expect(code).toBe(0);
     expect(saida).toContain('não corresponde a nenhuma vulnerabilidade');
+  });
+
+  it('a lista de produção está vazia', () => {
+    // Uma exceção que sobrevive à vulnerabilidade que a justificou é uma porta
+    // destrancada de que ninguém lembra. Se este teste falhar, a entrada nova
+    // precisa de `revisar_em` e de um motivo — e de sair assim que der.
+    const { code, saida } = rodar(LIMPO);
+    expect(code).toBe(0);
+    expect(saida).toContain('0 aceita(s)');
   });
 });

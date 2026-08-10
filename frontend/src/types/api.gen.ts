@@ -1099,6 +1099,12 @@ export interface paths {
          *
          *     `workspace_id` viaja em cada linha porque a compra continua morando num
          *     workspace: é o que permite à tela dizer "esta parcela caiu na Casa".
+         *
+         *     A população é a MESMA de `compute_statement_total`, por construção
+         *     (`statement_population`). Aqui havia só `statement_id` + `deleted_at`: a lista
+         *     trazia rascunho e cancelada, que o total ignora, e trazia lançamento de
+         *     qualquer moeda, que o total também ignorava. A tela mostrava linhas que o
+         *     rodapé não somava e ninguém tinha como perceber qual dos dois estava certo.
          */
         get: operations["get_statement_api_v1_me_credit_cards__card_id__statements__statement_id__get"];
         put?: never;
@@ -3064,6 +3070,11 @@ export interface components {
              */
             payments: components["schemas"]["StatementPaymentRead"][];
             /**
+             * Excluded From Total Count
+             * @default 0
+             */
+            excluded_from_total_count: number;
+            /**
              * Transactions
              * @default []
              */
@@ -3117,6 +3128,11 @@ export interface components {
              * @default []
              */
             payments: components["schemas"]["StatementPaymentRead"][];
+            /**
+             * Excluded From Total Count
+             * @default 0
+             */
+            excluded_from_total_count: number;
             /** Is Current */
             is_current: boolean;
         };
@@ -3205,6 +3221,11 @@ export interface components {
              * @default []
              */
             payments: components["schemas"]["StatementPaymentRead"][];
+            /**
+             * Excluded From Total Count
+             * @default 0
+             */
+            excluded_from_total_count: number;
         };
         /**
          * StatementStatus
@@ -3241,6 +3262,10 @@ export interface components {
             installment_no?: number | null;
             /** Installments Of */
             installments_of?: number | null;
+            /** Statement Amount */
+            statement_amount?: string | null;
+            /** Statement Currency */
+            statement_currency?: string | null;
             /** Original Amount */
             original_amount?: string | null;
             /** Original Currency */

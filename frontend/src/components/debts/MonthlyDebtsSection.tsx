@@ -89,9 +89,9 @@ export function MonthlyDebtsSection({ members, currentUserId, canWrite, onSettle
               <p className="text-[10px] font-semibold uppercase text-muted-foreground">Pago</p>
               <p className="text-sm font-semibold text-emerald-500">{formatBRL(ledger.totals.paid)}</p>
             </div>
-            <div className="rounded-lg bg-amber-500/10 p-2">
+            <div className="rounded-lg bg-warning-subtle p-2">
               <p className="text-[10px] font-semibold uppercase text-muted-foreground">Em aberto</p>
-              <p className="text-sm font-semibold text-amber-500">{formatBRL(ledger.totals.open)}</p>
+              <p className="text-sm font-semibold text-warning">{formatBRL(ledger.totals.open)}</p>
             </div>
           </div>
         )}
@@ -225,7 +225,7 @@ export function MonthlyDebtsSection({ members, currentUserId, canWrite, onSettle
                         {exp.is_paid ? (
                           <span className="rounded-full bg-emerald-500/10 px-2 py-0.5 text-[10px] font-semibold uppercase text-emerald-500">Paga</span>
                         ) : (
-                          <span className="rounded-full bg-amber-500/10 px-2 py-0.5 text-[10px] font-semibold uppercase text-amber-500">Em aberto</span>
+                          <span className="rounded-full bg-warning-subtle px-2 py-0.5 text-[10px] font-semibold uppercase text-warning">Em aberto</span>
                         )}
                       </TableCell>
                       <TableCell className="text-right font-semibold text-foreground">{formatBRL(exp.total_amount)}</TableCell>

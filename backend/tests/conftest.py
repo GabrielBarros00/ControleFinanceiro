@@ -4,6 +4,14 @@ import os
 # metadata) — o auto-upgrade Alembic do lifespan é só para dev real (ADR 0005)
 os.environ.setdefault("APP_ENV", "test")
 
+# O fuso é premissa dos testes de virada de mês, não detalhe de ambiente. Ele
+# vinha do default de `core/config.py`, então a suíte inteira de fronteira
+# passava por acidente: bastaria alguém trocar o default — ou rodar com `TZ`
+# setado — para os testes que exigem "31 de julho" começarem a exigir outro dia
+# sem que nada no arquivo dissesse por quê. Fuso NEGATIVO de propósito: é o que
+# expõe a diferença entre um instante e uma data civil.
+os.environ.setdefault("APP_TIMEZONE", "America/Sao_Paulo")
+
 from contextlib import contextmanager
 
 import pytest
@@ -34,6 +42,21 @@ else:
     engine = create_engine(test_db_url)
 
 _schema_ready = False
+
+
+@pytest.fixture(scope="session", autouse=True)
+def fecha_o_engine():
+    """Devolve as conexões ao fim da suíte.
+
+    O engine é de MÓDULO (criado na importação do conftest) e nada o fechava: no
+    SQLite com `StaticPool` isso é uma conexão viva do começo ao fim, coletada
+    pelo interpretador na saída sem passar por `close()`. O resultado era um
+    `ResourceWarning: unclosed database` depois de uma suíte verde — barulho que
+    não reprova nada e, justamente por isso, esconde o próximo vazamento de
+    verdade. Contra Postgres, é a conexão do pool que fica pendurada.
+    """
+    yield
+    engine.dispose()
 
 
 @pytest.fixture(name="db_session")

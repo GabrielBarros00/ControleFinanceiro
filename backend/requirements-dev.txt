@@ -11,3 +11,9 @@ pytest==9.0.3
 pytest-asyncio==1.4.0
 pytest-cov==7.0.0
 ruff==0.15.12
+# Gera o `requirements.lock` e é o que o gate "Lock de dependências em dia" do CI
+# executa. FIXADO porque o gate compara a saída dele com o arquivo versionado:
+# instalado sem versão, uma release que mude o cabeçalho gerado ou a estratégia
+# de resolução reprovaria o CI sem uma linha de código ter mudado — e a correção
+# não estaria em lugar nenhum do diff. Mesma razão de todo o resto estar fixado.
+pip-tools==7.6.0

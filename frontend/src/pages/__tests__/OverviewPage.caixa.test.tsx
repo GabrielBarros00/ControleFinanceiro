@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { render, screen, within } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { OverviewPage } from '../OverviewPage';
@@ -67,8 +67,13 @@ const ATIVIDADE = [
   },
 ];
 
+// `vi.hoisted` porque a fábrica do `vi.mock` sobe para o topo do módulo e
+// precisa do mock já existindo; o valor de retorno é definido no `beforeEach`,
+// que corre depois das constantes deste arquivo.
+const mockOverview = vi.hoisted(() => vi.fn());
+
 vi.mock('@/hooks/use-overview', () => ({
-  useOverview: () => ({ overview: OVERVIEW, isLoading: false }),
+  useOverview: (...args: unknown[]) => mockOverview(...args),
   useMyActivity: () => ({ activity: ATIVIDADE, isLoading: false }),
 }));
 vi.mock('@/hooks/use-auth', () => ({
@@ -82,6 +87,15 @@ function renderOverview() {
     </MemoryRouter>,
   );
 }
+
+beforeEach(() => {
+  mockOverview.mockReturnValue({
+    overview: OVERVIEW,
+    isLoading: false,
+    isError: false,
+    refetch: vi.fn(),
+  });
+});
 
 describe('Visão global — competência e caixa são números diferentes', () => {
   /** O valor exibido por um tile, escopado ao próprio tile. */
@@ -129,5 +143,41 @@ describe('Visão global — "Onde você está envolvido"', () => {
     // aparecia como 200 para quem consumiu 100.
     expect(within(secao).getByText(/R\$\s*100,00/)).toBeInTheDocument();
     expect(within(secao).getByText(/de\s*R\$\s*200,00/)).toBeInTheDocument();
+  });
+});
+
+describe('Visão global — erro nunca vira um mês de zeros (Onda 9)', () => {
+  it('falha da API mostra erro com retry, não "Renda R$ 0,00"', () => {
+    // Sem o ramo de erro, `overview` chegava `undefined` e cada tile lia
+    // `Number(undefined ?? 0)`: a tela afirmava um mês inteiro zerado, que é uma
+    // resposta financeira — e era falsa (regra ERR-001).
+    const refetch = vi.fn();
+    mockOverview.mockReturnValue({
+      overview: undefined, isLoading: false, isError: true, refetch,
+    });
+    render(
+      <MemoryRouter>
+        <OverviewPage />
+      </MemoryRouter>,
+    );
+
+    expect(screen.getByText(/Não foi possível carregar a sua visão do mês/i)).toBeInTheDocument();
+    expect(screen.queryByText('Renda')).not.toBeInTheDocument();
+    expect(screen.queryByText('Resultado do mês')).not.toBeInTheDocument();
+  });
+});
+
+describe('Visão global — drill-down das saídas', () => {
+  it('o nome acessível do link inclui o rótulo E o valor', () => {
+    // `aria-labelledby` SUBSTITUI o conteúdo como nome acessível; citando só o
+    // <dt>, o link era anunciado como "Lançamentos à vista" e o valor — o dado
+    // da linha — ficava de fora para quem usa leitor de tela.
+    renderOverview();
+    const secao = screen.getByText(/Clique em uma linha/i).closest('section')!;
+    const links = within(secao).getAllByRole('link');
+    expect(links.length).toBeGreaterThan(0);
+    const nome = links[0].getAttribute('aria-labelledby') ?? '';
+    // Dois ids: o do rótulo e o do valor.
+    expect(nome.trim().split(/\s+/).length).toBe(2);
   });
 });

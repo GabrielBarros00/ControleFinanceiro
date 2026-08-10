@@ -133,14 +133,22 @@ def _serialize_statement(
     session: Session,
     stmt: CardStatement,
     payments: Optional[list[StatementPayment]] = None,
+    card: Optional[CreditCard] = None,
+    excluidos: Optional[int] = None,
 ) -> dict:
     """`payments=None` busca sozinho; quem serializa uma LISTA passa o grupo já
-    carregado para não disparar uma consulta por fatura."""
+    carregado para não disparar uma consulta por fatura. `excluidos` segue a
+    mesma regra — ver `CreditCardService.excluded_counts`."""
     if payments is None:
         payments = _payments_by_statement(session, [stmt.id]).get(stmt.id, [])
     total = CreditCardService.effective_total(session, stmt)
     pago = sum((p.amount for p in payments), Decimal("0.00"))
     saldo = total - pago
+    card = card or session.get(CreditCard, stmt.card_id)
+    if excluidos is None:
+        excluidos = (
+            CreditCardService.excluded_from_total_count(session, stmt.id, card) if card else 0
+        )
     return {
         **stmt.model_dump(),
         "computed_total": total,
@@ -148,6 +156,10 @@ def _serialize_statement(
         "paid_amount": pago,
         "remaining_amount": saldo if saldo > 0 else Decimal("0.00"),
         "payments": payments,
+        # Lançamento vivo que a fatura não soma (linha legada sem perna de
+        # fatura). Zero na esmagadora maioria — mas quando não é, a tela precisa
+        # dizer, senão o total parece completo estando incompleto.
+        "excluded_from_total_count": excluidos,
     }
 
 
@@ -312,13 +324,21 @@ def list_statements(
         .where(CardStatement.card_id == card.id)
         .order_by(CardStatement.month.desc())
     ).all()
-    pagamentos = _payments_by_statement(session, [s.id for s in statements])
+    ids = [s.id for s in statements]
+    pagamentos = _payments_by_statement(session, ids)
+    # Em lote pela mesma razão dos pagamentos: por fatura eram duas contagens
+    # dentro do laço, ~120 consultas num cartão com 60 meses de histórico.
+    excluidos = CreditCardService.excluded_counts(session, ids, card)
     # is_current marca o ciclo aberto de hoje. A tela não pode deduzir isso de
     # "a mais recente": uma compra lançada com data futura cria uma fatura à
     # frente, e ela não é a fatura atual.
     return [
         {
-            **_serialize_statement(session, s, pagamentos.get(s.id, [])),
+            # `card=card` fecha mais um SELECT por fatura: todas são deste cartão,
+            # que a rota já carregou para autorizar.
+            **_serialize_statement(
+                session, s, pagamentos.get(s.id, []), card, excluidos.get(s.id, 0)
+            ),
             "is_current": s.month == current_month,
         }
         for s in statements
@@ -341,15 +361,20 @@ def get_statement(
 
     `workspace_id` viaja em cada linha porque a compra continua morando num
     workspace: é o que permite à tela dizer "esta parcela caiu na Casa".
+
+    A população é a MESMA de `compute_statement_total`, por construção
+    (`statement_population`). Aqui havia só `statement_id` + `deleted_at`: a lista
+    trazia rascunho e cancelada, que o total ignora, e trazia lançamento de
+    qualquer moeda, que o total também ignorava. A tela mostrava linhas que o
+    rodapé não somava e ninguém tinha como perceber qual dos dois estava certo.
     """
     card = _get_card_or_404(session, card_id, current_user.id)
     stmt = _get_statement_or_404(session, card, statement_id)
 
     transactions = session.exec(
-        select(Transaction).where(
-            Transaction.statement_id == stmt.id,
-            Transaction.deleted_at.is_(None),
-        ).order_by(Transaction.transaction_date.desc())
+        select(Transaction)
+        .where(*CreditCardService.statement_population(stmt.id, card))
+        .order_by(Transaction.transaction_date.desc())
     ).all()
 
     return {

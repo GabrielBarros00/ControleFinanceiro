@@ -45,7 +45,7 @@ def _dedupe(bind) -> None:
     Mantém a de MENOR id — a primeira lançada é a que os relatórios do mês já
     contabilizaram; escolher a última moveria o histórico sem motivo.
     """
-    bind.execute(sa.text(f"""
+    bind.execute(sa.text("""
         UPDATE "transaction"
         SET deleted_at = CURRENT_TIMESTAMP
         WHERE financing_installment_id IS NOT NULL

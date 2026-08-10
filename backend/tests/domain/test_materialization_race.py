@@ -19,6 +19,7 @@ import pytest
 from sqlalchemy.exc import IntegrityError
 from sqlmodel import Session, select
 
+from app.domain.dates import civil_instant
 from app.models.income import Income
 from app.models.recurring import RecurringIncome
 from app.models.user import User
@@ -102,10 +103,14 @@ def test_materializacao_absorve_colisao_e_segue_o_lote(db_session: Session):
     db_session.add_all([ocupado, livre])
     db_session.flush()
 
-    # Ocupa a vaga do dia 5 com billing_month divergente (invisível ao dedup)
+    # Ocupa a vaga do dia 5 com billing_month divergente (invisível ao dedup).
+    # `civil_instant` e não meia-noite: a vaga da unique é o instante EXATO que a
+    # materialização grava, e ela ancora a ocorrência ao meio-dia local (Onda 9).
+    # Com meia-noite não haveria colisão nenhuma e o teste passaria a exercitar o
+    # caminho feliz sem dizer que parou de cobrir a corrida.
     db_session.add(Income(
         title="Salário", amount=Decimal("5000.00"),
-        received_at=datetime(2026, 7, 5, tzinfo=UTC),
+        received_at=civil_instant(date(2026, 7, 5)),
         user_id=user.id,
         recurring_income_id=ocupado.id, billing_month="2026-06",
     ))

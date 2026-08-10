@@ -24,6 +24,13 @@ Object.defineProperty(window, 'matchMedia', {
   })),
 });
 
+// `scrollIntoView` não existe no jsdom, e todo componente que mantém o item
+// destacado visível ao navegar por teclado o chama (`CurrencyCombobox`, os menus
+// do Base UI). Sem este stub, abrir um desses num teste morre com
+// `TypeError: el?.scrollIntoView is not a function` — falha de ambiente que se
+// disfarça de falha do componente.
+Element.prototype.scrollIntoView = vi.fn();
+
 const BASE_URL = 'http://localhost:8000/api/v1';
 
 // Default Handlers

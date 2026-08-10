@@ -5,6 +5,8 @@ from typing import Optional
 
 from sqlmodel import SQLModel, Field
 
+from app.domain.dates import local_day
+
 
 class ImportRowStatus(str, Enum):
     imported = "imported"    # virou transação
@@ -46,6 +48,13 @@ class ImportRow(SQLModel, table=True):
 
 
 def compute_fingerprint(workspace_id: int, when: datetime, amount: Decimal, title: str) -> str:
-    """Chave de deduplicação: mesma data (dia), valor em centavos e título."""
+    """Chave de deduplicação: mesma data (dia), valor em centavos e título.
+
+    O dia é o LOCAL. Com `when.date()` a chave saía do dia em UTC, e a mesma
+    linha de extrato produzia fingerprints diferentes conforme a hora gravada —
+    a idempotência do ADR 0008 dependia de todo mundo ancorar a data igual.
+    Continua compatível com o que já está gravado: para as linhas de import a
+    âncora cai no meio do dia, e meio-dia ±12h não troca de data.
+    """
     cents = int((amount * 100).to_integral_value())
-    return f"{workspace_id}:{when.date().isoformat()}:{cents}:{title.strip().lower()}"
+    return f"{workspace_id}:{local_day(when).isoformat()}:{cents}:{title.strip().lower()}"

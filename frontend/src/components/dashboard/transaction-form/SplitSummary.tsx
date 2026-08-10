@@ -31,7 +31,7 @@ export function SplitSummary({ method, splits, totalAmount, currency = 'BRL', te
     const sum = splits.reduce((acc, s) => acc + (Number.isFinite(s.value) ? s.value : 0), 0);
     const closed = Math.abs(sum - 100) <= 0.001;
     return (
-      <p data-testid={testId} className={`text-xs font-semibold ${closed ? 'text-emerald-500' : 'text-amber-500'}`}>
+      <p data-testid={testId} className={`text-xs font-semibold ${closed ? 'text-income' : 'text-warning'}`}>
         {closed
           ? 'Percentuais fecham 100%'
           : sum < 100
@@ -48,7 +48,7 @@ export function SplitSummary({ method, splits, totalAmount, currency = 'BRL', te
   const closed = totalCents > 0 && sumCents === totalCents;
   const diff = Math.abs(totalCents - sumCents) / 100;
   return (
-    <p data-testid={testId} className={`text-xs font-semibold ${closed ? 'text-emerald-500' : 'text-amber-500'}`}>
+    <p data-testid={testId} className={`text-xs font-semibold ${closed ? 'text-income' : 'text-warning'}`}>
       {closed
         ? `Valores fecham ${fmt(totalAmount)}`
         : sumCents < totalCents

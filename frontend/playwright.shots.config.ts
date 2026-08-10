@@ -32,7 +32,17 @@ export default defineConfig({
       env: { RATE_LIMIT_ENABLED: 'False', DATABASE_URL: 'sqlite:///./shots.db' },
     },
     {
-      command: 'npm run dev',
+      // `node` no script do vite pelo mesmo motivo do config principal: `npm run
+      // dev` e `npx` deixam o vite como processo neto e o runner não encerra no
+      // Windows.
+      //
+      // `reuseExistingServer: true` aqui é DELIBERADO e diverge do config
+      // principal: gerar telas é um roteiro de leitura contra um banco próprio
+      // (`shots.db`), sem cadastro nem escrita que possa contaminar o `dev.db`.
+      // O risco que motivou o `false` lá — a suíte escrever no banco de
+      // desenvolvimento — não existe aqui, e reaproveitar o servidor já ligado
+      // torna `npm run shots` instantâneo.
+      command: 'node ./node_modules/vite/bin/vite.js --port 5173 --strictPort',
       url: 'http://localhost:5173',
       reuseExistingServer: true,
     },

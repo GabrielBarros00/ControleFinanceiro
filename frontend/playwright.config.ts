@@ -54,7 +54,20 @@ export default defineConfig({
   forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 2 : 0,
   workers: 1,
-  reporter: 'html',
+  /*
+   * `open: 'never'` é o que faz o comando devolver o terminal.
+   *
+   * O atalho `reporter: 'html'` mantém o default `open: 'on-failure'`, e nesse
+   * modo o Playwright termina a rodada e SOBE UM SERVIDOR HTTP para exibir o
+   * relatório — fica vivo até alguém fechá-lo. O sintoma era exatamente o que a
+   * auditoria descreveu: 16 testes alcançados, nenhuma falha de asserção, e o
+   * processo sem encerrar em 300 s. O `playwright.shots.config.ts`, com a MESMA
+   * configuração de `webServer`, nunca travou — porque usa `reporter: 'line'`.
+   *
+   * `list` junto para a rodada continuar legível no terminal; o HTML fica
+   * gravado em disco e é aberto à mão com `npx playwright show-report`.
+   */
+  reporter: [['list'], ['html', { open: 'never' }]],
   use: {
     baseURL: 'http://localhost:5173',
     trace: 'on-first-retry',
@@ -84,8 +97,9 @@ export default defineConfig({
   webServer: [
     {
       // Executável PURO, sem `&&`: com encadeamento o Playwright sobe um shell e
-      // não consegue encerrar o uvicorn no Windows. A limpeza do e2e.db mudou-se
-      // para o `globalSetup` por causa disso.
+      // não consegue encerrar o uvicorn no Windows. A limpeza do e2e.db roda no
+      // CORPO deste módulo (ver o topo do arquivo) — `globalSetup` não serve,
+      // porque corre DEPOIS do `webServer` e o backend já teria aberto o banco.
       command: `${PYTHON} -m uvicorn app.main:app --port 8000`,
       cwd: '../backend',
       url: 'http://localhost:8000/api/v1/health',
@@ -102,9 +116,20 @@ export default defineConfig({
       env: { RATE_LIMIT_ENABLED: 'False', DATABASE_URL: 'sqlite:///./e2e.db' },
     },
     {
-      command: 'npm run dev',
+      // `node` no script do vite, e não `npm run dev` NEM `npx vite`: os dois são
+      // wrappers que sobem o vite como processo NETO, e no Windows matar o
+      // wrapper não leva a árvore junto. A versão anterior trocou `npm` por
+      // `npx` acreditando ter resolvido — `npx` é ele próprio um script Node, e
+      // o `.bin/vite` do Windows é um `.cmd`, que traz um shell junto. O único
+      // que não interpõe processo é chamar o entrypoint direto.
+      //
+      // `reuseExistingServer: false` também aqui: adotar um `npm run dev` local
+      // é adotar um processo que o Playwright não consegue encerrar, o que
+      // reintroduz o mesmo travamento por outro caminho.
+      command: 'node ./node_modules/vite/bin/vite.js --port 5173 --strictPort',
       url: 'http://localhost:5173',
-      reuseExistingServer: !process.env.CI,
+      reuseExistingServer: false,
+      timeout: 60_000,
     },
   ],
 });

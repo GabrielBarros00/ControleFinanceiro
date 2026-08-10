@@ -11,6 +11,128 @@ segue [SemVer](https://semver.org/lang/pt-BR/).
 
 ## [Não lançado]
 
+### A auditoria da Onda 9: o que se corrige em banco vazio não se corrige
+
+Uma segunda auditoria externa sobre a Onda 9 aprovou a separação Global × Workspace, as
+permissões e o multimoeda manual, e reprovou a publicação com 2 achados críticos, 2 altos e
+2 médios. Todos os seis procediam. **Dois eram piores do que o relatado** e um não reproduziu.
+
+O fio comum dos dois críticos: *o caminho de criação foi corrigido e o de edição não*.
+
+- **A migração de datas civis quebrava em qualquer banco com dados.** Ela lia as linhas com
+  `sa.text()` sem tipo declarado, e sem tipo o SQLAlchemy não aplica processador de
+  resultado: o driver do SQLite devolve a coluna `DATETIME` como `str`, e o `.time()`
+  seguinte estourava `AttributeError`. Como o Dockerfile roda `alembic upgrade head` antes do
+  uvicorn, isso é o container não subir. Passava no CI porque o CI migra um banco **vazio** —
+  não havia linha para ler.
+- **E, onde não quebrava, convertia pela metade.** A barreira contra colisão era um conjunto
+  de instantes global por chamada, sem olhar a que recorrência a linha pertencia: a primeira
+  despesa do dia 1º reancorava e ocupava o meio-dia, e toda outra linha daquele mesmo dia —
+  de outras recorrências, sem relação nenhuma — era pulada e ficava com o bug que a migração
+  existe para corrigir. A auditoria descreveu o sintoma; a leitura dos modelos mostrou que a
+  barreira era pior ainda: em `transaction` o índice único é
+  `(recurring_expense_id, occurrence_date)`, que **não menciona** a coluna movida, e em
+  `importrow` não há índice único nenhum. Nas duas ela só atrapalhava. A vaga real é
+  `(recorrência, instante)`, e só `income` tem um índice que a envolva.
+- **Editar uma recorrência deixava a fatura no valor antigo.** `_create_instance` chamava
+  `apply_statement_leg`; `sync_unpaid_instances` — o caminho que roda ao editar o template —
+  atualizava valor, moeda, cartão e `statement_id` e parava aí. Uma assinatura de R$ 100 num
+  cartão USD virava R$ 200 no lançamento e continuava cobrando US$ 20,70 na fatura, com o
+  limite disponível preso ao número velho. Trocar o cartão era pior: a instância migrava para
+  a fatura nova carregando a perna monetária da antiga e caía fora do total dela.
+- **O backfill histórico cobrava IOF de quem não converteu nada.** Ele reimplementava
+  taxa × (1 + IOF) por conta própria, e errava justamente o caso mais comum do seu recorte:
+  US$ 20 num cartão USD (cuja perna contábil está em BRL só porque o workspace é BRL) viravam
+  US$ 20,70. A regra correta já existia em `compute_statement_conversion`; o script passou a
+  reusá-la. E ele só tocava a transação: fatura fechada usa o `total_amount` **congelado**,
+  então o backfill apagava o aviso de linha incompatível e mantinha o total errado — pior que
+  antes, porque agora invisível. Agora há uma segunda passada que recongela o total, e as
+  faturas que passam a estar sub-pagas saem em destaque (status e pagamentos não são tocados:
+  cobrar a diferença é decisão humana).
+- **O Playwright não devolvia o terminal** — de novo, e a correção anterior tinha trocado
+  `npm run dev` por `npx vite` acreditando ter resolvido o problema do processo neto (`npx`
+  também é um wrapper Node). A causa real era outra: o atalho `reporter: 'html'` mantém o
+  default `open: 'on-failure'`, e nesse modo o Playwright termina a rodada e **sobe um
+  servidor HTTP** para exibir o relatório. O `playwright.shots.config.ts`, com o mesmo
+  `webServer`, nunca travou — usa `reporter: 'line'`. Agora `open: 'never'`, o vite sobe por
+  `node` direto, e a rodada devolve exit code 0 por conta própria.
+- **O campo "Limite" mostrava R$ ao cadastrar um cartão em USD.** Uma variável paralela ao
+  estado (`dialogCurrency`) caía na moeda de relatório durante a criação, ignorando o seletor.
+  O cartão nascia correto, e era isso que tornava o erro traiçoeiro: a tela mostrava um número
+  numa moeda e gravava noutra, sem sinal de que tinham divergido.
+
+Os baixos, todos corrigidos: `?workspace_id=1.5` passava pela validação (`Number.isFinite`
+aceita fracionário) e virava 422; `?page=1.5` virava `offset=150`; a listagem de faturas
+fazia duas contagens **por fatura** dentro do laço (~120 consultas num cartão com 60 meses,
+agora dois `GROUP BY`); o `CurrencyCombobox` não aceitava `id`, então os `<Label htmlFor>` de
+"Moeda do cartão" e "Moeda do contrato" não chegavam à árvore de acessibilidade; e o engine
+de teste nunca era fechado, deixando um `ResourceWarning` depois de uma suíte verde.
+
+De quebra, um defeito que a auditoria não pegou: o comentário de `_create_instance` afirmava
+usar `allow_fetch=False` no caminho de leitura, mas `apply_statement_leg` não aceitava esse
+parâmetro — a materialização preguiçosa, que roda a partir de **rotas de leitura**, podia ir à
+rede uma vez por ocorrência. O mesmo parâmetro que o backfill precisava fecha os dois.
+
+**Um achado não reproduziu.** O relatório dava o CI como vermelho por `requirements.lock`
+desatualizado, listando quatro transitivas a subir. Rodando o passo exato do workflow —
+`pip-compile` **em cima do lock versionado** — em `python:3.12-slim` e em `ubuntu:24.04` com
+Python 3.12, a saída é idêntica ao arquivo commitado nos dois ambientes. A divergência aparece
+quando se compila para um arquivo de saída **novo**: sem o lock presente, o pip-tools perde as
+preferências de versão e reresolve tudo para o mais recente do PyPI. O gate está verde — mas o
+episódio expôs uma fragilidade real, e o `pip-tools` do CI, que era instalado sem versão,
+passou a sair fixado do `requirements-dev.txt`.
+
+**O gate que faltava:** `tests/test_migration_c7e3b81f04a9.py` migra um banco **povoado** — em
+SQLite e em Postgres — e cobre os dois defeitos e os casos que não devem ser tocados. É o
+irmão de `test_migration_a4e8c1b90f52.py`, criado pela mesma razão na auditoria anterior:
+migração só testada em banco vazio não está testada.
+
+### A moeda da fatura e a data que não tinha dono (ADR 0024 e 0025)
+
+Uma auditoria externa sobre a onda anterior levantou 12 achados. Todos procediam. Os quatro
+graves tinham duas causas, e as duas eram a mesma espécie de omissão: **ninguém tinha
+decidido**, e cada caminho decidiu sozinho.
+
+- **Ninguém decidiu em que moeda a fatura é denominada.** O ADR 0021 tornou o cartão pessoal
+  (moeda = a de relatório do dono); o ADR 0015 grava todo lançamento na moeda-base do
+  *workspace*. Dois ADRs certos, tomados em ondas diferentes, e nada ligando as duas moedas.
+  Com cartão em USD e workspace em BRL, a fatura somava **US$ 0,00** com a compra listada
+  logo acima: o filtro `currency == card.currency` não casava com linha nenhuma. O limite
+  nunca era consumido, fechar a fatura **congelava o zero** como histórico, e o overview
+  descartava a fatura em silêncio. A listagem, que não filtrava moeda nem status, exibia
+  R$ 100 como `−US$ 100,00`. Três populações diferentes na mesma tela. Agora o lançamento tem
+  duas pernas — a contábil e a de fatura —, e listagem, total, limite, fechamento e pagamento
+  operam sobre o mesmo predicado.
+- **Ninguém decidiu como escrever uma data civil.** A Onda 7 ensinou o backend a *ler*
+  instantes no fuso do usuário e deixou a escrita implícita; todo produtor escolheu meia-noite
+  por omissão. `2026-08-01 00:00Z` é 31 de julho em São Paulo, então a recorrência do dia 1º
+  saía do próprio mês: `/me/income?month=2026-08` vinha vazio, `/me/overview` mostrava renda
+  zero e o caixa não registrava nada — enquanto o `billing_month` da mesma linha dizia agosto.
+  O frontend já ancorava tudo ao meio-dia (`T12:00:00`); o backend tinha zero ocorrências
+  disso e seis de meia-noite. `civil_instant` é o par que faltava de `local_day`.
+- **A troca da moeda-base cotava pelo dia em UTC.** Uma despesa das 22h de 31/07 buscava a
+  taxa de 1º de agosto — e o valor errado ficava gravado, porque a reconversão reescreve o
+  histórico. O dry-run errava junto, pedindo ao operador a cotação de um dia que não era o da
+  despesa.
+- **`cryptography 49.0.0` reprovava o `pip-audit --strict`** (PYSEC-2026-3552) e bloqueava
+  qualquer release. Entra pelo extra `[crypto]` do PyJWT, que não tinha piso próprio.
+
+Os outros oito, todos corrigidos: o extrato mascarava erro de API como "mês vazio" (os cinco
+hooks de `/me` descartavam `isError`, e os totais caíam no `?? 0` — um mês zerado é uma
+afirmação financeira, e era falsa); `?workspace_id=abc` virava `NaN` na URL; `?page=999` era
+um beco sem saída; o token `--warning` do tema reprovava o contraste WCAG **em toda parte**
+onde servia de texto, não só no aviso de cotação; a frase daquele aviso estava invertida
+("somem de novo quando houver cotação" — é o contrário); cartão e financiamento não deixavam
+escolher a moeda pela UI; a linha do drill-down tinha 53px clicáveis de 475px e o nome
+acessível do link omitia o valor; a confirmação de reabrir fatura descrevia o caixa ao
+contrário; a exceção do `npm audit` sobreviveu à vulnerabilidade que a justificava; e o
+Playwright não devolvia o terminal no Windows (o `npm run dev` deixava o vite como processo
+neto, o mesmo defeito que o uvicorn já tinha resolvido).
+
+Dois pontos da auditoria não procediam como descritos e estão registrados: `page` **já** era
+NaN-safe (o defeito era outro, nos ids), e o `ExcludedForeignNotice` era o **melhor** dos
+amber do repositório — corrigir só ele deixaria os outros dez piores intactos.
+
 ### Saldo de fatura, arquivamento e data efetiva de verdade (ADR 0023)
 
 Uma auditoria externa sobre a onda anterior aprovou a separação Global × Workspace e não

@@ -86,7 +86,13 @@ export function useCreditCards() {
   });
 
   const createMutation = useMutation({
-    mutationFn: async (data: { name: string; limit: number; closing_day: number; due_day: number }) => {
+    // `currency` opcional: omitida, o backend resolve para a moeda de relatório
+    // do dono (`resolve_personal_currency`). O tipo não a tinha, então o formulário
+    // não conseguia enviá-la nem que quisesse — e não havia como criar um cartão
+    // em moeda diferente da que estivesse ativa no momento.
+    mutationFn: async (data: {
+      name: string; limit: number; closing_day: number; due_day: number; currency?: string;
+    }) => {
       const response = await apiClient.post(`/me/credit-cards/`, data);
       return response.data;
     },

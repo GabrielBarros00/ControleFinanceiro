@@ -180,7 +180,7 @@ export function ImportPage() {
               <CardDescription>
                 Verifique se os dados foram extraídos corretamente.
                 {duplicateCount > 0 && (
-                  <span className="block text-amber-500 font-semibold mt-1">
+                  <span className="block text-warning font-semibold mt-1">
                     {duplicateCount} possível(is) duplicata(s) detectada(s) — mesma data, valor e descrição.
                   </span>
                 )}
@@ -237,7 +237,7 @@ export function ImportPage() {
                         <span className="flex items-center gap-2">
                           {tx.title}
                           {tx.duplicate && (
-                            <span className="inline-flex items-center gap-1 rounded-full bg-amber-500/15 border border-amber-500/30 px-2 py-0.5 text-[10px] font-bold text-amber-500">
+                            <span className="inline-flex items-center gap-1 rounded-full bg-warning-subtle border border-warning/30 px-2 py-0.5 text-[10px] font-bold text-warning">
                               <CopyX className="h-3 w-3" /> duplicata
                             </span>
                           )}
