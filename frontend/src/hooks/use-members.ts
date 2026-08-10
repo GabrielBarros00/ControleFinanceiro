@@ -14,8 +14,10 @@ export type WorkspaceRole = 'owner' | 'admin' | 'member' | 'viewer';
  * abre os números da casa. O backend modelava os dois eixos desde a Onda 5, mas
  * o campo não existia em lugar nenhum do frontend: a permissão era concedível
  * apenas por chamada direta à API, e um admin não tinha como dá-la nem tirá-la
- * pela tela. `admin` e `owner` têm acesso completo pelo cargo e não são
- * rebaixáveis — por isso a UI não oferece o controle para eles.
+ * pela tela. `admin` e `owner` têm acesso completo pelo cargo, então para eles a
+ * tela mostra o valor sem deixar editar — some-lo dava a impressão de que o eixo
+ * não existia para admin, e quem rebaixava não imaginava que a visibilidade era
+ * assunto do rebaixamento.
  */
 export type FinancialAccess = 'involved_only' | 'full_workspace';
 
@@ -108,15 +110,34 @@ export function useMembers() {
     onSuccess: invalidate,
   });
 
-  // Um PATCH para os dois eixos: `role` continua obrigatório no schema, então a
-  // tela reenvia o papel atual quando muda só a visibilidade.
-  const updateMember = useMutation({
+  // DUAS mutações para o mesmo PATCH, e é de propósito. Papel e visibilidade são
+  // eixos separados (ADR 0018), mas havia uma função só que aceitava os dois
+  // campos — e a tela de membros passava, na troca de PAPEL, o `financial_access`
+  // que tinha em mãos. Esse valor é o EFETIVO devolvido pela API, e para admin ele
+  // é sempre `full_workspace`: rebaixar de Admin para Membro GRAVAVA "vê todo o
+  // workspace" em quem estava como "só o que o envolve", ampliando a visão de
+  // quem acabava de perder privilégios. Com a mutação de papel sem o parâmetro,
+  // o compilador não deixa a regressão voltar.
+  const updateMemberRole = useMutation({
+    mutationFn: async ({ userId, role }: { userId: number; role: WorkspaceRole }) => {
+      const response = await apiClient.patch(
+        `/workspaces/${currentWorkspaceId}/members/${userId}`,
+        { role },
+      );
+      return response.data;
+    },
+    onSuccess: invalidate,
+  });
+
+  // `role` vai junto porque continua obrigatório no schema do PATCH — a tela
+  // reenvia o papel ATUAL quando muda só a visibilidade.
+  const updateMemberAccess = useMutation({
     mutationFn: async ({ userId, role, financial_access }: {
-      userId: number; role: WorkspaceRole; financial_access?: FinancialAccess;
+      userId: number; role: WorkspaceRole; financial_access: FinancialAccess;
     }) => {
       const response = await apiClient.patch(
         `/workspaces/${currentWorkspaceId}/members/${userId}`,
-        financial_access ? { role, financial_access } : { role },
+        { role, financial_access },
       );
       return response.data;
     },
@@ -146,7 +167,8 @@ export function useMembers() {
     inviteByEmail: inviteByEmail.mutateAsync,
     createInviteLink: createInviteLink.mutateAsync,
     revokeInvite: revokeInvite.mutateAsync,
-    updateMember: updateMember.mutateAsync,
+    updateMemberRole: updateMemberRole.mutateAsync,
+    updateMemberAccess: updateMemberAccess.mutateAsync,
     removeMember: removeMember.mutateAsync,
     leaveWorkspace: leaveWorkspace.mutateAsync,
   };

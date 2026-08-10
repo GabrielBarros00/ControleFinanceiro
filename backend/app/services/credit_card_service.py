@@ -401,8 +401,14 @@ class CreditCardService:
         attention: Optional[CardStatement] = None
         attention_total = Decimal("0.00")
         for stmt in statements:
-            if stmt.status == StatementStatus.paid:
-                continue
+            # Sem atalho por `status == paid`: quem decide é o SALDO, e uma
+            # fatura quitada tem saldo zero — o `continue` logo abaixo já a
+            # descarta, sem consulta extra (`effective_total` de fatura não
+            # aberta lê a coluna congelada). O atalho só mudava o resultado no
+            # estado contraditório — `paid` com saldo devedor, que o backfill
+            # de moeda já produziu —, e nele mudava para pior: a dívida sumia do
+            # limite comprometido e o cartão anunciava um crédito que não tinha.
+            #
             # SALDO, não total: com pagamento parcial a fatura segue `closed`, e
             # comprometer o valor cheio manteria preso um limite que já foi pago.
             saldo = CreditCardService.effective_total(db, stmt) - pagos.get(

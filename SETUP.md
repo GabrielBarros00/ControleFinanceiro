@@ -40,6 +40,8 @@ python scripts/smoke_prod.py                # 36 verificações automáticas (~2
 | `GOOGLE_CLIENT_ID` / `SECRET` / `REDIRECT_URI` | opcional | Login com Google | Ver seção [Google OAuth](#google-oauth) |
 | `SMTP_*` / `EMAIL_FROM` | opcional | Envio de emails | Ver seção [Email](#email-smtp). Vazio = links no log |
 | `RATE_LIMIT_ENABLED` | padrão serve | Anti força-bruta no login | `True` |
+| `RATE_LIMIT_AUTH_PER_MINUTE` / `_ACCOUNT_` | padrão serve | Tetos por minuto: por IP+rota e por conta alvo | `20` / `10`. O de IP é compartilhado por quem está atrás do mesmo Wi-Fi/CGNAT — apertá-lo tranca gente legítima. O de conta deve continuar sendo o menor |
+| `FORWARDED_ALLOW_IPS` | deixar vazio | Proxies em que o uvicorn confia p/ ler `X-Forwarded-For` | Vazio = faixas privadas (rede do Compose). Abrir para `*` devolve ao cliente o poder de forjar o próprio IP no rate limit |
 
 ### Decisão HTTPS vs HTTP (a mais importante)
 

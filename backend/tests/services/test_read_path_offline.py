@@ -146,3 +146,112 @@ def test_materializacao_de_leitura_pula_despesa_sem_taxa(db_session: Session, no
     assert db_session.exec(
         select(Transaction).where(Transaction.workspace_id == ws.id)
     ).all() == []
+
+
+def test_ocorrencia_descartada_nao_deixa_fatura_vazia(db_session: Session, no_network):
+    """A ocorrência descartada tem de levar a FATURA junto.
+
+    `_statement_for` roda na montagem do lançamento, antes de a ocorrência estar
+    garantida, e `get_or_create_statement` já faz `add` + `flush`. Quando a perna
+    de fatura não encontrava cotação, a transação era abandonada mas a fatura
+    ficava na sessão — e o commit do LOTE, disparado pela outra recorrência que
+    deu certo, a confirmava. Sobrava uma fatura aberta e vazia no cartão: não
+    muda valor nenhum, mas anuncia um mês de gastos que não existiu.
+
+    O cenário é justamente o do lote MISTO: sozinha, a recorrência sem cotação
+    não provocaria commit nenhum.
+    """
+    from app.models.credit_card import CardStatement, CreditCard
+    from app.models.recurring import RecurringExpense
+
+    user, ws = _workspace(db_session, "offline4")
+    # Cartão em USD num workspace BRL: a perna contábil não precisa de cotação
+    # (BRL→BRL), mas a de FATURA precisa (BRL→USD) e o store está vazio.
+    card = CreditCard(
+        name="Cartão gringo", limit=Decimal("5000.00"), closing_day=20, due_day=28,
+        currency="USD", owner_user_id=user.id,
+    )
+    db_session.add(card)
+    db_session.flush()
+
+    db_session.add_all([
+        RecurringExpense(
+            title="Assinatura no cartão gringo", base_amount=Decimal("30.00"),
+            currency="BRL", day_of_month=5, workspace_id=ws.id,
+            created_by_user_id=user.id, payer_user_id=user.id,
+            credit_card_id=card.id,
+        ),
+        # A que dá certo — é ela que faz o lote ser comitado.
+        RecurringExpense(
+            title="Aluguel", base_amount=Decimal("1000.00"), currency="BRL",
+            day_of_month=5, workspace_id=ws.id, created_by_user_id=user.id,
+            payer_user_id=user.id,
+        ),
+    ])
+    db_session.commit()
+
+    result = RecurringMaterializationService.ensure_current_month(
+        db_session, ws.id, date(2026, 7, 15)
+    )
+    db_session.commit()
+
+    assert result["expenses"] == 1, "só a válida materializa"
+    titulos = [
+        t.title for t in db_session.exec(
+            select(Transaction).where(Transaction.workspace_id == ws.id)
+        ).all()
+    ]
+    assert titulos == ["Aluguel"]
+    assert db_session.exec(
+        select(CardStatement).where(CardStatement.card_id == card.id)
+    ).all() == [], "a fatura da ocorrência descartada não pode sobreviver ao commit"
+
+
+def test_ocorrencia_com_snapshot_invalido_tambem_leva_a_fatura(db_session: Session, no_network):
+    """O MESMO vazamento pela outra porta: divisão inválida.
+
+    Este caminho já apagava a transação (`db.delete(tx)`) e esquecia a fatura —
+    a auditoria só viu a porta da cotação, mas o descarte por snapshot inválido
+    (participante que saiu do workspace) deixava o mesmo lixo para trás.
+    """
+    from app.models.credit_card import CardStatement, CreditCard
+    from app.models.recurring import RecurringExpense
+
+    user, ws = _workspace(db_session, "offline5")
+    forasteiro = User(name="Ex-membro", email="saiu@t.com", password_hash="h")
+    db_session.add(forasteiro)
+    # Cartão na MOEDA do workspace: a perna de fatura resolve sem cotação, então
+    # o que derruba a ocorrência é a divisão — não o câmbio.
+    card = CreditCard(
+        name="Cartão de casa", limit=Decimal("5000.00"), closing_day=20, due_day=28,
+        currency="BRL", owner_user_id=user.id,
+    )
+    db_session.add(card)
+    db_session.flush()
+
+    db_session.add_all([
+        RecurringExpense(
+            title="Rateio com quem saiu", base_amount=Decimal("80.00"), currency="BRL",
+            day_of_month=5, workspace_id=ws.id, created_by_user_id=user.id,
+            payer_user_id=user.id, credit_card_id=card.id,
+            split_snapshot=[
+                {"user_id": forasteiro.id, "split_method": "equal", "input_value": "0"},
+            ],
+        ),
+        RecurringExpense(
+            title="Aluguel", base_amount=Decimal("1000.00"), currency="BRL",
+            day_of_month=5, workspace_id=ws.id, created_by_user_id=user.id,
+            payer_user_id=user.id,
+        ),
+    ])
+    db_session.commit()
+
+    result = RecurringMaterializationService.ensure_current_month(
+        db_session, ws.id, date(2026, 7, 15)
+    )
+    db_session.commit()
+
+    assert result["expenses"] == 1
+    assert db_session.exec(
+        select(CardStatement).where(CardStatement.card_id == card.id)
+    ).all() == []

@@ -53,12 +53,19 @@ class RateLimiter:
         self._checks_since_sweep = 0
 
 
-# 5 tentativas por minuto por IP+rota (login, register, forgot-password)
-auth_limiter = RateLimiter(max_requests=5, window_seconds=60)
+# Por IP+rota (login, register, forgot-password). Um IP é COMPARTILHADO — casa,
+# empresa, CGNAT da operadora —, então este balde é o que menos pode ser
+# apertado: com 5/min, duas pessoas no mesmo Wi-Fi disputavam a cota de login e
+# uma delas levava 429 sem ter errado nada.
+auth_limiter = RateLimiter(
+    max_requests=settings.RATE_LIMIT_AUTH_PER_MINUTE, window_seconds=60
+)
 
 
-# 10 tentativas por minuto POR CONTA, somando todas as origens
-account_limiter = RateLimiter(max_requests=10, window_seconds=60)
+# Por CONTA, somando todas as origens. É este que barra força bruta num alvo.
+account_limiter = RateLimiter(
+    max_requests=settings.RATE_LIMIT_ACCOUNT_PER_MINUTE, window_seconds=60
+)
 
 
 # Rotas que fazem I/O EXTERNO síncrono. A consulta de câmbio pode disparar duas
@@ -81,7 +88,13 @@ def rate_limit_auth(request: Request) -> None:
     """Dependency de rate limiting para endpoints sensíveis de auth.
 
     Usa request.client.host — atrás do nginx, o uvicorn roda com
-    --proxy-headers para que o IP real chegue aqui.
+    `--proxy-headers` para que o IP real chegue aqui.
+
+    Esse "IP real" só é real por causa de duas configurações que andam juntas: o
+    nginx SOBRESCREVE `X-Forwarded-For` com `$remote_addr` (não acrescenta), e o
+    uvicorn só confia na faixa da rede do Compose (`--forwarded-allow-ips`).
+    Faltando qualquer uma delas, o cabeçalho volta a ser escolhido pelo cliente e
+    este balde deixa de existir na prática.
     """
     if not settings.RATE_LIMIT_ENABLED:
         return
@@ -92,14 +105,14 @@ def rate_limit_auth(request: Request) -> None:
 def rate_limit_account(email: Optional[str], path: str) -> None:
     """Segundo balde, chaveado pela CONTA alvo.
 
-    O balde por IP sozinho é contornável: o uvicorn roda com
-    `--forwarded-allow-ips`, então quem alcançar o backend diretamente pode
-    forjar `X-Forwarded-For` e ganhar um balde novo a cada valor inventado —
-    força bruta sem teto. Amarrado à conta, o custo do ataque não depende de
-    quantos IPs o atacante consegue simular.
+    O balde por IP não basta sozinho: um IP é barato — botnet, VPN, celular no
+    4G — e o teto dele precisa ser generoso justamente porque é compartilhado
+    por gente legítima. Amarrado à conta, o custo do ataque deixa de depender de
+    quantos IPs o atacante consegue arranjar.
 
     Chamado DEPOIS de validar o corpo (precisa do e-mail), então complementa —
-    não substitui — o balde por IP.
+    não substitui — o balde por IP. Como o teto daqui é o menor dos dois,
+    tentativas repetidas contra a MESMA conta esbarram neste primeiro.
     """
     if not settings.RATE_LIMIT_ENABLED or not email:
         return

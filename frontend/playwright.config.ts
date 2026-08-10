@@ -112,7 +112,8 @@ export default defineConfig({
       reuseExistingServer: false,
       timeout: 60_000,
       // A suíte registra vários usuários em sequência — o rate limit de auth
-      // (5/min) derrubaria os specs; a proteção em si tem testes no backend.
+      // derrubaria os specs; a proteção em si tem testes no backend (e a suíte
+      // `e2e-prod` a exercita ligada, contra o stack real).
       env: { RATE_LIMIT_ENABLED: 'False', DATABASE_URL: 'sqlite:///./e2e.db' },
     },
     {

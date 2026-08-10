@@ -9,6 +9,12 @@ markers = [
     "concurrency: exercita duas ou mais requisições ao mesmo tempo",
 ]
 filterwarnings = [
+    # Conexão de banco que ninguém fechou vira FALHA, não recado no fim da
+    # execução. Como aviso, ele sobrevivia a uma suíte verde — e foi assim que
+    # dois engines de teste sem `dispose()` ficaram meses escondendo o lugar onde
+    # o próximo vazamento apareceria. Se um vazamento de terceiro aparecer aqui,
+    # a saída é restringir o `error` (por módulo), não voltar a ignorá-lo.
+    "error::ResourceWarning",
     # Deprecação INTERNA do Starlette ao acessar o status 422 no seu próprio
     # exception handler — fora do nosso controle (nosso código já usa o novo nome).
     "ignore:'HTTP_422_UNPROCESSABLE_ENTITY' is deprecated:DeprecationWarning",

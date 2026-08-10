@@ -85,6 +85,7 @@ def url_descartavel(tmp_path_factory):
                 "WHERE datname = :n AND pid <> pg_backend_pid()"
             ), {"n": nome})
             conn.execute(sa.text(f'DROP DATABASE IF EXISTS "{nome}"'))
+        admin.dispose()
 
 
 @pytest.fixture(scope="module")
@@ -93,6 +94,10 @@ def banco_migrado(url_descartavel):
 
     Os cenários são linhas independentes, então cabem todos no mesmo banco — e o
     upgrade roda UMA vez, que é o caro aqui.
+
+    `yield` + `dispose()`, não `return engine`: sem fechar o pool a conexão fica
+    viva até o interpretador coletá-la, e a suíte terminava verde com
+    `ResourceWarning: unclosed database`.
     """
     _upgrade(url_descartavel, REVISAO_ANTERIOR)
     engine = sa.create_engine(url_descartavel)
@@ -100,7 +105,8 @@ def banco_migrado(url_descartavel):
         _semeia(conn)
 
     _upgrade(url_descartavel, REVISAO)
-    return engine
+    yield engine
+    engine.dispose()
 
 
 def _semeia(conn) -> None:

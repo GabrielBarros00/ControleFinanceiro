@@ -163,7 +163,12 @@ export function StatementView({ cardId }: { cardId: number | null }) {
   // não o total da fatura.
   const paidSoFar = statement ? parseFloat(statement.paid_amount) : 0;
   const remaining = statement ? parseFloat(statement.remaining_amount) : 0;
-  const partiallyPaid = paidSoFar > 0 && statement?.status !== 'paid';
+  // O critério é o SALDO, não o status. Nos estados normais dá no mesmo (fatura
+  // `paid` tem saldo zero), mas existe um estado contraditório — `paid` com saldo
+  // devedor, que o backfill de moeda estrangeira já produziu — e com o teste no
+  // status ele aparecia como quitado: o bloco abaixo sumia e a tela mostrava só
+  // "Total da Fatura", sem dizer que parte dele ainda não foi paga.
+  const partiallyPaid = paidSoFar > 0 && remaining > 0;
 
   const openPayDialog = () => {
     setPayAccountId(null);

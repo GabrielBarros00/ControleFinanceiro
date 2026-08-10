@@ -58,9 +58,9 @@ class Session:
         res = self.client.request(method, f"{API}{path}", headers=self._headers(), **kwargs)
 
         # 429 em rota de auth: espera a janela e tenta de novo, em vez de dar o
-        # gate por reprovado. O limite é 5/min por IP+rota — proteção REAL, que
-        # não se desliga para testar —, e qualquer coisa que tenha rodado antes
-        # (a suíte e2e-prod, outra execução deste script) já consumiu a cota.
+        # gate por reprovado. O limite por IP+rota é proteção REAL, que não se
+        # desliga para testar, e qualquer coisa que tenha rodado antes (a suíte
+        # e2e-prod, outra execução deste script) já consumiu parte da cota.
         # Sem isto, o gate de deploy reprovava por motivo que não é o deploy.
         if res.status_code == 429 and path.startswith("/auth/"):
             for _ in range(7):
@@ -323,13 +323,38 @@ def main():
     res = alice.post("/auth/login", json={"email": email_a, "password": "novaSenha1"})
     check("login com senha nova", res.status_code == 200)
 
+    # E-mails DIFERENTES a cada tentativa: com o mesmo e-mail quem responde é o
+    # balde por CONTA, e o que interessa aqui é esgotar o balde por IP para a
+    # verificação seguinte. O teto é configurável no backend, então o laço vai
+    # bem além do default (20/min) em vez de repetir o número.
+    TENTATIVAS = 40
     got_429 = False
-    for _ in range(7):
-        res = httpx.post(f"{API}/auth/login", json={"email": "naoexiste@x.com", "password": "errada1"}, timeout=15)
+    for i in range(TENTATIVAS):
+        res = httpx.post(f"{API}/auth/login", json={"email": f"naoexiste{i}@x.com", "password": "errada1"}, timeout=15)
         if res.status_code == 429:
             got_429 = True
             break
-    check("rate limit ativo no login (429)", got_429)
+    check(
+        "rate limit ativo no login (429)", got_429,
+        f"nenhum 429 em {TENTATIVAS} tentativas — RATE_LIMIT_AUTH_PER_MINUTE alto demais?",
+    )
+
+    # O balde por IP só existe de verdade se o cliente não puder escolher o
+    # próprio IP. O nginx sobrescreve `X-Forwarded-For` com `$remote_addr` e o
+    # uvicorn só confia na rede do Compose; enquanto a lista do cliente era
+    # PRESERVADA, um valor novo a cada tentativa dava um balde novo e a proteção
+    # não existia. E-mail inédito de propósito: com um já usado, o 429 poderia
+    # vir do balde por conta e o teste passaria pelo motivo errado.
+    res = httpx.post(
+        f"{API}/auth/login",
+        json={"email": "forjado@x.com", "password": "errada1"},
+        headers={"X-Forwarded-For": "203.0.113.7"},
+        timeout=15,
+    )
+    check(
+        "X-Forwarded-For forjado nao escapa do rate limit", res.status_code == 429,
+        f"status={res.status_code} — o backend aceitou o IP que o cliente inventou",
+    )
 
     print(f"\nSMOKE DE PRODUCAO: {_passed} verificacoes OK — stack aprovado.")
 

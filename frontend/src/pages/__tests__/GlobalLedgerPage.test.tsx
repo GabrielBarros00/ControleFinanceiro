@@ -269,6 +269,21 @@ describe('Extrato global — paginação', () => {
     );
   });
 
+  it.each(['Infinity', '-Infinity', '1e400', 'abc', '-3'])(
+    'página impossível (%s) cai na primeira, em vez de um offset que a API recusa',
+    (valor) => {
+      // O furo que sobrava era o infinito: `Math.floor(Infinity)` é `Infinity`,
+      // e ele viajava literalmente como `offset=Infinity` na query string. A API
+      // respondia 422 e a tela dizia "não foi possível carregar o extrato" — um
+      // erro de rede para um valor que ela mesma podia ter descartado.
+      // `1e400` é o mesmo caso por outro caminho: `Number('1e400')` é `Infinity`.
+      renderPage(LEDGER, `/me/ledger?month=2026-07&page=${valor}`);
+      expect(mockLedger).toHaveBeenLastCalledWith(
+        expect.objectContaining({ offset: 0 }),
+      );
+    },
+  );
+
   it('página fora do intervalo oferece a volta, em vez de um beco sem saída', () => {
     // `?page=999` dizia "nada entrou nem saiu neste mês" — falso, e sem
     // paginação para voltar, porque ela só é desenhada quando há linhas.

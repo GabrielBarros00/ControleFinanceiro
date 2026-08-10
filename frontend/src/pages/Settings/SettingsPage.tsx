@@ -319,7 +319,7 @@ function MembersTab() {
   const { currentWorkspace, update: updateWorkspace, remove: removeWorkspace } = useWorkspaces();
   const {
     members, invites, inviteByEmail, createInviteLink, revokeInvite,
-    updateMember, removeMember, leaveWorkspace,
+    updateMemberRole, updateMemberAccess, removeMember, leaveWorkspace,
   } = useMembers();
 
   const confirm = useConfirm();
@@ -554,12 +554,19 @@ function MembersTab() {
                       items={ROLE_LABELS}
                       value={m.role}
                       onValueChange={async (value) => {
+                        const papel = value as WorkspaceRole;
                         try {
-                          await updateMember({
-                            userId: m.user_id,
-                            role: value as WorkspaceRole,
-                            financial_access: m.financial_access,
-                          });
+                          // `updateMemberRole` não aceita `financial_access` — e é
+                          // por isso que ele existe separado (ver `use-members`):
+                          // esta chamada mandava o acesso EFETIVO do admin de
+                          // volta como configuração, e rebaixar AMPLIAVA a visão.
+                          await updateMemberRole({ userId: m.user_id, role: papel });
+                          if (m.role === 'admin') {
+                            setFeedback({
+                              ok: true,
+                              text: `${m.user_name} agora é ${ROLE_LABELS[papel]} e vê só o que o envolve — abra a visibilidade ao lado se quiser.`,
+                            });
+                          }
                         } catch (err) { showError(err, 'Erro ao alterar papel.'); }
                       }}
                     >
@@ -580,15 +587,25 @@ function MembersTab() {
                       </SelectContent>
                     </Select>
                     {/* Visibilidade financeira — o eixo que existia só na API.
-                        `admin`/`owner` veem tudo pelo cargo e não são
-                        rebaixáveis, então o controle não aparece para eles. */}
-                    {m.role !== 'admin' && (
+                        `admin`/`owner` veem tudo pelo cargo, então para eles o
+                        controle não é editável. Não some, porém: sumindo, o eixo
+                        parecia não existir para admin, e quem rebaixava não
+                        imaginava que a visibilidade era assunto do rebaixamento. */}
+                    {m.role === 'admin' ? (
+                      <Badge
+                        variant="outline"
+                        className="h-9 px-3 border-border text-muted-foreground font-semibold"
+                        title="Admin vê os números da casa pelo cargo. Ao rebaixar, a visibilidade volta a 'Só o que o envolve'."
+                      >
+                        Todo o workspace (admin)
+                      </Badge>
+                    ) : (
                       <Select
                         items={ACCESS_LABELS}
                         value={m.financial_access}
                         onValueChange={async (value) => {
                           try {
-                            await updateMember({
+                            await updateMemberAccess({
                               userId: m.user_id,
                               role: m.role,
                               financial_access: value as FinancialAccess,

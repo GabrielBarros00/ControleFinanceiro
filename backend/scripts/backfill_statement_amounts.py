@@ -20,9 +20,15 @@ sem regravá-lo, o backfill apagaria o aviso de linha incompatível e deixaria o
 total errado — pior que antes, porque agora invisível. A segunda passada
 recalcula o congelado das faturas não abertas que tiveram linha convertida.
 
-O script NUNCA mexe em `status` nem cria pagamento. Quando o total novo passa do
-que já foi pago, a fatura fica sub-paga e isso é decisão humana: sai numa seção
-própria da saída, em destaque.
+O script NUNCA cria nem apaga pagamento — cobrar a diferença é decisão humana, e
+sai numa seção própria da saída, em destaque. O que ele faz é **devolver a fatura
+sub-paga para `closed`**, que é o estado normal de pagamento parcial. Deixá-la
+`paid` com saldo devedor era um estado que o resto do sistema não sabe ler: o
+limite do cartão ignora fatura `paid` (`card_overview`), a tela só mostra "Saldo
+restante" fora desse status, e `pay_statement` EXIGE `closed` — a única saída
+oferecida era reabrir, que estorna todos os pagamentos. Ou a dívida sumia da
+tela, ou o dinheiro já pago sumia do histórico. Em `closed` com os pagamentos
+intactos, "Pagar saldo restante" volta a funcionar e o limite volta a contar.
 
 Uso (da raiz do backend, com o .env carregado):
     python scripts/backfill_statement_amounts.py            # dry-run
@@ -59,6 +65,9 @@ def backfill(session: Session, apply: bool) -> int:
     congelado de faturas fechadas, que é histórico financeiro, e isso não pode
     existir sem teste só porque mora num script. `main` continua sendo o
     entrypoint que abre a sessão do engine real.
+
+    Três passadas: converter as linhas, recongelar o total das faturas não
+    abertas e reconciliar as que ficaram sub-pagas (`_finalizar`).
     """
     convertidos = 0
     faltando: list[str] = []
@@ -78,7 +87,13 @@ def backfill(session: Session, apply: bool) -> int:
 
     if not linhas:
         print("Nada a converter: toda compra já está na moeda do seu cartão.")
-        return 0
+        # Sai por `_finalizar`, não com um `return 0` seco: a reconciliação é o
+        # caminho de REPARO e precisa rodar justamente em quem já rodou o script
+        # antes. Depois de uma conversão bem-sucedida aquelas linhas deixam de
+        # casar com o filtro acima — se o reparo dependesse de "ter o que
+        # converter", a fatura sub-paga que a rodada anterior deixou para trás
+        # nunca mais seria reencontrada.
+        return _finalizar(session, apply, convertidos=0, recongeladas=0)
 
     print(f"{len(linhas)} lançamento(s) com perna de fatura em moeda divergente.\n")
 
@@ -146,7 +161,6 @@ def backfill(session: Session, apply: bool) -> int:
     # `flush()` antes de somar: `compute_statement_total` roda em SQL, e sem
     # descer as alterações pendentes ele somaria os valores ANTIGOS — o
     # script gravaria o congelado errado com toda a confiança.
-    subpagas: list[str] = []
     if a_recongelar:
         session.flush()
         print(f"\n{len(a_recongelar)} fatura(s) fechada/paga com total congelado a corrigir:")
@@ -160,28 +174,21 @@ def backfill(session: Session, apply: bool) -> int:
             )
             statement.total_amount = novo
             session.add(statement)
-            pago = CreditCardService.paid_amount(session, statement)
-            if novo > pago:
-                subpagas.append(
-                    f"  fatura #{statement_id} ({statement.month}): "
-                    f"total {novo}, pago {pago}, falta {novo - pago}"
-                )
 
-    if subpagas:
-        print("\n" + "!" * 70)
-        print("ATENÇÃO — estas faturas passam a estar SUB-PAGAS:")
-        print("\n".join(subpagas))
-        print(
-            "O status e os pagamentos NÃO foram tocados: cobrar ou não a\n"
-            "diferença é decisão sua. Confira o extrato do cartão antes."
-        )
-        print("!" * 70)
+    return _finalizar(session, apply, convertidos=convertidos, recongeladas=len(a_recongelar))
+
+
+def _finalizar(session: Session, apply: bool, *, convertidos: int, recongeladas: int) -> int:
+    """Terceira passada + commit/rollback. Ponto único de saída das duas
+    entradas de `backfill` (com e sem linha a converter)."""
+    _reconciliar_subpagas(session)
 
     if apply:
         session.commit()
-        print(f"\n{convertidos} lançamento(s) convertido(s).")
-        if a_recongelar:
-            print(f"{len(a_recongelar)} total(is) de fatura recongelado(s).")
+        if convertidos:
+            print(f"\n{convertidos} lançamento(s) convertido(s).")
+        if recongeladas:
+            print(f"{recongeladas} total(is) de fatura recongelado(s).")
     else:
         # O dry-run calculou tudo NO BANCO para poder prever de verdade; o
         # rollback é o que o mantém dry.
@@ -189,6 +196,54 @@ def backfill(session: Session, apply: bool) -> int:
         print(f"\nDry-run: {convertidos} seriam convertidos. Use --apply para gravar.")
 
     return 0
+
+
+def _reconciliar_subpagas(session: Session) -> list[int]:
+    """Devolve para `closed` toda fatura `paid` que ainda tem saldo devedor.
+
+    Regravar o total congelado pode revelar que a fatura foi paga a menos. O
+    script não cria nem apaga pagamento — cobrar a diferença é decisão humana —,
+    mas não pode deixar o estado CONTRADITÓRIO no banco: `paid` com saldo é uma
+    dívida que some da tela (a UI só mostra "Saldo restante" fora de `paid`),
+    some do limite do cartão (`card_overview` pula `paid`) e não pode ser quitada
+    (`pay_statement` exige `closed`) — só reaberta, o que estorna todo o
+    histórico de pagamentos.
+
+    `closed` com os pagamentos intactos é o estado NORMAL de pagamento parcial,
+    que o sistema inteiro já sabe tratar.
+
+    Varre todas as faturas `paid`, não só as que este script tocou: é assim que
+    ele repara um banco onde uma rodada anterior já deixou o estado para trás.
+    """
+    reconciliadas: list[int] = []
+    linhas: list[str] = []
+    for statement in session.exec(
+        select(CardStatement).where(CardStatement.status == StatementStatus.paid)
+    ).all():
+        total = CreditCardService.effective_total(session, statement)
+        pago = CreditCardService.paid_amount(session, statement)
+        if total <= pago:
+            continue
+        statement.status = StatementStatus.closed
+        statement.paid_at = None
+        session.add(statement)
+        reconciliadas.append(statement.id)
+        linhas.append(
+            f"  fatura #{statement.id} ({statement.month}): "
+            f"total {total}, pago {pago}, falta {total - pago} {_moeda(session, statement)}"
+        )
+
+    if reconciliadas:
+        print("\n" + "!" * 70)
+        print("ATENÇÃO — estas faturas estavam SUB-PAGAS e voltaram para 'fechada':")
+        print("\n".join(linhas))
+        print(
+            "Nenhum pagamento foi criado ou apagado — o que já foi pago continua\n"
+            "registrado, e a fatura volta a aceitar 'Pagar saldo restante'.\n"
+            "Cobrar ou não a diferença é decisão sua: confira o extrato do cartão."
+        )
+        print("!" * 70)
+    return reconciliadas
 
 
 def _moeda(session: Session, statement: CardStatement) -> str:

@@ -49,6 +49,16 @@ services:
       SMTP_USER: ${SMTP_USER:-}
       SMTP_PASSWORD: ${SMTP_PASSWORD:-}
       RATE_LIMIT_ENABLED: ${RATE_LIMIT_ENABLED:-True}
+      # Tetos do rate limit de auth, por MINUTO. O de IP protege contra varredura
+      # e cadastro em massa; o de CONTA é o que barra força bruta num alvo, e é
+      # ele que não depende de quantos IPs o atacante tem. Ver app/core/rate_limit.
+      RATE_LIMIT_AUTH_PER_MINUTE: ${RATE_LIMIT_AUTH_PER_MINUTE:-20}
+      RATE_LIMIT_ACCOUNT_PER_MINUTE: ${RATE_LIMIT_ACCOUNT_PER_MINUTE:-10}
+      # Quem o uvicorn aceita como proxy para ler `X-Forwarded-For`. Default do
+      # Dockerfile = faixas privadas (a rede do Compose). Só mexa aqui se o
+      # backend estiver atrás de um proxy fora dessas faixas — abrir demais
+      # devolve ao cliente o poder de forjar o próprio IP no rate limit.
+      FORWARDED_ALLOW_IPS: ${FORWARDED_ALLOW_IPS:-}
       # Conteúdo dos anexos (ADR 0007): fora do banco, no volume abaixo.
       ATTACHMENT_STORAGE_DIR: /data/attachments
     volumes:

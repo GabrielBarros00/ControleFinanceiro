@@ -1,8 +1,10 @@
 import { expect, type APIRequestContext, type BrowserContext } from '@playwright/test';
 
-// O backend limita auth a 5 req/min por IP+rota; a suíte inteira roda em
-// segundos e estoura o limite. Retry em 429 espera a janela liberar em vez
-// de desligar o rate limit (mantém o ambiente igual ao de produção).
+// O backend limita auth por IP+rota (`RATE_LIMIT_AUTH_PER_MINUTE`); a suíte
+// inteira roda em segundos e estoura o limite — e o `smoke_prod.py`, que no CI
+// roda logo antes, TERMINA esgotando de propósito a janela de `/auth/login`.
+// Retry em 429 espera a janela liberar em vez de desligar o rate limit (mantém
+// o ambiente igual ao de produção).
 export async function postWithRetry(request: APIRequestContext, url: string, data: unknown) {
   for (let attempt = 0; attempt < 8; attempt++) {
     const res = await request.post(url, { data });

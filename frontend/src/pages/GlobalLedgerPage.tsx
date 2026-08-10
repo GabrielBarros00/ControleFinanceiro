@@ -55,6 +55,12 @@ const ROTULO_ORIGEM: Record<string, string> = Object.fromEntries(
  */
 const POR_PAGINA = 100;
 
+/** Página da URL, ou a primeira quando o valor não serve como índice. */
+function paginaValida(bruto: string | null): number {
+  const n = Math.floor(Number(bruto ?? '0'));
+  return Number.isSafeInteger(n) && n > 0 ? n : 0;
+}
+
 export function GlobalLedgerPage() {
   const [month, setMonth] = useMonthParam();
   const [params, setParams] = useSearchParams();
@@ -81,10 +87,18 @@ export function GlobalLedgerPage() {
   // A página vive na URL junto do resto do recorte: um extrato é coisa que se
   // manda para alguém, e o link tem de reabrir onde estava.
   //
-  // `Math.floor` pela mesma razão: a página multiplica `POR_PAGINA`, então
-  // `page=1.5` virava `offset=150` — um recorte que o usuário não pediu e que a
-  // tela anunciava como "esta página não existe".
-  const pagina = Math.max(0, Math.floor(Number(params.get('page') ?? '0') || 0));
+  // `Math.floor` pela mesma razão do `idValido`: a página multiplica
+  // `POR_PAGINA`, então `page=1.5` virava `offset=150` — um recorte que o
+  // usuário não pediu e que a tela anunciava como "esta página não existe".
+  //
+  // `Number.isSafeInteger` no RESULTADO, e não `isFinite` na entrada: o furo que
+  // sobrou era `page=Infinity` (e `page=1e400`, que também vira `Infinity`).
+  // `Math.floor(Infinity)` é `Infinity`, ele viajava como `offset=Infinity`, a
+  // API devolvia 422 e a tela dizia "não foi possível carregar o extrato" por um
+  // valor que ela mesma podia ter descartado. Acima de 2^53 o produto pelo
+  // tamanho da página também deixa de ser exato — a primeira página é a
+  // resposta certa para qualquer um desses.
+  const pagina = paginaValida(params.get('page'));
 
   const { ledger, isLoading, isError, refetch } = useLedger({
     month,

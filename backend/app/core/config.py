@@ -67,6 +67,13 @@ class Settings(BaseSettings):
     RESET_TOKEN_EXPIRES_MINUTES: int = 30
 
     RATE_LIMIT_ENABLED: bool = True
+    # Tetos por minuto dos dois baldes de auth. Configuráveis porque o certo
+    # depende do deploy: o balde por IP é COMPARTILHADO por todo mundo atrás do
+    # mesmo Wi-Fi, empresa ou CGNAT, e um teto apertado demais tranca gente
+    # legítima sem impedir ataque nenhum (o atacante troca de IP). Quem barra
+    # força bruta num alvo é o de CONTA, que independe de quantos IPs existem.
+    RATE_LIMIT_AUTH_PER_MINUTE: int = 20
+    RATE_LIMIT_ACCOUNT_PER_MINUTE: int = 10
     UPLOAD_MAX_BYTES: int = 5242880  # 5MB
     # Teto de anexos por workspace (ADR 0007) — vale independente de onde o
     # conteúdo mora: sem quota um único membro enche o volume com arquivos de 5MB.

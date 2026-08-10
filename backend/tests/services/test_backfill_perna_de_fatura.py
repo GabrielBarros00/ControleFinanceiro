@@ -15,6 +15,13 @@ histórica, e uma auditoria achou dois defeitos nele — os dois com dinheiro no
    (`CreditCardService.effective_total`), então o backfill apagava o aviso de
    linha incompatível e mantinha o total errado — pior que antes, porque agora
    invisível.
+
+3. **Fatura `paid` com saldo devedor.** Corrigir o congelado podia revelar que a
+   fatura fora paga a menos, e o script deixava o status como estava. Esse estado
+   o resto do sistema não sabe ler: o limite ignorava fatura `paid`, a tela só
+   mostra "Saldo restante" fora dela e `pay_statement` exige `closed` — restava
+   reabrir, que estorna todos os pagamentos. A dívida sumia da tela ou o dinheiro
+   sumia do histórico. Agora a fatura volta a `closed` com os pagamentos intactos.
 """
 from datetime import date
 from decimal import Decimal
@@ -163,11 +170,14 @@ def test_fatura_aberta_nao_precisa_de_congelamento(db_session, cena):
     assert CreditCardService.effective_total(db_session, statement) == Decimal("20.70")
 
 
-def test_fatura_que_vira_subpaga_e_anunciada(db_session, cena, capsys):
+def test_fatura_que_vira_subpaga_volta_para_fechada(db_session, cena, capsys):
     """Regravar o total pode revelar que a fatura foi paga a menos.
 
-    O script não mexe em status nem cria pagamento — cobrar a diferença é decisão
-    humana. O que ele não pode é deixar isso passar em silêncio.
+    O script não cria nem apaga pagamento — cobrar a diferença é decisão humana.
+    O que ele não pode é deixar o estado CONTRADITÓRIO: `paid` com saldo devedor
+    é uma dívida que some da tela (a UI só mostra "Saldo restante" fora de
+    `paid`), some do limite do cartão e não pode ser quitada (`pay_statement`
+    exige `closed`) — só reaberta, o que estorna todo o histórico de pagamentos.
     """
     _, statement = _compra_legada(db_session, cena, total=Decimal("100.00"), currency="BRL")
     statement.status = StatementStatus.paid
@@ -186,7 +196,100 @@ def test_fatura_que_vira_subpaga_e_anunciada(db_session, cena, capsys):
     assert "SUB-PAGAS" in saida
     db_session.refresh(statement)
     assert statement.total_amount == Decimal("20.70")
-    assert statement.status == StatementStatus.paid, "o status é decisão humana"
+    assert statement.status == StatementStatus.closed, "volta ao pagamento parcial"
+    assert statement.paid_at is None
+    # O que já foi pago continua registrado: o script não estorna nada.
+    assert CreditCardService.paid_amount(db_session, statement) == Decimal("5.00")
+    assert CreditCardService.statement_balance(db_session, statement) == Decimal("15.70")
+
+
+def test_fatura_quitada_nao_e_reaberta(db_session, cena):
+    """A reconciliação olha o SALDO, não o status: quem pagou tudo fica `paid`."""
+    _, statement = _compra_legada(db_session, cena, total=Decimal("100.00"), currency="BRL")
+    statement.status = StatementStatus.paid
+    statement.total_amount = Decimal("20.70")
+    db_session.add(statement)
+    db_session.flush()
+    db_session.add(StatementPayment(
+        workspace_id=cena["ws"].id, statement_id=statement.id,
+        amount=Decimal("20.70"), paid_at=QUANDO,
+    ))
+    db_session.commit()
+
+    assert backfill(db_session, apply=True) == 0
+
+    db_session.refresh(statement)
+    assert statement.status == StatementStatus.paid
+
+
+def test_repara_subpaga_de_uma_rodada_ANTERIOR(db_session, cena, capsys):
+    """O caminho de REPARO: nada a converter e mesmo assim há o que reconciliar.
+
+    Depois de uma rodada bem-sucedida, as linhas convertidas deixam de casar com
+    o filtro de moeda divergente — e a fatura sub-paga que aquela rodada deixou
+    para trás nunca mais seria reencontrada se o reparo dependesse de "ter o que
+    converter". Este é o estado em que fica um banco onde o script já rodou.
+    """
+    _, statement = _compra_legada(db_session, cena, total=Decimal("20.70"), currency="USD")
+    statement.status = StatementStatus.paid
+    statement.total_amount = Decimal("20.70")
+    db_session.add(statement)
+    db_session.flush()
+    db_session.add(StatementPayment(
+        workspace_id=cena["ws"].id, statement_id=statement.id,
+        amount=Decimal("5.00"), paid_at=QUANDO,
+    ))
+    db_session.commit()
+
+    assert backfill(db_session, apply=True) == 0
+
+    saida = capsys.readouterr().out
+    assert "Nada a converter" in saida, "a passada de conversão não tem o que fazer"
+    assert "SUB-PAGAS" in saida
+    db_session.refresh(statement)
+    assert statement.status == StatementStatus.closed
+    assert CreditCardService.paid_amount(db_session, statement) == Decimal("5.00")
+
+
+def test_dry_run_nao_reconcilia(db_session, cena):
+    """O dry-run calcula tudo no banco e desfaz — inclusive a reconciliação."""
+    _, statement = _compra_legada(db_session, cena, total=Decimal("20.70"), currency="USD")
+    statement.status = StatementStatus.paid
+    statement.total_amount = Decimal("20.70")
+    db_session.add(statement)
+    db_session.flush()
+    db_session.add(StatementPayment(
+        workspace_id=cena["ws"].id, statement_id=statement.id,
+        amount=Decimal("5.00"), paid_at=QUANDO,
+    ))
+    db_session.commit()
+
+    assert backfill(db_session, apply=False) == 0
+
+    db_session.refresh(statement)
+    assert statement.status == StatementStatus.paid, "dry-run não grava"
+
+
+def test_subpaga_volta_a_entrar_no_limite_do_cartao(db_session, cena):
+    """O efeito que motivou a reconciliação: `card_overview` pulava `paid`, e o
+    cartão anunciava um crédito que não tinha."""
+    _, statement = _compra_legada(db_session, cena, total=Decimal("20.70"), currency="USD")
+    statement.status = StatementStatus.paid
+    statement.total_amount = Decimal("20.70")
+    db_session.add(statement)
+    db_session.flush()
+    db_session.add(StatementPayment(
+        workspace_id=cena["ws"].id, statement_id=statement.id,
+        amount=Decimal("5.00"), paid_at=QUANDO,
+    ))
+    db_session.commit()
+
+    # Antes mesmo do script: o limite não pode ignorar um saldo que existe.
+    assert CreditCardService.card_committed(db_session, cena["card"]) == Decimal("15.70")
+
+    assert backfill(db_session, apply=True) == 0
+    db_session.refresh(cena["card"])
+    assert CreditCardService.card_committed(db_session, cena["card"]) == Decimal("15.70")
     assert CreditCardService.statement_balance(db_session, statement) == Decimal("15.70")
 
 

@@ -50,7 +50,7 @@ test.describe('Sessão atrás do nginx (stack de produção)', () => {
     await page.getByLabel('E-mail').fill(email);
     await page.getByLabel('Senha', { exact: true }).fill(password);
     await page.getByLabel('Confirmar', { exact: true }).fill(password);
-    // O rate limit de auth (5/min por IP+rota) vale aqui como em produção — é
+    // O rate limit de auth (por IP+rota) vale aqui como em produção — é
     // deliberado não desligá-lo. O resto da suíte o absorve com `postWithRetry`,
     // mas este teste registra pelo FORMULÁRIO de propósito (o que ele verifica é
     // o redirecionamento do navegador atrás do nginx), e um formulário não tem
@@ -111,7 +111,7 @@ test.describe('Sessão atrás do nginx (stack de produção)', () => {
     // Autossuficiente: worker pode reiniciar entre testes (ts é reavaliado),
     // então cria a própria conta via API antes do login pela UI
     // Pelo helper com retry em 429, como o resto da suíte: o rate limit de auth
-    // é 5/min por IP+rota e a suíte inteira roda em menos de dois minutos. Esta
+    // vale por IP+rota e a suíte inteira roda em menos de dois minutos. Esta
     // era a ÚNICA chamada de registro que batia direto, então ela era a que caía
     // quando um spec novo entrava na janela — falha de infraestrutura do teste
     // que parecia defeito do login.
@@ -124,7 +124,25 @@ test.describe('Sessão atrás do nginx (stack de produção)', () => {
     await page.goto('/login');
     await page.getByLabel('E-mail').fill(email2);
     await page.getByLabel('Senha', { exact: true }).fill(password);
-    await page.getByRole('button', { name: /Acessar Conta/ }).click();
+    // Mesmo laço do registro pelo formulário, no primeiro teste, e pelo mesmo
+    // motivo — aqui ele faltava. O `smoke_prod.py` TERMINA martelando
+    // `/auth/login` até receber 429 (é o check "rate limit ativo"), e no CI a
+    // suíte e2e-prod roda logo depois, no mesmo job: este login chegava com a
+    // janela do IP já gasta. O teste passava ou falhava conforme a velocidade da
+    // execução — um gate de deploy que reprova sozinho ensina a ignorar o
+    // vermelho. `postWithRetry` não serve: um formulário não é uma requisição
+    // que um helper possa reenviar.
+    for (let tentativa = 0; tentativa < 8; tentativa++) {
+      await page.getByRole('button', { name: /Acessar Conta/ }).click();
+      try {
+        await expect(page).toHaveURL(/\/overview$/, { timeout: 8_000 });
+        break;
+      } catch {
+        // Continua em /login: janela estourada. Espera e reenvia o mesmo
+        // formulário — os campos seguem preenchidos.
+        await page.waitForTimeout(10_000);
+      }
+    }
 
     await expect(page).toHaveURL(/\/overview$/, { timeout: 15_000 });
     // Conta recém-criada: quem está na tela é o onboarding (modal), que torna o

@@ -39,4 +39,12 @@ EXPOSE 8000
 # IMPORTANTE: manter --workers 1 — o ConnectionManager de WebSocket é
 # in-process; com mais workers os eventos deixam de chegar a todos os
 # clientes. Para escalar horizontalmente, seria preciso um broker (Redis).
-CMD ["sh", "-c", "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8000 --proxy-headers --forwarded-allow-ips '*' --workers 1"]
+#
+# `--forwarded-allow-ips` NÃO pode ser '*': com ele o uvicorn entra em
+# `always_trust` e aceita `X-Forwarded-For` de qualquer origem — inclusive de
+# quem alcance este container por fora da rede do Compose. O default abaixo são
+# as faixas privadas (o IP do nginx na rede do Compose é dinâmico, então não dá
+# para fixar um endereço); quem publica o backend de outro jeito ajusta pela
+# variável, sem rebuild. O nginx já sobrescreve o cabeçalho — isto é a segunda
+# tranca, não a primeira.
+CMD ["sh", "-c", "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8000 --proxy-headers --forwarded-allow-ips \"${FORWARDED_ALLOW_IPS:-127.0.0.1,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16}\" --workers 1"]

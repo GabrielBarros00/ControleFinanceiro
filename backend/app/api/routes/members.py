@@ -14,6 +14,7 @@ from app.domain.query_policy import workspace_base_currency
 from app.models.recurring import RecurringExpense
 from app.models.user import User
 from app.models.workspace import (
+    FinancialAccess,
     Workspace,
     WorkspaceMembership,
     WorkspaceInvite,
@@ -204,6 +205,7 @@ def update_member_role(
     if role_level(target.role) >= role_level(actor.role) or role_level(data.role) >= role_level(actor.role):
         raise HTTPException(status_code=403, detail="Permissão insuficiente para esta ação")
 
+    era_admin = role_level(target.role) >= role_level(WorkspaceRole.admin)
     target.role = data.role
     if data.financial_access is not None:
         # Owner nunca perde a visão da casa. `effective_access` já garante isso na
@@ -214,6 +216,15 @@ def update_member_role(
                 detail="O owner sempre tem acesso financeiro completo",
             )
         target.financial_access = data.financial_access
+    elif era_admin and role_level(data.role) < role_level(WorkspaceRole.admin):
+        # REBAIXAMENTO fecha a visibilidade. Enquanto a pessoa é admin, o valor
+        # gravado na coluna é invisível — a leitura devolve o EFETIVO
+        # (`full_workspace`, pelo cargo) e a tela nem mostra o seletor. Herdar
+        # essa coluna em silêncio ao rebaixar significa que quem tira privilégios
+        # pode estar ampliando o que a pessoa vê, sem escolher nada e sem saber.
+        # A direção segura é a mesma do default de convite (ADR 0018): fecha, e
+        # reabrir é ato explícito de um clique.
+        target.financial_access = FinancialAccess.involved_only
     target.updated_at = datetime.now(UTC)
     session.add(target)
     publish_event(session, workspace_id, "member.updated", "member", user_id, actor.user_id)

@@ -4,7 +4,7 @@ from pydantic import ValidationError
 
 from app.main import app
 from app.core.config import Settings, settings
-from app.core.rate_limit import auth_limiter
+from app.core.rate_limit import account_limiter, auth_limiter
 
 client = TestClient(app)
 
@@ -79,25 +79,59 @@ def test_cors_origins_parsing():
 
 # --- Rate limiting ---
 
-def test_login_rate_limited_after_5_attempts(db_session, override_get_session, monkeypatch):
+def test_login_rate_limited_por_ip(db_session, override_get_session, monkeypatch):
+    """O balde por IP+rota, com e-mails DIFERENTES a cada tentativa.
+
+    Repetir o mesmo e-mail mediria o balde por CONTA, que é menor e estoura
+    antes — o teste passaria sem nunca exercitar o de IP.
+
+    O teto vem do objeto, não de um número repetido aqui: ele é configurável
+    (`RATE_LIMIT_AUTH_PER_MINUTE`), e um teste que fixa "5" reprova por
+    configuração em vez de por defeito.
+    """
     monkeypatch.setattr(settings, "RATE_LIMIT_ENABLED", True)
     auth_limiter.reset()
+    account_limiter.reset()
     client.cookies.clear()
 
-    for _ in range(5):
-        res = client.post("/api/v1/auth/login", json={"email": "x@y.com", "password": "errada1"})
+    for i in range(auth_limiter.max_requests):
+        res = client.post("/api/v1/auth/login", json={"email": f"x{i}@y.com", "password": "errada1"})
         assert res.status_code == 401
 
-    res = client.post("/api/v1/auth/login", json={"email": "x@y.com", "password": "errada1"})
+    res = client.post("/api/v1/auth/login", json={"email": "ultimo@y.com", "password": "errada1"})
+    assert res.status_code == 429
+
+
+def test_login_rate_limited_por_conta(db_session, override_get_session, monkeypatch):
+    """O balde por CONTA — o que barra força bruta contra um alvo.
+
+    Ele precisa ser o MENOR dos dois: um IP é barato (VPN, 4G, botnet) e o teto
+    dele tem de ser generoso porque é compartilhado por gente legítima atrás do
+    mesmo Wi-Fi/CGNAT. Se o teto por conta passasse o de IP, quem ataca uma conta
+    específica passaria a ser limitado só pelo balde que troca de graça.
+    """
+    monkeypatch.setattr(settings, "RATE_LIMIT_ENABLED", True)
+    auth_limiter.reset()
+    account_limiter.reset()
+    client.cookies.clear()
+
+    assert account_limiter.max_requests < auth_limiter.max_requests
+
+    for _ in range(account_limiter.max_requests):
+        res = client.post("/api/v1/auth/login", json={"email": "alvo@y.com", "password": "errada1"})
+        assert res.status_code == 401
+
+    res = client.post("/api/v1/auth/login", json={"email": "alvo@y.com", "password": "errada1"})
     assert res.status_code == 429
 
 
 def test_rate_limit_disabled_via_setting(db_session, override_get_session, monkeypatch):
     monkeypatch.setattr(settings, "RATE_LIMIT_ENABLED", False)
     auth_limiter.reset()
+    account_limiter.reset()
     client.cookies.clear()
 
-    for _ in range(8):
+    for _ in range(auth_limiter.max_requests + account_limiter.max_requests + 1):
         res = client.post("/api/v1/auth/login", json={"email": "x@y.com", "password": "errada1"})
         assert res.status_code == 401
 

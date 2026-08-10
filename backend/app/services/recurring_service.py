@@ -12,7 +12,12 @@ from fastapi import HTTPException
 from app.core.config import settings
 from app.domain.query_policy import BASE_CURRENCY, workspace_base_currency
 from app.models.category import Category
-from app.models.credit_card import CreditCard
+from app.models.credit_card import (
+    CardStatement,
+    CreditCard,
+    StatementPayment,
+    StatementStatus,
+)
 from app.models.income import Income
 from app.models.recurring import (
     RecurrenceFrequency,
@@ -114,6 +119,45 @@ def _statement_for(db: Session, template: RecurringExpense, occ: date) -> Option
     # dia ANTERIOR — a ocorrência do dia de fechamento ia para a fatura errada.
     statement = CreditCardService.get_or_create_statement(db, card, occ)
     return statement.id
+
+
+def _descartar_fatura_vazia(db: Session, statement_id: Optional[int]) -> None:
+    """Desfaz a fatura que uma ocorrência DESCARTADA acabou de criar.
+
+    `_statement_for` roda antes de a ocorrência estar garantida, e
+    `get_or_create_statement` já faz `add` + `flush`. Quando a ocorrência é
+    descartada depois disso (sem cotação para a perna de fatura, snapshot de
+    divisão inválido), a fatura fica pendurada na sessão — e o `commit` do LOTE,
+    disparado por qualquer outra ocorrência que tenha dado certo, a confirma. O
+    resultado é uma fatura aberta e vazia no cartão, que não altera valor nenhum
+    mas suja a navegação e sugere um gasto que não existe.
+
+    Só apaga o que é seguramente lixo desta materialização: fatura ABERTA, sem
+    lançamento vivo e sem pagamento. Qualquer outra coisa é histórico de alguém.
+    """
+    if statement_id is None:
+        return
+    statement = db.get(CardStatement, statement_id)
+    if statement is None or statement.status != StatementStatus.open:
+        return
+    tem_linha = db.exec(
+        select(Transaction.id)
+        .where(Transaction.statement_id == statement_id)
+        .where(Transaction.deleted_at.is_(None))
+        .limit(1)
+    ).first()
+    if tem_linha is not None:
+        return
+    tem_pagamento = db.exec(
+        select(StatementPayment.id)
+        .where(StatementPayment.statement_id == statement_id)
+        .where(StatementPayment.deleted_at.is_(None))
+        .limit(1)
+    ).first()
+    if tem_pagamento is not None:
+        return
+    db.delete(statement)
+    db.flush()
 
 
 def _moeda_do_usuario(db, user_id: int) -> str:
@@ -370,6 +414,10 @@ class RecurringService:
                 card_currency=card.currency if card else None,
                 occurrence=occ.isoformat(),
             )
+            # A fatura foi criada lá em cima, na montagem do lançamento. Sem esta
+            # linha ela sobrevive à desistência e é confirmada pelo commit do
+            # lote — fatura aberta e vazia, de um mês em que nada foi lançado.
+            _descartar_fatura_vazia(db, tx.statement_id)
             return None
         db.add(tx)
         db.flush()
@@ -414,8 +462,12 @@ class RecurringService:
                 occurrence=str(occ),
                 motivo=str(exc),
             )
+            statement_id = tx.statement_id
             db.delete(tx)
             db.flush()
+            # A fatura da ocorrência descartada some junto: apagar só a transação
+            # deixava a fatura vazia para o commit do lote confirmar.
+            _descartar_fatura_vazia(db, statement_id)
             return None
 
         RecurringService._apply_category(db, template, tx, amount=converted)

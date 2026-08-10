@@ -168,3 +168,47 @@ describe('StatementView — reabrir com pagamento parcial', () => {
     expect(confirmar).not.toHaveBeenCalled();
   });
 });
+
+/**
+ * Fatura `paid` com saldo devedor — o estado contraditório.
+ *
+ * O backfill da perna de fatura podia recalcular o total de uma fatura já paga e
+ * descobrir que ela fora paga a menos. Enquanto o bloco de saldo dependia do
+ * STATUS (`status !== 'paid'`), a tela mostrava só "Total da Fatura" e o selo
+ * "Paga": a diferença não aparecia em lugar nenhum. O critério passou a ser o
+ * saldo. O script agora devolve essas faturas para `closed`, mas quem já rodou a
+ * versão anterior tem o estado no banco — e a tela não pode escondê-lo.
+ */
+describe('StatementView — fatura paga com saldo devedor', () => {
+  const FATURA_PAGA_SUBPAGA = {
+    ...FATURA_PARCIAL,
+    status: 'paid',
+    total_amount: '20.70',
+    computed_total: '20.70',
+    paid_amount: '5.00',
+    remaining_amount: '15.70',
+    paid_at: '2026-07-28T12:00:00',
+    payments: [{ id: 1, amount: '5.00', paid_at: '2026-07-28T12:00:00', account_id: null, note: null }],
+  };
+
+  beforeEach(() => {
+    detalhe = FATURA_PAGA_SUBPAGA;
+  });
+
+  it('mostra o saldo que ainda falta, apesar do status "paga"', () => {
+    render(<StatementView cardId={1} />);
+    expect(screen.getByText('Saldo restante')).toBeInTheDocument();
+    expect(screen.getAllByText(/15,70/).length).toBeGreaterThan(0);
+    expect(screen.getByText('Pago até agora')).toBeInTheDocument();
+  });
+
+  it('uma fatura paga DE VERDADE não ganha o bloco de saldo', () => {
+    detalhe = {
+      ...FATURA_PAGA_SUBPAGA,
+      paid_amount: '20.70',
+      remaining_amount: '0.00',
+    };
+    render(<StatementView cardId={1} />);
+    expect(screen.queryByText('Saldo restante')).not.toBeInTheDocument();
+  });
+});

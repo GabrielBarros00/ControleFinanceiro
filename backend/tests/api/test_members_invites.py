@@ -7,6 +7,7 @@ from app.main import app
 from app.core.jwt import create_access_token
 from app.models.user import User
 from app.models.workspace import (
+    FinancialAccess,
     Workspace,
     WorkspaceMembership,
     WorkspaceInvite,
@@ -138,6 +139,97 @@ def test_owner_can_promote_to_admin(team):
     )
     assert res.status_code == 200
     assert res.json()["role"] == "admin"
+
+
+def _acesso_gravado(db: Session, ws_id: int, user_id: int) -> FinancialAccess:
+    """A COLUNA, não o efetivo: é ela que passa a valer quando o cargo cai."""
+    m = db.exec(
+        select(WorkspaceMembership).where(
+            WorkspaceMembership.workspace_id == ws_id,
+            WorkspaceMembership.user_id == user_id,
+        )
+    ).first()
+    db.refresh(m)
+    return m.financial_access
+
+
+def test_promover_a_admin_nao_reescreve_a_coluna_de_acesso(team):
+    """A resposta traz o EFETIVO; o gravado continua sendo o que o dono escolheu."""
+    ws, users, db = team["ws"], team["users"], team["db"]
+    assert _acesso_gravado(db, ws.id, users["member"].id) == FinancialAccess.involved_only
+
+    res = client.patch(
+        f"/api/v1/workspaces/{ws.id}/members/{users['member'].id}",
+        json={"role": "admin"},
+        headers=_headers(users["owner"]),
+    )
+    assert res.status_code == 200
+    assert res.json()["financial_access"] == "full_workspace", "admin vê tudo pelo cargo"
+    assert _acesso_gravado(db, ws.id, users["member"].id) == FinancialAccess.involved_only
+
+
+def test_rebaixar_admin_fecha_a_visibilidade(team):
+    """O defeito: a tela reenviava o acesso EFETIVO do admin (`full_workspace`)
+    como configuração, e rebaixar para Membro AMPLIAVA o que a pessoa via.
+
+    Sem `financial_access` no corpo, o rebaixamento fecha — a mesma direção do
+    default de convite (ADR 0018). Reabrir é ato explícito de quem administra.
+    """
+    ws, users, db = team["ws"], team["users"], team["db"]
+    # Cenário do achado: alguém a quem o dono já tinha aberto a casa, promovido
+    # a admin e depois rebaixado.
+    client.patch(
+        f"/api/v1/workspaces/{ws.id}/members/{users['member'].id}",
+        json={"role": "member", "financial_access": "full_workspace"},
+        headers=_headers(users["owner"]),
+    )
+    client.patch(
+        f"/api/v1/workspaces/{ws.id}/members/{users['member'].id}",
+        json={"role": "admin"},
+        headers=_headers(users["owner"]),
+    )
+
+    res = client.patch(
+        f"/api/v1/workspaces/{ws.id}/members/{users['member'].id}",
+        json={"role": "member"},
+        headers=_headers(users["owner"]),
+    )
+    assert res.status_code == 200
+    assert res.json()["financial_access"] == "involved_only"
+    assert _acesso_gravado(db, ws.id, users["member"].id) == FinancialAccess.involved_only
+
+
+def test_rebaixar_admin_com_acesso_explicito_respeita_a_escolha(team):
+    """Fechar é o DEFAULT, não uma trava: quem manda o campo decide."""
+    ws, users, db = team["ws"], team["users"], team["db"]
+    res = client.patch(
+        f"/api/v1/workspaces/{ws.id}/members/{users['admin'].id}",
+        json={"role": "member", "financial_access": "full_workspace"},
+        headers=_headers(users["owner"]),
+    )
+    assert res.status_code == 200
+    assert res.json()["financial_access"] == "full_workspace"
+    assert _acesso_gravado(db, ws.id, users["admin"].id) == FinancialAccess.full_workspace
+
+
+def test_trocar_papel_entre_member_e_viewer_preserva_o_acesso(team):
+    """A regra vale só para o REBAIXAMENTO de admin: member↔viewer não mexe no
+    eixo de visibilidade, que é ortogonal ao papel."""
+    ws, users, db = team["ws"], team["users"], team["db"]
+    client.patch(
+        f"/api/v1/workspaces/{ws.id}/members/{users['member'].id}",
+        json={"role": "member", "financial_access": "full_workspace"},
+        headers=_headers(users["owner"]),
+    )
+
+    res = client.patch(
+        f"/api/v1/workspaces/{ws.id}/members/{users['member'].id}",
+        json={"role": "viewer"},
+        headers=_headers(users["owner"]),
+    )
+    assert res.status_code == 200
+    assert res.json()["financial_access"] == "full_workspace"
+    assert _acesso_gravado(db, ws.id, users["member"].id) == FinancialAccess.full_workspace
 
 
 def test_nobody_can_promote_to_owner(team):
