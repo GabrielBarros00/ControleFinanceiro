@@ -4,7 +4,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import React from 'react';
 import { http, HttpResponse } from 'msw';
 import { server } from '@/test/setup';
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { useAuthStore } from '@/stores';
 import { registerQueryClient } from '@/api/client';
 
@@ -174,6 +174,13 @@ describe('useAuth', () => {
     const depoisDoPrimeiro = chamadasMe;
     await new Promise((r) => setTimeout(r, 300));
     expect(chamadasMe).toBe(depoisDoPrimeiro);
+    // O piso importa tanto quanto o teto: em rota PROTEGIDA, o 401 de
+    // `/auth/me` significa "o access token venceu" e TEM de tentar renovar. Uma
+    // auditoria sugeriu calar esse refresh pondo `/auth/me` na lista `AUTH_URLS`
+    // para acabar com o barulho no console das telas públicas — o barulho é
+    // real, mas a cura seria derrubar a sessão de todo mundo que só recarregou
+    // a página. O silêncio nas telas públicas veio do `enabled` (ver abaixo).
+    expect(chamadasRefresh).toBeGreaterThanOrEqual(1);
     expect(chamadasRefresh).toBeLessThanOrEqual(2);
   });
 
@@ -193,5 +200,73 @@ describe('useAuth', () => {
     // Numa máquina compartilhada, isto ficava em memória e aparecia na tela do
     // próximo usuário no intervalo até o refetch.
     expect(queryClient.getQueryData(['transactions', 1])).toBeUndefined();
+  });
+
+  describe('rota pública', () => {
+    /*
+     * Em `/login` e `/register` não existe sessão a sondar: `/auth/me` responde
+     * 401 e o interceptor ainda tenta `/auth/refresh`, que responde 401 também.
+     * Nada quebra, mas a página abre com dois erros de rede no console antes de
+     * o usuário digitar qualquer coisa.
+     *
+     * `window.location.pathname` é o que o hook lê; no jsdom o padrão é `/`, que
+     * NÃO é rota pública — por isso todos os testes acima seguem exercitando a
+     * sonda ligada.
+     */
+    const irPara = (caminho: string) => {
+      window.history.pushState({}, '', caminho);
+    };
+
+    afterEach(() => irPara('/'));
+
+    it('não sonda /auth/me na tela de cadastro', async () => {
+      let chamadasMe = 0;
+      let chamadasRefresh = 0;
+      server.use(
+        http.get('http://localhost:8000/api/v1/auth/me', () => {
+          chamadasMe += 1;
+          return new HttpResponse(null, { status: 401 });
+        }),
+        http.post('http://localhost:8000/api/v1/auth/refresh', () => {
+          chamadasRefresh += 1;
+          return new HttpResponse(null, { status: 401 });
+        }),
+      );
+      irPara('/register');
+
+      const { result } = renderHook(() => useAuth(), { wrapper });
+
+      await new Promise((r) => setTimeout(r, 200));
+      expect(chamadasMe).toBe(0);
+      expect(chamadasRefresh).toBe(0);
+      // E o guard não pode ficar preso: "não sei se há sessão" tem de resolver
+      expect(result.current.isLoading).toBe(false);
+      expect(result.current.isAuthenticated).toBe(false);
+    });
+
+    it('o login estabelece a sessão MESMO partindo de /login', async () => {
+      /*
+       * A armadilha desta mudança: `refetchQueries` ignora query desabilitada, e
+       * o login acontece justamente na rota onde a sonda está desligada. Se o
+       * `onSuccess` voltar a usá-lo, o login passa a resolver sem sessão — e o
+       * usuário cai de volta em `/login` depois de entrar com a senha certa.
+       */
+      server.use(
+        http.post('http://localhost:8000/api/v1/auth/login', () =>
+          HttpResponse.json({ message: 'Success' })
+        ),
+      );
+      irPara('/login');
+
+      const { result } = renderHook(() => useAuth(), { wrapper });
+      await result.current.login({ email: 'test@example.com', password: 'password' });
+
+      await waitFor(() =>
+        expect(queryClient.getQueryData(['auth-me'])).toMatchObject({
+          email: 'test@example.com',
+        })
+      );
+      expect(useAuthStore.getState().isAuthenticated).toBe(true);
+    });
   });
 });

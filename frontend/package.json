@@ -9,7 +9,7 @@
     "lint": "eslint .",
     "typecheck": "tsc -b --noEmit",
     "test": "vitest run",
-    "test:e2e": "playwright test",
+    "test:e2e": "node scripts/e2e.mjs",
     "shots": "playwright test --config=playwright.shots.config.ts",
     "typegen": "python ../backend/scripts/dump_openapi.py openapi.json && openapi-typescript openapi.json -o src/types/api.gen.ts",
     "preview": "vite preview",

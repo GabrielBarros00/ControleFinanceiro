@@ -93,10 +93,13 @@ export function LoginPage() {
               <Label htmlFor="email">E-mail</Label>
               <div className="relative group">
                 <Mail className="absolute left-3 top-2.5 h-4 w-4 text-muted-foreground group-focus-within:text-primary transition-colors" />
-                <Input 
-                  id="email" 
-                  placeholder="exemplo@email.com" 
-                  {...register('email')} 
+                {/* `username`, não `email`: é o par que o gerenciador de senhas
+                    grava junto com `current-password` abaixo. */}
+                <Input
+                  id="email"
+                  autoComplete="username"
+                  placeholder="exemplo@email.com"
+                  {...register('email')}
                   className="pl-10 bg-background/50 border-border focus-visible:ring-primary/20"
                 />
               </div>
@@ -112,11 +115,12 @@ export function LoginPage() {
               </div>
               <div className="relative group">
                 <Lock className="absolute left-3 top-2.5 h-4 w-4 text-muted-foreground group-focus-within:text-primary transition-colors" />
-                <Input 
-                  id="password" 
-                  type="password" 
-                  placeholder="••••••••" 
-                  {...register('password')} 
+                <Input
+                  id="password"
+                  type="password"
+                  autoComplete="current-password"
+                  placeholder="••••••••"
+                  {...register('password')}
                   className="pl-10 bg-background/50 border-border focus-visible:ring-primary/20"
                 />
               </div>

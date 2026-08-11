@@ -97,18 +97,26 @@ class CreditCardService:
             year, month = _advance_month(year, month)
 
     @staticmethod
-    def get_or_create_statement(
+    def get_or_create_statement_tracked(
         db: Session,
         card: CreditCard,
         transaction_date: Union[datetime, date],
-    ) -> CardStatement:
-        """Fatura correta para uma transação (ADR 0002), criando-a se ainda não
-        existe. A regra de roteamento vive em `resolve_statement_target`."""
+    ) -> tuple[CardStatement, bool]:
+        """Como `get_or_create_statement`, mas diz se a fatura NASCEU agora.
+
+        Quem materializa recorrência precisa desfazer a fatura que a própria
+        chamada criou quando a ocorrência acaba descartada — e só essa. Sem o
+        flag, o chamador não tem como distinguir a fatura recém-criada da que já
+        estava no banco: `ensure_current_statement` cria de propósito a fatura
+        VAZIA do ciclo corrente, e ela é indistinguível de lixo por qualquer
+        critério de conteúdo (ver `_descartar_fatura_vazia` em
+        `recurring_service.py`).
+        """
         year, month, statement = CreditCardService.resolve_statement_target(
             db, card, transaction_date
         )
         if statement is not None:
-            return statement
+            return statement, False
 
         closing_dt, due_dt = _statement_dates(card, year, month)
         statement = CardStatement(
@@ -121,7 +129,19 @@ class CreditCardService:
         db.add(statement)
         # flush, NUNCA commit (ADR 0010): o chamador comanda a transação
         db.flush()
-        return statement
+        return statement, True
+
+    @staticmethod
+    def get_or_create_statement(
+        db: Session,
+        card: CreditCard,
+        transaction_date: Union[datetime, date],
+    ) -> CardStatement:
+        """Fatura correta para uma transação (ADR 0002), criando-a se ainda não
+        existe. A regra de roteamento vive em `resolve_statement_target`."""
+        return CreditCardService.get_or_create_statement_tracked(
+            db, card, transaction_date
+        )[0]
 
     @staticmethod
     def preview_statement_target(

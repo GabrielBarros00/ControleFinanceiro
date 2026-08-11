@@ -21,15 +21,18 @@ const VENV_PYTHON = path.resolve(
 );
 const PYTHON = JSON.stringify(process.env.E2E_PYTHON ?? VENV_PYTHON);
 
+// Quem sobe os servidores: `scripts/e2e.mjs` (o caminho de `npm run test:e2e`)
+// marca esta variável e assume o ciclo de vida inteiro — inclusive o de MATÁ-LOS,
+// que é a parte que o Playwright não fazia direito no Windows e deixava o comando
+// pendurado depois de a suíte passar.
+const SERVIDORES_EXTERNOS = !!process.env.E2E_EXTERNAL_SERVERS;
+
 /*
  * Apaga o banco descartável antes da rodada.
  *
- * Isto morava no `command` do `webServer`, encadeado com `&&`
- * (`if exist e2e.db del /f /q e2e.db && python -m uvicorn ...`). O encadeamento
- * obriga o Playwright a subir um SHELL, e o uvicorn vira NETO do processo que
- * ele controla — no Windows, matar o shell não leva a árvore junto. O efeito era
- * `npx playwright test` terminar os testes e ficar vivo por 240–300 s até o
- * timeout: os specs passavam e o comando não devolvia o terminal.
+ * Só vale para quem chama `playwright test` na mão. O caminho oficial é
+ * `npm run test:e2e` (`scripts/e2e.mjs`), que apaga o banco e sobe os servidores
+ * ele mesmo — ver `E2E_EXTERNAL_SERVERS` no `webServer`, mais abaixo.
  *
  * Aqui e não num `globalSetup`: o Playwright sobe o `webServer` ANTES de rodar o
  * globalSetup, então lá o backend já abriu o arquivo e o `rm` falha com EPERM no
@@ -37,11 +40,11 @@ const PYTHON = JSON.stringify(process.env.E2E_PYTHON ?? VENV_PYTHON);
  * criado, que é exatamente a janela necessária.
  */
 const E2E_DB = path.resolve(import.meta.dirname, '..', 'backend', 'e2e.db');
-// Só no processo PRINCIPAL: o Playwright reimporta a config em cada worker, e lá
-// o backend já está de pé com o arquivo aberto — apagar de novo falharia com
-// EPERM no Windows (e, pior, apagaria o banco no meio da rodada em outros SOs).
-// `TEST_WORKER_INDEX` só existe nos workers.
-if (process.env.TEST_WORKER_INDEX === undefined) {
+// Só no processo PRINCIPAL, e só quando somos nós que subimos o backend: o
+// Playwright reimporta a config em cada worker, e lá o banco já está aberto —
+// apagar de novo falharia com EPERM no Windows (e, pior, apagaria o banco no
+// meio da rodada em outros SOs). `TEST_WORKER_INDEX` só existe nos workers.
+if (process.env.TEST_WORKER_INDEX === undefined && !SERVIDORES_EXTERNOS) {
   // `-wal`/`-shm` junto: sem eles o SQLite reconstrói o estado recém-apagado.
   for (const arquivo of [E2E_DB, `${E2E_DB}-wal`, `${E2E_DB}-shm`]) {
     fs.rmSync(arquivo, { force: true });
@@ -94,7 +97,15 @@ export default defineConfig({
       testMatch: /.*\.mobile\.spec\.ts/,
     },
   ],
-  webServer: [
+  /*
+   * `undefined` quando os servidores são externos: é assim que `npm run test:e2e`
+   * (`scripts/e2e.mjs`) fica sendo o ÚNICO dono do ciclo de vida. Com os dois
+   * donos, o Playwright tentaria subir na porta já ocupada.
+   *
+   * O bloco abaixo continua existindo para quem chama `npx playwright test`
+   * direto — o CI de Linux fazia exatamente isso e nunca teve o problema.
+   */
+  webServer: SERVIDORES_EXTERNOS ? undefined : [
     {
       // Executável PURO, sem `&&`: com encadeamento o Playwright sobe um shell e
       // não consegue encerrar o uvicorn no Windows. A limpeza do e2e.db roda no

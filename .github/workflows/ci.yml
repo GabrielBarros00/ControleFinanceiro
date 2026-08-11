@@ -191,13 +191,63 @@ jobs:
       - name: Install Playwright browsers
         run: |
           cd frontend && npx playwright install --with-deps chromium
-      - name: Run E2E tests (Playwright sobe backend + frontend)
-        run: |
-          cd frontend && npx playwright test
+      # `npm run test:e2e` e não `npx playwright test`: é o wrapper
+      # (`frontend/scripts/e2e.mjs`) que precisa ser o caminho exercitado. Um
+      # script que o CI não roda é um script que ninguém sabe se funciona — foi
+      # exatamente assim que o `smoke_prod` apodreceu por uma onda inteira.
+      # `E2E_PYTHON` porque aqui as dependências são instaladas no Python global,
+      # sem venv.
+      - name: E2E (o wrapper sobe backend + frontend)
+        working-directory: frontend
+        timeout-minutes: 15
+        env:
+          E2E_PYTHON: python
+        run: npm run test:e2e
       - uses: actions/upload-artifact@v4
         if: failure()
         with:
           name: playwright-report
+          path: frontend/playwright-report/
+
+  # O MESMO gate no Windows, e o que ele mede é o encerramento.
+  #
+  # A suíte E2E de desenvolvimento travou no Windows três auditorias seguidas:
+  # os specs passavam e o comando não devolvia o terminal. Foi corrigida duas
+  # vezes e voltou as duas, porque o CI só roda Linux — onde o defeito não
+  # existe — e um gate que ninguém consegue rodar até o fim deixa de ser rodado.
+  # `timeout-minutes` é o coração deste job: se `npm run test:e2e` pendurar de
+  # novo, ele reprova em vez de gastar as 6 h do padrão.
+  e2e-windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: frontend/package-lock.json
+      - name: Install backend dependencies
+        run: pip install -r backend/requirements-dev.txt
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: npm ci
+      # Sem `--with-deps`: instalar dependências de sistema só existe no Ubuntu.
+      - name: Install Playwright browsers
+        working-directory: frontend
+        run: npx playwright install chromium
+      - name: E2E no Windows (tem de ENCERRAR)
+        working-directory: frontend
+        timeout-minutes: 20
+        env:
+          E2E_PYTHON: python
+        run: npm run test:e2e
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: playwright-report-windows
           path: frontend/playwright-report/
 
   # Stack REAL do Compose (nginx + backend production + Postgres) com os dois

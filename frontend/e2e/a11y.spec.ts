@@ -273,4 +273,39 @@ test.describe('Acessibilidade (axe · WCAG 2 A/AA)', () => {
     expect(erros).toEqual([]);
     await context.close();
   });
+
+  /*
+   * As telas PÚBLICAS, que a suíte nunca tinha visitado.
+   *
+   * Todo teste acima entra com uma conta criada por `contaNova` — ou seja, a
+   * varredura de console só via o app com sessão. Em `/login` e `/register` o
+   * app sondava `/auth/me` (401) e o interceptor emendava `/auth/refresh` (401),
+   * então a primeira tela que um usuário novo vê abria com dois erros de rede.
+   *
+   * `browser.newContext()` cru, sem cadastro: é o navegador limpo de quem chega
+   * pela primeira vez, que é o cenário exato do defeito.
+   */
+  for (const [rota, botao] of [
+    ['/login', /Acessar Conta/i],
+    // `^Cadastrar$`: sem a âncora, casa também o "Cadastrar com Google" ao lado.
+    ['/register', /^Cadastrar$/],
+  ] as const) {
+    test(`${rota} — tela pública sem erro de console`, async ({ browser }) => {
+      const context = await browser.newContext();
+      const page = await context.newPage();
+      const erros = vigiarConsole(page);
+
+      await page.goto(rota);
+      // Âncora no botão de envio, não num heading: os títulos destas telas são
+      // `CardTitle`, que o shadcn renderiza como `div`.
+      await expect(page.getByRole('button', { name: botao })).toBeVisible();
+
+      const { violations } = await analisar(page);
+      expect(resumir(violations)).toBe('');
+      // Uma 401 de rede também chega aqui como mensagem de console, e é por isso
+      // que este `expect` é o que trava a regressão da sonda em rota pública.
+      expect(erros).toEqual([]);
+      await context.close();
+    });
+  }
 });

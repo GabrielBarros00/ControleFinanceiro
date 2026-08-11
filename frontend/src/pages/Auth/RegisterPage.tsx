@@ -92,10 +92,11 @@ export function RegisterPage() {
               <Label htmlFor="name">Nome Completo</Label>
               <div className="relative group">
                 <User className="absolute left-3 top-2.5 h-4 w-4 text-muted-foreground group-focus-within:text-primary transition-colors" />
-                <Input 
-                  id="name" 
-                  placeholder="Seu nome" 
-                  {...register('name')} 
+                <Input
+                  id="name"
+                  autoComplete="name"
+                  placeholder="Seu nome"
+                  {...register('name')}
                   className="pl-10 bg-background/50 border-border focus-visible:ring-primary/20"
                 />
               </div>
@@ -106,10 +107,11 @@ export function RegisterPage() {
               <Label htmlFor="email">E-mail</Label>
               <div className="relative group">
                 <Mail className="absolute left-3 top-2.5 h-4 w-4 text-muted-foreground group-focus-within:text-primary transition-colors" />
-                <Input 
-                  id="email" 
-                  placeholder="exemplo@email.com" 
-                  {...register('email')} 
+                <Input
+                  id="email"
+                  autoComplete="email"
+                  placeholder="exemplo@email.com"
+                  {...register('email')}
                   className="pl-10 bg-background/50 border-border focus-visible:ring-primary/20"
                 />
               </div>
@@ -121,11 +123,15 @@ export function RegisterPage() {
                 <Label htmlFor="password">Senha</Label>
                 <div className="relative group">
                   <Lock className="absolute left-3 top-2.5 h-4 w-4 text-muted-foreground group-focus-within:text-primary transition-colors" />
-                  <Input 
-                    id="password" 
-                    type="password" 
-                    placeholder="••••••••" 
-                    {...register('password')} 
+                  {/* `new-password` nos DOIS campos: sem isto o gerenciador de
+                      senhas não oferece gerar uma, e o Chrome reclama no
+                      console. Nunca `current-password` aqui — é cadastro. */}
+                  <Input
+                    id="password"
+                    type="password"
+                    autoComplete="new-password"
+                    placeholder="••••••••"
+                    {...register('password')}
                     className="pl-10 bg-background/50 border-border focus-visible:ring-primary/20"
                   />
                 </div>
@@ -135,11 +141,12 @@ export function RegisterPage() {
                 <Label htmlFor="confirmPassword">Confirmar</Label>
                 <div className="relative group">
                   <ShieldCheck className="absolute left-3 top-2.5 h-4 w-4 text-muted-foreground group-focus-within:text-primary transition-colors" />
-                  <Input 
-                    id="confirmPassword" 
-                    type="password" 
-                    placeholder="••••••••" 
-                    {...register('confirmPassword')} 
+                  <Input
+                    id="confirmPassword"
+                    type="password"
+                    autoComplete="new-password"
+                    placeholder="••••••••"
+                    {...register('confirmPassword')}
                     className="pl-10 bg-background/50 border-border focus-visible:ring-primary/20"
                   />
                 </div>
