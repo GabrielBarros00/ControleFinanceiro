@@ -23,6 +23,10 @@ const GOOGLE_ERRORS: Record<string, string> = {
   // quem a pessoa é, não que ela pode existir neste site.
   cadastro_por_convite: 'Este sistema é por convite. Sua conta Google não tem cadastro aqui — peça um convite a quem já o utiliza.',
   conta_desativada: 'Esta conta está desativada. Fale com o administrador do sistema.',
+  // O callback ganhou o mesmo balde por IP do `/auth/register` quando virou
+  // superfície de cadastro. Ele responde por redirecionamento, não com 429 em
+  // JSON, para não despejar o corpo do erro na barra de endereços.
+  muitas_tentativas: 'Muitas tentativas. Aguarde um minuto e tente novamente.',
 };
 
 const loginSchema = z.object({

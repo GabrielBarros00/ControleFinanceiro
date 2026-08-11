@@ -37,6 +37,7 @@ from app.services.event_service import publish_event
 from app.models.notification import NotificationType
 from app.services.membership_service import ensure_membership, find_membership
 from app.services.notification_service import notify, resolve_invite_notifications
+from app.services.registration_service import assert_pode_convidar
 
 router = APIRouter(prefix="/workspaces/{workspace_id}", tags=["members"])
 invites_router = APIRouter(prefix="/invites", tags=["invites"])
@@ -308,6 +309,22 @@ def create_invite(
     if existing_user and find_membership(session, workspace_id, existing_user.id):
         raise HTTPException(status_code=400, detail="Este usuário já é membro do workspace")
 
+    # MESMO PORTÃO de `/me/registration-invites` (ADR 0026), e só quando este
+    # convite pode FAZER NASCER CONTA no site. Um `WorkspaceInvite` autoriza
+    # cadastro tanto quanto um `RegistrationInvite` — é o que
+    # `_convite_de_workspace_valido` faz —, então sem esta linha
+    # `who_can_invite=admins_only` e a cota mensal não valiam nada: todo usuário
+    # nasce `owner` do próprio workspace e podia trazer o site inteiro por aqui.
+    #
+    # Convidar quem JÁ TEM CONTA segue livre: não faz o site crescer, e racionar
+    # isso quebraria o caso normal de um app de família. O preço, assumido: para
+    # um usuário comum com `admins_only` ligado, um 403 aqui e um 200 ali
+    # distinguem endereço com conta de endereço sem conta. Quem pergunta já está
+    # autenticado, e esta rota já responde diferente para quem é membro — não é
+    # a superfície anônima que o portão de cadastro protege.
+    if existing_user is None:
+        assert_pode_convidar(session, inviter)
+
     pendentes = session.exec(
         select(WorkspaceInvite).where(
             WorkspaceInvite.workspace_id == workspace_id,
@@ -377,6 +394,11 @@ def create_invite_link(
 ):
     if role_level(data.role) >= role_level(actor.role):
         raise HTTPException(status_code=403, detail="Você só pode convidar com papel inferior ao seu")
+
+    # Sem condição, ao contrário do convite por e-mail: um link não tem endereço
+    # e serve a quem chegar com ele, então ele SEMPRE pode fazer nascer conta —
+    # é a via menos controlada que existe aqui.
+    assert_pode_convidar(session, session.get(User, actor.user_id))
 
     invite = WorkspaceInvite(
         workspace_id=workspace_id,

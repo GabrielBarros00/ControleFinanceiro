@@ -5,7 +5,7 @@ from typing import List, Optional
 from urllib.parse import urlencode
 
 import httpx
-from fastapi import APIRouter, Depends, HTTPException, status, Response, Cookie
+from fastapi import APIRouter, Depends, HTTPException, status, Request, Response, Cookie
 from fastapi.responses import RedirectResponse
 from sqlmodel import Session, select
 from app.core.config import settings
@@ -745,6 +745,7 @@ def google_login(response: Response, invite: Optional[str] = None):
 
 @router.get("/google/callback")
 def google_callback(
+    request: Request,
     code: Optional[str] = None,
     state: Optional[str] = None,
     error: Optional[str] = None,
@@ -755,6 +756,20 @@ def google_callback(
         res = RedirectResponse(f"{settings.FRONTEND_URL}/login?error={reason}")
         clear_oauth_state_cookie(res)
         return res
+
+    # MESMO BALDE do `/auth/register`, e por dentro em vez de como dependency:
+    # esta rota é uma NAVEGAÇÃO do navegador, e um 429 em JSON cru apareceria na
+    # barra de endereços — a mesma razão pela qual o portão de cadastro, mais
+    # abaixo, também recua para `fail()`.
+    #
+    # Faz falta desde o ADR 0026: enquanto o callback só autenticava quem já
+    # tinha conta, o teto por IP do `register` bastava; agora as duas rotas fazem
+    # nascer usuário, e deixar uma sem balde é a assimetria que o portão existe
+    # para não ter.
+    try:
+        rate_limit_auth(request, db)
+    except HTTPException:
+        return fail("muitas_tentativas")
 
     if not _google_configured():
         return fail("google_nao_configurado")

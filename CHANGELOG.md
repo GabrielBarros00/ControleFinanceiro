@@ -71,6 +71,62 @@ propósito e confirmando que o teste o pega. A fronteira em uma frase:
 - `POST /auth/registration-policy` (público) para a tela de cadastro dizer "é só
   por convite" **antes** de a pessoa preencher o formulário inteiro.
 
+### A auditoria da auditoria: a segunda porta era a do convite
+
+Reauditoria da onda de administração. As dez correções anteriores estavam
+corretas e bem testadas — mas a **lição** que aquela auditoria escreveu ("ao
+fechar uma porta, procure TODA superfície que cria o recurso") tinha sido
+aplicada a uma capacidade só.
+
+**`assert_pode_convidar` também tinha um único ponto de chamada.** Um
+`WorkspaceInvite` autoriza criar conta no site exatamente como um
+`RegistrationInvite`, e as duas rotas que o emitem
+(`POST /workspaces/{id}/invites` e `.../invites/link`) não consultavam nada. Como
+todo usuário nasce `owner` do próprio "Meu Workspace",
+`who_can_invite=admins_only` não valia nada: bastava convidar pela tela de
+membros, sem cota. E `max_uses` não tinha teto — um link de workspace com
+`max_uses=999999` era um cadastro público para o site inteiro, válido por até 30
+dias, emitido por qualquer pessoa. O portão passou a valer nas três rotas, e a
+cota conta as duas espécies; só entra na conta o convite que pode fazer o site
+**crescer**, porque chamar para a sua casa quem já tem conta não cria conta
+nenhuma.
+
+**O cadastro continuava acontecendo durante a manutenção.** O middleware libera
+`/auth/*` para o administrador conseguir entrar e desligar o modo; o cadastro
+passava de carona, e um site em `registration_mode=open` seguia fazendo nascer
+usuário, workspace e categorias semeadas — para a pessoa entrar e receber 503 em
+tudo que importa. Quem recusa agora é `assert_pode_cadastrar`, com a janela de
+bootstrap isenta: `maintenance_mode` é uma linha no banco e sobrevive a um
+`down`, então um deploy que subisse com ela ligada trancaria o próprio dono do
+lado de fora.
+
+**`make backend-test` nunca rodou** — desde o primeiro commit, e falhava por dois
+motivos empilhados: `tests/` não é pacote (então `import app` morria) e
+`Settings` tem `env_file=".env"` relativo ao processo, de modo que rodar da raiz
+lia o `.env` do *deploy* e o `extra_forbidden` do pydantic derrubava a coleção.
+Só o `ci.yml` acertava, por acidente. O `pythonpath` no `backend/pyproject.toml`
+resolve o primeiro para qualquer invocação e o alvo passou a rodar de dentro de
+`backend/`, como o `migrate` já fazia.
+
+- **O callback do Google não tinha rate limit.** Enquanto ele só autenticava,
+  o balde do `/auth/register` bastava; desde que virou superfície de cadastro,
+  deixar uma das duas portas sem teto por IP é a assimetria que o portão existe
+  para não ter. Responde por redirecionamento, não com 429 em JSON: é uma
+  navegação, e o corpo do erro apareceria na barra de endereços.
+- **Rebaixar-se era permitido no servidor e a tela não oferecia** — o mesmo
+  "servidor aceita, tela não oferece" que a auditoria anterior corrigiu duas
+  linhas acima, na mesma tabela. O ADR justifica o auto-rebaixamento como a
+  forma de um superadministrador passar o bastão, e ele só era alcançável pela
+  API na mão. Agora o seletor aparece na própria linha, com confirmação: não tem
+  volta sem outra pessoa. O interruptor de ativação continua fora de alcance.
+- **`sobrescrito` respondia a outra pergunta.** Era "existe linha no banco", e a
+  tela precisa de "o banco é quem manda": quando `get` descarta a linha — valor
+  corrompido, ou um `IMPORT_MAX_ROWS` que baixou abaixo do que estava gravado —,
+  o valor exibido vinha do ambiente com a marca de "gravado aqui", e o operador
+  ia procurar a causa no lugar errado.
+- `ATTACHMENT_QUOTA_BYTES` e `IMPORT_MAX_ROWS` faltavam no
+  `backend/.env.example`; o `test_compose_env.py` só lê o `docker-compose.yml`.
+
 ### A auditoria da administração: a porta dos fundos e o primeiro acesso impossível
 
 Auditoria da onda acima. Os portões estavam todos verdes — 2489 testes de

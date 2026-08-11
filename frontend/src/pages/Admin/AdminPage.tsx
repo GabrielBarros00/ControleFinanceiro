@@ -68,6 +68,9 @@ const ROTULO_DE_PAPEL: Record<PlatformRole, string> = {
   superadmin: 'Superadministrador',
 };
 
+/** Espelha `platform_level` do backend — só para saber se um papel é rebaixamento. */
+const NIVEL_DE_PAPEL: Record<PlatformRole, number> = { user: 0, admin: 1, superadmin: 2 };
+
 // --------------------------------------------------------------------------
 // Visão geral
 // --------------------------------------------------------------------------
@@ -124,6 +127,24 @@ function LinhaDeUsuario({
   const souEu = usuario.id === meuId;
 
   const trocarPapel = async (papel: PlatformRole) => {
+    // Rebaixar a SI MESMO é o passo que o próprio autor não desfaz: sem a área
+    // administrativa não há como voltar, e a volta passa a depender de outra
+    // pessoa. O servidor permite de propósito — é assim que um
+    // superadministrador passa o bastão depois de promover quem fica —, então a
+    // tela oferece o caminho e pede confirmação, em vez de escondê-lo e deixar
+    // a função só alcançável por quem chame a API na mão.
+    if (souEu && NIVEL_DE_PAPEL[papel] < NIVEL_DE_PAPEL[usuario.platform_role]) {
+      const ok = await confirm({
+        title: `Rebaixar a sua própria conta para ${ROTULO_DE_PAPEL[papel].toLowerCase()}?`,
+        description:
+          'Você perde o acesso à área administrativa imediatamente e não consegue '
+          + 'se promover de volta — só outro administrador consegue. O resto do '
+          + 'sistema continua funcionando normalmente para você.',
+        confirmLabel: 'Rebaixar',
+        destructive: true,
+      });
+      if (!ok) return;
+    }
     try {
       await acoes.patch.mutateAsync({ userId: usuario.id, platform_role: papel });
       toast.success(`${usuario.name} agora é ${ROTULO_DE_PAPEL[papel].toLowerCase()}.`);
@@ -175,7 +196,7 @@ function LinhaDeUsuario({
         <div className="text-xs text-muted-foreground">{usuario.email}</div>
       </TableCell>
       <TableCell>
-        {podeMexer && !souEu ? (
+        {podeMexer ? (
           // `<select>` nativo: o Select do Base UI é usado no resto do app, mas
           // aqui a tabela pode viver dentro de um Dialog e o popup dele escapa do
           // focus-trap do Radix.
@@ -186,6 +207,11 @@ function LinhaDeUsuario({
           // chamasse a API na mão. O que ele não pode é criar um superadmin, e
           // é isso que a opção condicional abaixo reflete (o servidor recusa com
           // 403 de qualquer forma).
+          //
+          // E vale na PRÓPRIA linha: o ADR 0026 permite rebaixar-se — é como um
+          // superadministrador passa o bastão — e esconder o seletor aqui era a
+          // mesma lacuna, na mesma tabela. O que continua fora de alcance é o
+          // interruptor de ativação, logo abaixo: aquele não tem volta.
           <select
             className="h-8 rounded-md border border-input bg-background px-2 text-sm"
             value={usuario.platform_role}

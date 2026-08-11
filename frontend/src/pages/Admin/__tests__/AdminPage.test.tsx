@@ -242,12 +242,40 @@ describe('pessoas', () => {
     expect(screen.getByLabelText('Papel de Pessoa Comum')).toBeInTheDocument();
   });
 
-  it('ninguém troca o próprio papel pela lista', () => {
-    // Quem está logado é o id 1 (Dona do Site). A trava de verdade é do
-    // servidor; aqui é para não oferecer um controle que só produz erro.
+  it('o seletor aparece na própria linha — rebaixar-se é permitido', () => {
+    // Quem está logado é o id 1 (Dona do Site). O servidor ACEITA o
+    // auto-rebaixamento de propósito (ADR 0026: é como um superadministrador
+    // passa o bastão depois de promover quem fica), e a tela escondia o
+    // seletor, deixando a função só alcançável por quem chamasse a API na mão —
+    // a mesma lacuna do admin comum que não podia promover ninguém.
     renderizar();
     abrirAba('Pessoas');
-    expect(screen.queryByLabelText('Papel de Dona do Site')).not.toBeInTheDocument();
+    expect(screen.getByLabelText('Papel de Dona do Site')).toBeInTheDocument();
+  });
+
+  it('rebaixar a própria conta pede confirmação', async () => {
+    renderizar();
+    abrirAba('Pessoas');
+
+    fireEvent.change(screen.getByLabelText('Papel de Dona do Site'), {
+      target: { value: 'user' },
+    });
+
+    // Não tem volta pelas mãos de quem faz: sem a área administrativa, promover-se
+    // de novo depende de outra pessoa. Oferecer o caminho não é o mesmo que
+    // deixá-lo a um clique de distância.
+    const dialogo = await screen.findByRole('dialog');
+    expect(within(dialogo).getByText(/Rebaixar a sua própria conta/)).toBeInTheDocument();
+  });
+
+  it('promover-se ou promover outra pessoa não pede nada', () => {
+    renderizar();
+    abrirAba('Pessoas');
+
+    fireEvent.change(screen.getByLabelText('Papel de Pessoa Comum'), {
+      target: { value: 'admin' },
+    });
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
   });
 
   it('administrador comum promove usuário comum, mas não cria superadmin', () => {

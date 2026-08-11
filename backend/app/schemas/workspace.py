@@ -80,7 +80,13 @@ class InviteLinkCreate(BaseModel):
     # (qualquer usuário logado com o token entra), e `None` durante 7 dias
     # significava "quantas pessoas quiserem" para quem só queria convidar uma.
     # Quem precisa de vários usos pede explicitamente.
-    max_uses: Optional[int] = Field(default=1, ge=1)
+    #
+    # `le=1000` é o mesmo teto do convite de cadastro do administrador, e vale
+    # aqui pela razão mais forte: um `WorkspaceInvite` também autoriza criar
+    # CONTA NO SITE (ADR 0026). Sem teto, `max_uses=999999` num site
+    # `invite_only` era um link de cadastro público, válido por até 30 dias,
+    # emitido por qualquer usuário no próprio workspace.
+    max_uses: Optional[int] = Field(default=1, ge=1, le=1000)
 
 
 class InviteRead(BaseModel):

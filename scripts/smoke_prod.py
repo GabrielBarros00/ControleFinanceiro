@@ -482,6 +482,62 @@ def main():
         res.status_code == 422, f"status={res.status_code}",
     )
 
+    # --- O convite de workspace é a MESMA capacidade ------------------------
+    #
+    # `who_can_invite` só valia em `/me/registration-invites`, e um
+    # `WorkspaceInvite` autoriza cadastro igual. Como todo usuário nasce `owner`
+    # do próprio workspace, a chave não valia nada: bastava convidar pela tela de
+    # membros. Vale conferir no stack real porque a decisão depende de uma
+    # consulta ("este endereço já tem conta?") que roda em Postgres.
+    admin.put("/admin/settings", json={"valores": {"who_can_invite": "admins_only"}})
+    try:
+        res = alice.post(
+            f"/workspaces/{ws_id}/invites", json={"email": "de-fora-do-smoke@example.com"}
+        )
+        check(
+            "usuário comum não traz gente de fora pelo convite de workspace",
+            res.status_code == 403, f"status={res.status_code} — a porta dos fundos do convite",
+        )
+        res = alice.post(f"/workspaces/{ws_id}/invites/link", json={})
+        check(
+            "usuário comum não gera link de workspace com o convite fechado",
+            res.status_code == 403, f"status={res.status_code}",
+        )
+        res = alice.post(f"/workspaces/{ws_id}/invites/link", json={"max_uses": 999_999})
+        check(
+            "link de workspace tem teto de usos", res.status_code in (403, 422),
+            f"status={res.status_code} — seria um cadastro público com outro nome",
+        )
+    finally:
+        admin.put("/admin/settings", json={"valores": {"who_can_invite": "all_users"}})
+
+    # --- Pausado é pausado: não nascem contas -------------------------------
+    #
+    # O middleware libera `/auth/*` para o administrador CONSEGUIR ENTRAR e
+    # desligar o modo; o cadastro passava de carona. O `finally` não é zelo: uma
+    # falha com a manutenção ligada deixaria o stack inutilizável para os testes
+    # e2e que rodam DEPOIS deste script.
+    admin.put("/admin/settings", json={"valores": {"maintenance_mode": True}})
+    try:
+        res = httpx.post(
+            f"{API}/auth/register",
+            json={"name": "Intrusa", "email": "durante-manutencao@example.com",
+                  "password": "senha123"},
+            timeout=15,
+        )
+        check(
+            "cadastro não passa com a manutenção ligada", res.status_code == 503,
+            f"status={res.status_code} — o site pausado seguiu fazendo nascer conta",
+        )
+    finally:
+        admin.put("/admin/settings", json={"valores": {"maintenance_mode": False}})
+
+    res = httpx.get(f"{API}/notifications", timeout=15)
+    check(
+        "a manutenção foi mesmo desligada", res.status_code != 503,
+        "o stack ficou em manutenção — os testes seguintes falhariam todos",
+    )
+
     print(f"\nSMOKE DE PRODUCAO: {_passed} verificacoes OK — stack aprovado.")
 
 

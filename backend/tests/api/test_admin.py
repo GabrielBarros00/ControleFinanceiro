@@ -393,6 +393,41 @@ def test_settings_diz_o_que_veio_do_ambiente(elenco):
     assert por_nome["who_can_invite"]["origem_ambiente"] is None
 
 
+def test_sobrescrito_segue_o_valor_que_esta_valendo(elenco, db_session, monkeypatch):
+    """"Existe linha no banco" e "o banco é quem manda" não são a mesma pergunta.
+
+    `get` descarta a linha que não passa na validação e recua para o ambiente —
+    é o que acontece ao baixar `IMPORT_MAX_ROWS` abaixo de um número gravado
+    antes. Enquanto `sobrescrito` respondia só "existe linha", a tela mostrava o
+    valor do `.env` com a marca de "gravado aqui", e o operador ia procurar a
+    causa no lugar errado.
+    """
+    from app.core.config import settings as cfg
+
+    def _chaves():
+        corpo = client.get("/api/v1/admin/settings", headers=_headers(elenco["admin"])).json()
+        return corpo, {c["nome"]: c for c in corpo["chaves"]}
+
+    client.put(
+        "/api/v1/admin/settings",
+        json={"valores": {"import_max_rows": 4000}},
+        headers=_headers(elenco["admin"]),
+    )
+    corpo, por_nome = _chaves()
+    assert corpo["valores"]["import_max_rows"] == 4000
+    assert por_nome["import_max_rows"]["sobrescrito"] is True
+
+    # O operador aperta o teto do PROCESSO abaixo do que estava gravado.
+    monkeypatch.setattr(cfg, "IMPORT_MAX_ROWS", 1000)
+    app_settings.invalidate_cache()
+
+    corpo, por_nome = _chaves()
+    assert corpo["valores"]["import_max_rows"] == 1000, "a linha inválida continuou valendo"
+    assert por_nome["import_max_rows"]["sobrescrito"] is False, (
+        "a tela creditou ao banco um valor que veio do ambiente"
+    )
+
+
 # --------------------------------------------------------------------------
 # Métricas
 # --------------------------------------------------------------------------

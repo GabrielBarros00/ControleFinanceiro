@@ -23,7 +23,7 @@ import json
 from decimal import Decimal
 from typing import Any, Callable, Dict, Optional
 
-from sqlmodel import Session, select
+from sqlmodel import Session
 
 from app.core.config import settings
 from app.models.app_setting import AppSetting
@@ -267,5 +267,23 @@ def set_value(db: Session, chave: str, valor: Any, user_id: Optional[int] = None
 
 
 def is_overridden(db: Session, chave: str) -> bool:
-    """Se o valor veio do banco (a tela marca isso) ou ainda acompanha o `.env`."""
-    return db.exec(select(AppSetting.key).where(AppSetting.key == chave)).first() is not None
+    """Se o valor que está VALENDO veio do banco, ou ainda acompanha o `.env`.
+
+    "Existe linha" não é a mesma pergunta, e responder por ela fazia a tela
+    mentir nos dois casos em que `get` descarta a linha: valor corrompido (edição
+    manual, migração de formato) e valor que deixou de passar na validação porque
+    o teto mudou — baixar `IMPORT_MAX_ROWS` no `.env` invalida um número maior
+    gravado antes. Nos dois, a tela mostrava o valor do ambiente com a marca de
+    "gravado no banco", e o operador ia procurar no lugar errado.
+
+    A checagem repete a de `get` de propósito: são a MESMA decisão, e o dia em
+    que divergirem é o dia em que a tela volta a mentir.
+    """
+    linha = db.get(AppSetting, chave)
+    if linha is None:
+        return False
+    try:
+        CHAVES[chave].valida(json.loads(linha.value))
+    except (ValueError, json.JSONDecodeError):
+        return False
+    return True

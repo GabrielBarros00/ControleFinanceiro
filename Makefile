@@ -51,9 +51,21 @@ migrate:
 	cd backend && ../$(VENV_BIN)/alembic current
 
 # Backend targets
+#
+# `cd backend` e não `pytest backend`, por DOIS motivos — o alvo estava quebrado
+# desde o primeiro commit e falhava por um deles de cada vez:
+#
+# 1. `sys.path`. `tests/` não é pacote, então o pytest insere `backend/tests` e
+#    mais nada: `import app` morria em `ModuleNotFoundError`. O `pythonpath` no
+#    `backend/pyproject.toml` resolve isso para qualquer invocação.
+# 2. O `.env`. `Settings` tem `env_file=".env"`, que é relativo ao diretório do
+#    PROCESSO. Rodando da raiz, ele lê o `.env` do DEPLOY — que traz variáveis só
+#    do compose, como `BIND_ADDR` — e o `extra_forbidden` do pydantic derruba a
+#    coleção inteira. O backend só é executável de dentro de `backend/`, e é
+#    assim que o `ci.yml` e o alvo `migrate` já faziam.
 .PHONY: backend-test
 backend-test:
-	$(PYTEST) backend
+	cd backend && ../$(PYTEST) -q
 
 # `lint` NÃO altera arquivos (antes rodava `ruff format`, que reescrevia código
 # num alvo chamado "lint"). Para formatar, use `make format`.

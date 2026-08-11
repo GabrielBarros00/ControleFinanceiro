@@ -100,3 +100,88 @@ def test_sem_sessao_durante_a_manutencao_tambem_e_503(elenco, db_session):
     """"Não consegui provar que é admin" e "não é admin" levam ao mesmo lugar."""
     _liga(db_session)
     assert client.get("/api/v1/notifications").status_code == 503
+
+
+# --------------------------------------------------------------------------
+# Pausado é pausado: não nascem contas
+# --------------------------------------------------------------------------
+#
+# `/auth/*` é liberado no middleware para o administrador CONSEGUIR ENTRAR e
+# desligar o modo. Isso deixava passar de carona o CADASTRO: com
+# `registration_mode=open`, o site pausado continuava fazendo nascer usuário,
+# workspace e categorias semeadas — e a pessoa entrava para receber 503 em tudo
+# que importa. Quem decide agora é `assert_pode_cadastrar`, que é o ponto por
+# onde os dois caminhos (formulário e Google) já passavam.
+
+def _cadastra(email="novo@example.com"):
+    return client.post(
+        "/api/v1/auth/register",
+        json={"name": "Novo", "email": email, "password": "senha123"},
+    )
+
+
+def test_cadastro_pelo_formulario_nao_passa_na_manutencao(elenco, db_session):
+    # Com a manutenção desligada o mesmo cadastro entra: o que barra é o modo,
+    # não outra coisa do ambiente.
+    _liga(db_session, False)
+    assert _cadastra("antes@example.com").status_code == 200
+
+    _liga(db_session)
+    resp = _cadastra("durante@example.com")
+    assert resp.status_code == 503
+    assert "manutenção" in resp.json()["error"]["message"]
+
+
+def test_cadastro_pelo_google_nao_passa_na_manutencao(elenco, db_session, monkeypatch):
+    """A outra porta. Ela é a razão de a checagem morar no serviço, e não numa
+    dependência de `/auth/register`: o callback do OAuth não passa por lá."""
+    from datetime import timedelta
+
+    from app.api.routes import auth as auth_module
+    from app.core.config import settings
+    from app.core.jwt import create_purpose_token
+
+    monkeypatch.setattr(settings, "GOOGLE_CLIENT_ID", "cid")
+    monkeypatch.setattr(settings, "GOOGLE_CLIENT_SECRET", "csecret")
+    monkeypatch.setattr(settings, "GOOGLE_REDIRECT_URI", "http://x/callback")
+    monkeypatch.setattr(
+        auth_module, "_fetch_google_user",
+        lambda code: {"email": "google@example.com", "name": "G", "email_verified": True},
+    )
+    nonce = "n" * 24
+    state = create_purpose_token(
+        {"nonce": nonce, "invite": None}, purpose="oauth_state",
+        expires_delta=timedelta(minutes=10),
+    )
+
+    _liga(db_session)
+    client.cookies.set("oauth_state", nonce)
+    resp = client.get(
+        f"/api/v1/auth/google/callback?code=x&state={state}", follow_redirects=False
+    )
+    client.cookies.clear()
+
+    assert "error=cadastro_por_convite" in resp.headers["location"]
+    from sqlmodel import select
+    assert db_session.exec(
+        select(User).where(User.email == "google@example.com")
+    ).first() is None
+
+
+def test_o_primeiro_acesso_atravessa_a_manutencao(elenco, db_session, monkeypatch):
+    """A isenção que impede o impasse.
+
+    Um deploy que subisse com a manutenção ligada — e ela é uma linha no banco,
+    que sobrevive a `docker compose down` — não pode trancar o próprio dono do
+    lado de fora: sem conta, ninguém entra na área administrativa; sem entrar,
+    ninguém desliga a manutenção.
+    """
+    from app.core.config import settings
+
+    monkeypatch.setattr(settings, "SUPERADMIN_EMAIL", "dono@example.com")
+    _liga(db_session)
+
+    assert _cadastra("qualquer-um@example.com").status_code == 503
+    resp = _cadastra("dono@example.com")
+    assert resp.status_code == 200
+    assert resp.json()["platform_role"] == "superadmin"

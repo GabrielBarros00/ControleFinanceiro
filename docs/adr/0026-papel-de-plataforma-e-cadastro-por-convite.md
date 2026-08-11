@@ -110,6 +110,34 @@ endereço leva 403.
 A lição é a de sempre neste projeto, num lugar novo: **um caminho que nenhum
 teste percorre não está pronto.** A tela de cadastro não tinha teste nenhum.
 
+**Emitir convite também é uma capacidade com mais de uma porta.** A auditoria
+seguinte encontrou o mesmo defeito do OAuth, uma capacidade ao lado: enquanto
+`assert_pode_cadastrar` tinha um só ponto de chamada, `assert_pode_convidar`
+também tinha — `POST /me/registration-invites`. Só que um `WorkspaceInvite`
+autoriza criar conta exatamente como um `RegistrationInvite` (é o que a decisão
+acima diz, e é o que `_convite_de_workspace_valido` faz), e as duas rotas que o
+emitem — `POST /workspaces/{id}/invites` e `.../invites/link` — não consultavam
+nada. Como **todo usuário nasce `owner` do próprio "Meu Workspace"**,
+`who_can_invite=admins_only` não valia nada: bastava convidar pela tela de
+membros. E `max_uses` não tinha teto, então um link de workspace com
+`max_uses=999999` era um cadastro público para o site inteiro, válido por até 30
+dias, emitido por qualquer pessoa.
+
+O portão passou a valer nas três rotas, e a cota conta as duas espécies de
+convite — senão ela é decorativa: esgotada de um lado, continuava do outro. Duas
+escolhas de desenho merecem registro:
+
+- **Só entra na conta o convite que pode fazer o site CRESCER.** Chamar para a
+  sua casa quem já tem conta não cria conta nenhuma; cobrar isso da cota
+  transformaria o caso normal de um app de família em algo racionado, e
+  `admins_only` passaria a significar "só o administrador monta workspace", que
+  não é o que a chave promete. `created_at` do usuário comparado ao do convite
+  separa os dois casos sem coluna nova.
+- **O preço, assumido:** para um usuário comum com `admins_only` ligado, um 403
+  e um 200 distinguem endereço com conta de endereço sem conta. Quem pergunta já
+  está autenticado, e esta rota já responde diferente para quem é membro — não é
+  a superfície anônima que a propriedade anti-enumeração acima protege.
+
 ### 3. Configuração de runtime é uma segunda fonte, com cascata explícita
 
 `AppSetting` (chave/valor) guarda o que o administrador muda pela tela. A leitura
@@ -178,11 +206,27 @@ queda), `/api/v1/auth/*` (o administrador precisa conseguir entrar) e
 o administrador do lado de fora transforma um botão de "pausar dez minutos" numa
 viagem ao `docker compose exec`.
 
+**Mas liberar `/auth/*` não é liberar o CADASTRO.** A lista existe para o
+administrador *entrar*; o cadastro passava de carona, e um site em
+`registration_mode=open` seguia fazendo nascer usuário, workspace e categorias
+semeadas no meio da manutenção — para a pessoa entrar e receber 503 em tudo que
+importa. Quem recusa é `assert_pode_cadastrar`, e não uma quarta entrada na
+lista do middleware: é o ponto por onde as duas portas (formulário e Google) já
+passam, e a lista trata de caminhos, não de efeitos.
+
+A **janela de bootstrap é isenta**, e tem de ser: `maintenance_mode` é uma linha
+no banco, que sobrevive a `docker compose down`. Um deploy que subisse com ela
+ligada trancaria o próprio dono do lado de fora — sem conta, ninguém entra na
+área administrativa; sem entrar, ninguém desliga a manutenção.
+
 ## Consequências
 
 - Um deploy novo é fechado por padrão. Quem faz o primeiro acesso é o
   `SUPERADMIN_EMAIL`; todos os demais entram por convite — do admin ou de quem já
-  está dentro, sujeito a `who_can_invite` e à cota mensal.
+  está dentro, sujeito a `who_can_invite` e à cota mensal. **As duas espécies de
+  convite contam**, e as três rotas que emitem passam pelo mesmo portão: um
+  convite de workspace que traga alguém de fora é, para o site, a mesma coisa que
+  um convite de cadastro.
 - Dev, CI e e2e precisam **declarar** que querem cadastro aberto:
   `REGISTRATION_MODE=open` no `backend/.env.example` e no wrapper do e2e, e a
   fixture `cadastro_aberto_por_padrao` no `conftest`. Isso é proposital — o
