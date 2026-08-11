@@ -18,6 +18,7 @@ def _prod_settings(**overrides):
         SECRET_KEY="x" * 48,
         COOKIE_SECURE=True,
         ALLOWED_HOSTS="app.example.com",
+        SUPERADMIN_EMAIL="admin@example.com",
         _env_file=None,
     )
     base.update(overrides)

@@ -8,6 +8,7 @@ import {
   Users,
   FileUp,
   Settings,
+  ShieldCheck,
   Wallet,
   Scale,
   type LucideIcon,
@@ -67,9 +68,32 @@ export const GLOBAL_SECTION: NavSection = {
   ],
 };
 
-/** Navegação DE UM workspace. Sem id, devolve só a camada pessoal. */
-export function navSections(workspaceId: number | null): NavSection[] {
-  if (!workspaceId) return [GLOBAL_SECTION];
+/** Administração do SITE (ADR 0026) — só aparece para quem tem o papel.
+ *
+ * Terceira camada, e a separação segue a mesma lógica das outras duas: "Meu" é
+ * a pessoa, o workspace é a casa, e isto é o SERVIDOR. Misturá-la em
+ * "Configurações" faria parecer que administrar o site é uma preferência do
+ * usuário — e faria o item sumir para quem não tem workspace válido.
+ */
+export const PLATFORM_SECTION: NavSection = {
+  label: 'Site',
+  items: [
+    { icon: ShieldCheck, label: 'Administração', to: '/admin' },
+  ],
+};
+
+/** Navegação DE UM workspace. Sem id, devolve só a camada pessoal.
+ *
+ * `isPlatformAdmin` é opcional para não quebrar os chamadores que só conhecem o
+ * workspace — e porque esconder o item é conveniência, não tranca: quem barra é
+ * `require_platform_role` no servidor.
+ */
+export function navSections(
+  workspaceId: number | null,
+  isPlatformAdmin = false,
+): NavSection[] {
+  const plataforma = isPlatformAdmin ? [PLATFORM_SECTION] : [];
+  if (!workspaceId) return [GLOBAL_SECTION, ...plataforma];
   const w = (path: string) => `/w/${workspaceId}${path}`;
   return [
     GLOBAL_SECTION,
@@ -92,11 +116,14 @@ export function navSections(workspaceId: number | null): NavSection[] {
         { icon: Settings, label: 'Configurações', to: w('/settings') },
       ],
     },
+    // Por último: administrar o servidor é o que menos se faz no dia a dia, e
+    // vem depois do que pertence à casa.
+    ...plataforma,
   ];
 }
 
-export function navFlat(workspaceId: number | null): NavItem[] {
-  return navSections(workspaceId).flatMap((s) => s.items);
+export function navFlat(workspaceId: number | null, isPlatformAdmin = false): NavItem[] {
+  return navSections(workspaceId, isPlatformAdmin).flatMap((s) => s.items);
 }
 
 /**
@@ -108,8 +135,12 @@ export function navFlat(workspaceId: number | null): NavItem[] {
  * Vence o item de caminho mais LONGO que casa, o que dá match exato para o
  * Painel e prefixo para as subrotas de cada seção.
  */
-export function activeNavPath(pathname: string, workspaceId: number | null): string | null {
-  const candidatos = navFlat(workspaceId)
+export function activeNavPath(
+  pathname: string,
+  workspaceId: number | null,
+  isPlatformAdmin = false,
+): string | null {
+  const candidatos = navFlat(workspaceId, isPlatformAdmin)
     .map((i) => i.to)
     .filter((to) => pathname === to || pathname.startsWith(`${to}/`));
   if (candidatos.length === 0) return null;

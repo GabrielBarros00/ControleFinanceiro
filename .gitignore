@@ -28,6 +28,8 @@ test-results/
 *.tsbuildinfo
 # Intermediário do typegen (o src/types/api.gen.ts gerado é commitado)
 frontend/openapi.json
+# Saída do `npm run shots` (capturas de tela do redesign)
+output/
 
 # Agent orchestration transient state
 .omg/

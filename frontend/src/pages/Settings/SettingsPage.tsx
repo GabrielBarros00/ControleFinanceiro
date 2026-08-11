@@ -7,7 +7,7 @@ import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { User, Shield, Users, Palette, LogOut, Globe, Moon, Sun, Laptop, Loader2, Trash2, LinkIcon, Copy, Check, Tag, Plus, Wallet, History } from 'lucide-react';
+import { User, Shield, Users, Palette, LogOut, Globe, Moon, Sun, Laptop, Loader2, Trash2, LinkIcon, Copy, Check, Tag, Plus, Wallet, History, Ticket } from 'lucide-react';
 import { useAuthStore } from '@/stores';
 import { useTheme } from '@/hooks/use-theme';
 import { useAuth } from '@/hooks/use-auth';
@@ -19,6 +19,8 @@ import { useMembers, type FinancialAccess, type WorkspaceRole } from '@/hooks/us
 import { useCategories } from '@/hooks/use-categories';
 import { usePaymentAccounts, ACCOUNT_TYPE_OPTIONS, accountTypeLabel, type PaymentAccountType } from '@/hooks/use-payment-accounts';
 import { useReportCurrency, useSetReportCurrency } from '@/hooks/use-report-currency';
+import { useMeusConvitesDeCadastro } from '@/hooks/use-admin';
+import { Skeleton } from '@/components/ui/skeleton';
 import { WorkspaceCreateDialog } from '@/components/workspace/WorkspaceCreateDialog';
 import { apiClient } from '@/api/client';
 import { getApiErrorMessage } from '@/lib/api-error';
@@ -30,7 +32,7 @@ import type { components } from '@/types/api.gen';
 import { CURRENCIES } from '@/lib/currencies';
 import { PageHeader } from '@/components/layout/PageHeader';
 
-type Tab = 'profile' | 'security' | 'members' | 'categories' | 'accounts' | 'appearance' | 'audit';
+type Tab = 'profile' | 'security' | 'members' | 'categories' | 'accounts' | 'appearance' | 'audit' | 'convites';
 
 // Moeda-base do workspace: a lista curada de moedas do app, com o código à mostra
 const BASE_CURRENCY_OPTIONS = CURRENCIES.map((c) => ({
@@ -1194,8 +1196,99 @@ const MENU_PESSOAL: MenuItem[] = [
   { id: 'profile', label: 'Perfil', icon: User },
   { id: 'security', label: 'Segurança', icon: Shield },
   { id: 'accounts', label: 'Contas', icon: Wallet },
+  // Convidar alguém para o SITE (ADR 0026) — diferente de convidar para um
+  // workspace, que vive em `/w/:id/settings`. Fica aqui porque é um ato da
+  // pessoa, não de uma casa: o convite não põe ninguém dentro do seu workspace.
+  { id: 'convites', label: 'Convidar alguém', icon: Ticket },
   { id: 'appearance', label: 'Aparência', icon: Palette },
 ];
+
+/**
+ * Convite de cadastro no site, emitido por usuário comum.
+ *
+ * Sujeito a `who_can_invite` e à cota mensal — quando o administrador restringe
+ * a emissão a administradores, o servidor recusa com 403 e a mensagem explica.
+ */
+function ConvitesDeCadastroTab() {
+  const { data: convites, isLoading, convidar } = useMeusConvitesDeCadastro();
+  const [email, setEmail] = React.useState('');
+
+  const enviar = async (e: React.FormEvent) => {
+    e.preventDefault();
+    try {
+      const convite = await convidar.mutateAsync({ email: email.trim() || undefined });
+      setEmail('');
+      await navigator.clipboard?.writeText(convite.link).catch(() => undefined);
+      toast.success(
+        convite.email
+          ? `Convite enviado para ${convite.email}. O link também foi copiado.`
+          : 'Link de convite criado e copiado.',
+      );
+    } catch (err) {
+      toast.error(getApiErrorMessage(err));
+    }
+  };
+
+  return (
+    <div className="space-y-6">
+      <div>
+        <h2 className="text-lg font-semibold text-foreground">Convidar alguém para o sistema</h2>
+        <p className="mt-1 text-sm text-muted-foreground">
+          Gera um link de cadastro. Quem entrar por ele terá o próprio espaço, separado do
+          seu — para dividir despesas, convide a pessoa para um workspace depois.
+        </p>
+      </div>
+
+      <form onSubmit={enviar} className="flex flex-wrap items-end gap-3">
+        <div className="min-w-[16rem] flex-1">
+          <Label htmlFor="convite-site-email">E-mail (opcional)</Label>
+          <Input
+            id="convite-site-email"
+            type="email"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            placeholder="deixe vazio para gerar só o link"
+          />
+        </div>
+        <Button type="submit" disabled={convidar.isPending}>Gerar convite</Button>
+      </form>
+
+      {isLoading && <Skeleton className="h-24 rounded-xl" />}
+      {convites && convites.length > 0 && (
+        <div className="space-y-2">
+          <h3 className="text-sm font-medium text-foreground">Seus convites</h3>
+          {convites.map((c) => (
+            <div
+              key={c.id}
+              className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-border bg-card p-3"
+            >
+              <div className="text-sm">
+                <span className="text-foreground">{c.email ?? 'Link aberto'}</span>
+                <span className="ml-2 text-xs text-muted-foreground">
+                  {c.status === 'pending' ? 'pendente' : c.status === 'accepted' ? 'usado' : 'revogado'}
+                  {' · expira em '}
+                  {new Date(c.expires_at).toLocaleDateString('pt-BR')}
+                </span>
+              </div>
+              {c.status === 'pending' && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => {
+                    navigator.clipboard?.writeText(c.link);
+                    toast.success('Link copiado.');
+                  }}
+                >
+                  Copiar link
+                </Button>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
 
 /**
  * Configurações da PESSOA — em `/me/settings`, sem workspace no caminho.
@@ -1215,6 +1308,7 @@ export function PersonalSettingsPage() {
       case 'profile': return <ProfileTab />;
       case 'security': return <SecurityTab />;
       case 'accounts': return <AccountsTab />;
+      case 'convites': return <ConvitesDeCadastroTab />;
       case 'appearance': return <AppearanceTab />;
       default: return null;
     }

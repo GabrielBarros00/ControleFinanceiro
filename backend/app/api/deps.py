@@ -3,7 +3,7 @@ from sqlmodel import Session, select
 
 from app.api.routes.auth import get_current_user
 from app.db.session import get_session
-from app.models.user import User
+from app.models.user import PlatformRole, User, platform_level
 from app.models.workspace import Workspace, WorkspaceMembership, WorkspaceRole, role_level
 
 
@@ -36,4 +36,25 @@ def require_role(minimum: WorkspaceRole):
         if role_level(membership.role) < role_level(minimum):
             raise HTTPException(status_code=403, detail="Permissão insuficiente para esta ação")
         return membership
+    return checker
+
+
+def require_platform_role(minimum: PlatformRole):
+    """Dependency factory: exige papel mínimo na PLATAFORMA (user < admin < superadmin).
+
+    Eixo separado do `require_role`, e a separação é deliberada (ADR 0026):
+    `require_role` pergunta "o que você pode fazer nesta casa" e é a porta dos
+    dados financeiros; este pergunta "você opera este servidor" e é a porta de
+    metadados, contagens e configuração. Nenhuma rota deveria precisar dos dois,
+    e nenhuma rota atrás desta guarda devolve valor financeiro de terceiro — a
+    política de `app.domain.access_policy` não consulta `platform_role`, então
+    ser superadmin não abre um único lançamento alheio.
+
+    404 e não 403 quando o papel falta: a existência da área administrativa não
+    é informação que um usuário comum precise confirmar.
+    """
+    def checker(current_user: User = Depends(get_current_user)) -> User:
+        if platform_level(current_user.platform_role) < platform_level(minimum):
+            raise HTTPException(status_code=404, detail="Não encontrado")
+        return current_user
     return checker

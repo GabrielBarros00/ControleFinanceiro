@@ -32,6 +32,7 @@ Aplicação full-stack para controlar gastos, **dividir despesas entre pessoas**
 - **Renda, orçamento e previsão** — estimativas por categoria; forecast de fim de mês com tendência, fixos pendentes e faturas a vencer.
 - **Tempo real** — WebSocket por workspace; mudanças de um cliente invalidam as queries dos outros; resync automático em lacuna de sequência.
 - **Segurança** — sessão em cookies HttpOnly com rotação de refresh e detecção de reuso, Google OAuth, reset de senha, CSRF por Origin, rate limit, cabeçalhos de hardening, trilha de auditoria por workspace.
+- **Administração do site** — cadastro **por convite** por padrão, papel de plataforma (`user`/`admin`/`superadmin`), painel com uso por pessoa, configuração em runtime (quotas, limites, modo manutenção) e trilha global. O administrador vê contagem e espaço em disco — **nunca o dinheiro de ninguém** ([ADR 0026](docs/adr/0026-papel-de-plataforma-e-cadastro-por-convite.md)).
 
 ## Screenshots
 

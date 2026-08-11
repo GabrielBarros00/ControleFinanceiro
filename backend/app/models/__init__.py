@@ -16,6 +16,7 @@ Ou seja: ao criar um model novo, adicione-o aqui — é o único lugar que preci
 saber da lista.
 """
 from app.models import (  # noqa: F401
+    app_setting,
     attachment,
     audit,
     category,
@@ -29,6 +30,7 @@ from app.models import (  # noqa: F401
     payment_account,
     recurring,
     refresh_session,
+    registration_invite,
     settlement,
     sync_event,
     tag,

@@ -1,8 +1,10 @@
 import * as React from 'react';
 import { useNavigate, useSearchParams, Link } from 'react-router-dom';
 import { useForm } from 'react-hook-form';
+import { useQuery } from '@tanstack/react-query';
 import { zodResolver } from '@hookform/resolvers/zod';
 import * as z from 'zod';
+import { apiClient } from '@/api/client';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from "@/components/ui/card";
 import { AuthShell } from '@/components/auth/AuthShell';
 import { Button } from "@/components/ui/button";
@@ -38,6 +40,25 @@ export function RegisterPage() {
   const [searchParams] = useSearchParams();
   const inviteToken = searchParams.get('invite') ?? undefined;
 
+  // A política é consultada ANTES do formulário (ADR 0026). Sem isto, quem
+  // chegasse a `/register` num site fechado preencheria nome, e-mail e senha
+  // duas vezes para só então levar um 403 — e não teria como saber o que fazer
+  // a seguir.
+  const { data: politica } = useQuery({
+    queryKey: ['registration-policy'],
+    queryFn: async () => (await apiClient.get('/auth/registration-policy')).data as {
+      mode: string;
+      aceita_cadastro: boolean;
+      exige_convite: boolean;
+    },
+    // Falha de rede não pode esconder o formulário: sem resposta, mostra o
+    // cadastro e deixa o servidor decidir no POST, que é a decisão que vale.
+    retry: false,
+  });
+  const cadastroBloqueado =
+    politica != null
+    && (!politica.aceita_cadastro || (politica.exige_convite && !inviteToken));
+
   const { register, handleSubmit, formState: { errors } } = useForm<RegisterValues>({
     resolver: zodResolver(registerSchema),
   });
@@ -68,6 +89,38 @@ export function RegisterPage() {
     }
   };
 
+  if (cadastroBloqueado) {
+    const soPorConvite = politica!.exige_convite;
+    return (
+      <AuthShell>
+        <Card className="w-full border-border shadow-sm">
+          <CardHeader className="space-y-2 text-center pt-8">
+            <div className="mx-auto w-12 h-12 bg-muted rounded-xl flex items-center justify-center mb-4">
+              <ShieldCheck className="h-6 w-6 text-muted-foreground" />
+            </div>
+            <CardTitle className="text-2xl font-bold tracking-tight text-foreground">
+              {soPorConvite ? 'Cadastro por convite' : 'Cadastro fechado'}
+            </CardTitle>
+            <CardDescription className="text-muted-foreground">
+              {soPorConvite
+                ? 'Este sistema é de uso restrito. Peça um convite a alguém que já o utiliza — '
+                  + 'o link do convite abre esta mesma página, já liberada.'
+                : 'No momento não é possível criar novas contas neste sistema.'}
+            </CardDescription>
+          </CardHeader>
+          <CardFooter className="flex justify-center pb-8">
+            <Link
+              to="/login"
+              className="text-sm font-medium text-primary hover:underline inline-flex items-center gap-1"
+            >
+              Já tenho uma conta <ArrowRight className="h-3.5 w-3.5" />
+            </Link>
+          </CardFooter>
+        </Card>
+      </AuthShell>
+    );
+  }
+
   return (
     <AuthShell>
       <Card className="w-full border-border shadow-sm">
@@ -77,7 +130,9 @@ export function RegisterPage() {
           </div>
           <CardTitle className="text-3xl font-bold tracking-tight text-foreground">Criar Conta</CardTitle>
           <CardDescription className="text-muted-foreground">
-            Comece sua jornada financeira hoje mesmo.
+            {inviteToken
+              ? 'Você foi convidado. Complete o cadastro abaixo.'
+              : 'Comece sua jornada financeira hoje mesmo.'}
           </CardDescription>
         </CardHeader>
         <form onSubmit={handleSubmit(onSubmit)}>

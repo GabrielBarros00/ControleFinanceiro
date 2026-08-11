@@ -11,6 +11,66 @@ segue [SemVer](https://semver.org/lang/pt-BR/).
 
 ## [Não lançado]
 
+### Administração do site: a porta que estava aberta, e o poder que faltava
+
+Duas ausências que só apareceram quando o deploy virou assunto concreto.
+
+A primeira era um defeito: **`POST /auth/register` era aberto**. Publicado na
+internet, qualquer pessoa que alcançasse a URL criaria conta no servidor. O rate
+limit por IP atrasa um cadastro em massa; não impede ninguém de entrar.
+
+A segunda era um buraco de projeto: o sistema sabia falar de papéis **dentro de
+um workspace** e não tinha nenhuma resposta para *quem opera o servidor*.
+Desativar uma conta, ler a trilha inteira, mudar um limite ou fechar o cadastro
+exigiam `docker compose exec` e SQL na mão.
+
+**O que entrou** ([ADR 0026](docs/adr/0026-papel-de-plataforma-e-cadastro-por-convite.md)):
+
+- `User.platform_role` (`user` < `admin` < `superadmin`), eixo separado do papel
+  de workspace. `access_policy` **não o consulta** — ser dono do servidor não
+  abre um único lançamento alheio.
+- Cadastro por convite como padrão, com duas espécies de token aceitas (o novo
+  `RegistrationInvite` e o `WorkspaceInvite` que já existia) e uma **janela de
+  bootstrap** para o `SUPERADMIN_EMAIL`, que fecha sozinha depois da primeira
+  conta. Sem ela, um deploy novo seria um impasse: cadastro fechado e ninguém
+  para convidar.
+- Configuração em runtime (`AppSetting`) com cascata `banco → .env → embutido`.
+  Ausência de linha significa "acompanhe o ambiente" — semear a tabela
+  transformaria o `.env` em decoração.
+- Modo manutenção que libera `/health`, `/auth/*` e `/admin/*`, para o
+  administrador não se trancar do lado de fora.
+- Tela `/admin` com visão geral, pessoas (uso por pessoa), convites,
+  configurações, saúde e auditoria global.
+
+**As travas, que vieram de cicatriz.** Na Onda 10 um rebaixamento de admin
+*ampliava* a visão de quem era rebaixado. Aqui: admin não age sobre superadmin
+nem promove a superadmin; e o **último superadministrador ativo** não pode ser
+rebaixado, desativado nem removido — nem por ele mesmo. Sem superadmin, a
+configuração vira imutável e o convite fica sem quem o emita.
+
+**O que sustenta a promessa de privacidade.**
+`tests/security/test_admin_sem_vazamento_financeiro.py` planta um lançamento com
+valor, título e categoria improváveis e varre a resposta inteira de cada rota
+administrativa procurando os três. Um `SUM` sobre coluna de dinheiro em
+`/admin/overview` reprova ali — foi verificado introduzindo o vazamento de
+propósito e confirmando que o teste o pega. A fronteira em uma frase:
+**`COUNT(*)` é operação, `SUM(amount)` é intimidade.**
+
+**Detalhes que a onda também corrigiu:**
+
+- `SMTP_TLS` estava documentado no `.env.example` e no `SETUP.md`, era lido pelo
+  `Settings` — e **não era passado pelo `docker-compose.yml`**. Quem precisasse
+  de `False` preenchia o campo e nada acontecia.
+- `BIND_ADDR` novo: a porta do Compose abria em `0.0.0.0`, então um deploy com
+  Caddy terminando TLS continuava respondendo em `http://` na porta direta. O
+  cookie `Secure` viajava numa conexão que não era segura.
+- O rate limiter passou a ler o teto em runtime — e a leitura é **defensiva**: os
+  baldes viraram dependência de `/auth/login`, e uma tabela ausente ou um
+  Postgres momentaneamente fora do ar não podem transformar "não sei o teto" em
+  500 na tela de entrada.
+- `POST /auth/registration-policy` (público) para a tela de cadastro dizer "é só
+  por convite" **antes** de a pessoa preencher o formulário inteiro.
+
 ### A auditoria da Onda 9: o que se corrige em banco vazio não se corrige
 
 Uma segunda auditoria externa sobre a Onda 9 aprovou a separação Global × Workspace, as

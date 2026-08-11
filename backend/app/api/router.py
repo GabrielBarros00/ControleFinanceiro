@@ -6,7 +6,7 @@ from sqlmodel import Session
 from app.core.config import settings
 from app.db.session import get_session
 from app.api.routes import (
-    analytics, attachments, audit, auth, categories, debts, imports, me,
+    admin, analytics, attachments, audit, auth, categories, debts, imports, me,
     me_accounts, me_cards, me_financing, me_income, members, notifications,
     recurring, settlements, tags, transactions, workspaces,
 )
@@ -45,6 +45,13 @@ router.include_router(me_financing.router)
 router.include_router(auth.router)
 router.include_router(notifications.router)
 router.include_router(ws_routes.router)
+
+# --- Espaço de PLATAFORMA: quem opera o site (ADR 0026) ----------------------
+# Terceiro eixo, ao lado de colaboração e pessoal. Só metadado sai daqui —
+# contagem, tamanho, papel e configuração. A política de `access_policy` não
+# consulta `platform_role`, então nada nesta seção alcança lançamento alheio.
+router.include_router(admin.router)
+router.include_router(admin.me_invites_router)
 
 @router.get("/health")
 def health_check(session: Session = Depends(get_session)):

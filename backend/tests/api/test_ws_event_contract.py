@@ -90,11 +90,23 @@ def test_frontend_nao_lista_evento_inexistente():
 # rotas dele que não publicam são as que só mexem no cadastro pessoal.
 MODULOS_PESSOAIS = {"me_income.py", "me_cards.py", "me_accounts.py", "me_financing.py"}
 
+# Módulo de PLATAFORMA (ADR 0026): mesma razão dos pessoais, num terceiro eixo.
+# Papel de usuário, configuração do site e convite de cadastro não pertencem a
+# workspace nenhum, e o canal de tempo real é por SALA DE WORKSPACE. Não há sala
+# para a qual transmitir — e transmitir seria pior que não transmitir: um evento
+# de "usuário desativado" chegando à sala de uma casa contaria a todos os membros
+# dela uma decisão administrativa que não é assunto daquela casa.
+#
+# As consequências que os membros PRECISAM ver já chegam por outros caminhos: uma
+# conta desativada perde as sessões na hora, e quem sai de um workspace continua
+# publicando `member.*` pela rota de membros, que não é deste módulo.
+MODULOS_DE_PLATAFORMA = {"admin.py"}
+
 
 def _mutating_routes_without_event() -> list[str]:
     achados = []
     for py in sorted((APP / "api" / "routes").glob("*.py")):
-        if py.name in MODULOS_PESSOAIS:
+        if py.name in MODULOS_PESSOAIS or py.name in MODULOS_DE_PLATAFORMA:
             continue
         tree = ast.parse(py.read_text(encoding="utf-8"))
         for node in ast.walk(tree):

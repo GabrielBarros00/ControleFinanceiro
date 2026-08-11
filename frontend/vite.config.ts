@@ -77,10 +77,24 @@ export default defineConfig({
       // cartão, o erro que virava um mês de zeros, o id inválido na URL e a
       // página fora do intervalo. `statements` fica em 63 de propósito — subiu
       // meio ponto, e um piso a meio ponto do medido falha no primeiro refactor.
+      //
+      // Onda do Admin (ADR 0026): 63/56/52/66 → 63/57/53/66 (medido
+      // 64,14/57,81/54,58/66,65). A onda acrescentou uma superfície grande —
+      // `AdminPage.tsx` e `use-admin.ts` —, e o primeiro efeito de código novo
+      // é DERRUBAR a medição: os dois arquivos passaram a ser contados assim
+      // que um teste os importou. A subida veio de cobrir o que eles fazem: o
+      // portão `enabled` de toda consulta de `/admin` (sem ele, um usuário
+      // comum dispara meia dúzia de 404 por carga de página), as chaves de
+      // invalidação, o teto do nginx no tamanho de arquivo e a formatação de
+      // dia civil.
+      //
+      // `statements` fica em 63 e `lines` em 66 de propósito: subir para 64/67
+      // deixaria a margem em 0,14 e 0,65 ponto, e um piso que raspa o medido
+      // falha no primeiro refactor — a lição registrada na Onda 9.
       thresholds: {
         statements: 63,
-        branches: 56,
-        functions: 52,
+        branches: 57,
+        functions: 53,
         lines: 66,
       },
     },

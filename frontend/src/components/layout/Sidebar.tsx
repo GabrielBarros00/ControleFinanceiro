@@ -6,6 +6,7 @@ import { useWorkspaces, type Workspace } from '@/hooks/use-workspaces';
 import { useAuth } from '@/hooks/use-auth';
 import { WorkspaceCreateDialog } from '@/components/workspace/WorkspaceCreateDialog';
 import { activeNavPath, navSections } from './nav-items';
+import { useIsPlatformAdmin } from '@/hooks/use-admin';
 import { useWorkspaceId, workspacePath } from '@/hooks/use-workspace-id';
 
 function useOnClickOutside(ref: React.RefObject<HTMLElement | null>, handler: () => void) {
@@ -133,9 +134,11 @@ function UserMenu() {
 export function Sidebar() {
   const location = useLocation();
   const workspaceIdAtual = useWorkspaceId();
+  // Administração do site (ADR 0026): a seção só existe para quem tem o papel.
+  const ehAdminDaPlataforma = useIsPlatformAdmin();
   // Um item ativo por vez: ver `activeNavPath`. O teste de prefixo por item
   // acendia Painel e Relatórios juntos, porque `/w/1/reports` começa com `/w/1`.
-  const ativo = activeNavPath(location.pathname, workspaceIdAtual);
+  const ativo = activeNavPath(location.pathname, workspaceIdAtual, ehAdminDaPlataforma);
 
   return (
     <aside className="sticky top-0 hidden h-screen w-[240px] shrink-0 flex-col border-r border-border bg-card md:flex">
@@ -153,7 +156,7 @@ export function Sidebar() {
       </div>
 
       <nav className="flex-1 space-y-5 overflow-y-auto px-3 py-5">
-        {navSections(workspaceIdAtual).map((section) => (
+        {navSections(workspaceIdAtual, ehAdminDaPlataforma).map((section) => (
           <div key={section.label} className="space-y-1">
             <p className="px-3 pb-1 text-[11px] font-medium uppercase tracking-wide text-muted-foreground/70">
               {section.label}

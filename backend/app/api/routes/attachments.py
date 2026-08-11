@@ -8,13 +8,13 @@ from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Respons
 from pydantic import BaseModel
 from sqlmodel import Session, select, func
 
-from app.core.config import settings
 from app.db.session import get_session
 from app.models.attachment import Attachment
 from app.models.transaction import Transaction
 from app.models.workspace import WorkspaceMembership, WorkspaceRole
 from app.api.deps import get_workspace_membership, require_role
 from app.domain.access_policy import assert_can_write, get_visible_transaction
+from app.services import app_settings
 from app.services.attachment_storage import (
     AttachmentStorage,
     AttachmentStorageError,
@@ -108,7 +108,9 @@ def _ensure_quota(session: Session, workspace_id: int, incoming_bytes: int) -> N
             Attachment.workspace_id == workspace_id
         )
     ).one()
-    limit = settings.ATTACHMENT_QUOTA_BYTES
+    # Configurável em runtime pela tela de Admin (ADR 0026); sem linha gravada,
+    # acompanha `ATTACHMENT_QUOTA_BYTES` do ambiente.
+    limit = app_settings.get(session, "attachment_quota_bytes")
     if used + incoming_bytes > limit:
         limit_mb = limit // (1024 * 1024)
         used_mb = used // (1024 * 1024)
@@ -138,7 +140,7 @@ async def upload_attachment(
             detail="Tipo de arquivo não permitido: use JPG, PNG, WebP ou PDF",
         )
 
-    data = await _read_limited(file, settings.UPLOAD_MAX_BYTES)
+    data = await _read_limited(file, app_settings.get(session, "upload_max_bytes"))
     if len(data) == 0:
         raise HTTPException(status_code=400, detail="Arquivo vazio")
     if not _content_matches_type(content_type, data):

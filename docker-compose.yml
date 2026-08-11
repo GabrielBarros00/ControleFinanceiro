@@ -48,6 +48,16 @@ services:
       SMTP_PORT: ${SMTP_PORT:-587}
       SMTP_USER: ${SMTP_USER:-}
       SMTP_PASSWORD: ${SMTP_PASSWORD:-}
+      # SMTP_TLS estava documentado no .env.example e no SETUP.md, era lido pelo
+      # `Settings` — e não chegava aqui. Quem precisasse de `False` (porta 465
+      # com SSL implícito, relay local sem TLS) preenchia o campo e nada
+      # acontecia: o container continuava tentando STARTTLS e o envio falhava
+      # sem que a configuração explicasse por quê.
+      SMTP_TLS: ${SMTP_TLS:-True}
+      # Primeiro superadministrador (ADR 0026). Obrigatório em produção: é a
+      # única conta que se cadastra sem convite no primeiro acesso, e o backend
+      # RECUSA subir sem ela.
+      SUPERADMIN_EMAIL: ${SUPERADMIN_EMAIL:?defina SUPERADMIN_EMAIL no .env}
       RATE_LIMIT_ENABLED: ${RATE_LIMIT_ENABLED:-True}
       # Tetos do rate limit de auth, por MINUTO. O de IP protege contra varredura
       # e cadastro em massa; o de CONTA é o que barra força bruta num alvo, e é
@@ -93,6 +103,9 @@ services:
       COOKIE_SECURE: ${COOKIE_SECURE:-True}
       ALLOWED_HOSTS: ${ALLOWED_HOSTS:-}
       FRONTEND_URL: ${FRONTEND_URL:-http://localhost}
+      # O `cron` carrega o mesmo `Settings` do backend, e a validação de deploy
+      # exige esta variável — sem ela o serviço morre no import, em laço.
+      SUPERADMIN_EMAIL: ${SUPERADMIN_EMAIL:?defina SUPERADMIN_EMAIL no .env}
       # Mesma configuração de anexos do backend. O expurgo de hoje não toca o
       # conteúdo, mas rodar com um ATTACHMENT_STORAGE_DIR diferente do serviço
       # que grava é uma armadilha esperando a primeira rotina que toque nele.
@@ -120,7 +133,14 @@ services:
     build: ./frontend
     restart: unless-stopped
     ports:
-      - "${HTTP_PORT:-80}:80"
+      # `BIND_ADDR` existe para o deploy com TLS terminado por um proxy no host
+      # (Caddy, Traefik, nginx). Sem ele a porta abre em 0.0.0.0 e o aplicativo
+      # continua acessível por HTTP puro na porta direta — o TLS na frente vira
+      # opcional para quem souber o número da porta, e o cookie `Secure` viaja
+      # numa conexão que não é segura. Com `BIND_ADDR=127.0.0.1`, só o proxy
+      # local alcança. O padrão segue 0.0.0.0 para não quebrar quem publica
+      # direto na 80 sem proxy nenhum.
+      - "${BIND_ADDR:-0.0.0.0}:${HTTP_PORT:-80}:80"
     depends_on:
       backend:
         condition: service_healthy

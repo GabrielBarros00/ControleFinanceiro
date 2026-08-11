@@ -1354,6 +1354,35 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/auth/registration-policy": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Registration Policy
+         * @description Se o site aceita cadastro — PÚBLICO, e de propósito (ADR 0026).
+         *
+         *     Existe para a tela de cadastro poder dizer "é só por convite" ANTES de a
+         *     pessoa preencher nome, e-mail e senha duas vezes para só então descobrir.
+         *     Também é o que permite a tela de login esconder o link "criar conta" quando
+         *     não há cadastro a fazer.
+         *
+         *     Não vaza nada: é exatamente a informação que qualquer pessoa obtém tentando
+         *     se cadastrar uma vez. O que NÃO sai daqui é quem pode convidar, quantos
+         *     convites existem ou qualquer outra configuração — só a porta da frente.
+         */
+        get: operations["registration_policy_api_v1_auth_registration_policy_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/auth/register": {
         parameters: {
             query?: never;
@@ -1582,6 +1611,251 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/admin/overview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Overview */
+        get: operations["overview_api_v1_admin_overview_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/health": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Health */
+        get: operations["health_api_v1_admin_health_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/audit": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Audit Global
+         * @description Trilha do site inteiro.
+         *
+         *     O `/workspaces/{id}/audit` que já existia responde por uma casa e exige ser
+         *     admin DELA. Este responde pelo servidor — login, mudança de papel, alteração
+         *     de configuração — e é o único lugar onde essas linhas aparecem.
+         *
+         *     `old_values`/`new_values` NÃO saem aqui: são JSON livre gravado pelos
+         *     listeners a partir do recurso auditado, e num lançamento isso inclui o valor.
+         *     A trilha administrativa mostra QUEM fez O QUÊ em QUE recurso; o conteúdo do
+         *     que mudou continua atrás da porta do workspace.
+         */
+        get: operations["audit_global_api_v1_admin_audit_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/users": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Users */
+        get: operations["list_users_api_v1_admin_users_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/users/{user_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Delete User
+         * @description Exclusão LÓGICA (`deleted_at`), nunca física.
+         *
+         *     O registro continua sendo referência de FK para lançamentos, anexos,
+         *     memberships e linhas de auditoria. Apagar a linha de verdade quebraria a
+         *     trilha — que existe justamente para sobreviver ao recurso auditado — e, no
+         *     Postgres, esbarraria nas FKs antes disso.
+         */
+        delete: operations["delete_user_api_v1_admin_users__user_id__delete"];
+        options?: never;
+        head?: never;
+        /** Patch User */
+        patch: operations["patch_user_api_v1_admin_users__user_id__patch"];
+        trace?: never;
+    };
+    "/api/v1/admin/users/{user_id}/revoke-sessions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Revoke Sessions
+         * @description Derruba todas as sessões de alguém — o botão de "perdi o notebook".
+         */
+        post: operations["revoke_sessions_api_v1_admin_users__user_id__revoke_sessions_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/settings": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Settings
+         * @description Valores vigentes + de onde cada um vem.
+         *
+         *     `sobrescrito` é o que a tela precisa para não mentir: sem ele, um número que
+         *     ainda acompanha o `.env` aparece igual a um gravado no banco, e o operador
+         *     muda a variável de ambiente esperando efeito que não vem.
+         */
+        get: operations["get_settings_api_v1_admin_settings_get"];
+        /**
+         * Put Settings
+         * @description Grava configurações. Tudo ou nada.
+         *
+         *     Validar todas antes de escrever qualquer uma evita o estado meio-aplicado:
+         *     um formulário com seis campos em que o quarto é inválido não pode deixar os
+         *     três primeiros gravados e o resto não — o operador leria a mensagem de erro e
+         *     concluiria, errado, que nada mudou.
+         */
+        put: operations["put_settings_api_v1_admin_settings_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/settings/test-email": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Test Email
+         * @description Dispara um e-mail de teste e devolve o erro NA TELA.
+         *
+         *     Até aqui, descobrir que o SMTP estava mal configurado exigia provocar um
+         *     convite de verdade e ler `docker compose logs backend` — quem não tem acesso
+         *     ao host simplesmente não descobria, e o sintoma era "o convite não chegou",
+         *     indistinguível de spam.
+         */
+        post: operations["test_email_api_v1_admin_settings_test_email_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/registration-invites": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Invites */
+        get: operations["list_invites_api_v1_admin_registration_invites_get"];
+        put?: never;
+        /** Create Invite */
+        post: operations["create_invite_api_v1_admin_registration_invites_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/registration-invites/{invite_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Revoke Invite */
+        delete: operations["revoke_invite_api_v1_admin_registration_invites__invite_id__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/me/registration-invites": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Meus Convites */
+        get: operations["meus_convites_api_v1_me_registration_invites_get"];
+        put?: never;
+        /**
+         * Convidar
+         * @description Quem já está dentro chama alguém.
+         *
+         *     Sujeito a `who_can_invite` e à cota mensal (ADR 0026) — sem a cota, o
+         *     "cadastro por convite" seria cadastro aberto com um passo a mais para quem
+         *     quisesse abusar. `max_uses` é ignorado aqui de propósito: convite de link
+         *     com muitos usos é ferramenta de administrador.
+         */
+        post: operations["convidar_api_v1_me_registration_invites_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/health": {
         parameters: {
             query?: never;
@@ -1731,6 +2005,27 @@ export interface components {
             user_id: number | null;
             /** Workspace Id */
             workspace_id: number | null;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+        };
+        /** AuditRead */
+        AuditRead: {
+            /** Id */
+            id: number;
+            action: components["schemas"]["ActionType"];
+            /** Resource Type */
+            resource_type: string | null;
+            /** Resource Id */
+            resource_id: number | null;
+            /** User Id */
+            user_id: number | null;
+            /** Workspace Id */
+            workspace_id: number | null;
+            /** Ip Address */
+            ip_address: string | null;
             /**
              * Created At
              * Format: date-time
@@ -2240,23 +2535,6 @@ export interface components {
             /** Paid At */
             paid_at?: string | null;
         };
-        /** InviteCreate */
-        InviteCreate: {
-            /**
-             * Email
-             * Format: email
-             */
-            email: string;
-            /** @default member */
-            role: components["schemas"]["WorkspaceRole"];
-            /** @default involved_only */
-            financial_access: components["schemas"]["FinancialAccess"];
-            /**
-             * Expires Days
-             * @default 7
-             */
-            expires_days: number;
-        };
         /**
          * InviteInfoRead
          * @description Informações públicas (para usuário logado) de um convite por token.
@@ -2318,32 +2596,6 @@ export interface components {
             token: string;
             /** Url */
             url: string;
-        };
-        /** InviteRead */
-        InviteRead: {
-            /** Id */
-            id: number;
-            /** Workspace Id */
-            workspace_id: number;
-            /** Email */
-            email: string | null;
-            role: components["schemas"]["WorkspaceRole"];
-            financial_access: components["schemas"]["FinancialAccess"];
-            status: components["schemas"]["InviteStatus"];
-            /**
-             * Expires At
-             * Format: date-time
-             */
-            expires_at: string;
-            /** Max Uses */
-            max_uses: number | null;
-            /** Uses */
-            uses: number;
-            /**
-             * Created At
-             * Format: date-time
-             */
-            created_at: string;
         };
         /**
          * InviteStatus
@@ -2641,6 +2893,27 @@ export interface components {
          * @enum {string}
          */
         PaymentMethod: "credit_card" | "debit_card" | "pix" | "cash" | "bank_transfer" | "boleto" | "other";
+        /**
+         * PlatformRole
+         * @description Papel do usuário no SITE, ortogonal ao `WorkspaceRole` (ADR 0026).
+         *
+         *     São dois eixos que nunca se cruzam, e confundi-los seria o pior desfecho
+         *     possível deste model: `WorkspaceRole` diz o que a pessoa pode fazer DENTRO de
+         *     uma casa (e chega a `owner`, que enxerga os números daquela casa);
+         *     `PlatformRole` diz quem opera o SITE — quem convida, quem desativa conta,
+         *     quem lê a trilha de auditoria. Um `superadmin` não ganha um centímetro de
+         *     visão financeira sobre workspace nenhum: `access_policy` não consulta este
+         *     campo, e é isso que mantém de pé o ADR 0018 (privacidade por membro) e o
+         *     0021 (recurso pessoal sem workspace).
+         *
+         *     Persistido como texto, não como Enum nativo do Postgres, seguindo
+         *     `WorkspaceMembership.role`. Enum nativo exige `ALTER TYPE` à mão para cada
+         *     valor novo, e nem o `alembic check` nem o `create_all` da suíte enxergam a
+         *     divergência — foi exatamente assim que `daily` chegou quebrado em produção
+         *     (ver a revisão e9b2c50d7a14).
+         * @enum {string}
+         */
+        PlatformRole: "user" | "admin" | "superadmin";
         /** ProfileUpdate */
         ProfileUpdate: {
             /** Name */
@@ -2974,6 +3247,13 @@ export interface components {
             /** Net Cash */
             net_cash: string;
         };
+        /** SettingsPut */
+        SettingsPut: {
+            /** Valores */
+            valores: {
+                [key: string]: unknown;
+            };
+        };
         /** SettlementCreate */
         SettlementCreate: {
             /** From User Id */
@@ -3299,6 +3579,14 @@ export interface components {
             name?: string | null;
             /** Color */
             color?: string | null;
+        };
+        /** TestEmail */
+        TestEmail: {
+            /**
+             * Para
+             * Format: email
+             */
+            para: string;
         };
         /** TransactionAdjustmentCreate */
         TransactionAdjustmentCreate: {
@@ -3628,6 +3916,12 @@ export interface components {
             /** Adjustments */
             adjustments?: components["schemas"]["TransactionAdjustmentCreate"][] | null;
         };
+        /** UserPatch */
+        UserPatch: {
+            /** Is Active */
+            is_active?: boolean | null;
+            platform_role?: components["schemas"]["PlatformRole"] | null;
+        };
         /** UserResponse */
         UserResponse: {
             /** Id */
@@ -3643,6 +3937,7 @@ export interface components {
             is_active: boolean;
             /** Needs Onboarding */
             needs_onboarding: boolean;
+            platform_role: components["schemas"]["PlatformRole"];
             /**
              * Created At
              * Format: date-time
@@ -3749,6 +4044,86 @@ export interface components {
             description?: string | null;
             /** Base Currency */
             base_currency?: string | null;
+        };
+        /** InviteCreate */
+        app__api__routes__admin__InviteCreate: {
+            /** Email */
+            email?: string | null;
+            /** Max Uses */
+            max_uses?: number | null;
+        };
+        /** InviteRead */
+        app__api__routes__admin__InviteRead: {
+            /** Id */
+            id: number;
+            /** Email */
+            email: string | null;
+            /** Token */
+            token: string;
+            status: components["schemas"]["InviteStatus"];
+            /**
+             * Expires At
+             * Format: date-time
+             */
+            expires_at: string;
+            /** Max Uses */
+            max_uses: number | null;
+            /** Uses */
+            uses: number;
+            /** Created By User Id */
+            created_by_user_id: number | null;
+            /** Accepted By User Id */
+            accepted_by_user_id: number | null;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Link */
+            link: string;
+        };
+        /** InviteCreate */
+        app__schemas__workspace__InviteCreate: {
+            /**
+             * Email
+             * Format: email
+             */
+            email: string;
+            /** @default member */
+            role: components["schemas"]["WorkspaceRole"];
+            /** @default involved_only */
+            financial_access: components["schemas"]["FinancialAccess"];
+            /**
+             * Expires Days
+             * @default 7
+             */
+            expires_days: number;
+        };
+        /** InviteRead */
+        app__schemas__workspace__InviteRead: {
+            /** Id */
+            id: number;
+            /** Workspace Id */
+            workspace_id: number;
+            /** Email */
+            email: string | null;
+            role: components["schemas"]["WorkspaceRole"];
+            financial_access: components["schemas"]["FinancialAccess"];
+            status: components["schemas"]["InviteStatus"];
+            /**
+             * Expires At
+             * Format: date-time
+             */
+            expires_at: string;
+            /** Max Uses */
+            max_uses: number | null;
+            /** Uses */
+            uses: number;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
         };
     };
     responses: never;
@@ -4120,7 +4495,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["InviteRead"][];
+                    "application/json": components["schemas"]["app__schemas__workspace__InviteRead"][];
                 };
             };
             /** @description Validation Error */
@@ -4147,7 +4522,7 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["InviteCreate"];
+                "application/json": components["schemas"]["app__schemas__workspace__InviteCreate"];
             };
         };
         responses: {
@@ -7315,6 +7690,26 @@ export interface operations {
             };
         };
     };
+    registration_policy_api_v1_auth_registration_policy_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+        };
+    };
     register_api_v1_auth_register_post: {
         parameters: {
             query?: never;
@@ -7750,6 +8145,533 @@ export interface operations {
                 };
                 content: {
                     "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    overview_api_v1_admin_overview_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: {
+                access_token?: string | null;
+            };
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    health_api_v1_admin_health_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: {
+                access_token?: string | null;
+            };
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    audit_global_api_v1_admin_audit_get: {
+        parameters: {
+            query?: {
+                limit?: number;
+                offset?: number;
+                action?: components["schemas"]["ActionType"] | null;
+                resource_type?: string | null;
+                user_id?: number | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: {
+                access_token?: string | null;
+            };
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AuditRead"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_users_api_v1_admin_users_get: {
+        parameters: {
+            query?: {
+                busca?: string | null;
+                incluir_removidos?: boolean;
+                limit?: number;
+                offset?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: {
+                access_token?: string | null;
+            };
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_user_api_v1_admin_users__user_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                user_id: number;
+            };
+            cookie?: {
+                access_token?: string | null;
+            };
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    patch_user_api_v1_admin_users__user_id__patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                user_id: number;
+            };
+            cookie?: {
+                access_token?: string | null;
+            };
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UserPatch"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    revoke_sessions_api_v1_admin_users__user_id__revoke_sessions_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                user_id: number;
+            };
+            cookie?: {
+                access_token?: string | null;
+            };
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_settings_api_v1_admin_settings_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: {
+                access_token?: string | null;
+            };
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    put_settings_api_v1_admin_settings_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: {
+                access_token?: string | null;
+            };
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SettingsPut"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    test_email_api_v1_admin_settings_test_email_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: {
+                access_token?: string | null;
+            };
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TestEmail"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_invites_api_v1_admin_registration_invites_get: {
+        parameters: {
+            query?: {
+                apenas_pendentes?: boolean;
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: {
+                access_token?: string | null;
+            };
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["app__api__routes__admin__InviteRead"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    create_invite_api_v1_admin_registration_invites_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: {
+                access_token?: string | null;
+            };
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["app__api__routes__admin__InviteCreate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["app__api__routes__admin__InviteRead"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    revoke_invite_api_v1_admin_registration_invites__invite_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                invite_id: number;
+            };
+            cookie?: {
+                access_token?: string | null;
+            };
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    meus_convites_api_v1_me_registration_invites_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: {
+                access_token?: string | null;
+            };
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["app__api__routes__admin__InviteRead"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    convidar_api_v1_me_registration_invites_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: {
+                access_token?: string | null;
+            };
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["app__api__routes__admin__InviteCreate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["app__api__routes__admin__InviteRead"];
                 };
             };
             /** @description Validation Error */

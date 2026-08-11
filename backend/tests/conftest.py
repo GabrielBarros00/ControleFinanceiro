@@ -85,6 +85,33 @@ def reset_rate_limiter():
 
 
 @pytest.fixture(autouse=True)
+def cadastro_aberto_por_padrao(db_session):
+    """A suíte cria usuários pela porta ABERTA, e diz isso em voz alta.
+
+    O padrão de produção é `invite_only` (ADR 0026), e as ~20 chamadas a
+    `/auth/register` espalhadas pela suíte usam o cadastro como ATALHO para
+    fabricar um usuário — não estão testando o portão. Sem esta fixture todas
+    passariam a receber 403, e a correção óbvia (mudar o padrão para `open`)
+    seria a errada: faria o desenvolvimento e o CI provarem um comportamento que
+    produção não tem.
+
+    Então a suíte abre a porta explicitamente. `tests/api/test_registration_modes.py`
+    grava o próprio valor em cada teste, sobrescrevendo este — é lá, e só lá, que
+    o portão é exercitado.
+
+    O cache também é limpo: ele é de PROCESSO e sobreviveria ao `DELETE` das
+    tabelas entre testes, fazendo um teste enxergar a configuração do anterior.
+    """
+    from app.services import app_settings
+
+    app_settings.invalidate_cache()
+    app_settings.set_value(db_session, "registration_mode", app_settings.RegistrationMode.open)
+    db_session.commit()
+    yield
+    app_settings.invalidate_cache()
+
+
+@pytest.fixture(autouse=True)
 def isolar_armazenamento_de_anexos(tmp_path_factory, monkeypatch):
     """O conteúdo dos anexos vive FORA do banco (ADR 0007), então limpar as
     tabelas entre testes não basta: sem isto a suíte escreveria no diretório real
@@ -166,6 +193,12 @@ def override_get_session_fixture(db_session: Session, monkeypatch):
     def scope_override():
         yield db_session
     monkeypatch.setattr("app.ws.routes.session_scope", scope_override)
+    # O middleware de manutenção também não pode usar `Depends` — ele roda antes
+    # do sistema de dependências. Ele importa `session_scope` de `app.db.session`
+    # dentro da função, então substituir aqui, na origem, alcança as duas
+    # chamadas (o modo em si e a checagem de papel). Sem isto o middleware
+    # conversaria com o banco de DESENVOLVIMENTO no meio da suíte.
+    monkeypatch.setattr("app.db.session.session_scope", scope_override)
 
     yield
     app.dependency_overrides.clear()

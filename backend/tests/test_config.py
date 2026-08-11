@@ -1,3 +1,5 @@
+import pytest
+
 from app.core.config import Settings
 
 STRONG_SECRET = "a" * 48
@@ -28,6 +30,7 @@ def test_settings_override(monkeypatch):
     monkeypatch.setenv("SECRET_KEY", STRONG_SECRET)
     monkeypatch.setenv("COOKIE_SECURE", "True")
     monkeypatch.setenv("ALLOWED_HOSTS", "app.example.com")
+    monkeypatch.setenv("SUPERADMIN_EMAIL", "admin@example.com")
 
     settings = Settings(_env_file=None)
     assert settings.APP_ENV == "production"
@@ -115,10 +118,60 @@ def test_staging_aceita_http_sem_tls(monkeypatch):
     monkeypatch.setenv("SECRET_KEY", STRONG_SECRET)
     monkeypatch.setenv("COOKIE_SECURE", "False")
     monkeypatch.setenv("ALLOWED_HOSTS", "192.168.0.10")
+    monkeypatch.setenv("SUPERADMIN_EMAIL", "admin@example.com")
 
     settings = Settings(_env_file=None)
     assert settings.is_deployed is True
     assert settings.COOKIE_SECURE is False
+
+
+def test_deploy_recusa_sem_superadmin(monkeypatch):
+    """Sem `SUPERADMIN_EMAIL` um deploy novo nasce inoperável (ADR 0026).
+
+    O cadastro padrão é por convite, não há quem convide, e não há tela por onde
+    abrir o cadastro — a única saída seria SQL na mão dentro do container. É a
+    mesma família de defeito que as outras checagens de deploy cobrem: config
+    aceita, app no ar, e o problema só aparece quando alguém tenta usar.
+    """
+    import pytest
+
+    monkeypatch.setenv("APP_ENV", "staging")
+    monkeypatch.setenv("DATABASE_URL", "sqlite:///test.db")
+    monkeypatch.setenv("SECRET_KEY", STRONG_SECRET)
+    monkeypatch.setenv("ALLOWED_HOSTS", "192.168.0.10")
+    monkeypatch.delenv("SUPERADMIN_EMAIL", raising=False)
+
+    with pytest.raises(ValueError, match="SUPERADMIN_EMAIL"):
+        Settings(_env_file=None)
+
+
+@pytest.mark.parametrize("valor", ["gabriel", "admin@localhost", "@dominio.com", "a b@x.com"])
+def test_deploy_recusa_superadmin_que_nao_e_email(monkeypatch, valor):
+    """Endereço que o CADASTRO recusaria é um superadministrador que nunca vai
+    existir — e o erro só apareceria no primeiro `/register`, como um 422 sobre
+    e-mail, sem nenhuma pista de que a causa é uma variável de ambiente.
+
+    `admin@localhost` está na lista porque é o erro plausível: parece válido,
+    passa num teste de `"@" in valor`, e o `EmailStr` do cadastro recusa.
+    """
+    monkeypatch.setenv("APP_ENV", "staging")
+    monkeypatch.setenv("DATABASE_URL", "sqlite:///test.db")
+    monkeypatch.setenv("SECRET_KEY", STRONG_SECRET)
+    monkeypatch.setenv("ALLOWED_HOSTS", "192.168.0.10")
+    monkeypatch.setenv("SUPERADMIN_EMAIL", valor)
+
+    with pytest.raises(ValueError, match="SUPERADMIN_EMAIL"):
+        Settings(_env_file=None)
+
+
+def test_desenvolvimento_nao_exige_superadmin(monkeypatch):
+    """Em dev, vazio é legítimo: significa "sem administração de plataforma"."""
+    monkeypatch.setenv("APP_ENV", "development")
+    monkeypatch.setenv("DATABASE_URL", "sqlite:///test.db")
+    monkeypatch.setenv("SECRET_KEY", "fraca")
+    monkeypatch.delenv("SUPERADMIN_EMAIL", raising=False)
+
+    assert Settings(_env_file=None).SUPERADMIN_EMAIL is None
 
 
 def test_development_nao_e_deploy(monkeypatch):

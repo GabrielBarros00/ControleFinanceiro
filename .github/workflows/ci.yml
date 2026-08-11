@@ -286,6 +286,7 @@ jobs:
           FRONTEND_URL=http://localhost:8890
           ALLOWED_HOSTS=localhost,127.0.0.1
           RATE_LIMIT_ENABLED=True
+          SUPERADMIN_EMAIL=smoke-admin@example.com
           ENV
       - name: Subir o stack
         run: |

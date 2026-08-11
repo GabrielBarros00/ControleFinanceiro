@@ -21,8 +21,13 @@ cp .env.example .env
 nano .env                      # preencha conforme a tabela abaixo
 docker compose up --build -d
 docker compose logs backend | tail -20      # confere se subiu sem recusa de config
-python scripts/smoke_prod.py                # 36 verificações automáticas (~20s)
+python scripts/smoke_prod.py                # verificações automáticas (~20s)
 ```
+
+Depois disso, **acesse `/register` com o e-mail que você pôs em
+`SUPERADMIN_EMAIL`**. Essa primeira conta nasce superadministradora e é a única
+que entra sem convite — o cadastro do site já nasce fechado (veja
+[Cadastro e administração](#cadastro-e-administração)).
 
 ### Tabela de variáveis (produção)
 
@@ -31,10 +36,12 @@ python scripts/smoke_prod.py                # 36 verificações automáticas (~2
 | `POSTGRES_PASSWORD` | ✅ | Senha do banco | `python -c "import secrets; print(secrets.token_urlsafe(24))"` — **antes do 1º `up`** (fica gravada no volume) |
 | `POSTGRES_USER` / `POSTGRES_DB` | padrão serve | Usuário/nome do banco | Deixe `cf4` / `controle_financeiro` |
 | `SECRET_KEY` | ✅ | Assina os tokens de sessão | `python -c "import secrets; print(secrets.token_urlsafe(48))"` — o app **recusa subir** com chave fraca |
+| `SUPERADMIN_EMAIL` | ✅ | Quem administra o site | Seu e-mail. É a **única conta que se cadastra sem convite**, e só no primeiro acesso. O app **recusa subir** sem ela |
 | `APP_ENV` | ✅ | Modo do app | `production` com HTTPS; `staging` se for HTTP puro (IP local) |
 | `COOKIE_SECURE` | ✅ | Cookie só via HTTPS | `True` com HTTPS; `False` se HTTP puro (senão **ninguém loga**) |
 | `FRONTEND_URL` | ✅ | URL pública do app | O endereço que as pessoas digitam. Vai nos links de email e no redirect do Google |
 | `HTTP_PORT` | padrão serve | Porta do nginx | `80` (ou outra se a 80 estiver ocupada) |
+| `BIND_ADDR` | ✅ se houver proxy TLS | Interface em que a porta é publicada | `127.0.0.1` quando Caddy/Traefik terminam HTTPS no host — senão o app continua respondendo em `http://` na porta direta e o TLS vira opcional. `0.0.0.0` (padrão) sem proxy |
 | `CORS_ORIGINS` | deixar vazio | Origens extras de CORS | Vazio = same-origin via nginx (correto) |
 | `ALLOWED_HOSTS` | ✅ (em `production`) | Host(s) confiável(is) (anti-Host forjado) | Domínio(s) reais separados por vírgula. Em `APP_ENV=production` o app **recusa subir** com `*`/vazio; `localhost` já é aceito p/ o healthcheck. Em `staging` pode deixar vazio |
 | `GOOGLE_CLIENT_ID` / `SECRET` / `REDIRECT_URI` | opcional | Login com Google | Ver seção [Google OAuth](#google-oauth) |
@@ -49,6 +56,45 @@ python scripts/smoke_prod.py                # 36 verificações automáticas (~2
 - **Cenário B — rede local, sem TLS** (`http://192.168.x.x`): `APP_ENV=staging` + `COOKIE_SECURE=False`. Todo o resto (Postgres, migrações, rate limit) continua em modo produção.
 
 Por quê: cookie com flag `Secure` não é enviado pelo navegador em `http://` (exceto localhost) — com a combinação errada, o login "funciona" mas a sessão nunca persiste.
+
+### Cadastro e administração
+
+O cadastro do site **nasce fechado**: só entra quem tem convite ([ADR 0026](docs/adr/0026-papel-de-plataforma-e-cadastro-por-convite.md)).
+Sem isso, publicar o app na internet significaria deixar qualquer pessoa criar
+conta no seu servidor.
+
+**Primeiro acesso.** Vá em `{FRONTEND_URL}/register` e cadastre-se com o e-mail
+de `SUPERADMIN_EMAIL`. Essa conta é a única que passa sem convite, e só enquanto
+não existir nenhum superadministrador — depois de criada, a janela fecha sozinha.
+Você entra já com o item **Administração** no menu.
+
+**Convidar as outras pessoas.** Em *Administração → Convites*, gere um convite
+(com e-mail, e ele é enviado; sem e-mail, você copia o link). Quem entrar por ele
+ganha o próprio espaço, separado do seu — para dividir despesas, convide a pessoa
+depois para um workspace em *Configurações do workspace → Membros*. Usuários
+comuns também podem convidar, em *Suas configurações → Convidar alguém*, dentro
+de uma cota mensal.
+
+**O que dá para configurar sem reiniciar** (em *Administração → Configurações*):
+
+| Ajuste | Observação |
+|---|---|
+| Modo de cadastro | aberto, por convite (padrão) ou fechado |
+| Quem pode convidar | qualquer pessoa cadastrada (padrão) ou só administradores |
+| Validade e cota de convites | dias até expirar; convites por pessoa/mês |
+| Anexos por workspace | em MB |
+| Tamanho máximo por arquivo | teto de 6 MB — é o `client_max_body_size` do nginx, que fica **na frente** do backend |
+| Linhas por importação | — |
+| Rate limit de login | por IP e por conta |
+| Modo manutenção | só administradores usam o site; você continua entrando para desligar |
+
+**O que o administrador NÃO vê:** lançamentos, valores, cartões ou renda de
+outras pessoas. A área administrativa mostra contagem, tamanho em disco, último
+acesso e papel — nunca dinheiro alheio. Isso é decisão de projeto e tem teste
+dedicado que reprova qualquer regressão.
+
+**Perdeu o acesso de administrador?** O `SUPERADMIN_EMAIL` é repromovido a cada
+inicialização do container — corrija o `.env` e `docker compose restart backend`.
 
 ### Google OAuth
 
@@ -108,7 +154,9 @@ Qualquer provedor SMTP serve (Resend, Brevo, Mailgun...) — mesmos campos.
 
 | Sintoma | Causa provável |
 |---|---|
-| `backend` em restart infinito | Configuração recusada — `docker compose logs backend` mostra qual variável (SECRET_KEY fraca, COOKIE_SECURE=False com production, banco não-Postgres) |
+| `backend` em restart infinito | Configuração recusada — `docker compose logs backend` mostra qual variável (SECRET_KEY fraca, COOKIE_SECURE=False com production, banco não-Postgres, SUPERADMIN_EMAIL vazio) |
+| "O cadastro é apenas por convite" na tela | Esperado. Entre com o e-mail de `SUPERADMIN_EMAIL` ou peça um convite a quem já usa |
+| App acessível por `http://` mesmo com HTTPS configurado | `BIND_ADDR` continua `0.0.0.0` — troque para `127.0.0.1` e suba de novo |
 | Login "funciona" mas a sessão some | `COOKIE_SECURE=True` com HTTP puro — use o Cenário B |
 | Link do email aponta para localhost | `FRONTEND_URL` não configurada com a URL pública |
 | Porta em uso ao subir | Ajuste `HTTP_PORT` no `.env` |

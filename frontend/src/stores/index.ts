@@ -1,12 +1,24 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 
+/** Papel no SITE (ADR 0026) — eixo separado do papel no workspace. */
+export type PlatformRole = 'user' | 'admin' | 'superadmin';
+
 export interface AuthUser {
   id: number;
   name: string;
   email: string;
   is_active?: boolean;
   needs_onboarding?: boolean;
+  /**
+   * Decide se a navegação mostra o item "Admin". Só isso.
+   *
+   * Nada de autorização se apoia neste campo: quem barra é
+   * `require_platform_role` no servidor, e as rotas administrativas respondem
+   * 404 para quem não tem papel. Esconder o item é conveniência de interface —
+   * se fosse a tranca, bastaria chamar a rota direto.
+   */
+  platform_role?: PlatformRole;
 }
 
 interface AuthState {

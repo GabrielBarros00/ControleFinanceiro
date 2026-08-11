@@ -24,6 +24,7 @@ from app.models.import_batch import (
     compute_fingerprint,
 )
 from app.models.workspace import WorkspaceMembership, WorkspaceRole
+from app.services import app_settings
 from app.services.csv_parser import CSVParserService, CSVColumnMapping
 from app.services.event_service import publish_event
 from app.api.deps import require_role
@@ -110,12 +111,14 @@ def parse_csv(
         invert_amount=invert_amount
     )
 
-    # Limite de upload (lê no máximo limite+1 para detectar excesso sem carregar tudo)
-    raw = file.file.read(settings.UPLOAD_MAX_BYTES + 1)
-    if len(raw) > settings.UPLOAD_MAX_BYTES:
+    # Limite de upload (lê no máximo limite+1 para detectar excesso sem carregar
+    # tudo). Configurável em runtime pela tela de Admin (ADR 0026).
+    teto_upload = app_settings.get(session, "upload_max_bytes")
+    raw = file.file.read(teto_upload + 1)
+    if len(raw) > teto_upload:
         raise HTTPException(
             status_code=413,
-            detail=f"Arquivo excede o limite de {settings.UPLOAD_MAX_BYTES // (1024 * 1024)}MB"
+            detail=f"Arquivo excede o limite de {teto_upload // (1024 * 1024)}MB"
         )
 
     try:
@@ -142,8 +145,18 @@ class CommitRow(BaseModel):
 
 class CommitRequest(BaseModel):
     filename: Optional[str] = None
-    # Teto de linhas: o corpo é JSON livre, então sem limite um cliente pede a
-    # criação de milhões de transações numa única transação de banco
+    # DOIS tetos, e a diferença entre eles importa.
+    #
+    # Este, declarativo, é a defesa contra abuso: o corpo é JSON livre, e o
+    # Pydantic checa o COMPRIMENTO da lista antes de construir os itens — um
+    # corpo com dez milhões de linhas é recusado sem que dez milhões de
+    # `CommitRow` cheguem a existir na memória. Ele vem do ambiente e é o teto
+    # absoluto, porque afrouxá-lo pela tela seria entregar ao próprio operador um
+    # jeito de derrubar o processo.
+    #
+    # O outro, operacional e configurável em runtime (`import_max_rows`, ADR
+    # 0026), é checado no handler e serve para o admin apertar o limite abaixo
+    # deste — nunca acima; `app_settings` recusa valor maior.
     rows: List[CommitRow] = Field(max_length=settings.IMPORT_MAX_ROWS)
 
 
@@ -156,6 +169,14 @@ def commit_import(
 ):
     """Persiste um lote com DECISÃO por linha (importar/ignorar) e idempotência
     por fingerprint (ADR 0008): reimportar o mesmo arquivo não duplica."""
+    # Teto operacional (ver o comentário em CommitRequest.rows). O declarativo já
+    # barrou o abuso; este é o número que o admin escolheu.
+    teto_linhas = app_settings.get(session, "import_max_rows")
+    if len(body.rows) > teto_linhas:
+        raise HTTPException(
+            status_code=422,
+            detail=f"Importação limitada a {teto_linhas} linhas por lote",
+        )
     # Moeda-base do workspace, não "BRL" fixo: com o literal, TODA linha
     # importada num workspace em outra moeda caía fora das agregações (que
     # filtram `currency == base`) e sumia sem aviso nenhum.

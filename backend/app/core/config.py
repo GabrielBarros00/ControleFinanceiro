@@ -66,6 +66,33 @@ class Settings(BaseSettings):
     FRONTEND_URL: str = "http://localhost:5173"
     RESET_TOKEN_EXPIRES_MINUTES: int = 30
 
+    # E-mail do primeiro superadministrador (ADR 0026). Duas coisas dependem
+    # dele, e é a segunda que o torna obrigatório num deploy novo:
+    #
+    # 1. No startup, a conta com este e-mail é promovida a `superadmin`
+    #    (idempotente — se já é, nada acontece).
+    # 2. É a saída do impasse do banco vazio: com o cadastro em `invite_only`
+    #    (o padrão), ninguém se cadastra sem convite e não existe ninguém para
+    #    convidar. Este e-mail — e só ele, e só enquanto não houver superadmin
+    #    nenhum — pode criar conta sem convite.
+    #
+    # Vazio é legítimo: significa "sem administração de plataforma", que é o
+    # certo para dev e para a suíte. Só que, vazio, `REGISTRATION_MODE` também
+    # precisa ser `open`, ou o site nasce inacessível.
+    SUPERADMIN_EMAIL: Optional[str] = None
+
+    # Quem pode criar conta, quando NÃO há valor gravado pela tela de Admin
+    # (ADR 0026). `invite_only` é o padrão do produto: um deploy novo nasce
+    # fechado, e abrir é decisão consciente.
+    #
+    # Existe como variável de ambiente — e não só como padrão no código — pelo
+    # mesmo motivo dos outros limites configuráveis: ambientes que NÃO têm
+    # administrador precisam declarar que a porta está aberta. É o caso do e2e,
+    # que sobe um banco descartável sem ninguém dentro; sem isto, a primeira tela
+    # da suíte seria um 403 de cadastro. Dev e produção continuam rodando o mesmo
+    # código com a mesma regra — muda só o valor declarado, à vista.
+    REGISTRATION_MODE: str = "invite_only"
+
     RATE_LIMIT_ENABLED: bool = True
     # Tetos por minuto dos dois baldes de auth. Configuráveis porque o certo
     # depende do deploy: o balde por IP é COMPARTILHADO por todo mundo atrás do
@@ -144,6 +171,25 @@ class Settings(BaseSettings):
         return self
 
     @model_validator(mode="after")
+    def _validate_registration_mode(self):
+        """Recusa boot com `REGISTRATION_MODE` inválido — em QUALQUER ambiente.
+
+        Um erro de digitação (`opne`, `invite-only`) não daria erro em lugar
+        nenhum: o valor chegaria ao portão de cadastro, não casaria com `open`
+        nem com `closed`, e seria tratado como "por convite". O site subiria
+        fechado sem que ninguém tivesse pedido isso, e a variável no `.env` diria
+        o contrário. Mesma família do `APP_TIMEZONE` — configuração que muda o
+        comportamento sem emitir sinal.
+        """
+        aceitos = ("open", "invite_only", "closed")
+        if self.REGISTRATION_MODE not in aceitos:
+            raise ValueError(
+                f"REGISTRATION_MODE inválido: {self.REGISTRATION_MODE!r}. "
+                f"Use um de: {', '.join(aceitos)}."
+            )
+        return self
+
+    @model_validator(mode="after")
     def _validate_deployment(self):
         """Recusa boot em produção/staging com configuração insegura."""
         if not self.is_deployed:
@@ -162,6 +208,33 @@ class Settings(BaseSettings):
                 f"ALLOWED_HOSTS deve ser restrito em {modo} (ex.: "
                 "ALLOWED_HOSTS=app.seudominio.com) — \"*\"/vazio desliga a "
                 "checagem de Host"
+            )
+
+        # Sem superadmin, um deploy novo nasce inoperável: o cadastro é por
+        # convite (padrão do ADR 0026), não há quem convide, e não há tela por
+        # onde abrir o cadastro — a única saída seria `docker compose exec` com
+        # SQL na mão. É o mesmo tipo de defeito que as checagens acima cobrem: a
+        # configuração é aceita, o app sobe, e o problema só aparece quando
+        # alguém tenta usar o sistema.
+        if not self.SUPERADMIN_EMAIL:
+            raise ValueError(
+                f"SUPERADMIN_EMAIL é obrigatório em {modo}: é a conta que "
+                "administra o site e a única que pode se cadastrar sem convite "
+                "no primeiro acesso (ex.: SUPERADMIN_EMAIL=voce@dominio.com)"
+            )
+        # A checagem é a MESMA do cadastro (`EmailStr`), e não um `"@" in valor`,
+        # porque um endereço que o cadastro recusa é um superadministrador que
+        # nunca vai existir. Com a versão frouxa, `admin@localhost` passava aqui,
+        # o app subia normalmente, e o erro só aparecia no primeiro `/register` —
+        # como um 422 falando de e-mail inválido, sem nenhuma pista de que a
+        # causa era uma variável de ambiente.
+        from email_validator import EmailNotValidError, validate_email
+        try:
+            validate_email(self.SUPERADMIN_EMAIL, check_deliverability=False)
+        except EmailNotValidError as exc:
+            raise ValueError(
+                f"SUPERADMIN_EMAIL inválido: {self.SUPERADMIN_EMAIL!r} ({exc}). "
+                "Use um endereço completo, com domínio (ex.: voce@dominio.com)."
             )
 
         if self.APP_ENV == "production":

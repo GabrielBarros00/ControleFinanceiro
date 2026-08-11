@@ -84,6 +84,7 @@ class Session:
 
 def main():
     ts = int(time.time())
+    admin = Session()
     alice = Session()
     bruno = Session()
 
@@ -108,10 +109,72 @@ def main():
     res = httpx.get(f"{API}/rota-inexistente", timeout=15)
     check("404 JSON para rota de API inexistente", res.status_code == 404 and "error" in res.json())
 
-    # --- Cadastro e sessão (Alice) ---
+    # --- Portão de cadastro e o primeiro superadministrador (ADR 0026) ---
+    #
+    # Em produção o cadastro nasce POR CONVITE, e é isso que este bloco prova
+    # contra o stack real. Alice é o `SUPERADMIN_EMAIL`: ela entra pela janela de
+    # bootstrap — a única forma de a primeira conta existir num site fechado — e
+    # a partir daí a janela se fecha.
+    res = httpx.get(f"{API}/auth/registration-policy", timeout=15)
+    check("política de cadastro é pública", res.status_code == 200)
+    politica = res.json()
+    check(
+        "cadastro exige convite em produção",
+        politica["exige_convite"] is True,
+        f"modo={politica['mode']}",
+    )
+
+    res = httpx.post(
+        f"{API}/auth/register", timeout=15,
+        json={"name": "Penetra", "email": f"penetra_{ts}@teste.com", "password": "senha123"},
+    )
+    check("cadastro sem convite é recusado", res.status_code == 403)
+
+    email_admin = os.environ.get("SMOKE_SUPERADMIN_EMAIL", "smoke-admin@example.com")
+    res = admin.post(
+        "/auth/register",
+        json={"name": "Admin Smoke", "email": email_admin, "password": "senha123"},
+    )
+    # 400 = a conta já existe de uma execução anterior contra o mesmo stack. O
+    # smoke precisa ser repetível: em CI o banco é novo e cai no 200; rodado à
+    # mão contra um stack de pé cai no 400 e segue pelo login.
+    check("registro do superadmin (bootstrap)", res.status_code in (200, 400),
+          f"{res.status_code} {res.text[:200]}")
+    if res.status_code == 200:
+        check("primeira conta nasce superadministradora",
+              res.json()["platform_role"] == "superadmin")
+
+    res = admin.post("/auth/login", json={"email": email_admin, "password": "senha123"})
+    check("login do superadmin", res.status_code == 200)
+
+    res = admin.get("/admin/overview")
+    check("área administrativa responde ao superadmin", res.status_code == 200)
+    check("visão geral traz contagem, não dinheiro",
+          "usuarios_total" in res.json() and not any(
+              c in res.json() for c in ("total_amount", "saldo", "valor")))
+
+    # Alice entra POR CONVITE — o caminho que todo mundo além do primeiro usa.
+    # Continua sendo uma conta nova a cada execução: as verificações seguintes
+    # contam workspaces e lançamentos e não sobreviveriam a uma conta reusada.
     email_a = f"smoke_a_{ts}@teste.com"
-    res = alice.post("/auth/register", json={"name": "Alice Smoke", "email": email_a, "password": "senha123"})
-    check("registro Alice", res.status_code == 200)
+    res = admin.post("/admin/registration-invites", json={"email": email_a})
+    check("superadmin emite convite de cadastro", res.status_code == 201)
+    convite_a = res.json()["token"]
+
+    res = alice.post("/auth/register", json={
+        "name": "Alice Smoke", "email": email_a, "password": "senha123",
+        "invite_token": convite_a,
+    })
+    check("registro Alice com convite", res.status_code == 200, f"{res.status_code} {res.text[:200]}")
+    check("quem entra por convite NÃO nasce com poder de plataforma",
+          res.json()["platform_role"] == "user")
+
+    res = httpx.post(f"{API}/auth/register", timeout=15, json={
+        "name": "Reuso", "email": f"reuso_{ts}@teste.com",
+        "password": "senha123", "invite_token": convite_a,
+    })
+    check("convite de uso único não serve duas vezes", res.status_code == 403)
+
     res = alice.post("/auth/login", json={"email": email_a, "password": "senha123"})
     check("login Alice (cookies)", res.status_code == 200 and "access_token" in alice.cookies)
     res = alice.get("/auth/me")
@@ -214,7 +277,12 @@ def main():
 
     # --- Convite + segundo usuário ---
     email_b = f"smoke_b_{ts}@teste.com"
-    res = bruno.post("/auth/register", json={"name": "Bruno Smoke", "email": email_b, "password": "senha123"})
+    res = admin.post("/admin/registration-invites", json={"email": email_b})
+    check("convite de cadastro para Bruno", res.status_code == 201)
+    res = bruno.post("/auth/register", json={
+        "name": "Bruno Smoke", "email": email_b, "password": "senha123",
+        "invite_token": res.json()["token"],
+    })
     check("registro Bruno", res.status_code == 200)
     res = bruno.post("/auth/login", json={"email": email_b, "password": "senha123"})
     check("login Bruno", res.status_code == 200)
@@ -354,6 +422,38 @@ def main():
     check(
         "X-Forwarded-For forjado nao escapa do rate limit", res.status_code == 429,
         f"status={res.status_code} — o backend aceitou o IP que o cliente inventou",
+    )
+
+    # --- Fronteira da área administrativa (ADR 0026) -----------------------
+    #
+    # A promessa que sustenta os ADRs 0018 e 0021 é que administrar o SITE não dá
+    # acesso ao dinheiro de ninguém. A suíte prova isso em SQLite; aqui é contra
+    # o stack real, com dado que Alice acabou de criar nesta mesma execução.
+    res = alice.get("/admin/overview")
+    check("usuário comum não alcança a área administrativa (404)", res.status_code == 404)
+
+    res = admin.get(f"/workspaces/{ws_id}/transactions/")
+    check(
+        "superadmin não entra no workspace alheio", res.status_code in (403, 404),
+        f"status={res.status_code} — a política consultou o papel de plataforma?",
+    )
+
+    corpo = admin.get("/admin/users").text
+    check(
+        "listagem de pessoas não devolve dado financeiro",
+        "Mercado do smoke" not in corpo and "Aluguel" not in corpo,
+    )
+
+    res = admin.get("/admin/health")
+    check("saúde do site responde", res.status_code == 200 and "cambio_ultima_data" in res.json())
+
+    # A trava que impede o site de ficar sem administração.
+    res = admin.get("/auth/me")
+    admin_id = res.json()["id"]
+    res = admin.patch(f"/admin/users/{admin_id}", json={"platform_role": "admin"})
+    check(
+        "último superadministrador não consegue se rebaixar", res.status_code == 409,
+        f"status={res.status_code} — o site ficaria sem quem o configure",
     )
 
     print(f"\nSMOKE DE PRODUCAO: {_passed} verificacoes OK — stack aprovado.")

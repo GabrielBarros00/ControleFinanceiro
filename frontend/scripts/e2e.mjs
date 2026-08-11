@@ -62,7 +62,18 @@ const SERVIDORES = [
     // Banco DESCARTÁVEL e rate limit desligado: a suíte registra vários usuários
     // em sequência, e o `dev.db` não pode ser tocado por ela. A proteção de rate
     // limit tem testes próprios no backend e é exercitada ligada pela `e2e-prod`.
-    env: { RATE_LIMIT_ENABLED: 'False', DATABASE_URL: 'sqlite:///./e2e.db' },
+    // `REGISTRATION_MODE: open` é declarado, não herdado: o padrão do produto é
+    // `invite_only` (ADR 0026), e o banco desta suíte nasce vazio a cada rodada
+    // — sem ninguém dentro, não há quem emita convite, e todo spec morreria na
+    // primeira tela com 403. Abrir aqui é o equivalente da fixture
+    // `cadastro_aberto_por_padrao` do pytest: a suíte usa o cadastro como
+    // atalho para fabricar usuários, não para testar o portão. Quem testa o
+    // portão é `tests/api/test_registration_modes.py` e o `smoke_prod.py`.
+    env: {
+      RATE_LIMIT_ENABLED: 'False',
+      DATABASE_URL: 'sqlite:///./e2e.db',
+      REGISTRATION_MODE: 'open',
+    },
   },
   {
     nome: 'frontend',

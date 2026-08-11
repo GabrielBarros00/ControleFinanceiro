@@ -5,6 +5,10 @@ import { defineConfig, devices } from '@playwright/test';
 //      E2E_BASE_URL=http://host:porta para outro deploy.
 export default defineConfig({
   testDir: './e2e-prod',
+  // O stack de produção nasce com cadastro POR CONVITE (ADR 0026) e os specs
+  // daqui criam usuários pela API. O setup abre a porta usando a API de Admin —
+  // ver o comentário no arquivo.
+  globalSetup: './e2e-prod/global-setup.ts',
   fullyParallel: false,
   workers: 1,
   reporter: [['list']],

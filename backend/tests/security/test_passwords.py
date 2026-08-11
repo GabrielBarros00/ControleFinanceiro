@@ -21,6 +21,7 @@ def test_user_model_serialization():
         "password_hash": "hashed_value_that_should_be_hidden",
         "is_active": True,
         "needs_onboarding": False,
+        "platform_role": "user",
         "created_at": datetime.now(UTC)
     }
     

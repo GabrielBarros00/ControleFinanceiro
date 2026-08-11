@@ -2,9 +2,11 @@ import time
 from collections import defaultdict, deque
 from typing import Optional
 
-from fastapi import HTTPException, Request
+from fastapi import Depends, HTTPException, Request
+from sqlmodel import Session
 
 from app.core.config import settings
+from app.db.session import get_session
 
 
 class RateLimiter:
@@ -84,7 +86,47 @@ def rate_limit_outbound(key: str) -> None:
     outbound_limiter.check(f"out:{key}")
 
 
-def rate_limit_auth(request: Request) -> None:
+def _teto_vigente(db: Session, limiter: RateLimiter, chave: str, padrao: int) -> None:
+    """Aplica ao balde o teto configurado em runtime (ADR 0026).
+
+    Os dois `RateLimiter` são construídos na IMPORTAÇÃO do módulo, com o valor do
+    `.env` congelado em `max_requests`. Enquanto o teto só vinha do ambiente isso
+    bastava — mudar exigia reiniciar de qualquer forma. Agora que a tela de Admin
+    pode alterá-lo, sem esta linha o número novo apareceria salvo na interface e
+    o balde continuaria usando o antigo: a pior espécie de configuração, a que
+    reporta sucesso e não faz nada.
+
+    A leitura é barata: `app_settings.get` responde do cache de processo depois
+    da primeira vez, e a invalidação acontece na escrita.
+
+    FALHA DE LEITURA NÃO PODE DERRUBAR O LOGIN. Esta função entrou num caminho
+    que antes não tocava o banco — é dependência de `/auth/login`,
+    `/auth/register` e `/auth/forgot-password` —, e sem o `except` uma tabela
+    `appsetting` ausente (migração pendente, dump restaurado pela metade) ou um
+    Postgres momentaneamente fora do ar transformaria "não sei qual é o teto" em
+    500 na tela de entrada. O teto do ambiente é uma resposta perfeitamente boa
+    para essa pergunta, e o balde continua fechado — que é o que importa aqui.
+    """
+    from app.services import app_settings
+
+    try:
+        limiter.max_requests = app_settings.get(db, chave)
+    except Exception:
+        limiter.max_requests = padrao
+        # O rollback não é zelo: uma consulta que falhou deixa a sessão marcada
+        # para rollback, e a rota seguinte — que ainda não escreveu nada, isto é
+        # uma dependency — levaria `PendingRollbackError` na primeira query.
+        # Engolir o erro sem desfazer a transação trocaria um 500 por outro.
+        try:
+            db.rollback()
+        except Exception:
+            pass
+
+
+def rate_limit_auth(
+    request: Request,
+    db: Session = Depends(get_session),
+) -> None:
     """Dependency de rate limiting para endpoints sensíveis de auth.
 
     Usa request.client.host — atrás do nginx, o uvicorn roda com
@@ -98,11 +140,15 @@ def rate_limit_auth(request: Request) -> None:
     """
     if not settings.RATE_LIMIT_ENABLED:
         return
+    _teto_vigente(
+        db, auth_limiter, "rate_limit_auth_per_minute",
+        settings.RATE_LIMIT_AUTH_PER_MINUTE,
+    )
     client_ip = request.client.host if request.client else "unknown"
     auth_limiter.check(f"{client_ip}:{request.url.path}")
 
 
-def rate_limit_account(email: Optional[str], path: str) -> None:
+def rate_limit_account(db: Session, email: Optional[str], path: str) -> None:
     """Segundo balde, chaveado pela CONTA alvo.
 
     O balde por IP não basta sozinho: um IP é barato — botnet, VPN, celular no
@@ -116,4 +162,8 @@ def rate_limit_account(email: Optional[str], path: str) -> None:
     """
     if not settings.RATE_LIMIT_ENABLED or not email:
         return
+    _teto_vigente(
+        db, account_limiter, "rate_limit_account_per_minute",
+        settings.RATE_LIMIT_ACCOUNT_PER_MINUTE,
+    )
     account_limiter.check(f"acct:{email.strip().lower()}:{path}")

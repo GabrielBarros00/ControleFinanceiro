@@ -10,7 +10,7 @@ from fastapi.responses import RedirectResponse
 from sqlmodel import Session, select
 from app.core.config import settings
 from app.db.session import get_session
-from app.models.user import User
+from app.models.user import PlatformRole, User
 from datetime import datetime, UTC
 from app.models.workspace import (
     FinancialAccess,
@@ -53,6 +53,8 @@ from app.services.event_service import publish_event
 from app.services.membership_service import ensure_membership
 from app.models.notification import NotificationType
 from app.services.notification_service import notify
+from app.services import app_settings
+from app.services.registration_service import assert_pode_cadastrar, consome_convite
 from pydantic import BaseModel, Field
 
 from app.schemas.common import NormalizedEmail, NormalizedEmailStr, normalize_email
@@ -352,11 +354,42 @@ async def finish_onboarding(
     db.commit()
     return {"status": "ok"}
 
+@router.get("/registration-policy")
+def registration_policy(db: Session = Depends(get_session)):
+    """Se o site aceita cadastro — PÚBLICO, e de propósito (ADR 0026).
+
+    Existe para a tela de cadastro poder dizer "é só por convite" ANTES de a
+    pessoa preencher nome, e-mail e senha duas vezes para só então descobrir.
+    Também é o que permite a tela de login esconder o link "criar conta" quando
+    não há cadastro a fazer.
+
+    Não vaza nada: é exatamente a informação que qualquer pessoa obtém tentando
+    se cadastrar uma vez. O que NÃO sai daqui é quem pode convidar, quantos
+    convites existem ou qualquer outra configuração — só a porta da frente.
+    """
+    from app.services.app_settings import RegistrationMode
+
+    modo = app_settings.get(db, "registration_mode")
+    return {
+        "mode": modo,
+        "aceita_cadastro": modo != RegistrationMode.closed,
+        "exige_convite": modo == RegistrationMode.invite_only,
+    }
+
+
 @router.post("/register", response_model=UserResponse, dependencies=[Depends(rate_limit_auth)])
 async def register(
     register_data: RegisterRequest,
     db: Session = Depends(get_session)
 ):
+    # Portão de cadastro (ADR 0026): aberto, por convite ou fechado. Vem ANTES da
+    # checagem de e-mail duplicado de propósito — com o cadastro fechado, quem não
+    # tem convite não deve conseguir descobrir quais endereços já existem
+    # provocando mensagens de erro diferentes.
+    convite, e_bootstrap = assert_pode_cadastrar(
+        db, register_data.email, register_data.invite_token
+    )
+
     # Check if user already exists
     existing_user = db.exec(select(User).where(User.email == register_data.email)).first()
     if existing_user:
@@ -364,19 +397,26 @@ async def register(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Este email já está cadastrado"
         )
-    
+
     # Create user — commit ÚNICO no fim (ADR 0010): usuário, workspace pessoal,
     # categorias padrão e a resolução dos convites nascem juntos ou não nascem.
     user = User(
         name=register_data.name,
         email=register_data.email,
-        password_hash=get_password_hash(register_data.password)
+        password_hash=get_password_hash(register_data.password),
+        # A primeira conta do site, quando é a do `SUPERADMIN_EMAIL`, já nasce
+        # com o papel. O `lifespan` também promove a cada boot, mas esperar o
+        # próximo reinício deixaria a pessoa sem tela de Admin justamente no
+        # momento em que ela precisa configurar o site.
+        platform_role=PlatformRole.superadmin if e_bootstrap else PlatformRole.user,
     )
     db.add(user)
     db.flush()
 
     _setup_default_workspace(db, user)
     _resolve_pending_invites(db, user, accept_token=register_data.invite_token)
+    if convite is not None:
+        consome_convite(db, convite, user)
 
     db.commit()
     db.refresh(user)
@@ -390,7 +430,7 @@ async def login(
 ):
     # Segundo balde, por CONTA: o balde por IP é contornável com
     # X-Forwarded-For forjado (ver rate_limit_account).
-    rate_limit_account(login_data.email, "/auth/login")
+    rate_limit_account(db, login_data.email, "/auth/login")
     user = db.exec(select(User).where(User.email == login_data.email)).first()
     if not user:
         # Gasta o mesmo tempo de um verify() real: email inexistente respondia
@@ -574,7 +614,7 @@ def forgot_password(
     db: Session = Depends(get_session)
 ):
     """Sempre retorna 200 para não revelar quais emails estão cadastrados."""
-    rate_limit_account(data.email, "/auth/forgot-password")
+    rate_limit_account(db, data.email, "/auth/forgot-password")
     user = db.exec(select(User).where(User.email == data.email)).first()
     if user and user.deleted_at is None and not user.password_hash.startswith("!"):
         token = create_purpose_token(

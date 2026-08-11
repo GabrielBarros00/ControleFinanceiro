@@ -8,6 +8,7 @@ import { registerQueryClient } from './api/client';
 import { Layout } from './components/layout/Layout';
 import { PageHeader } from './components/layout/PageHeader';
 import { useAuth } from './hooks/use-auth';
+import { useIsPlatformAdmin } from './hooks/use-admin';
 import { useTheme } from './hooks/use-theme';
 import { Toaster } from './components/ui/toaster';
 import { ConfirmProvider } from './components/ui/confirm';
@@ -34,6 +35,9 @@ const ResetPasswordPage = React.lazy(() => import('./pages/Auth/ResetPasswordPag
 const InviteAcceptPage = React.lazy(() => import('./pages/InviteAcceptPage').then(m => ({ default: m.InviteAcceptPage })));
 const WorkspaceHome = React.lazy(() => import('./pages/Home').then(m => ({ default: m.Home })));
 const CommitmentsPage = React.lazy(() => import('./pages/CommitmentsPage').then(m => ({ default: m.CommitmentsPage })));
+// Área administrativa: lazy como as demais. É a rota que menos gente visita —
+// não faz sentido pagar o custo dela no bundle inicial de todo mundo.
+const AdminPage = React.lazy(() => import('./pages/Admin/AdminPage').then(m => ({ default: m.AdminPage })));
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -103,6 +107,20 @@ const ProtectedRoute = ({ children }: ProtectedRouteProps) => {
     const from = `${location.pathname}${location.search}${location.hash}`;
     return <Navigate to="/login" replace state={{ from }} />;
   }
+  return <>{children}</>;
+};
+
+/**
+ * Guarda da área administrativa (ADR 0026).
+ *
+ * Conveniência de interface, não segurança: quem barra de verdade é
+ * `require_platform_role` no servidor, e as rotas de `/admin` respondem 404 para
+ * quem não tem papel. Isto evita que um usuário comum que digite `/admin` veja
+ * uma tela quebrada de requisições falhando — manda de volta para a visão geral.
+ */
+const AdminRoute = ({ children }: ProtectedRouteProps) => {
+  const ehAdmin = useIsPlatformAdmin();
+  if (!ehAdmin) return <Navigate to="/overview" replace />;
   return <>{children}</>;
 };
 
@@ -194,6 +212,23 @@ function AppContent() {
 
           <Route path="/invite/:token" element={
             <ProtectedRoute><InviteAcceptPage /></ProtectedRoute>
+          } />
+
+          {/* ---- PLATAFORMA: quem opera o site (ADR 0026) ----
+              Terceiro eixo, ao lado do pessoal e do workspace. Não leva
+              `workspace_id` no caminho porque nada aqui pertence a uma casa —
+              e nada aqui alcança o dinheiro de ninguém. */}
+          <Route path="/admin" element={
+            <ProtectedRoute>
+              <AdminRoute>
+                <Layout
+                  title="Administração"
+                  subtitle="Pessoas, convites e configuração do site."
+                >
+                  <AdminPage />
+                </Layout>
+              </AdminRoute>
+            </ProtectedRoute>
           } />
 
           {/* ---- WORKSPACE: o id vive na URL ---- */}
