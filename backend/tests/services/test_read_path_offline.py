@@ -10,12 +10,13 @@ Estes testes fixam o contrato: no modo offline a rede é PROIBIDA, e a ausência
 de taxa faz a ocorrência esperar o backfill em vez de nascer com valor inventado
 ou derrubar a requisição.
 """
-from datetime import date
+from datetime import date, datetime, UTC
 from decimal import Decimal
 
 import pytest
 from sqlmodel import Session, select
 
+from app.domain.dates import civil_instant
 from app.models.exchange_rate import ExchangeRate
 from app.models.income import Income
 from app.models.recurring import RecurringIncome
@@ -255,3 +256,170 @@ def test_ocorrencia_com_snapshot_invalido_tambem_leva_a_fatura(db_session: Sessi
     assert db_session.exec(
         select(CardStatement).where(CardStatement.card_id == card.id)
     ).all() == []
+
+
+def test_descarte_nao_apaga_fatura_de_lancamento_excluido(db_session: Session, no_network):
+    """A fatura com compra EXCLUÍDA não é lixo — e o banco sabe disso.
+
+    Exclusão de lançamento é SOFT: a linha continua no banco com o
+    `statement_id` preenchido. O descarte da ocorrência procurava só lançamento
+    VIVO, achava a fatura vazia e mandava apagá-la fisicamente. No Postgres a FK
+    barra (`ForeignKeyViolation`), e o erro sobe até o `except IntegrityError`
+    que o savepoint usa para colisão de concorrência — a ocorrência morre com o
+    diagnóstico errado. No SQLite, que roda sem `PRAGMA foreign_keys`, o DELETE
+    PASSA: some uma fatura legítima e o `statement_id` da linha excluída fica
+    apontando para o nada.
+
+    O caminho é o uso normal do app: comprar no cartão, excluir a compra, e uma
+    recorrência qualquer ser descartada depois.
+    """
+    from app.models.credit_card import CardStatement, CreditCard
+    from app.models.recurring import RecurringExpense
+    from app.services.credit_card_service import CreditCardService
+
+    user, ws = _workspace(db_session, "offline6")
+    card = CreditCard(
+        name="Cartão gringo", limit=Decimal("5000.00"), closing_day=20, due_day=28,
+        currency="USD", owner_user_id=user.id,
+    )
+    db_session.add(card)
+    db_session.flush()
+
+    # 1) A compra que já existiu e 2) foi excluída — a fatura fica sem nenhuma
+    # linha viva, mas continua REFERENCIADA.
+    fatura = CreditCardService.get_or_create_statement(db_session, card, date(2026, 7, 5))
+    db_session.add(Transaction(
+        title="Compra que o usuário excluiu",
+        total_amount=Decimal("120.00"),
+        transaction_date=civil_instant(date(2026, 7, 5)),
+        billing_month="2026-07",
+        workspace_id=ws.id,
+        created_by_user_id=user.id,
+        credit_card_id=card.id,
+        statement_id=fatura.id,
+        deleted_at=datetime(2026, 7, 6, tzinfo=UTC),
+    ))
+
+    db_session.add_all([
+        # Cartão em USD num workspace BRL: a perna de fatura precisa de cotação
+        # e o store está vazio — é esta que será descartada.
+        RecurringExpense(
+            title="Assinatura no cartão gringo", base_amount=Decimal("30.00"),
+            currency="BRL", day_of_month=5, workspace_id=ws.id,
+            created_by_user_id=user.id, payer_user_id=user.id,
+            credit_card_id=card.id,
+        ),
+        RecurringExpense(
+            title="Aluguel", base_amount=Decimal("1000.00"), currency="BRL",
+            day_of_month=5, workspace_id=ws.id, created_by_user_id=user.id,
+            payer_user_id=user.id,
+        ),
+    ])
+    db_session.commit()
+
+    result = RecurringMaterializationService.ensure_current_month(
+        db_session, ws.id, date(2026, 7, 15)
+    )
+    db_session.commit()
+
+    # O lote inteiro chega ao fim: a recorrência válida não paga pelo descarte
+    # da outra.
+    assert result["expenses"] == 1
+    assert db_session.exec(
+        select(CardStatement).where(CardStatement.id == fatura.id)
+    ).first() is not None, "a fatura da compra excluída não pode ser apagada"
+    excluida = db_session.exec(
+        select(Transaction).where(Transaction.deleted_at.is_not(None))
+    ).one()
+    assert excluida.statement_id == fatura.id, "a referência não pode ficar pendurada"
+
+
+def test_descarte_nao_apaga_fatura_do_ciclo_corrente(db_session: Session, no_network):
+    """Fatura vazia e aberta NÃO é sinônimo de lixo desta materialização.
+
+    `ensure_current_statement` cria de propósito a fatura vazia do ciclo
+    corrente quando alguém abre a tela do cartão — sem ela, um mês sem gastos
+    mostra a fatura do mês passado como se fosse a atual. Pelos critérios de
+    CONTEÚDO (aberta, sem linha, sem pagamento) ela é indistinguível da fatura
+    que o descarte quer desfazer; o que separa as duas é quem a criou.
+    """
+    from app.models.credit_card import CardStatement, CreditCard
+    from app.models.recurring import RecurringExpense
+    from app.services.credit_card_service import CreditCardService
+
+    user, ws = _workspace(db_session, "offline7")
+    card = CreditCard(
+        name="Cartão gringo", limit=Decimal("5000.00"), closing_day=20, due_day=28,
+        currency="USD", owner_user_id=user.id,
+    )
+    db_session.add(card)
+    db_session.flush()
+
+    fatura = CreditCardService.ensure_current_statement(db_session, card, date(2026, 7, 15))
+    fatura_id = fatura.id
+
+    db_session.add_all([
+        RecurringExpense(
+            title="Assinatura no cartão gringo", base_amount=Decimal("30.00"),
+            currency="BRL", day_of_month=5, workspace_id=ws.id,
+            created_by_user_id=user.id, payer_user_id=user.id,
+            credit_card_id=card.id,
+        ),
+        RecurringExpense(
+            title="Aluguel", base_amount=Decimal("1000.00"), currency="BRL",
+            day_of_month=5, workspace_id=ws.id, created_by_user_id=user.id,
+            payer_user_id=user.id,
+        ),
+    ])
+    db_session.commit()
+
+    result = RecurringMaterializationService.ensure_current_month(
+        db_session, ws.id, date(2026, 7, 15)
+    )
+    db_session.commit()
+
+    assert result["expenses"] == 1
+    assert db_session.exec(
+        select(CardStatement).where(CardStatement.id == fatura_id)
+    ).first() is not None, "a fatura do ciclo corrente é de quem abriu a tela do cartão"
+
+
+def test_descarte_recusa_fatura_referenciada_mesmo_autorizado(db_session: Session):
+    """A trava de baixo, exercitada direto.
+
+    As duas travas de `_descartar_fatura_vazia` são independentes: a de cima
+    (`criada`) é a que age no app, e por construção uma fatura recém-criada não
+    tem como já estar referenciada. A de baixo é a verdade do BANCO — é ela que
+    responde pela FK se algum caminho futuro chamar o descarte com a fatura
+    errada. Sem teste próprio ela seria um `if` que ninguém sabe se funciona.
+    """
+    from app.models.credit_card import CardStatement, CreditCard
+    from app.services.credit_card_service import CreditCardService
+    from app.services.recurring_service import _descartar_fatura_vazia
+
+    user, ws = _workspace(db_session, "offline8")
+    card = CreditCard(
+        name="Cartão de casa", limit=Decimal("5000.00"), closing_day=20, due_day=28,
+        currency="BRL", owner_user_id=user.id,
+    )
+    db_session.add(card)
+    db_session.flush()
+
+    fatura = CreditCardService.get_or_create_statement(db_session, card, date(2026, 7, 5))
+    db_session.add(Transaction(
+        title="Compra excluída",
+        total_amount=Decimal("50.00"),
+        transaction_date=civil_instant(date(2026, 7, 5)),
+        workspace_id=ws.id,
+        created_by_user_id=user.id,
+        credit_card_id=card.id,
+        statement_id=fatura.id,
+        deleted_at=datetime(2026, 7, 6, tzinfo=UTC),
+    ))
+    db_session.flush()
+
+    _descartar_fatura_vazia(db_session, fatura.id, criada=True)
+
+    assert db_session.exec(
+        select(CardStatement).where(CardStatement.id == fatura.id)
+    ).first() is not None

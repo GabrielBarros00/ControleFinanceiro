@@ -1,48 +1,84 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { apiClient } from '@/api/client';
 import { getApiErrorMessage } from '@/lib/api-error';
-import { useAuthStore, useUIStore } from '@/stores';
+import { useAuthStore, useUIStore, type AuthUser } from '@/stores';
+
+/**
+ * Rotas que existem justamente para quem NÃO tem sessão.
+ *
+ * Sondar `/auth/me` nelas é garantir um 401 — e o navegador registra toda
+ * resposta de erro no console, então a tela de cadastro abria com dois erros de
+ * rede (`/auth/me` e o `/auth/refresh` que o interceptor dispara em seguida)
+ * antes de o usuário digitar qualquer coisa. A suíte que proíbe erro no console
+ * só olhava rotas protegidas e não via nada disso.
+ */
+const ROTAS_PUBLICAS = ['/login', '/register', '/forgot-password', '/reset-password'];
+
+function emRotaPublica(): boolean {
+  return ROTAS_PUBLICAS.includes(window.location.pathname);
+}
+
+/**
+ * A sessão + a seleção de workspace, fora do hook para poder ser chamada de dois
+ * lugares: como `queryFn` da `auth-me` e diretamente pelo login (ver abaixo por
+ * que o login não pode depender de refetch).
+ */
+async function buscarSessao(
+  setUser: (user: AuthUser | null) => void,
+  clearStore: () => void,
+  setCurrentWorkspaceId: (id: number | null) => void,
+) {
+  let user;
+  try {
+    const response = await apiClient.get('/auth/me');
+    user = response.data;
+  } catch (err) {
+    clearStore();
+    throw err;
+  }
+  setUser(user);
+
+  // Falha ao listar workspaces não derruba a sessão (só a seleção fica como está)
+  try {
+    const wsResponse = await apiClient.get('/workspaces/');
+    const workspaces: { id: number; owner_user_id?: number | null }[] = wsResponse.data;
+    // Respeita seleção persistida; só troca se inválida/ausente
+    const persistedId = useUIStore.getState().currentWorkspaceId;
+    const stillValid = workspaces.some((w) => w.id === persistedId);
+    if (!stillValid) {
+      // Default = o workspace PRÓPRIO. A lista vem ordenada por id, e quem
+      // entrou por convite tem o workspace da outra pessoa em primeiro
+      // (foi criado antes) — o app abria direto nas finanças da outra
+      // família. Só cai no primeiro da lista quem não é dono de nenhum.
+      const proprio = workspaces.find((w) => w.owner_user_id === user?.id);
+      setCurrentWorkspaceId((proprio ?? workspaces[0])?.id ?? null);
+    }
+  } catch {
+    // mantém sessão; hooks de workspace refazem a busca depois
+  }
+
+  return user;
+}
 
 export function useAuth() {
   const queryClient = useQueryClient();
   const { setUser, logout: clearStore, setError } = useAuthStore();
   const { setCurrentWorkspaceId } = useUIStore();
 
+  const carregarSessao = () => buscarSessao(setUser, clearStore, setCurrentWorkspaceId);
+
   // Check current session
   const meQuery = useQuery({
     queryKey: ['auth-me'],
-    queryFn: async () => {
-      let user;
-      try {
-        const response = await apiClient.get('/auth/me');
-        user = response.data;
-      } catch (err) {
-        clearStore();
-        throw err;
-      }
-      setUser(user);
-
-      // Falha ao listar workspaces não derruba a sessão (só a seleção fica como está)
-      try {
-        const wsResponse = await apiClient.get('/workspaces/');
-        const workspaces: { id: number; owner_user_id?: number | null }[] = wsResponse.data;
-        // Respeita seleção persistida; só troca se inválida/ausente
-        const persistedId = useUIStore.getState().currentWorkspaceId;
-        const stillValid = workspaces.some((w) => w.id === persistedId);
-        if (!stillValid) {
-          // Default = o workspace PRÓPRIO. A lista vem ordenada por id, e quem
-          // entrou por convite tem o workspace da outra pessoa em primeiro
-          // (foi criado antes) — o app abria direto nas finanças da outra
-          // família. Só cai no primeiro da lista quem não é dono de nenhum.
-          const proprio = workspaces.find((w) => w.owner_user_id === user?.id);
-          setCurrentWorkspaceId((proprio ?? workspaces[0])?.id ?? null);
-        }
-      } catch {
-        // mantém sessão; hooks de workspace refazem a busca depois
-      }
-
-      return user;
-    },
+    queryFn: carregarSessao,
+    // Em rota pública não há o que sondar. O `enabled` é lido a cada render, e
+    // todo componente que usa este hook está dentro do Router — a navegação
+    // re-renderiza e a sonda liga sozinha ao entrar numa rota protegida.
+    //
+    // Isto NÃO é a mesma coisa que pôr `/auth/me` na lista `AUTH_URLS` do
+    // interceptor: lá o 401 é o sinal de "access token venceu, renove", e
+    // bloqueá-lo derrubaria a sessão de quem só recarregou a página.
+    enabled: !emRotaPublica(),
     retry: false,
     staleTime: 1000 * 60 * 5,
   });
@@ -54,12 +90,26 @@ export function useAuth() {
       return response.data;
     },
     onSuccess: async () => {
-      // `refetchQueries` AGUARDADO, não `invalidateQueries`. Invalidar só marca
-      // a query como suja e volta na hora; o `mutateAsync` do login resolvia
-      // antes de a sessão existir para o resto do app, e a tela navegava para
-      // uma rota protegida que ainda não sabia quem era o usuário. Aguardando o
-      // refetch, `loginMutation.isPending` cobre a transição inteira.
-      await queryClient.refetchQueries({ queryKey: ['auth-me'] });
+      // `fetchQuery` AGUARDADO, e nenhuma das duas alternativas serve:
+      //
+      // - `invalidateQueries` só marca a query como suja e volta na hora; o
+      //   `mutateAsync` do login resolvia antes de a sessão existir para o resto
+      //   do app, e a tela navegava para uma rota protegida que ainda não sabia
+      //   quem era o usuário.
+      // - `refetchQueries` resolvia isso, mas **ignora query desabilitada** — e
+      //   o login acontece justamente em `/login`, onde a sonda está desligada
+      //   de propósito (ver `enabled` acima). Com ele, entrar deixaria de
+      //   estabelecer a sessão.
+      //
+      // `fetchQuery` não olha para `enabled`, popula o cache com a MESMA chave e
+      // continua sendo aguardado — então `loginMutation.isPending` segue
+      // cobrindo a transição inteira, que é o que fazia o cadastro cair em
+      // `/login` de forma intermitente.
+      await queryClient.fetchQuery({
+        queryKey: ['auth-me'],
+        queryFn: carregarSessao,
+        staleTime: 0,
+      });
     },
     onError: (error: unknown) => {
       setError(getApiErrorMessage(error, 'Erro ao realizar login'));

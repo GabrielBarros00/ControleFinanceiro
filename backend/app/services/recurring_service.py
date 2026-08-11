@@ -85,15 +85,21 @@ def _first_occurrence_after(template, ref: date, horizon: int = 36) -> Optional[
     return None
 
 
-def _statement_for(db: Session, template: RecurringExpense, occ: date) -> Optional[int]:
+def _statement_for(
+    db: Session, template: RecurringExpense, occ: date
+) -> Tuple[Optional[int], bool]:
     """Fatura da ocorrência quando o template está preso a um cartão.
 
     Sem isto a assinatura no cartão nascia fora de qualquer fatura: aparecia no
     extrato mas não no statement nem no limite comprometido. Cada ocorrência é
     roteada pela SUA data — dezembro cai na fatura de dezembro (ADR 0002).
+
+    Devolve `(statement_id, criada_agora)`. O segundo item é o que autoriza
+    `_descartar_fatura_vazia` a desfazer a fatura se a ocorrência for descartada
+    logo em seguida — só se pode apagar o que esta chamada acabou de criar.
     """
     if template.credit_card_id is None:
-        return None
+        return None, False
     card = db.get(CreditCard, template.credit_card_id)
     # O gate é a PROPRIEDADE (ADR 0021): o cartão tem de ser de quem paga a
     # recorrência — o pagador declarado, ou quem a cadastrou quando não há um.
@@ -113,15 +119,17 @@ def _statement_for(db: Session, template: RecurringExpense, occ: date) -> Option
             dono_esperado=dono_esperado,
             motivo="cartão inexistente, apagado ou de outra pessoa",
         )
-        return None
+        return None, False
     # `occ` direto: a ocorrência JÁ é um dia de calendário. Embrulhá-la em
     # meia-noite UTC a transformava num instante que, lido no fuso do app, é o
     # dia ANTERIOR — a ocorrência do dia de fechamento ia para a fatura errada.
-    statement = CreditCardService.get_or_create_statement(db, card, occ)
-    return statement.id
+    statement, criada = CreditCardService.get_or_create_statement_tracked(db, card, occ)
+    return statement.id, criada
 
 
-def _descartar_fatura_vazia(db: Session, statement_id: Optional[int]) -> None:
+def _descartar_fatura_vazia(
+    db: Session, statement_id: Optional[int], *, criada: bool
+) -> None:
     """Desfaz a fatura que uma ocorrência DESCARTADA acabou de criar.
 
     `_statement_for` roda antes de a ocorrência estar garantida, e
@@ -132,10 +140,27 @@ def _descartar_fatura_vazia(db: Session, statement_id: Optional[int]) -> None:
     resultado é uma fatura aberta e vazia no cartão, que não altera valor nenhum
     mas suja a navegação e sugere um gasto que não existe.
 
-    Só apaga o que é seguramente lixo desta materialização: fatura ABERTA, sem
-    lançamento vivo e sem pagamento. Qualquer outra coisa é histórico de alguém.
+    Duas travas, porque o `DELETE` aqui é FÍSICO e as duas faltavam:
+
+    1. **`criada`** — só se apaga a fatura que ESTA materialização acabou de
+       criar. Fatura vazia e aberta não é sinônimo de lixo: quem abre a tela do
+       cartão faz `ensure_current_statement` criar a do ciclo corrente de
+       propósito, justamente para o mês sem gastos não exibir a fatura do mês
+       passado como se fosse a atual. Pelos critérios de conteúdo ela é
+       indistinguível do que se quer apagar aqui.
+    2. **Referência é referência, viva ou não.** As duas consultas filtravam por
+       `deleted_at IS NULL`, e lançamento excluído é SOFT: continua no banco com
+       o `statement_id` preenchido. Bastava alguém criar uma compra no cartão e
+       excluí-la para a fatura parecer vazia enquanto ainda era apontada. No
+       Postgres a FK barra o `DELETE` (`ForeignKeyViolation`, absorvida lá em
+       cima como se fosse colisão de concorrência); no SQLite, que roda sem
+       `PRAGMA foreign_keys`, ele PASSA — apaga uma fatura legítima e deixa o
+       `statement_id` da linha excluída apontando para o nada.
+
+    Só há duas FKs para `cardstatement` (`Transaction.statement_id` e
+    `StatementPayment.statement_id`), e são exatamente estas duas consultas.
     """
-    if statement_id is None:
+    if statement_id is None or not criada:
         return
     statement = db.get(CardStatement, statement_id)
     if statement is None or statement.status != StatementStatus.open:
@@ -143,7 +168,6 @@ def _descartar_fatura_vazia(db: Session, statement_id: Optional[int]) -> None:
     tem_linha = db.exec(
         select(Transaction.id)
         .where(Transaction.statement_id == statement_id)
-        .where(Transaction.deleted_at.is_(None))
         .limit(1)
     ).first()
     if tem_linha is not None:
@@ -151,7 +175,6 @@ def _descartar_fatura_vazia(db: Session, statement_id: Optional[int]) -> None:
     tem_pagamento = db.exec(
         select(StatementPayment.id)
         .where(StatementPayment.statement_id == statement_id)
-        .where(StatementPayment.deleted_at.is_(None))
         .limit(1)
     ).first()
     if tem_pagamento is not None:
@@ -372,6 +395,10 @@ class RecurringService:
         is_foreign = rate is not None
         base_currency = workspace_base_currency(db, template.workspace_id)
 
+        # Fora do construtor porque o `criada` viaja junto: é ele que autoriza os
+        # dois descartes abaixo a apagar a fatura fisicamente.
+        statement_id, fatura_criada = _statement_for(db, template, occ)
+
         tx = Transaction(
             title=template.title,
             description=template.description,
@@ -379,7 +406,7 @@ class RecurringService:
             currency=base_currency if is_foreign else template.currency,
             payment_method=template.payment_method,
             credit_card_id=template.credit_card_id,
-            statement_id=_statement_for(db, template, occ),
+            statement_id=statement_id,
             # `civil_instant`, não `datetime(y, m, d)`: a ocorrência é uma DATA
             # de calendário ("todo dia 1"), e meia-noite UTC a joga para o dia 31
             # do mês anterior em qualquer fuso negativo — a despesa do dia 1º
@@ -417,7 +444,7 @@ class RecurringService:
             # A fatura foi criada lá em cima, na montagem do lançamento. Sem esta
             # linha ela sobrevive à desistência e é confirmada pelo commit do
             # lote — fatura aberta e vazia, de um mês em que nada foi lançado.
-            _descartar_fatura_vazia(db, tx.statement_id)
+            _descartar_fatura_vazia(db, tx.statement_id, criada=fatura_criada)
             return None
         db.add(tx)
         db.flush()
@@ -462,12 +489,13 @@ class RecurringService:
                 occurrence=str(occ),
                 motivo=str(exc),
             )
-            statement_id = tx.statement_id
             db.delete(tx)
             db.flush()
             # A fatura da ocorrência descartada some junto: apagar só a transação
-            # deixava a fatura vazia para o commit do lote confirmar.
-            _descartar_fatura_vazia(db, statement_id)
+            # deixava a fatura vazia para o commit do lote confirmar. O `delete`
+            # vem ANTES de propósito — enquanto a linha existir ela é uma
+            # referência, e a fatura (com razão) não pode ser apagada.
+            _descartar_fatura_vazia(db, statement_id, criada=fatura_criada)
             return None
 
         RecurringService._apply_category(db, template, tx, amount=converted)
@@ -720,7 +748,9 @@ class RecurringService:
             # Trocar o cartão do template re-roteia a fatura das instâncias não
             # pagas; tirar o cartão as solta do statement.
             tx.credit_card_id = template.credit_card_id
-            tx.statement_id = _statement_for(db, template, occ)
+            # O flag de "nasceu agora" não interessa aqui: este é o caminho de
+            # ESCRITA, a instância existe e nada será descartado.
+            tx.statement_id, _ = _statement_for(db, template, occ)
             tx.original_amount = template.base_amount if is_foreign else None
             tx.original_currency = template.currency if is_foreign else None
             tx.exchange_rate = rate if is_foreign else None

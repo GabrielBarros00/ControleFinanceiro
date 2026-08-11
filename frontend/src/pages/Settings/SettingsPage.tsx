@@ -287,16 +287,16 @@ function SecurityTab() {
           <div className="space-y-4">
             <div className="space-y-2">
               <Label htmlFor="current-pass">Senha Atual</Label>
-              <Input id="current-pass" type="password" placeholder="••••••••" value={currentPass} onChange={(e) => setCurrentPass(e.target.value)} className="bg-background/50 border-border" />
+              <Input id="current-pass" type="password" autoComplete="current-password" placeholder="••••••••" value={currentPass} onChange={(e) => setCurrentPass(e.target.value)} className="bg-background/50 border-border" />
             </div>
             <div className="grid gap-4 md:grid-cols-2">
               <div className="space-y-2">
                 <Label htmlFor="new-pass">Nova Senha</Label>
-                <Input id="new-pass" type="password" placeholder="••••••••" value={newPass} onChange={(e) => setNewPass(e.target.value)} className="bg-background/50 border-border" />
+                <Input id="new-pass" type="password" autoComplete="new-password" placeholder="••••••••" value={newPass} onChange={(e) => setNewPass(e.target.value)} className="bg-background/50 border-border" />
               </div>
               <div className="space-y-2">
                 <Label htmlFor="confirm-pass">Confirmar Nova Senha</Label>
-                <Input id="confirm-pass" type="password" placeholder="••••••••" value={confirmPass} onChange={(e) => setConfirmPass(e.target.value)} className="bg-background/50 border-border" />
+                <Input id="confirm-pass" type="password" autoComplete="new-password" placeholder="••••••••" value={confirmPass} onChange={(e) => setConfirmPass(e.target.value)} className="bg-background/50 border-border" />
               </div>
             </div>
           </div>

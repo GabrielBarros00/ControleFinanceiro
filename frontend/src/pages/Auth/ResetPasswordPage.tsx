@@ -98,6 +98,7 @@ export function ResetPasswordPage() {
                   <Input
                     id="password"
                     type="password"
+                    autoComplete="new-password"
                     placeholder="••••••••"
                     {...register('password')}
                     className="pl-10 bg-background/50 border-border focus-visible:ring-primary/20"
@@ -112,6 +113,7 @@ export function ResetPasswordPage() {
                   <Input
                     id="confirm"
                     type="password"
+                    autoComplete="new-password"
                     placeholder="••••••••"
                     {...register('confirm')}
                     className="pl-10 bg-background/50 border-border focus-visible:ring-primary/20"
