@@ -6,6 +6,7 @@
  * perder o estado da tela ao editar. E, de todo modo, funções puras testáveis
  * sem montar nada pertencem mesmo aqui.
  */
+import { parseApiDate } from '@/lib/date';
 
 /** Tamanho em bytes, legível. `null` vira "—", nunca "0 B". */
 export function bytes(valor: number | null | undefined): string {
@@ -24,10 +25,19 @@ export function bytes(valor: number | null | undefined): string {
   return `${n.toFixed(n < 10 ? 1 : 0)} ${unidades[i]}`;
 }
 
-/** Instante (com hora) no fuso do navegador. */
+/** Instante (com hora) no fuso do navegador.
+ *
+ * `parseApiDate` e não `new Date()`: o backend serializa os instantes SEM fuso
+ * (`2026-08-18T16:42:21.965676`), porque a coluna é `timestamp without time
+ * zone` e o valor gravado é UTC. O `new Date()` de uma string assim assume hora
+ * LOCAL — em São Paulo a trilha de auditoria aparecia três horas adiantada, e a
+ * validade de um convite podia mostrar o dia seguinte. O helper anexa o `Z`
+ * quando falta e respeita o fuso quando ele veio (`last_login_at` sai com
+ * `+00:00`, porque passa pelo `_aware` do `admin_metrics`).
+ */
 export function data(iso: string | null | undefined): string {
   if (!iso) return '—';
-  return new Date(iso).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' });
+  return parseApiDate(iso).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' });
 }
 
 /** Dia de CALENDÁRIO — não passa pelo `Date`.

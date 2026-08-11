@@ -366,14 +366,25 @@ def registration_policy(db: Session = Depends(get_session)):
     Não vaza nada: é exatamente a informação que qualquer pessoa obtém tentando
     se cadastrar uma vez. O que NÃO sai daqui é quem pode convidar, quantos
     convites existem ou qualquer outra configuração — só a porta da frente.
+
+    `primeiro_acesso` é o que torna o deploy novo utilizável PELO NAVEGADOR. A
+    janela de bootstrap sempre existiu no `POST /register`, mas a tela escondia o
+    formulário sempre que o modo exigia convite — e num site recém-instalado
+    ninguém tem convite, nem existe quem o emita. O resultado era o primeiro
+    acesso documentado no SETUP.md ser impossível pela interface. O campo não
+    revela o endereço do administrador nem permite que outra pessoa entre: quem
+    decide continua sendo `_e_o_bootstrap`, que compara o e-mail submetido com o
+    `SUPERADMIN_EMAIL`.
     """
     from app.services.app_settings import RegistrationMode
+    from app.services.registration_service import janela_de_bootstrap_aberta
 
     modo = app_settings.get(db, "registration_mode")
     return {
         "mode": modo,
         "aceita_cadastro": modo != RegistrationMode.closed,
         "exige_convite": modo == RegistrationMode.invite_only,
+        "primeiro_acesso": janela_de_bootstrap_aberta(db),
     }
 
 
@@ -697,7 +708,7 @@ def _fetch_google_user(code: str) -> dict:
 
 
 @router.get("/google/login")
-def google_login(response: Response):
+def google_login(response: Response, invite: Optional[str] = None):
     if not _google_configured():
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
@@ -707,8 +718,14 @@ def google_login(response: Response):
     # que começou o login (senão o atacante inicia o fluxo na conta dele e
     # induz a vítima a completar o callback — login CSRF)
     nonce = secrets.token_urlsafe(24)
+    # O convite viaja DENTRO do state (ADR 0026). O Google não devolve query
+    # string nossa no callback — só `code` e `state` —, então sem carregá-lo aqui
+    # o token se perderia no salto e quem foi convidado não conseguiria entrar
+    # pelo botão do Google. O state é assinado, então o token não pode ser
+    # trocado no caminho.
     state = create_purpose_token(
-        {"nonce": nonce}, purpose="oauth_state", expires_delta=timedelta(minutes=10)
+        {"nonce": nonce, "invite": invite}, purpose="oauth_state",
+        expires_delta=timedelta(minutes=10),
     )
     params = urlencode({
         "client_id": settings.GOOGLE_CLIENT_ID,
@@ -752,6 +769,7 @@ def google_callback(
         nonce = payload.get("nonce")
         if not nonce or not oauth_state or not secrets.compare_digest(nonce, oauth_state):
             raise ValueError("Nonce do state não confere com o navegador")
+        invite_token = payload.get("invite")
     except Exception:
         return fail("google_state_invalido")
 
@@ -768,18 +786,44 @@ def google_callback(
 
     user = db.exec(select(User).where(User.email == email)).first()
     if not user:
+        # MESMO PORTÃO do `/auth/register` (ADR 0026). Sem esta chamada o OAuth
+        # seria a porta dos fundos do cadastro: um site em `invite_only` — ou até
+        # em `closed` — continuaria criando conta para qualquer pessoa que
+        # tivesse um Google e alcançasse a URL, que é exatamente o defeito que o
+        # portão existe para fechar. Autenticar com o Google prova QUEM é a
+        # pessoa; não responde se ela pode existir neste site.
+        try:
+            convite, e_bootstrap = assert_pode_cadastrar(db, email, invite_token)
+        except HTTPException:
+            # O callback é uma navegação do navegador, não uma chamada de API:
+            # devolver 403 aqui mostraria JSON cru na barra de endereços. A tela
+            # de login sabe traduzir o código.
+            return fail("cadastro_por_convite")
+
         user = User(
             name=info.get("name") or email.split("@")[0],
             email=email,
             password_hash=OAUTH_PASSWORD_SENTINEL,
+            # Mesma janela de bootstrap do cadastro local: o `SUPERADMIN_EMAIL`
+            # pode ser um endereço do Google, e obrigá-lo a criar senha local só
+            # para nascer superadmin seria uma exigência sem motivo.
+            platform_role=PlatformRole.superadmin if e_bootstrap else PlatformRole.user,
         )
         db.add(user)
+        db.flush()
+        _setup_default_workspace(db, user)
+        # O token vale como consentimento aqui pelo mesmo motivo que vale no
+        # cadastro local: ele veio do link do convite, que o navegador levou até
+        # `/auth/google/login?invite=<token>`. Sem passá-lo, quem clicasse no
+        # convite de um workspace e entrasse pelo botão do Google terminaria num
+        # espaço vazio, sem entender por que não estava na casa que o chamou.
+        # Sem token, nada é aceito automaticamente — os pendentes viram
+        # notificação, como sempre.
+        _resolve_pending_invites(db, user, accept_token=invite_token)
+        if convite is not None:
+            consome_convite(db, convite, user)
         db.commit()
         db.refresh(user)
-        _setup_default_workspace(db, user)
-        # O fluxo OAuth não carrega o token do convite de volta do Google, então
-        # aqui NUNCA há consentimento: os convites pendentes viram notificação.
-        _resolve_pending_invites(db, user)
     elif user.deleted_at is not None or not user.is_active:
         # Mesma regra do login local: conta desativada não recebe sessão
         return fail("conta_desativada")

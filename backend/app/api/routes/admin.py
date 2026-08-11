@@ -240,11 +240,26 @@ def patch_user(
             detail="Apenas um superadministrador pode promover outro superadministrador.",
         )
 
+    desativando = dados.is_active is False
+    # Desativar a PRÓPRIA conta é o único ato aqui que não tem volta pelas mãos
+    # de quem o pratica: a sessão cai junto e o login seguinte é recusado por
+    # conta inativa, então a saída passa a depender de outro administrador — ou
+    # de SQL no container, se não houver outro. Rebaixar a si mesmo continua
+    # permitido (a trava do último superadmin cobre o caso perigoso): quem se
+    # rebaixa segue usando o sistema, só perde a área administrativa.
+    if desativando and alvo.id == ator.id:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                "Você não pode desativar a própria conta: perderia o acesso na "
+                "mesma hora e dependeria de outro administrador para voltar."
+            ),
+        )
+
     perdendo_papel = (
         dados.platform_role is not None
         and platform_level(dados.platform_role) < platform_level(alvo.platform_role)
     )
-    desativando = dados.is_active is False
     _assert_pode_mexer_em(db, ator, alvo, removendo_poder=perdendo_papel or desativando)
 
     antes = {"is_active": alvo.is_active, "platform_role": alvo.platform_role}
@@ -411,6 +426,11 @@ def put_settings(
     for chave, valor in dados.valores.items():
         app_settings.set_value(db, chave, valor, user_id=ator.id)
     db.commit()
+    # Segunda invalidação, e ela é a que fecha a corrida: `set_value` invalida
+    # ANTES do commit, e nessa janela uma requisição concorrente lê o valor
+    # antigo do banco e o cacheia — onde ficaria até o processo reiniciar.
+    # Depois do commit a leitura seguinte é garantidamente a nova.
+    app_settings.invalidate_cache()
 
     _registra(db, request, ator, ActionType.update, "AppSetting", None,
               {"antes": antes, "depois": dados.valores})

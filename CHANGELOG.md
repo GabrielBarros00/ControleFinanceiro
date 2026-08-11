@@ -71,6 +71,68 @@ propósito e confirmando que o teste o pega. A fronteira em uma frase:
 - `POST /auth/registration-policy` (público) para a tela de cadastro dizer "é só
   por convite" **antes** de a pessoa preencher o formulário inteiro.
 
+### A auditoria da administração: a porta dos fundos e o primeiro acesso impossível
+
+Auditoria da onda acima. Os portões estavam todos verdes — 2489 testes de
+backend, 319 de frontend, lint, typecheck, build, `alembic check` — e mesmo assim
+os dois defeitos mais graves eram **a promessa central da onda, pela metade**.
+
+**O cadastro continuava aberto pelo Google.** `assert_pode_cadastrar` tinha um
+único ponto de chamada: `POST /auth/register`. O callback do OAuth criava usuário
+sem consultá-lo, então um deploy com Google configurado seguia aceitando qualquer
+pessoa que tivesse uma conta Google e alcançasse a URL — inclusive com o cadastro
+`closed`, e inclusive durante o modo manutenção, que libera `/auth/*`. Agora o
+callback passa pelo mesmo portão, o convite viaja **assinado dentro do `state`**
+do OAuth (o Google não devolve query string nossa) e a janela de bootstrap vale
+também ali: o `SUPERADMIN_EMAIL` pode ser um endereço do Google.
+
+**O primeiro acesso era impossível pelo navegador.** Num deploy novo o modo é
+`invite_only`, ninguém tem convite e não existe quem o emita — e a tela de
+cadastro escondia o formulário exatamente nesse estado. O SETUP.md mandava, em
+dois lugares, ir a `/register` e cadastrar-se com o `SUPERADMIN_EMAIL`; não
+havia como. Escapou porque **a tela de cadastro não tinha um único teste**, e
+porque o `smoke_prod.py` e o `global-setup.ts` do e2e se cadastram pela API — os
+dois portões automáticos passam ao largo dela. `registration-policy` agora
+publica `primeiro_acesso`, a tela se anuncia como "Primeiro acesso" enquanto o
+site não tem dono, e `RegisterPage.test.tsx` cobre os seis estados do portão.
+
+**O resto do que a auditoria encontrou:**
+
+- **Busca de pessoas tratava `%` e `_` como curinga.** `/admin/users?busca=%`
+  devolvia a lista inteira. Não é injeção — o valor é parametrizado —, é um
+  filtro que responde outra pergunta, e o projeto já tinha resolvido isso na
+  busca de lançamentos com `autoescape=True`.
+- **`import_max_rows` podia ser gravado acima do teto que vale.** A tela aceitava
+  50.000 e dizia "Configuração salva"; `CommitRequest.rows` seguia recusando
+  acima de `IMPORT_MAX_ROWS` (5.000) com um erro sobre comprimento de lista. O
+  teto da chave passou a ser o do processo — pela tela só se aperta.
+- **Os horários da área administrativa apareciam três horas adiantados.** O
+  backend serializa instantes sem fuso (a coluna é `timestamp without time
+  zone`) e o `new Date()` cru os lia como hora local — a validade de um convite
+  podia mostrar o dia seguinte. Passou a usar `parseApiDate`, que é o helper que
+  o resto do aplicativo já usava.
+- **Quatro chaves da cascata não chegavam ao container.** `REGISTRATION_MODE`,
+  `ATTACHMENT_QUOTA_BYTES`, `UPLOAD_MAX_BYTES` e `IMPORT_MAX_ROWS` não estavam no
+  `docker-compose.yml` — o mesmo defeito do `SMTP_TLS` corrigido na onda
+  anterior, e no deploy a cascata `banco → .env → embutido` era `banco →
+  embutido`. `tests/test_compose_env.py` agora reprova a ausência e a divergência
+  entre o padrão do compose e o do `config.py`.
+- **"Copiar link" mentia num deploy sem HTTPS.** `navigator.clipboard` não existe
+  fora de contexto seguro — que é o "Cenário B" documentado no SETUP.md —, e o
+  botão dizia "Link copiado" sem copiar nada (num dos casos estourando um
+  `TypeError`). O novo `lib/clipboard.ts` recua para `execCommand` e devolve se
+  copiou; a mensagem passou a depender do resultado.
+- **Ninguém mais se desativa pela tela.** `delete_user` já barrava a
+  auto-remoção; o `PATCH` não barrava a auto-desativação, que tem o mesmo efeito
+  e é mais fácil de fazer sem querer — a sessão cai junto e o login seguinte é
+  recusado. Rebaixar-se continua permitido.
+- **A gravação de configuração tinha uma corrida de cache.** `set_value`
+  invalidava antes do commit; nessa janela uma leitura concorrente cacheava o
+  valor antigo *para sempre*. Passou a invalidar de novo depois do commit.
+- **Administrador comum não tinha como promover ninguém.** O servidor aceitava
+  `user → admin` vindo de um admin; a tela só oferecia o seletor a
+  superadministradores. Agora oferece, sem a opção de criar superadmin.
+
 ### A auditoria da Onda 9: o que se corrige em banco vazio não se corrige
 
 Uma segunda auditoria externa sobre a Onda 9 aprovou a separação Global × Workspace, as

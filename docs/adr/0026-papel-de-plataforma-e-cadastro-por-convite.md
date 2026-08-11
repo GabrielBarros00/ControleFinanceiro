@@ -73,6 +73,17 @@ São tabelas separadas, e não um `workspace_id` anulável na antiga, porque "nu
 significa outra coisa" é a modelagem que produz vazamento — foi exatamente o que
 o ADR 0021 desfez em cartão e conta.
 
+**O portão vale para TODA porta de entrada, não só para o formulário.** A
+primeira versão desta decisão fechou `POST /auth/register` e deixou
+`GET /auth/google/callback` criando conta livremente: um site em `invite_only`
+— ou em `closed` — continuava aceitando qualquer pessoa que tivesse uma conta
+Google e alcançasse a URL. Autenticar prova *quem* alguém é; não responde se essa
+pessoa pode existir neste site, e confundir as duas coisas é o que transforma um
+provedor de identidade em porta dos fundos. O convite viaja **dentro do `state`
+assinado** do OAuth — o Google não devolve query string nossa, então sem carregá-
+lo ali o token se perderia no salto e quem foi convidado seria recusado
+justamente no botão que a tela de cadastro oferece ao lado do formulário.
+
 **A janela de bootstrap** resolve o impasse do banco vazio: o e-mail em
 `SUPERADMIN_EMAIL` pode se cadastrar sem convite **enquanto não existir nenhum
 superadmin no banco**. Criada a conta, ela nasce superadmin e a janela fecha
@@ -84,6 +95,20 @@ inoperável.
 O portão roda **antes** da checagem de e-mail duplicado. Assim, com o cadastro
 fechado, um endereço já cadastrado e um inexistente respondem exatamente igual —
 quem não tem convite não consegue enumerar quem tem conta.
+
+**A janela precisa aparecer na TELA, não só existir na rota.** A primeira versão
+tinha a janela no `POST` e uma tela de cadastro que escondia o formulário sempre
+que o modo exigia convite — e num site recém-instalado ninguém tem convite nem
+existe quem o emita. O primeiro acesso descrito no SETUP.md era, na prática,
+impossível pelo navegador; passou pelos dois portões automáticos porque tanto o
+`smoke_prod.py` quanto o `global-setup.ts` do e2e se cadastram pela API. Por isso
+`GET /auth/registration-policy` publica `primeiro_acesso`: "este site já tem
+dono?". Não revela o endereço de ninguém — quem compara é `_e_o_bootstrap`, no
+POST — e a tela mostrar o formulário não abre nada, porque qualquer outro
+endereço leva 403.
+
+A lição é a de sempre neste projeto, num lugar novo: **um caminho que nenhum
+teste percorre não está pronto.** A tela de cadastro não tinha teste nenhum.
 
 ### 3. Configuração de runtime é uma segunda fonte, com cascata explícita
 
@@ -98,6 +123,20 @@ O degrau do meio é o que faz o desenho valer: **ausência de linha significa
 "acompanhe o ambiente"**. Semear a tabela na migração transformaria o `.env` em
 decoração — o operador mudaria `ATTACHMENT_QUOTA_BYTES`, reiniciaria, e um valor
 gravado meses antes continuaria vencendo em silêncio.
+
+E o degrau do meio só existe se a variável **chegar ao container**: as quatro
+chaves com `env=` nasceram fora do `docker-compose.yml`, o mesmo defeito do
+`SMTP_TLS`, e no deploy a cascata era `AppSetting → embutido`. `tests/
+test_compose_env.py` agora reprova a ausência e a divergência de padrão, porque
+nenhuma outra rede enxerga isso — a suíte não sobe container, o lint não lê YAML
+e o smoke só exercita o comportamento com os padrões.
+
+**Um teto do processo não é configurável.** `import_max_rows` é validado contra
+`settings.IMPORT_MAX_ROWS`, e não contra um número redondo, porque
+`CommitRequest.rows` já aplica esse limite via `Field(max_length=…)` — o Pydantic
+recusa o corpo antes de o handler existir. Com um teto maior aqui, a tela gravava
+50.000, dizia "Configuração salva" e a importação seguia morrendo em 5.001
+linhas. Pela tela o administrador só **aperta** este limite.
 
 Credencial não entra nesta tabela. Senha de SMTP, segredo do Google e
 `SECRET_KEY` seguem no ambiente: `appsetting` vai no `pg_dump`, e o dump circula
@@ -120,6 +159,12 @@ quem era rebaixado.
   — nem por ele mesmo. Sem superadmin, a configuração vira imutável e o cadastro
   por convite fica sem quem emita convite; a saída seria SQL dentro do container.
   Superadmin *inativo* não conta para essa aritmética: ele não administra nada.
+- **A própria conta**: ninguém se desativa por aqui, em nenhum papel. É o único
+  ato desta tela sem volta pelas mãos de quem o pratica — a sessão cai junto e o
+  login seguinte é recusado por conta inativa —, e é fácil de fazer sem querer
+  num interruptor ao lado do próprio nome. *Rebaixar-se* continua permitido: quem
+  se rebaixa segue usando o sistema, só perde a área administrativa, e proibir
+  impediria um superadministrador de passar o bastão.
 
 Desativar uma conta **revoga as sessões** no mesmo ato. Sem isso, "inativo" não
 significaria nada: o refresh token vale dias e o access token continua aceito até

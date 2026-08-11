@@ -52,7 +52,14 @@ class WhoCanInvite:
 NGINX_BODY_LIMIT_BYTES = 6 * 1024 * 1024
 
 
-def _positivo(maximo: Optional[int] = None) -> Callable[[Any], int]:
+def _positivo(maximo: Any = None) -> Callable[[Any], int]:
+    """Inteiro positivo, com teto opcional.
+
+    `maximo` aceita um CALLABLE além de um número porque alguns tetos não são
+    preferência nossa: são a configuração de outro componente, lida do ambiente
+    no boot. Congelá-los na importação deste módulo funcionaria hoje e mentiria
+    no dia em que a suíte — ou um deploy — mudasse a variável.
+    """
     def valida(valor: Any) -> int:
         try:
             n = int(valor)
@@ -60,8 +67,9 @@ def _positivo(maximo: Optional[int] = None) -> Callable[[Any], int]:
             raise ValueError("precisa ser um número inteiro")
         if n <= 0:
             raise ValueError("precisa ser maior que zero")
-        if maximo is not None and n > maximo:
-            raise ValueError(f"não pode passar de {maximo}")
+        teto = maximo() if callable(maximo) else maximo
+        if teto is not None and n > teto:
+            raise ValueError(f"não pode passar de {teto}")
         return n
     return valida
 
@@ -139,8 +147,17 @@ CHAVES: Dict[str, _Chave] = {
             env="UPLOAD_MAX_BYTES",
             descricao="Tamanho máximo de um arquivo enviado, em bytes",
         ),
+        # O teto é o `IMPORT_MAX_ROWS` do ambiente, e não um número redondo
+        # daqui, porque ele já é aplicado ANTES desta chave: `CommitRequest.rows`
+        # tem `Field(max_length=settings.IMPORT_MAX_ROWS)`, e o Pydantic recusa o
+        # corpo antes de o handler existir. Com um teto maior, a tela gravava
+        # 50.000, dizia "Configuração salva", e a importação seguia morrendo em
+        # 5.001 linhas com um erro sobre comprimento de lista — a configuração
+        # que reporta sucesso e não vale nada. Aqui o admin só APERTA o limite.
         _Chave(
-            "import_max_rows", None, _positivo(maximo=1_000_000), env="IMPORT_MAX_ROWS",
+            "import_max_rows", None,
+            _positivo(maximo=lambda: settings.IMPORT_MAX_ROWS),
+            env="IMPORT_MAX_ROWS",
             descricao="Teto de linhas por importação",
         ),
         _Chave(
@@ -223,6 +240,12 @@ def set_value(db: Session, chave: str, valor: Any, user_id: Optional[int] = None
     pior que acontece é uma releitura do banco, que devolve o valor certo. O
     contrário — invalidar só no commit — deixaria a própria transação enxergando
     o valor velho que acabou de escrever.
+
+    ATENÇÃO: invalidar aqui é necessário e NÃO é suficiente. Entre este `flush` e
+    o commit do chamador, outra requisição que leia a mesma chave enxerga o valor
+    ANTIGO (a escrita ainda não está visível) e o coloca no cache — onde ele
+    ficaria para sempre, porque a invalidação já passou. Por isso quem grava
+    invalida DE NOVO depois do commit; ver `admin.put_settings`.
     """
     if chave not in CHAVES:
         raise KeyError(f"chave de configuração desconhecida: {chave}")

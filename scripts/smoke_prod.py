@@ -456,6 +456,32 @@ def main():
         f"status={res.status_code} — o site ficaria sem quem o configure",
     )
 
+    res = admin.patch(f"/admin/users/{admin_id}", json={"is_active": False})
+    check(
+        "ninguém desativa a própria conta", res.status_code == 409,
+        f"status={res.status_code} — o admin acabaria de se trancar do lado de fora",
+    )
+
+    # Curinga do LIKE: `%` precisa ser texto, não "todo mundo". Vale a pena aqui
+    # e não só na suíte porque o escape é o tipo de coisa que muda de
+    # comportamento entre SQLite e Postgres, e produção é Postgres.
+    res = admin.get("/admin/users", params={"busca": "%"})
+    check(
+        "busca não trata '%' como curinga", res.json()["total"] == 0,
+        f"devolveu {res.json()['total']} pessoas — o filtro casou com a lista inteira",
+    )
+    res = admin.get("/admin/users", params={"busca": email_a})
+    check("busca literal continua achando", res.json()["total"] == 1)
+
+    # O teto do processo (`IMPORT_MAX_ROWS`) já é aplicado pelo Pydantic ANTES do
+    # handler: aceitar um valor maior aqui salvaria uma configuração que a tela
+    # mostra como vigente e que não vale nada.
+    res = admin.put("/admin/settings", json={"valores": {"import_max_rows": 999_999}})
+    check(
+        "configuração não afrouxa o teto de importação do processo",
+        res.status_code == 422, f"status={res.status_code}",
+    )
+
     print(f"\nSMOKE DE PRODUCAO: {_passed} verificacoes OK — stack aprovado.")
 
 

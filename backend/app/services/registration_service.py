@@ -64,6 +64,23 @@ def _convite_de_workspace_valido(db: Session, token: str, email: str) -> bool:
     return True
 
 
+def janela_de_bootstrap_aberta(db: Session) -> bool:
+    """Se AINDA existe um primeiro acesso a fazer — sem olhar o e-mail de ninguém.
+
+    Separada de `_e_o_bootstrap` porque responde a uma pergunta mais fraca, e é
+    justamente a que a tela de cadastro pode fazer antes de conhecer o endereço
+    de quem está na frente dela: "este site já tem dono?". A resposta não revela
+    qual é o e-mail nem deixa ninguém entrar — quem compara o endereço continua
+    sendo `_e_o_bootstrap`, no POST.
+    """
+    if not settings.SUPERADMIN_EMAIL:
+        return False
+    ja_existe = db.exec(
+        select(User.id).where(User.platform_role == PlatformRole.superadmin).limit(1)
+    ).first()
+    return ja_existe is None
+
+
 def _e_o_bootstrap(db: Session, email: str) -> bool:
     """O primeiro superadmin criando a própria conta.
 
@@ -79,10 +96,7 @@ def _e_o_bootstrap(db: Session, email: str) -> bool:
         return False
     if settings.SUPERADMIN_EMAIL.strip().lower() != email:
         return False
-    ja_existe = db.exec(
-        select(User.id).where(User.platform_role == PlatformRole.superadmin).limit(1)
-    ).first()
-    return ja_existe is None
+    return janela_de_bootstrap_aberta(db)
 
 
 def assert_pode_cadastrar(
