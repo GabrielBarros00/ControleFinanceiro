@@ -68,4 +68,4 @@ python-dotenv==1.2.2
 # (America/Sao_Paulo por padrão) e o Windows não tem base de fusos do sistema —
 # sem este pacote, `ZoneInfo` levanta ModuleNotFoundError no desenvolvimento
 # local e o backend degradava para UTC justamente onde a diferença importa.
-tzdata==2026.1
+tzdata==2026.3
