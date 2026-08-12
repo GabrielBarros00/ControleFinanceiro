@@ -16,4 +16,16 @@ ruff==0.15.12
 # instalado sem versão, uma release que mude o cabeçalho gerado ou a estratégia
 # de resolução reprovaria o CI sem uma linha de código ter mudado — e a correção
 # não estaria em lugar nenhum do diff. Mesma razão de todo o resto estar fixado.
-pip-tools==7.6.0
+#
+# 7.6.0 -> 7.6.1 porque fixar o pip-tools NÃO basta: ele importa
+# `pip._internal.utils.compat.stdlib_pkgs`, um interno PRIVADO do pip, e o
+# passo anterior do mesmo job roda `python -m pip install --upgrade pip`, sem
+# pino. Quando o pip 26 removeu esse símbolo, o `pip-compile` passou a morrer
+# em 0,3 s com `ImportError` — o gate ficou vermelho sem ninguém ter tocado em
+# dependência alguma, que é exatamente o que o parágrafo acima queria evitar.
+# O pino protegia contra o pip-tools mudar, não contra o pip mudar embaixo dele.
+#
+# Se isto voltar a acontecer numa release futura do pip, a saída é a mesma:
+# subir o pip-tools para a versão que restaurou a compatibilidade. Só considere
+# pinar o pip no workflow se o conserto demorar a sair.
+pip-tools==7.6.1
