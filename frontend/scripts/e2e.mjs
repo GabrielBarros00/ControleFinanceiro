@@ -73,6 +73,9 @@ const SERVIDORES = [
       RATE_LIMIT_ENABLED: 'False',
       DATABASE_URL: 'sqlite:///./e2e.db',
       REGISTRATION_MODE: 'open',
+      // Abre a janela de bootstrap para o spec de acessibilidade alcançar /admin
+      // — a tela mais nova e mais densa do app, e a única que o axe nunca viu.
+      SUPERADMIN_EMAIL: 'admin-a11y@e2e.com',
     },
   },
   {

@@ -4,7 +4,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 
 import { ConfirmProvider } from '@/components/ui/confirm';
 import { AdminPage } from '../AdminPage';
-import { bytes, dia } from '../formatters';
+import { bytes, data, dia } from '../formatters';
 
 /*
  * A tela de administração (ADR 0026).
@@ -203,6 +203,28 @@ describe('visão geral', () => {
   });
 });
 
+describe('instante com hora', () => {
+  it('trata como UTC o instante que o backend manda sem fuso', () => {
+    // A coluna é `timestamp without time zone` e o valor gravado é UTC, então a
+    // serialização sai sem `Z`. `new Date()` de uma string assim assume hora
+    // LOCAL: em São Paulo a trilha inteira aparecia três horas adiantada.
+    // A invariante não depende do fuso de quem roda a suíte — as duas formas
+    // descrevem o mesmo instante e têm de ser exibidas igual.
+    expect(data('2026-08-11T15:00:00')).toBe(data('2026-08-11T15:00:00Z'));
+  });
+
+  it('respeita o fuso quando ele veio', () => {
+    // `last_login_at` passa pelo `_aware` do `admin_metrics` e sai com
+    // `+00:00`; o helper não pode anexar um segundo `Z` em cima.
+    expect(data('2026-08-11T15:00:00+00:00')).toBe(data('2026-08-11T15:00:00Z'));
+  });
+
+  it('ausência vira travessão, não "Invalid Date"', () => {
+    expect(data(null)).toBe('—');
+    expect(data(undefined)).toBe('—');
+  });
+});
+
 describe('pessoas', () => {
   it('lista cada pessoa com o próprio uso', () => {
     renderizar();
@@ -220,21 +242,87 @@ describe('pessoas', () => {
     expect(screen.getByLabelText('Papel de Pessoa Comum')).toBeInTheDocument();
   });
 
-  it('ninguém troca o próprio papel pela lista', () => {
-    // Quem está logado é o id 1 (Dona do Site). A trava de verdade é do
-    // servidor; aqui é para não oferecer um controle que só produz erro.
+  it('o seletor aparece na própria linha — rebaixar-se é permitido', () => {
+    // Quem está logado é o id 1 (Dona do Site). O servidor ACEITA o
+    // auto-rebaixamento de propósito (ADR 0026: é como um superadministrador
+    // passa o bastão depois de promover quem fica), e a tela escondia o
+    // seletor, deixando a função só alcançável por quem chamasse a API na mão —
+    // a mesma lacuna do admin comum que não podia promover ninguém.
     renderizar();
     abrirAba('Pessoas');
-    expect(screen.queryByLabelText('Papel de Dona do Site')).not.toBeInTheDocument();
+    expect(screen.getByLabelText('Papel de Dona do Site')).toBeInTheDocument();
   });
 
-  it('administrador comum não recebe o seletor de papel', () => {
+  it('rebaixar a própria conta pede confirmação', async () => {
+    renderizar();
+    abrirAba('Pessoas');
+
+    fireEvent.change(screen.getByLabelText('Papel de Dona do Site'), {
+      target: { value: 'user' },
+    });
+
+    // Não tem volta pelas mãos de quem faz: sem a área administrativa, promover-se
+    // de novo depende de outra pessoa. Oferecer o caminho não é o mesmo que
+    // deixá-lo a um clique de distância.
+    const dialogo = await screen.findByRole('dialog');
+    expect(within(dialogo).getByText(/Rebaixar a sua própria conta/)).toBeInTheDocument();
+  });
+
+  it('promover-se ou promover outra pessoa não pede nada', () => {
+    renderizar();
+    abrirAba('Pessoas');
+
+    fireEvent.change(screen.getByLabelText('Papel de Pessoa Comum'), {
+      target: { value: 'admin' },
+    });
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+  });
+
+  it('administrador comum promove usuário comum, mas não cria superadmin', () => {
+    // O servidor aceita `user → admin` vindo de um admin (só recusa a promoção
+    // A superadmin, com 403). A tela escondia o seletor inteiro de quem não
+    // fosse superadmin, deixando a função só alcançável pela API na mão.
     souSuperadmin.valor = false;
     renderizar();
     abrirAba('Pessoas');
-    expect(screen.queryByLabelText('Papel de Pessoa Comum')).not.toBeInTheDocument();
-    // Vê o papel, mas como texto.
-    expect(screen.getAllByText('Usuário').length).toBeGreaterThan(0);
+
+    const seletor = screen.getByLabelText('Papel de Pessoa Comum');
+    const opcoes = within(seletor).getAllByRole('option').map((o) => o.getAttribute('value'));
+    expect(opcoes).toEqual(['user', 'admin']);
+  });
+
+  it('administrador comum não mexe no papel de um superadministrador', () => {
+    souSuperadmin.valor = false;
+    renderizar();
+    abrirAba('Pessoas');
+    expect(screen.queryByLabelText('Papel de Dona do Site')).not.toBeInTheDocument();
+    expect(screen.getAllByText('Superadministrador').length).toBeGreaterThan(0);
+  });
+
+  it('superadministrador vê a opção de promover a superadministrador', () => {
+    renderizar();
+    abrirAba('Pessoas');
+    const seletor = screen.getByLabelText('Papel de Pessoa Comum');
+    const opcoes = within(seletor).getAllByRole('option').map((o) => o.getAttribute('value'));
+    expect(opcoes).toContain('superadmin');
+  });
+
+  it('ninguém desativa a própria conta pela lista', () => {
+    // Desativar-se derruba a sessão e o login seguinte é recusado: a volta
+    // dependeria de outro administrador. O servidor responde 409; aqui o
+    // controle nem fica clicável.
+    renderizar();
+    abrirAba('Pessoas');
+    // `aria-disabled` e não `toBeDisabled()`: o Switch do Base UI é um `<span
+    // role="switch">`, não um controle nativo, e o matcher de "desabilitado" do
+    // jest-dom só enxerga elementos de formulário — passaria em silêncio.
+    const eu = screen.getByText('dona@example.com').closest('tr')!;
+    expect(within(eu).getByLabelText(/Desativar Dona do Site/))
+      .toHaveAttribute('aria-disabled', 'true');
+
+    const outra = screen.getByText('comum@example.com').closest('tr')!;
+    expect(within(outra).getByLabelText(/Reativar Pessoa Comum/))
+      .not.toHaveAttribute('aria-disabled', 'true');
   });
 });
 

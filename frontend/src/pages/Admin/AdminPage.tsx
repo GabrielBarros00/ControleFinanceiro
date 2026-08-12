@@ -19,6 +19,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useConfirm } from '@/components/ui/confirm';
 import { toast } from '@/stores/toast';
 import { getApiErrorMessage } from '@/lib/api-error';
+import { copiarTexto } from '@/lib/clipboard';
 import { useAuthStore, type PlatformRole } from '@/stores';
 import {
   useAdminAudit, useAdminOverview, useAdminSaude, useAdminSettings, useAdminUsers,
@@ -66,6 +67,9 @@ const ROTULO_DE_PAPEL: Record<PlatformRole, string> = {
   admin: 'Administrador',
   superadmin: 'Superadministrador',
 };
+
+/** Espelha `platform_level` do backend — só para saber se um papel é rebaixamento. */
+const NIVEL_DE_PAPEL: Record<PlatformRole, number> = { user: 0, admin: 1, superadmin: 2 };
 
 // --------------------------------------------------------------------------
 // Visão geral
@@ -123,6 +127,24 @@ function LinhaDeUsuario({
   const souEu = usuario.id === meuId;
 
   const trocarPapel = async (papel: PlatformRole) => {
+    // Rebaixar a SI MESMO é o passo que o próprio autor não desfaz: sem a área
+    // administrativa não há como voltar, e a volta passa a depender de outra
+    // pessoa. O servidor permite de propósito — é assim que um
+    // superadministrador passa o bastão depois de promover quem fica —, então a
+    // tela oferece o caminho e pede confirmação, em vez de escondê-lo e deixar
+    // a função só alcançável por quem chame a API na mão.
+    if (souEu && NIVEL_DE_PAPEL[papel] < NIVEL_DE_PAPEL[usuario.platform_role]) {
+      const ok = await confirm({
+        title: `Rebaixar a sua própria conta para ${ROTULO_DE_PAPEL[papel].toLowerCase()}?`,
+        description:
+          'Você perde o acesso à área administrativa imediatamente e não consegue '
+          + 'se promover de volta — só outro administrador consegue. O resto do '
+          + 'sistema continua funcionando normalmente para você.',
+        confirmLabel: 'Rebaixar',
+        destructive: true,
+      });
+      if (!ok) return;
+    }
     try {
       await acoes.patch.mutateAsync({ userId: usuario.id, platform_role: papel });
       toast.success(`${usuario.name} agora é ${ROTULO_DE_PAPEL[papel].toLowerCase()}.`);
@@ -174,20 +196,32 @@ function LinhaDeUsuario({
         <div className="text-xs text-muted-foreground">{usuario.email}</div>
       </TableCell>
       <TableCell>
-        {souSuperadmin && !souEu ? (
+        {podeMexer ? (
           // `<select>` nativo: o Select do Base UI é usado no resto do app, mas
           // aqui a tabela pode viver dentro de um Dialog e o popup dele escapa do
           // focus-trap do Radix.
+          //
+          // A condição é `podeMexer`, não `souSuperadmin`: um admin comum PODE
+          // promover alguém a administrador — o servidor aceita — e a tela
+          // simplesmente não oferecia, deixando a função só alcançável por quem
+          // chamasse a API na mão. O que ele não pode é criar um superadmin, e
+          // é isso que a opção condicional abaixo reflete (o servidor recusa com
+          // 403 de qualquer forma).
+          //
+          // E vale na PRÓPRIA linha: o ADR 0026 permite rebaixar-se — é como um
+          // superadministrador passa o bastão — e esconder o seletor aqui era a
+          // mesma lacuna, na mesma tabela. O que continua fora de alcance é o
+          // interruptor de ativação, logo abaixo: aquele não tem volta.
           <select
             className="h-8 rounded-md border border-input bg-background px-2 text-sm"
             value={usuario.platform_role}
-            disabled={!podeMexer || acoes.patch.isPending}
+            disabled={acoes.patch.isPending}
             onChange={(e) => trocarPapel(e.target.value as PlatformRole)}
             aria-label={`Papel de ${usuario.name}`}
           >
             <option value="user">Usuário</option>
             <option value="admin">Administrador</option>
-            <option value="superadmin">Superadministrador</option>
+            {souSuperadmin && <option value="superadmin">Superadministrador</option>}
           </select>
         ) : (
           <Badge variant={usuario.platform_role === 'user' ? 'secondary' : 'default'}>
@@ -201,9 +235,12 @@ function LinhaDeUsuario({
       <TableCell className="text-sm text-muted-foreground">{data(usuario.last_login_at)}</TableCell>
       <TableCell>
         <div className="flex flex-wrap items-center gap-2">
+          {/* `souEu`: desativar a própria conta derruba a sessão e o login
+              seguinte é recusado — a volta dependeria de outro administrador. O
+              servidor recusa com 409; aqui o botão nem se oferece. */}
           <Switch
             checked={usuario.is_active}
-            disabled={!podeMexer || acoes.patch.isPending}
+            disabled={!podeMexer || souEu || acoes.patch.isPending}
             onCheckedChange={alternarAtivo}
             aria-label={`${usuario.is_active ? 'Desativar' : 'Reativar'} ${usuario.name}`}
           />
@@ -301,11 +338,16 @@ function Convites() {
     try {
       const convite = await criar.mutateAsync({ email: email.trim() || undefined });
       setEmail('');
-      await navigator.clipboard?.writeText(convite.link).catch(() => undefined);
+      // A mensagem depende de a cópia ter funcionado: num deploy sem HTTPS a
+      // área de transferência não existe, e prometer um link que não está lá
+      // faria a pessoa colar outra coisa em cima do convite.
+      const copiou = await copiarTexto(convite.link);
       toast.success(
         convite.email
-          ? `Convite enviado para ${convite.email}. O link foi copiado.`
-          : 'Convite criado e link copiado para a área de transferência.',
+          ? `Convite enviado para ${convite.email}.${copiou ? ' O link foi copiado.' : ''}`
+          : copiou
+            ? 'Convite criado e link copiado para a área de transferência.'
+            : 'Convite criado. Use "Copiar link" na lista abaixo.',
       );
     } catch (err) {
       toast.error(getApiErrorMessage(err));
@@ -385,9 +427,10 @@ function Convites() {
                     <div className="flex gap-2">
                       <Button
                         variant="ghost" size="sm"
-                        onClick={() => {
-                          navigator.clipboard?.writeText(c.link);
-                          toast.success('Link copiado.');
+                        onClick={async () => {
+                          const ok = await copiarTexto(c.link);
+                          if (ok) toast.success('Link copiado.');
+                          else toast.error('Não foi possível copiar. Selecione o link manualmente.');
                         }}
                       >
                         Copiar link

@@ -24,6 +24,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { WorkspaceCreateDialog } from '@/components/workspace/WorkspaceCreateDialog';
 import { apiClient } from '@/api/client';
 import { getApiErrorMessage } from '@/lib/api-error';
+import { copiarTexto } from '@/lib/clipboard';
 import { toast } from '@/stores/toast';
 import { useConfirm } from '@/components/ui/confirm';
 import { CategoryGlyph } from '@/components/money/CategoryGlyph';
@@ -384,7 +385,14 @@ function MembersTab() {
 
   const copyLink = async () => {
     if (!inviteLink) return;
-    await navigator.clipboard.writeText(inviteLink);
+    // `navigator.clipboard` é `undefined` fora de contexto seguro, e o próprio
+    // SETUP.md documenta um deploy em `http://` na rede local: a chamada direta
+    // estourava um TypeError ali, e o "Copiado!" nunca aparecia.
+    const ok = await copiarTexto(inviteLink);
+    if (!ok) {
+      toast.error('Não foi possível copiar. Selecione o link manualmente.');
+      return;
+    }
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
   };
@@ -1218,11 +1226,13 @@ function ConvitesDeCadastroTab() {
     try {
       const convite = await convidar.mutateAsync({ email: email.trim() || undefined });
       setEmail('');
-      await navigator.clipboard?.writeText(convite.link).catch(() => undefined);
+      const copiou = await copiarTexto(convite.link);
       toast.success(
         convite.email
-          ? `Convite enviado para ${convite.email}. O link também foi copiado.`
-          : 'Link de convite criado e copiado.',
+          ? `Convite enviado para ${convite.email}.${copiou ? ' O link também foi copiado.' : ''}`
+          : copiou
+            ? 'Link de convite criado e copiado.'
+            : 'Convite criado. Use "Copiar link" na lista abaixo.',
       );
     } catch (err) {
       toast.error(getApiErrorMessage(err));
@@ -1267,16 +1277,20 @@ function ConvitesDeCadastroTab() {
                 <span className="ml-2 text-xs text-muted-foreground">
                   {c.status === 'pending' ? 'pendente' : c.status === 'accepted' ? 'usado' : 'revogado'}
                   {' · expira em '}
-                  {new Date(c.expires_at).toLocaleDateString('pt-BR')}
+                  {/* `parseApiDate`: o instante vem sem fuso do backend, e o
+                      `new Date()` cru o lia como hora local — o que adiantava a
+                      validade em três horas e podia mostrar o dia seguinte. */}
+                  {parseApiDate(c.expires_at).toLocaleDateString('pt-BR')}
                 </span>
               </div>
               {c.status === 'pending' && (
                 <Button
                   variant="ghost"
                   size="sm"
-                  onClick={() => {
-                    navigator.clipboard?.writeText(c.link);
-                    toast.success('Link copiado.');
+                  onClick={async () => {
+                    const ok = await copiarTexto(c.link);
+                    if (ok) toast.success('Link copiado.');
+                    else toast.error('Não foi possível copiar. Selecione o link manualmente.');
                   }}
                 >
                   Copiar link

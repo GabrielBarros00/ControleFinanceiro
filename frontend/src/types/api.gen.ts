@@ -1373,6 +1373,15 @@ export interface paths {
          *     Não vaza nada: é exatamente a informação que qualquer pessoa obtém tentando
          *     se cadastrar uma vez. O que NÃO sai daqui é quem pode convidar, quantos
          *     convites existem ou qualquer outra configuração — só a porta da frente.
+         *
+         *     `primeiro_acesso` é o que torna o deploy novo utilizável PELO NAVEGADOR. A
+         *     janela de bootstrap sempre existiu no `POST /register`, mas a tela escondia o
+         *     formulário sempre que o modo exigia convite — e num site recém-instalado
+         *     ninguém tem convite, nem existe quem o emita. O resultado era o primeiro
+         *     acesso documentado no SETUP.md ser impossível pela interface. O campo não
+         *     revela o endereço do administrador nem permite que outra pessoa entre: quem
+         *     decide continua sendo `_e_o_bootstrap`, que compara o e-mail submetido com o
+         *     `SUPERADMIN_EMAIL`.
          */
         get: operations["registration_policy_api_v1_auth_registration_policy_get"];
         put?: never;
@@ -8008,7 +8017,9 @@ export interface operations {
     };
     google_login_api_v1_auth_google_login_get: {
         parameters: {
-            query?: never;
+            query?: {
+                invite?: string | null;
+            };
             header?: never;
             path?: never;
             cookie?: never;
@@ -8022,6 +8033,15 @@ export interface operations {
                 };
                 content: {
                     "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };

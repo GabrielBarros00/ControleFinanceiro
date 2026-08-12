@@ -9,9 +9,12 @@ from fastapi.exceptions import RequestValidationError
 from starlette.exceptions import HTTPException as StarletteHTTPException
 from app.api.router import router
 from app.core.config import settings
+from sqlalchemy.exc import DataError
+
 from app.api.errors import (
     validation_exception_handler,
     http_exception_handler,
+    numero_fora_de_faixa_handler,
     internal_server_error_handler
 )
 from app.services.event_service import register_event_listeners
@@ -278,6 +281,11 @@ async def request_logging_middleware(request: Request, call_next):
 # Registro de Handlers de Erro customizados
 app.add_exception_handler(RequestValidationError, validation_exception_handler)
 app.add_exception_handler(StarletteHTTPException, http_exception_handler)
+# ANTES do handler genérico de Exception: o de baixo captura tudo, e a ordem de
+# registro é o que decide qual atende. `DataError` cobre o Postgres
+# (NumericValueOutOfRange); `OverflowError`, o SQLite.
+app.add_exception_handler(OverflowError, numero_fora_de_faixa_handler)
+app.add_exception_handler(DataError, numero_fora_de_faixa_handler)
 app.add_exception_handler(Exception, internal_server_error_handler)
 
 app.include_router(router)

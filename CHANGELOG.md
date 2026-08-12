@@ -11,6 +11,242 @@ segue [SemVer](https://semver.org/lang/pt-BR/).
 
 ## [Não lançado]
 
+### Auditoria de rendimento decrescente: a barra final, a tela que ninguém escaneou
+
+Quarta e última passada, nos ângulos que a terceira apontou como sobra:
+acessibilidade além do que o axe já cobria, comportamento com a infraestrutura em
+volta quebrada, e carga.
+
+**Duas coleções só respondiam COM a barra final.** `GET`/`POST /workspaces` e
+`GET`/`POST /workspaces/{id}/transactions` — listar e criar workspace, listar e
+criar lançamento, ou seja as quatro chamadas mais usadas do app. Sem a rota irmã,
+a forma sem barra (a natural, a que qualquer cliente escreve) cai no
+redirecionamento 307 do Starlette, e **nesse salto o cookie de sessão não
+acompanha**: a resposta é 401. O projeto já tinha eliminado isso em
+`me_accounts`, `me_cards`, `me_financing`, `me_income` e `admin` com o `_colecao`
+deles; estas duas ficaram para trás. Apareceu por acidente — um teste de
+resiliência escrito com a URL sem barra levou 401 onde esperava 200.
+
+O alias entra **fora do schema** de propósito: o `openapi.json` já documenta a
+forma com barra e o frontend foi escrito contra ela, então manter o schema
+intacto evita regerar `api.gen.ts` por uma correção que não muda contrato nenhum.
+O teste que blinda isso é uma varredura, e a pergunta dela é estreita — não "toda
+rota aceita as duas formas" (`/health` e `/auth/login` nascem sem barra e ninguém
+os chama com ela), e sim "existe rota que só responde COM barra?".
+
+**A tela de Administração nunca tinha sido escaneada.** É a mais nova (ADR 0026)
+e a mais densa em controle — seis abas, tabelas de pessoas, formulário de
+configuração, convites e trilha —, e ficava de fora porque não havia caminho de
+teste para ela: `/admin` exige superadministrador. Agora o backend do e2e sobe
+com `SUPERADMIN_EMAIL`, a janela de bootstrap cria a conta, e o axe varre as seis
+abas. **Zero violações WCAG 2 A/AA** — a tela nasceu correta, o que faltava era a
+prova.
+
+**A infraestrutura em volta quebrada não derruba nada** — e agora tem teste. Três
+promessas estavam escritas em docstring e não eram exercitadas por ninguém: que o
+e-mail é best-effort (SMTP recusando conexão não pode derrubar a emissão de um
+convite, nem denunciar pelo erro quais endereços existem), que falha ao gravar
+anexo vira 503 **sem deixar linha órfã** apontando para arquivo inexistente, e
+que o `raise_on_error` só vale para o diagnóstico da tela de Admin. As três se
+sustentaram com o serviço externo quebrado por `monkeypatch`.
+
+**Carga ficou de fora, e por decisão.** O que dá para afirmar é o que
+`tests/concurrency/` já mede: 14 invariantes sob 8 requisições simultâneas. Um
+teste de carga de verdade precisa de infraestrutura própria e mede capacidade —
+outra pergunta, e não a que uma auditoria de correção responde. Para um app de
+família num deploy caseiro, não é o próximo risco.
+
+**Sobre o método, de novo.** O teste novo de `/admin` reprovou três vezes por
+motivos que não eram do app: timeout curto, depois um diagnóstico mal escrito, e
+por fim o modal de onboarding aberto por cima — o Radix marca o resto da página
+com `aria-hidden`, o `h1` some da árvore de acessibilidade e o `getByRole`
+responde "element(s) not found" numa página que o snapshot mostra inteira. Foi
+preciso ler o `error-context.md` do Playwright para ver o que estava na tela.
+Vale o registro: quando um teste falha, a primeira hipótese a descartar é a de
+que o teste está errado.
+
+### Auditoria da matemática: o cronograma que não fechava e os 500 que o usuário disparava
+
+Terceira passada, virada para o que as duas anteriores não olharam: a aritmética
+do domínio, a privacidade sondada ATIVAMENTE e o comportamento diante de entrada
+extrema. A verificação foi por força bruta, não por amostragem — 36.200
+alocações de dinheiro e 2.800 cronogramas de amortização conferidos contra as
+invariantes que eles próprios prometem.
+
+**O cronograma de amortização produzia parcela negativa.** O SAC calculava a cota
+`total/n`, arredondava UMA vez e repetia; quando esse arredondamento subia, as
+`n-1` primeiras parcelas consumiam mais que o principal e a última — que recebe
+"o que sobrou" — nascia **negativa**. R$ 10,00 em 600x terminava com uma parcela
+de `-1,98` (juros `-0,02`, total `-2,00`). A tela não denunciava porque a linha
+do saldo é `max(0, saldo)`: aparecia uma parcela de valor negativo com saldo
+zerado. Agora a coluna de amortização é alocada em **centavos** por
+`Money.split_equal` — a mesma primitiva que divide uma despesa entre pessoas, e
+pelo mesmo motivo (ADR 0001). "Amortização constante" com granularidade de
+centavo é isto: parcelas que diferem em no máximo um centavo, somando exatamente
+o principal. No PRICE, onde a cota varia por período e `split_equal` não se
+aplica, a amortização passou a ser limitada pelo saldo.
+
+**E a criação de financiamento respondia 500.** `interest_rate` não tinha teto no
+schema. Com juros altos, a PMT arredondada não cobre os juros do período, a
+amortização fica negativa, o saldo CRESCE composto e algumas dezenas de períodos
+depois estoura o contexto do `Decimal` — `InvalidOperation`, que sobe como 500.
+Medido: R$ 12.345,67 a 0,5 a.m. em 360x. Agora o domínio recusa com 422 e diz o
+motivo ("a prestação não cobre nem os juros do mês").
+
+**Qualquer id acima de 64 bits derrubava a requisição.** `int` do Python não tem
+teto; a coluna tem. `GET /workspaces/1/transactions/99999999999999999999` chegava
+intacto pelo Pydantic e estourava no driver — `OverflowError` no SQLite,
+`NumericValueOutOfRange` (embrulhado em `DataError`) no Postgres —, os dois
+virando **500**. Não é vazamento nem corrupção: é o servidor assumindo a culpa
+por um número que qualquer pessoa digita na barra de endereços, e um alerta de
+erro em produção para cada tentativa. Tratado num lugar só, porque a semântica é
+uma: são ~50 assinaturas com `id: int`, e espalhar `le=2**63-1` por cada uma
+seriam cinquenta oportunidades de esquecer a próxima.
+
+**O que a varredura NÃO achou** — e essa metade importa tanto quanto:
+
+- **Privacidade**: uma sonda ativa põe um membro `involved_only` para varrer
+  todas as rotas GET procurando os marcadores do lançamento, da renda, do cartão
+  e do financiamento de quem divide a casa com ele. Zero vazamentos. O teste
+  carrega o próprio CONTROLE: a mesma varredura, com o cookie da dona dos dados,
+  precisa ENCONTRAR os marcadores — senão estaria passando por não medir nada.
+- **Soft-delete**: um lançamento excluído aparecia em 5 agregados e some dos 5.
+- **Dinheiro**: nenhuma divisão perde ou cria centavo em 36.200 combinações.
+  (`split_by_percentages` aceitava `[200, -100]` — soma 100 e devolve cota
+  negativa. O schema da API já barra com `0 < pct <= 100`, então era inalcançável;
+  a mesma regra passou a valer no domínio, onde a classe se defende sozinha.)
+- **500 por entrada**: fora o caso do id, nenhuma das ~400 requisições com valores
+  extremos em campos numéricos derrubou rota nenhuma.
+
+**A armadilha metodológica desta rodada.** A primeira versão da varredura de 500
+acusou **106** respostas 5xx. Nenhuma existia: a suíte compartilha UMA sessão
+entre requisições (`override_get_session`), e o primeiro erro de integridade a
+deixa marcada para rollback — daí em diante toda chamada morre com
+`PendingRollbackError`. Em produção cada requisição abre a própria sessão. Com o
+`rollback()` entre chamadas, 106 viraram **1**, e esse era real. Vale como aviso:
+um teste que acusa demais é tão suspeito quanto um que nunca acusa.
+
+### Auditoria geral: sete tetos que não seguravam, e um deploy que não subia
+
+Varredura completa do projeto com todos os portões verdes — 2536 testes de
+backend no SQLite, 340 de frontend, ruff, eslint, typecheck, build, `alembic
+check`, os 78 passos do smoke de produção contra a stack real do Compose, as 9
+telas do `e2e-prod` e os 18 do `e2e`. Nenhum deles reprovava. Também não
+reprovavam: as 147 rotas da API (nenhuma sem guarda de autenticação além das 11
+públicas por projeto), o contrato entre frontend e backend (125 chamadas, todas
+existentes), a ausência de `float` em caminho de dinheiro e a ausência de segredo
+versionado.
+
+Os sete defeitos encontrados são **o mesmo defeito sete vezes**: uma leitura que
+agrega (dívida líquida, bytes usados, fingerprints já importados, usos de um
+convite, superadmins restantes), um `if` que decide, e uma escrita que executa —
+com nada segurando o intervalo entre a leitura e a escrita. Sequencialmente os
+sete estavam certos; é por isso que a suíte inteira passava.
+
+Medidos, um por um, contra Postgres com 8 requisições simultâneas:
+
+| Invariante | Prometido | Medido antes |
+|---|---|---|
+| Acerto de dívida (ADR 0009) | ≤ R$ 500 | **R$ 4.000** (R$ 3.500 de crédito artificial) |
+| Idempotência da importação (ADR 0008) | 1 lançamento | **8 lançamentos** |
+| Cota de anexos (ADR 0007) | 1 MB | **2,4 MB** |
+| Convite de cadastro (ADR 0026) | 1 conta | **8 contas** |
+| Convite de workspace (ADR 0018) | 1 membro | **8 membros** |
+| Último superadministrador (ADR 0026) | ≥ 1 | **0** |
+| Cota mensal de convites (ADR 0026) | 3 convites | **8** |
+
+O mecanismo de correção agora tem um lugar só, `app/db/locks.py`, com a razão de
+cada alternativa descartada escrita ali: `SELECT ... FOR UPDATE` some em silêncio
+no SQLite, `INSERT ... SELECT` com validação no `WHERE` não enxerga a escrita não
+commitada da concorrente, e o `UPDATE` condicional resolve CONTADOR mas não
+invariante sobre várias linhas. O preço assumido é que duas escritas simultâneas
+no mesmo workspace passam a se enfileirar.
+
+**O achado sobre teste, que vale mais que os seis.** O convite de workspace já
+tinha o incremento atômico e um teste verde sobre ele —
+`test_convite_por_link_respeita_max_uses` exercitava o *padrão* de UPDATE
+isolado e provava que cada thread recebe um valor distinto. Verdade, e
+irrelevante: a rota nunca olhava o valor recebido, então oito pessoas entravam
+por um link de uso único com o contador registrando a verdade. Incremento atômico
+**sem recusa** não limita nada. E o teste do último superadmin **passou na suíte
+cheia e falhou sozinho** — sob carga o escalonamento entregou justamente o
+interleaving que esconde o defeito. Um teste de concorrência verde não prova nada
+até ser rodado isolado e repetido.
+
+**O acerto de dívida era o mais caro.** `DebtService` soma pagos, devidos e
+acertos anteriores; a rota compara o valor com esse saldo e insere. Oito
+quitações simultâneas da dívida inteira leem o mesmo saldo e passam todas — R$
+4.000 registrados contra uma dívida de R$ 500, e o devedor aparecendo como credor
+de R$ 3.500. É a inversão de relação que o ADR 0009 nomeia como o motivo de o
+teto existir.
+
+**A importação duplicava o extrato inteiro.** A idempotência do ADR 0008 é um
+`set` de fingerprints lido antes do laço que insere; dois envios simultâneos leem
+o mesmo conjunto e inserem os dois. `ImportRow.fingerprint` tem índice, mas não é
+único, então nada no banco recusa. O gatilho realista não é ataque nenhum — é o
+duplo clique no botão de confirmar.
+
+**A cota de anexos não era teto.** `_ensure_quota` soma os bytes já usados e
+decide; o INSERT vem depois. 2,4 MB gravados numa cota de 1 MB — e "sem quota,
+qualquer membro enche o volume" é a frase que a própria função usa para explicar
+por que existe.
+
+**Um convite de cadastro de uso único fazia nascer oito contas.**
+`consome_convite` gravava `convite.uses += 1` em Python — exatamente o padrão que
+o cabeçalho de `tests/concurrency/` nomeia como a classe de bug do projeto, e que
+`members.accept_invite` já tinha corrigido para o `WorkspaceInvite`. A tabela do
+ADR 0026 é nova, e a correção não veio junto. Num site `invite_only` — o padrão —
+esse contador é o que decide **quem pode existir no servidor**.
+
+**O convite de workspace tinha o incremento atômico e mesmo assim admitia todo
+mundo** (ver acima: o `where`, e não o incremento, é o que recusa).
+
+**Rebaixar dois superadministradores ao mesmo tempo deixava o site sem nenhum.**
+Cada requisição contava os OUTROS e via um sobrar. Aqui o `UPDATE` condicional
+sobre o alvo não resolve — a condição seria avaliada contra o snapshot commitado,
+onde o outro ainda é superadmin —, então a trava cobre o conjunto inteiro de
+superadmins e o "exceto" é aplicado depois, em Python: travar já excluindo o alvo
+faria cada requisição travar um conjunto diferente, que não serializa nada.
+
+**A cota mensal de convites** é a mais branda das sete e entrou por completude:
+sem trava ela degradava para "teto + rajada" (a rodada seguinte já enxerga o
+excesso e barra) em vez de cair de vez. Mecanismo idêntico, uma linha para
+fechar.
+
+#### E dois defeitos no caminho do deploy, que só aparecem na máquina lenta
+
+**`docker compose up -d` falhava na PRIMEIRA subida.** O healthcheck do Postgres
+era `pg_isready` sem `-h`, e por isso falava pelo **socket Unix**. Na primeira
+subida o entrypoint da imagem roda o `initdb` e levanta um servidor TEMPORÁRIO só
+nesse socket para inicializar o cluster — o `pg_isready` responde "aceitando
+conexões", o compose marca o `db` como `healthy`, o backend começa o `alembic
+upgrade head` e leva `FATAL: the database system is starting up`. O backend
+entrava em laço de reinício, era marcado `unhealthy` e derrubava `frontend` e
+`cron` junto: `dependency failed to start`.
+
+Reproduzido com `down -v` seguido de `up`. Some em máquina rápida — que é por
+que o `prod-stack` do CI nunca o viu — e aparece na lenta, que é a máquina de um
+deploy caseiro, e no primeiro contato de quem seguiu o `SETUP.md`. O `-h
+127.0.0.1` faz a checagem passar pelo TCP, que é exatamente por onde o backend
+conecta. Junto veio um `start_period: 90s` no backend: numa base nova são dezenas
+de revisões antes de o uvicorn abrir a porta, e sem ele cada falha desse
+intervalo consumia uma das dez tentativas do healthcheck.
+
+**A suíte `e2e-prod` deixava o cadastro ABERTO.** O `global-setup` grava
+`registration_mode=open` pela API de admin para poder criar usuários, e não
+devolvia nada. É uma linha no banco, que vence o `.env` (cascata do ADR 0026) e
+sobrevive ao `docker compose down`. No CI não aparecia porque o `smoke_prod.py`
+— que é quem confere o portão — roda ANTES, num volume novo; rodar os dois gates
+de novo contra o mesmo stack já reprovava. E o `E2E_BASE_URL` existe justamente
+para apontar a suíte a outro deploy: fazê-lo abriria o cadastro dele. Agora o
+setup lê o valor vigente e o devolve num teardown.
+
+Os sete ficaram cobertos por testes no leg `backend-postgres` do CI, onde o MVCC
+os torna observáveis; no SQLite continuam invisíveis, porque um escritor por vez
+mascara todos. São 14 invariantes em `tests/concurrency/` agora, e cada teste novo foi conferido
+com a trava DESLIGADA antes de entrar — um teste de concorrência que nunca se viu
+falhar não é prova de nada.
+
 ### Administração do site: a porta que estava aberta, e o poder que faltava
 
 Duas ausências que só apareceram quando o deploy virou assunto concreto.
@@ -70,6 +306,124 @@ propósito e confirmando que o teste o pega. A fronteira em uma frase:
   500 na tela de entrada.
 - `POST /auth/registration-policy` (público) para a tela de cadastro dizer "é só
   por convite" **antes** de a pessoa preencher o formulário inteiro.
+
+### A auditoria da auditoria: a segunda porta era a do convite
+
+Reauditoria da onda de administração. As dez correções anteriores estavam
+corretas e bem testadas — mas a **lição** que aquela auditoria escreveu ("ao
+fechar uma porta, procure TODA superfície que cria o recurso") tinha sido
+aplicada a uma capacidade só.
+
+**`assert_pode_convidar` também tinha um único ponto de chamada.** Um
+`WorkspaceInvite` autoriza criar conta no site exatamente como um
+`RegistrationInvite`, e as duas rotas que o emitem
+(`POST /workspaces/{id}/invites` e `.../invites/link`) não consultavam nada. Como
+todo usuário nasce `owner` do próprio "Meu Workspace",
+`who_can_invite=admins_only` não valia nada: bastava convidar pela tela de
+membros, sem cota. E `max_uses` não tinha teto — um link de workspace com
+`max_uses=999999` era um cadastro público para o site inteiro, válido por até 30
+dias, emitido por qualquer pessoa. O portão passou a valer nas três rotas, e a
+cota conta as duas espécies; só entra na conta o convite que pode fazer o site
+**crescer**, porque chamar para a sua casa quem já tem conta não cria conta
+nenhuma.
+
+**O cadastro continuava acontecendo durante a manutenção.** O middleware libera
+`/auth/*` para o administrador conseguir entrar e desligar o modo; o cadastro
+passava de carona, e um site em `registration_mode=open` seguia fazendo nascer
+usuário, workspace e categorias semeadas — para a pessoa entrar e receber 503 em
+tudo que importa. Quem recusa agora é `assert_pode_cadastrar`, com a janela de
+bootstrap isenta: `maintenance_mode` é uma linha no banco e sobrevive a um
+`down`, então um deploy que subisse com ela ligada trancaria o próprio dono do
+lado de fora.
+
+**`make backend-test` nunca rodou** — desde o primeiro commit, e falhava por dois
+motivos empilhados: `tests/` não é pacote (então `import app` morria) e
+`Settings` tem `env_file=".env"` relativo ao processo, de modo que rodar da raiz
+lia o `.env` do *deploy* e o `extra_forbidden` do pydantic derrubava a coleção.
+Só o `ci.yml` acertava, por acidente. O `pythonpath` no `backend/pyproject.toml`
+resolve o primeiro para qualquer invocação e o alvo passou a rodar de dentro de
+`backend/`, como o `migrate` já fazia.
+
+- **O callback do Google não tinha rate limit.** Enquanto ele só autenticava,
+  o balde do `/auth/register` bastava; desde que virou superfície de cadastro,
+  deixar uma das duas portas sem teto por IP é a assimetria que o portão existe
+  para não ter. Responde por redirecionamento, não com 429 em JSON: é uma
+  navegação, e o corpo do erro apareceria na barra de endereços.
+- **Rebaixar-se era permitido no servidor e a tela não oferecia** — o mesmo
+  "servidor aceita, tela não oferece" que a auditoria anterior corrigiu duas
+  linhas acima, na mesma tabela. O ADR justifica o auto-rebaixamento como a
+  forma de um superadministrador passar o bastão, e ele só era alcançável pela
+  API na mão. Agora o seletor aparece na própria linha, com confirmação: não tem
+  volta sem outra pessoa. O interruptor de ativação continua fora de alcance.
+- **`sobrescrito` respondia a outra pergunta.** Era "existe linha no banco", e a
+  tela precisa de "o banco é quem manda": quando `get` descarta a linha — valor
+  corrompido, ou um `IMPORT_MAX_ROWS` que baixou abaixo do que estava gravado —,
+  o valor exibido vinha do ambiente com a marca de "gravado aqui", e o operador
+  ia procurar a causa no lugar errado.
+- `ATTACHMENT_QUOTA_BYTES` e `IMPORT_MAX_ROWS` faltavam no
+  `backend/.env.example`; o `test_compose_env.py` só lê o `docker-compose.yml`.
+
+### A auditoria da administração: a porta dos fundos e o primeiro acesso impossível
+
+Auditoria da onda acima. Os portões estavam todos verdes — 2489 testes de
+backend, 319 de frontend, lint, typecheck, build, `alembic check` — e mesmo assim
+os dois defeitos mais graves eram **a promessa central da onda, pela metade**.
+
+**O cadastro continuava aberto pelo Google.** `assert_pode_cadastrar` tinha um
+único ponto de chamada: `POST /auth/register`. O callback do OAuth criava usuário
+sem consultá-lo, então um deploy com Google configurado seguia aceitando qualquer
+pessoa que tivesse uma conta Google e alcançasse a URL — inclusive com o cadastro
+`closed`, e inclusive durante o modo manutenção, que libera `/auth/*`. Agora o
+callback passa pelo mesmo portão, o convite viaja **assinado dentro do `state`**
+do OAuth (o Google não devolve query string nossa) e a janela de bootstrap vale
+também ali: o `SUPERADMIN_EMAIL` pode ser um endereço do Google.
+
+**O primeiro acesso era impossível pelo navegador.** Num deploy novo o modo é
+`invite_only`, ninguém tem convite e não existe quem o emita — e a tela de
+cadastro escondia o formulário exatamente nesse estado. O SETUP.md mandava, em
+dois lugares, ir a `/register` e cadastrar-se com o `SUPERADMIN_EMAIL`; não
+havia como. Escapou porque **a tela de cadastro não tinha um único teste**, e
+porque o `smoke_prod.py` e o `global-setup.ts` do e2e se cadastram pela API — os
+dois portões automáticos passam ao largo dela. `registration-policy` agora
+publica `primeiro_acesso`, a tela se anuncia como "Primeiro acesso" enquanto o
+site não tem dono, e `RegisterPage.test.tsx` cobre os seis estados do portão.
+
+**O resto do que a auditoria encontrou:**
+
+- **Busca de pessoas tratava `%` e `_` como curinga.** `/admin/users?busca=%`
+  devolvia a lista inteira. Não é injeção — o valor é parametrizado —, é um
+  filtro que responde outra pergunta, e o projeto já tinha resolvido isso na
+  busca de lançamentos com `autoescape=True`.
+- **`import_max_rows` podia ser gravado acima do teto que vale.** A tela aceitava
+  50.000 e dizia "Configuração salva"; `CommitRequest.rows` seguia recusando
+  acima de `IMPORT_MAX_ROWS` (5.000) com um erro sobre comprimento de lista. O
+  teto da chave passou a ser o do processo — pela tela só se aperta.
+- **Os horários da área administrativa apareciam três horas adiantados.** O
+  backend serializa instantes sem fuso (a coluna é `timestamp without time
+  zone`) e o `new Date()` cru os lia como hora local — a validade de um convite
+  podia mostrar o dia seguinte. Passou a usar `parseApiDate`, que é o helper que
+  o resto do aplicativo já usava.
+- **Quatro chaves da cascata não chegavam ao container.** `REGISTRATION_MODE`,
+  `ATTACHMENT_QUOTA_BYTES`, `UPLOAD_MAX_BYTES` e `IMPORT_MAX_ROWS` não estavam no
+  `docker-compose.yml` — o mesmo defeito do `SMTP_TLS` corrigido na onda
+  anterior, e no deploy a cascata `banco → .env → embutido` era `banco →
+  embutido`. `tests/test_compose_env.py` agora reprova a ausência e a divergência
+  entre o padrão do compose e o do `config.py`.
+- **"Copiar link" mentia num deploy sem HTTPS.** `navigator.clipboard` não existe
+  fora de contexto seguro — que é o "Cenário B" documentado no SETUP.md —, e o
+  botão dizia "Link copiado" sem copiar nada (num dos casos estourando um
+  `TypeError`). O novo `lib/clipboard.ts` recua para `execCommand` e devolve se
+  copiou; a mensagem passou a depender do resultado.
+- **Ninguém mais se desativa pela tela.** `delete_user` já barrava a
+  auto-remoção; o `PATCH` não barrava a auto-desativação, que tem o mesmo efeito
+  e é mais fácil de fazer sem querer — a sessão cai junto e o login seguinte é
+  recusado. Rebaixar-se continua permitido.
+- **A gravação de configuração tinha uma corrida de cache.** `set_value`
+  invalidava antes do commit; nessa janela uma leitura concorrente cacheava o
+  valor antigo *para sempre*. Passou a invalidar de novo depois do commit.
+- **Administrador comum não tinha como promover ninguém.** O servidor aceitava
+  `user → admin` vindo de um admin; a tela só oferecia o seletor a
+  superadministradores. Agora oferece, sem a opção de criar superadmin.
 
 ### A auditoria da Onda 9: o que se corrige em banco vazio não se corrige
 

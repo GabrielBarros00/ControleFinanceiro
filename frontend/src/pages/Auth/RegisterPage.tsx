@@ -50,13 +50,25 @@ export function RegisterPage() {
       mode: string;
       aceita_cadastro: boolean;
       exige_convite: boolean;
+      primeiro_acesso: boolean;
     },
     // Falha de rede não pode esconder o formulário: sem resposta, mostra o
     // cadastro e deixa o servidor decidir no POST, que é a decisão que vale.
     retry: false,
   });
+
+  // `primeiro_acesso` manda em tudo, e é a correção de um deploy que nascia
+  // inutilizável: num site recém-instalado o modo é `invite_only`, ninguém tem
+  // convite e não existe quem o emita, então esta tela escondia o formulário e
+  // o primeiro acesso descrito no SETUP.md era impossível pelo navegador. O
+  // backend sempre aceitou (a janela de bootstrap do `SUPERADMIN_EMAIL` roda
+  // ANTES da checagem de modo, inclusive com o cadastro `closed`) — faltava a
+  // tela deixar a pessoa digitar. Mostrar o formulário não abre nada: quem não
+  // for o `SUPERADMIN_EMAIL` leva 403 no POST.
+  const primeiroAcesso = politica?.primeiro_acesso === true;
   const cadastroBloqueado =
     politica != null
+    && !primeiroAcesso
     && (!politica.aceita_cadastro || (politica.exige_convite && !inviteToken));
 
   const { register, handleSubmit, formState: { errors } } = useForm<RegisterValues>({
@@ -128,15 +140,30 @@ export function RegisterPage() {
           <div className="mx-auto w-12 h-12 bg-primary rounded-xl flex items-center justify-center shadow-lg shadow-primary/20 mb-4">
             <User className="h-6 w-6 text-primary-foreground" />
           </div>
-          <CardTitle className="text-3xl font-bold tracking-tight text-foreground">Criar Conta</CardTitle>
+          <CardTitle className="text-3xl font-bold tracking-tight text-foreground">
+            {primeiroAcesso && !inviteToken ? 'Primeiro acesso' : 'Criar Conta'}
+          </CardTitle>
           <CardDescription className="text-muted-foreground">
-            {inviteToken
-              ? 'Você foi convidado. Complete o cadastro abaixo.'
-              : 'Comece sua jornada financeira hoje mesmo.'}
+            {primeiroAcesso && !inviteToken
+              ? 'Este sistema ainda não tem administrador.'
+              : inviteToken
+                ? 'Você foi convidado. Complete o cadastro abaixo.'
+                : 'Comece sua jornada financeira hoje mesmo.'}
           </CardDescription>
         </CardHeader>
         <form onSubmit={handleSubmit(onSubmit)}>
           <CardContent className="space-y-4">
+            {/* Dizer QUAL e-mail é esperado poupa a rodada de tentativa e erro:
+                sem isto a pessoa preenche o formulário com o endereço de sempre,
+                leva 403 e não tem como saber que a causa é uma variável de
+                ambiente que ela mesma definiu meia hora antes. */}
+            {primeiroAcesso && !inviteToken && (
+              <div className="p-3 rounded-lg bg-muted border border-border text-sm text-muted-foreground">
+                Cadastre-se com o e-mail que você definiu em{' '}
+                <code className="font-mono text-foreground">SUPERADMIN_EMAIL</code>. Essa
+                conta nasce administradora do site — e é a única que entra sem convite.
+              </div>
+            )}
             {error && (
               <div className="p-3 rounded-lg bg-destructive/10 border border-destructive/20 flex items-center gap-3 text-destructive text-sm font-medium animate-in fade-in duration-300">
                 <AlertCircle className="h-4 w-4" />
@@ -217,7 +244,7 @@ export function RegisterPage() {
                 </span>
               )}
             </Button>
-            <GoogleLoginButton label="Cadastrar com Google" />
+            <GoogleLoginButton label="Cadastrar com Google" inviteToken={inviteToken} />
             <p className="text-center text-sm text-muted-foreground">
               Já tem uma conta? <Link to="/login" className="font-bold text-primary hover:underline ml-1">Entrar</Link>
             </p>

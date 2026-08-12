@@ -13,6 +13,14 @@ import { request } from '@playwright/test';
  * bom: se a autenticação de plataforma, o PUT de configuração ou a janela de
  * bootstrap quebrarem, a suíte inteira falha aqui, com mensagem clara — em vez
  * de sete specs falhando em cascata com "403 no register".
+ *
+ * E DEVOLVE O QUE ENCONTROU. `registration_mode` é uma linha no banco, que
+ * sobrevive ao `docker compose down` e vence o `.env` (cascata do ADR 0026):
+ * sem a restauração, esta suíte deixava o site com o cadastro ABERTO para
+ * sempre. No CI isso não aparecia — o `smoke_prod.py`, que é quem confere o
+ * portão, roda ANTES daqui, num volume novo. Rodar os dois gates de novo contra
+ * o mesmo stack já reprovava, e apontar esta suíte para um deploy de verdade
+ * (o `E2E_BASE_URL` existe exatamente para isso) abriria o cadastro dele.
  */
 const BASE = process.env.E2E_BASE_URL || 'http://localhost:8890';
 const ADMIN_EMAIL = process.env.SMOKE_SUPERADMIN_EMAIL || 'smoke-admin@example.com';
@@ -69,6 +77,16 @@ async function globalSetup() {
       );
     }
 
+    // Lê ANTES de escrever: é este valor VIGENTE que o teardown devolve.
+    const antes = await api.get('/api/v1/admin/settings');
+    if (!antes.ok()) {
+      throw new Error(
+        `não foi possível ler a configuração (${antes.status()}): ${await antes.text()}`,
+      );
+    }
+    const original = ((await antes.json()) as { valores?: Record<string, unknown> })
+      .valores?.registration_mode;
+
     const put = await api.put('/api/v1/admin/settings', {
       data: { valores: { registration_mode: 'open' } },
     });
@@ -77,6 +95,35 @@ async function globalSetup() {
         `não foi possível abrir o cadastro (${put.status()}): ${await put.text()}`,
       );
     }
+
+    // Playwright usa a função devolvida pelo globalSetup como teardown — o valor
+    // anterior viaja no closure, sem arquivo temporário nem estado global.
+    //
+    // Repõe o valor VIGENTE, e isso deixa uma linha gravada mesmo que antes não
+    // houvesse nenhuma (a API de configuração só sabe gravar; não há como voltar
+    // a "acompanhe o ambiente"). O comportamento do site fica idêntico ao que
+    // estava, que é o que importa aqui; o resíduo é a chave deixar de seguir o
+    // `.env` — anotado, e menor que o problema que isto resolve.
+    return async () => {
+      if (original === undefined || original === 'open') return;
+      const volta = await request.newContext({ baseURL: BASE });
+      try {
+        await postComEspera(volta, '/api/v1/auth/login', {
+          email: ADMIN_EMAIL, password: ADMIN_SENHA,
+        });
+        const res = await volta.put('/api/v1/admin/settings', {
+          data: { valores: { registration_mode: original } },
+        });
+        if (!res.ok()) {
+          throw new Error(
+            `a suíte não conseguiu devolver registration_mode=${original} `
+            + `(${res.status()}): o site ficou com o cadastro ABERTO.`,
+          );
+        }
+      } finally {
+        await volta.dispose();
+      }
+    };
   } finally {
     await api.dispose();
   }

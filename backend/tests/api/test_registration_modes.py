@@ -9,6 +9,7 @@ from datetime import datetime, timedelta, UTC
 
 import pytest
 from fastapi.testclient import TestClient
+from sqlmodel import select
 
 from app.core.config import settings
 from app.main import app
@@ -229,6 +230,244 @@ def test_cadastro_comum_nasce_sem_poder_de_plataforma(ambiente):
 
 
 # --------------------------------------------------------------------------
+# A política que a TELA consulta
+# --------------------------------------------------------------------------
+
+def _politica():
+    return client.get("/api/v1/auth/registration-policy").json()
+
+
+def test_politica_de_cadastro_e_publica(ambiente):
+    _modo(ambiente, app_settings.RegistrationMode.invite_only)
+    p = _politica()
+    assert p["mode"] == "invite_only"
+    assert p["aceita_cadastro"] is True
+    assert p["exige_convite"] is True
+
+
+def test_politica_anuncia_o_primeiro_acesso_enquanto_nao_ha_dono(ambiente, monkeypatch):
+    """O campo que torna um deploy novo utilizável PELO NAVEGADOR.
+
+    Sem ele a tela escondia o formulário sempre que o modo exigia convite — e num
+    site recém-instalado ninguém tem convite nem existe quem o emita. O primeiro
+    acesso descrito no SETUP.md era impossível pela interface, e o único contorno
+    era descobrir que `/register?invite=qualquer-coisa` passava.
+    """
+    monkeypatch.setattr(settings, "SUPERADMIN_EMAIL", "dono@example.com")
+    _modo(ambiente, app_settings.RegistrationMode.invite_only)
+    assert _politica()["primeiro_acesso"] is True
+
+    # Criada a conta, a janela fecha — e a tela volta a exigir convite.
+    assert _cadastra("dono@example.com").status_code == 200
+    assert _politica()["primeiro_acesso"] is False
+
+
+def test_politica_nao_anuncia_primeiro_acesso_sem_superadmin_configurado(
+    ambiente, monkeypatch
+):
+    """Sem `SUPERADMIN_EMAIL` não há janela nenhuma — anunciá-la seria oferecer
+    um formulário que o servidor recusa para todo mundo."""
+    monkeypatch.setattr(settings, "SUPERADMIN_EMAIL", None)
+    _modo(ambiente, app_settings.RegistrationMode.invite_only)
+    assert _politica()["primeiro_acesso"] is False
+
+
+def test_politica_nao_revela_o_email_do_administrador(ambiente, monkeypatch):
+    """`primeiro_acesso` responde "este site já tem dono?", não "quem é ele"."""
+    monkeypatch.setattr(settings, "SUPERADMIN_EMAIL", "dono-secreto@example.com")
+    _modo(ambiente, app_settings.RegistrationMode.invite_only)
+    corpo = client.get("/api/v1/auth/registration-policy").text
+    assert "dono-secreto" not in corpo
+
+
+# --------------------------------------------------------------------------
+# O MESMO portão vale para o Google (ADR 0026)
+# --------------------------------------------------------------------------
+#
+# Este bloco existe porque o portão nasceu com uma porta dos fundos: o callback
+# do OAuth criava usuário sem consultar `assert_pode_cadastrar`. Um site em
+# `invite_only` — ou até em `closed` — continuava aceitando qualquer pessoa que
+# tivesse uma conta Google e alcançasse a URL, que é exatamente o defeito que o
+# portão existe para fechar. Autenticar prova QUEM é a pessoa; não responde se
+# ela pode existir neste site.
+
+@pytest.fixture(name="google")
+def google_fixture(monkeypatch):
+    from app.api.routes import auth as auth_module
+    from app.core.jwt import create_purpose_token
+
+    monkeypatch.setattr(settings, "GOOGLE_CLIENT_ID", "cid")
+    monkeypatch.setattr(settings, "GOOGLE_CLIENT_SECRET", "csecret")
+    monkeypatch.setattr(settings, "GOOGLE_REDIRECT_URI", "http://x/callback")
+
+    def entrar(email="google@example.com", invite=None, nome="Pessoa Google"):
+        monkeypatch.setattr(
+            auth_module, "_fetch_google_user",
+            lambda code: {"email": email, "name": nome, "email_verified": True},
+        )
+        nonce = "n" * 24
+        state = create_purpose_token(
+            {"nonce": nonce, "invite": invite}, purpose="oauth_state",
+            expires_delta=timedelta(minutes=10),
+        )
+        client.cookies.set("oauth_state", nonce)
+        resp = client.get(
+            f"/api/v1/auth/google/callback?code=x&state={state}", follow_redirects=False
+        )
+        client.cookies.clear()
+        return resp
+
+    return entrar
+
+
+def _criou(db, email) -> bool:
+    return db.exec(select(User).where(User.email == email)).first() is not None
+
+
+def test_google_nao_cria_conta_com_cadastro_por_convite(ambiente, google):
+    _modo(ambiente, app_settings.RegistrationMode.invite_only)
+    resp = google("penetra@example.com")
+    assert "error=cadastro_por_convite" in resp.headers["location"]
+    assert not _criou(ambiente, "penetra@example.com")
+
+
+def test_google_nao_cria_conta_com_cadastro_fechado(ambiente, google):
+    _modo(ambiente, app_settings.RegistrationMode.closed)
+    resp = google("penetra@example.com")
+    assert "error=cadastro_por_convite" in resp.headers["location"]
+    assert not _criou(ambiente, "penetra@example.com")
+
+
+def test_google_cria_conta_com_cadastro_aberto(ambiente, google):
+    _modo(ambiente, app_settings.RegistrationMode.open)
+    resp = google("livre@example.com")
+    assert resp.headers["location"] == settings.FRONTEND_URL
+    assert _criou(ambiente, "livre@example.com")
+
+
+def test_google_aceita_convite_carregado_no_state(ambiente, google):
+    """O token viaja assinado dentro do `state` — o Google não devolve query
+    string nossa, e sem carregá-lo o convite se perderia no salto."""
+    convite = RegistrationInvite(
+        email="convidada@example.com", expires_at=datetime.now(UTC) + timedelta(days=7)
+    )
+    ambiente.add(convite)
+    ambiente.commit()
+    ambiente.refresh(convite)
+    token = convite.token
+
+    _modo(ambiente, app_settings.RegistrationMode.invite_only)
+    resp = google("convidada@example.com", invite=token)
+    assert resp.headers["location"] == settings.FRONTEND_URL
+    assert _criou(ambiente, "convidada@example.com")
+
+    ambiente.expire_all()
+    usado = ambiente.exec(
+        select(RegistrationInvite).where(RegistrationInvite.token == token)
+    ).one()
+    assert usado.uses == 1
+    assert usado.status == InviteStatus.accepted
+
+
+def test_google_recusa_convite_de_outro_endereco(ambiente, google):
+    """Convite nominal continua nominal: o e-mail que o Google confirmou tem de
+    ser o convidado, senão o link vazado num grupo vira cadastro aberto."""
+    convite = RegistrationInvite(
+        email="convidada@example.com", expires_at=datetime.now(UTC) + timedelta(days=7)
+    )
+    ambiente.add(convite)
+    ambiente.commit()
+    ambiente.refresh(convite)
+
+    _modo(ambiente, app_settings.RegistrationMode.invite_only)
+    resp = google("outra@example.com", invite=convite.token)
+    assert "error=cadastro_por_convite" in resp.headers["location"]
+    assert not _criou(ambiente, "outra@example.com")
+
+
+def test_google_honra_a_janela_de_bootstrap(ambiente, google, monkeypatch):
+    """O `SUPERADMIN_EMAIL` pode ser um endereço do Google — obrigá-lo a criar
+    senha local só para nascer superadmin seria exigência sem motivo."""
+    monkeypatch.setattr(settings, "SUPERADMIN_EMAIL", "dono@gmail.com")
+    _modo(ambiente, app_settings.RegistrationMode.invite_only)
+
+    resp = google("dono@gmail.com")
+    assert resp.headers["location"] == settings.FRONTEND_URL
+    dono = ambiente.exec(select(User).where(User.email == "dono@gmail.com")).one()
+    assert dono.platform_role == PlatformRole.superadmin
+
+    # E fecha: o segundo endereço do Google não entra.
+    assert "error=cadastro_por_convite" in google("outro@gmail.com").headers["location"]
+
+
+def test_google_tem_o_mesmo_balde_por_ip_do_register(ambiente, google, monkeypatch):
+    """O callback virou superfície de CADASTRO, e o teto por IP tem de valer nas
+    duas portas — deixar uma sem balde é a assimetria que o portão existe para
+    não ter.
+
+    Responde por redirecionamento e não com 429 em JSON: é uma navegação do
+    navegador, e o corpo do erro apareceria na barra de endereços.
+    """
+    from app.core.rate_limit import account_limiter, auth_limiter
+
+    monkeypatch.setattr(settings, "RATE_LIMIT_ENABLED", True)
+    auth_limiter.reset()
+    account_limiter.reset()
+    _modo(ambiente, app_settings.RegistrationMode.open)
+
+    for i in range(auth_limiter.max_requests):
+        assert google(f"pessoa{i}@example.com").headers["location"] == settings.FRONTEND_URL
+
+    resp = google("tarde-demais@example.com")
+    assert "error=muitas_tentativas" in resp.headers["location"]
+    assert not _criou(ambiente, "tarde-demais@example.com")
+
+
+def test_google_de_quem_ja_tem_conta_entra_com_o_cadastro_fechado(ambiente, google):
+    """O portão é de CADASTRO, não de login: quem já existe continua entrando
+    mesmo depois de o administrador fechar a porta da frente."""
+    _modo(ambiente, app_settings.RegistrationMode.open)
+    assert google("antiga@example.com").headers["location"] == settings.FRONTEND_URL
+
+    _modo(ambiente, app_settings.RegistrationMode.closed)
+    assert google("antiga@example.com").headers["location"] == settings.FRONTEND_URL
+
+
+def test_google_entra_por_convite_de_workspace_e_vira_membro(ambiente, google):
+    """Mesmo consentimento do cadastro local: o token veio do link do convite,
+    que o navegador levou até `/auth/google/login?invite=<token>`. Sem isto, quem
+    clicasse no convite e usasse o botão do Google cairia num espaço vazio."""
+    dona = User(name="Dona", email="dona@example.com", password_hash="x")
+    ws = Workspace(name="Casa")
+    ambiente.add_all([dona, ws])
+    ambiente.commit()
+    ambiente.refresh(dona)
+    ambiente.refresh(ws)
+    convite = WorkspaceInvite(
+        workspace_id=ws.id, email="vizinha@example.com", role=WorkspaceRole.member,
+        financial_access=FinancialAccess.involved_only, invited_by_user_id=dona.id,
+        expires_at=datetime.now(UTC) + timedelta(days=7),
+    )
+    ambiente.add(convite)
+    ambiente.commit()
+    ambiente.refresh(convite)
+
+    _modo(ambiente, app_settings.RegistrationMode.invite_only)
+    resp = google("vizinha@example.com", invite=convite.token)
+    assert resp.headers["location"] == settings.FRONTEND_URL
+
+    from app.models.workspace import WorkspaceMembership
+    nova = ambiente.exec(select(User).where(User.email == "vizinha@example.com")).one()
+    membro = ambiente.exec(
+        select(WorkspaceMembership).where(
+            WorkspaceMembership.workspace_id == ws.id,
+            WorkspaceMembership.user_id == nova.id,
+        )
+    ).first()
+    assert membro is not None, "o convite de workspace não virou membership"
+
+
+# --------------------------------------------------------------------------
 # Quem pode convidar, e quantos
 # --------------------------------------------------------------------------
 
@@ -292,6 +531,138 @@ def test_admin_nao_tem_cota(ambiente):
         assert client.post(
             "/api/v1/me/registration-invites", json={}, headers=headers
         ).status_code == 201
+
+
+# --------------------------------------------------------------------------
+# O convite de WORKSPACE é a mesma capacidade com outro nome
+# --------------------------------------------------------------------------
+#
+# Este bloco existe porque o portão de quem CONVIDA nasceu com o mesmo defeito
+# do portão de quem CADASTRA: um único ponto de chamada. `assert_pode_convidar`
+# só era consultado em `/me/registration-invites`, e um `WorkspaceInvite`
+# autoriza criar conta exatamente igual (`_convite_de_workspace_valido`).
+#
+# Como todo usuário nasce `owner` do próprio "Meu Workspace",
+# `who_can_invite=admins_only` não valia nada: bastava convidar pela tela de
+# membros. E `max_uses` não tinha teto — um link de cadastro público para o site
+# inteiro, válido por até 30 dias, emitido por qualquer pessoa.
+
+def _dono_de_workspace(db, email, papel=PlatformRole.user):
+    """Usuário com o próprio workspace, como todo mundo nasce no `register`."""
+    from app.models.workspace import WorkspaceMembership
+
+    user, headers = _login(db, email, papel)
+    ws = Workspace(name="Casa", created_by_user_id=user.id)
+    db.add(ws)
+    db.commit()
+    db.refresh(ws)
+    db.add(WorkspaceMembership(
+        workspace_id=ws.id, user_id=user.id, role=WorkspaceRole.owner,
+        financial_access=FinancialAccess.full_workspace,
+    ))
+    db.commit()
+    return user, headers, ws.id
+
+
+def _convida_por_email(ws_id, email, headers):
+    return client.post(
+        f"/api/v1/workspaces/{ws_id}/invites", json={"email": email}, headers=headers
+    )
+
+
+def test_convite_de_workspace_para_fora_respeita_who_can_invite(ambiente):
+    """A porta dos fundos da vez: `admins_only` ligado e um usuário comum
+    trazendo gente de fora pela tela de membros."""
+    _, headers, ws_id = _dono_de_workspace(ambiente, "membro@example.com")
+    app_settings.set_value(ambiente, "who_can_invite", app_settings.WhoCanInvite.admins_only)
+    ambiente.commit()
+
+    resp = _convida_por_email(ws_id, "estranha@example.com", headers)
+    assert resp.status_code == 403
+    assert "administradores" in resp.json()["error"]["message"]
+    assert ambiente.exec(
+        select(WorkspaceInvite).where(WorkspaceInvite.email == "estranha@example.com")
+    ).first() is None, "o convite foi gravado mesmo com o portão fechado"
+
+
+def test_convite_de_workspace_para_quem_ja_tem_conta_continua_livre(ambiente):
+    """O portão é sobre FAZER O SITE CRESCER, não sobre colaborar.
+
+    Chamar para a sua casa alguém que já usa o sistema não cria conta nenhuma —
+    racionar isso transformaria o caso normal de um app de família em algo
+    contado, e `admins_only` passaria a significar "só o administrador monta
+    workspace", que não é o que a chave promete.
+    """
+    _, headers, ws_id = _dono_de_workspace(ambiente, "membro@example.com")
+    _login(ambiente, "vizinha@example.com")
+    app_settings.set_value(ambiente, "who_can_invite", app_settings.WhoCanInvite.admins_only)
+    ambiente.commit()
+
+    assert _convida_por_email(ws_id, "vizinha@example.com", headers).status_code == 200
+
+
+def test_link_de_workspace_respeita_who_can_invite(ambiente):
+    """Link não tem endereço e serve a quem chegar: sempre pode trazer gente."""
+    _, headers, ws_id = _dono_de_workspace(ambiente, "membro@example.com")
+    app_settings.set_value(ambiente, "who_can_invite", app_settings.WhoCanInvite.admins_only)
+    ambiente.commit()
+
+    resp = client.post(f"/api/v1/workspaces/{ws_id}/invites/link", json={}, headers=headers)
+    assert resp.status_code == 403
+
+
+def test_cota_mensal_conta_as_duas_especies_de_convite(ambiente):
+    """Senão a cota é decorativa: esgotada de um lado, continua do outro."""
+    _, headers, ws_id = _dono_de_workspace(ambiente, "membro@example.com")
+    app_settings.set_value(ambiente, "user_invite_quota_per_month", 2)
+    ambiente.commit()
+
+    assert client.post(
+        "/api/v1/me/registration-invites", json={}, headers=headers
+    ).status_code == 201
+    assert _convida_por_email(ws_id, "uma@example.com", headers).status_code == 200
+
+    assert _convida_por_email(ws_id, "outra@example.com", headers).status_code == 429
+    assert client.post(
+        "/api/v1/me/registration-invites", json={}, headers=headers
+    ).status_code == 429
+
+
+def test_cota_nao_conta_convite_para_quem_ja_tinha_conta(ambiente):
+    """A aritmética tem de casar com a regra: se convidar quem já existe é
+    livre, esse convite também não pode consumir a cota de quem convida."""
+    _, headers, ws_id = _dono_de_workspace(ambiente, "membro@example.com")
+    _login(ambiente, "ja-existe@example.com")
+    app_settings.set_value(ambiente, "user_invite_quota_per_month", 1)
+    ambiente.commit()
+
+    assert _convida_por_email(ws_id, "ja-existe@example.com", headers).status_code == 200
+    # A cota de 1 continua inteira.
+    assert _convida_por_email(ws_id, "de-fora@example.com", headers).status_code == 200
+
+
+def test_admin_de_plataforma_convida_pela_tela_de_membros_sem_cota(ambiente):
+    _, headers, ws_id = _dono_de_workspace(ambiente, "admin@example.com", PlatformRole.admin)
+    app_settings.set_value(ambiente, "who_can_invite", app_settings.WhoCanInvite.admins_only)
+    app_settings.set_value(ambiente, "user_invite_quota_per_month", 1)
+    ambiente.commit()
+
+    for i in range(3):
+        assert _convida_por_email(ws_id, f"convidada{i}@example.com", headers).status_code == 200
+
+
+def test_link_de_workspace_tem_teto_de_usos(ambiente):
+    """Sem `le=`, `max_uses=999999` num site `invite_only` era um link de
+    cadastro público para o site inteiro."""
+    _, headers, ws_id = _dono_de_workspace(ambiente, "membro@example.com")
+
+    resp = client.post(
+        f"/api/v1/workspaces/{ws_id}/invites/link", json={"max_uses": 999_999}, headers=headers
+    )
+    assert resp.status_code == 422
+    assert client.post(
+        f"/api/v1/workspaces/{ws_id}/invites/link", json={"max_uses": 1000}, headers=headers
+    ).status_code == 200
 
 
 def test_convite_emitido_pelo_admin_faz_o_cadastro_passar(ambiente):

@@ -9,7 +9,24 @@ services:
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-cf4} -d ${POSTGRES_DB:-controle_financeiro}"]
+      # `-h 127.0.0.1` NÃO é enfeite: sem ele este healthcheck dá verde ANTES de
+      # o banco existir, e o deploy novo falha.
+      #
+      # Na PRIMEIRA subida (volume vazio) o entrypoint do Postgres roda o
+      # `initdb` e então levanta um servidor TEMPORÁRIO, só no socket Unix, para
+      # aplicar a inicialização. O `pg_isready` sem `-h` fala por esse socket e
+      # responde "aceitando conexões" — o compose marca o serviço `healthy`, o
+      # backend começa o `alembic upgrade head` e leva
+      # `FATAL: the database system is starting up`, porque o servidor de
+      # verdade ainda não subiu. Com `-h 127.0.0.1` a checagem passa pelo TCP,
+      # que é exatamente por onde o backend conecta, e só fica verde quando há
+      # de fato um banco atendendo.
+      #
+      # Reproduzido com `down -v` seguido de `up`: o backend caía em laço, era
+      # marcado `unhealthy` e derrubava junto o `frontend` e o `cron`
+      # ("dependency failed to start"). Some em máquina rápida e aparece na
+      # lenta — que é a máquina de um deploy caseiro.
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U ${POSTGRES_USER:-cf4} -d ${POSTGRES_DB:-controle_financeiro}"]
       interval: 5s
       timeout: 5s
       retries: 10
@@ -58,6 +75,20 @@ services:
       # única conta que se cadastra sem convite no primeiro acesso, e o backend
       # RECUSA subir sem ela.
       SUPERADMIN_EMAIL: ${SUPERADMIN_EMAIL:?defina SUPERADMIN_EMAIL no .env}
+      # As quatro abaixo são o DEGRAU DO MEIO da cascata de configuração
+      # (`AppSetting` → `.env` → embutido, ver app/services/app_settings.py).
+      # Ficavam de fora daqui, e o efeito era o mesmo do SMTP_TLS acima: o
+      # operador preenchia a variável no `.env`, reiniciava, e nada acontecia —
+      # o container nunca a recebia e o backend caía no padrão embutido. Sem
+      # elas, "ausência de linha significa acompanhe o ambiente" não passava de
+      # uma frase, porque não havia ambiente a acompanhar.
+      #
+      # Os valores padrão espelham `backend/app/core/config.py` de propósito, e
+      # `tests/test_compose_env.py` reprova quem mudar um lado só.
+      REGISTRATION_MODE: ${REGISTRATION_MODE:-invite_only}
+      ATTACHMENT_QUOTA_BYTES: ${ATTACHMENT_QUOTA_BYTES:-209715200}
+      UPLOAD_MAX_BYTES: ${UPLOAD_MAX_BYTES:-5242880}
+      IMPORT_MAX_ROWS: ${IMPORT_MAX_ROWS:-5000}
       RATE_LIMIT_ENABLED: ${RATE_LIMIT_ENABLED:-True}
       # Tetos do rate limit de auth, por MINUTO. O de IP protege contra varredura
       # e cadastro em massa; o de CONTA é o que barra força bruta num alvo, e é
@@ -84,6 +115,13 @@ services:
       interval: 10s
       timeout: 5s
       retries: 10
+      # O container roda `alembic upgrade head` ANTES do uvicorn, e numa base
+      # nova são dezenas de revisões. Sem `start_period`, cada falha desse
+      # intervalo consome uma das 10 tentativas, e uma máquina lenta gasta a cota
+      # inteira antes de o app abrir a porta: o serviço é marcado `unhealthy` e
+      # leva `frontend` e `cron` junto. Dentro do `start_period` a falha não
+      # conta — é a diferença entre "ainda subindo" e "subiu quebrado".
+      start_period: 90s
 
   # Tarefas periódicas do backend. Reusa a MESMA imagem (mesmo código, mesmas
   # dependências) e roda um laço simples em vez de cron — assim não há um

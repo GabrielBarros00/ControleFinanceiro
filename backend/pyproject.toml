@@ -1,6 +1,17 @@
 [tool.pytest.ini_options]
 testpaths = ['tests']
 python_files = 'test_*.py'
+# `app` importável seja qual for a forma de invocar. Só o CI acertava, e por
+# acidente: `python -m pytest` põe o diretório atual no `sys.path`, o executável
+# `pytest` não. Como `tests/` não é pacote, o pytest inseria `backend/tests` e
+# nada mais — então `make backend-test` (que roda `pytest backend` da raiz) e um
+# `pytest` solto dentro de `backend/` morriam os dois em
+# `ModuleNotFoundError: No module named 'app'`, e o único jeito que funcionava
+# era o que o ci.yml usa. Gate que só roda de um jeito é gate que apodrece.
+#
+# O caminho é relativo à ROOTDIR, que é sempre `backend/` — é onde está este
+# arquivo, e é ele que o pytest acha subindo a partir dos argumentos.
+pythonpath = ['.']
 markers = [
     # Postgres quando TEST_DATABASE_URL aponta para um (leg backend-postgres do
     # CI), SQLite em arquivo senão. As invariantes que dependem de MVCC ficam

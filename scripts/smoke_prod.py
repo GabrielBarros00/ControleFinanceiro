@@ -185,17 +185,32 @@ def main():
     ws_id = res.json()[0]["id"]
     check("workspace padrão criado", res.status_code == 200 and len(res.json()) == 1)
 
-    # Regressão: path sem barra final gera 307 do FastAPI; o Location precisa
-    # preservar host:porta (nginx com $http_host). Com $host a porta some,
-    # o browser segue para a porta errada e o frontend derruba a sessão.
+    # `/workspaces` (sem barra) já NÃO redireciona: a rota irmã foi registrada
+    # depois que a auditoria mostrou que o 307 perdia o cookie e devolvia 401.
+    # A checagem continua porque é a garantia de que a irmã existe.
     res = alice.get("/workspaces")
-    if res.status_code == 307:
-        loc = res.headers.get("location", "")
-        check("307 sem barra preserva host:porta", loc.startswith(f"{BASE}/") or loc.startswith("/"),
-              f"Location={loc}")
-        follow_url = loc if loc.startswith("http") else f"{BASE}{loc}"
-        res = alice.client.get(follow_url, headers=alice._headers())
-    check("GET /workspaces (sem barra) chega ao backend autenticado", res.status_code == 200)
+    check("GET /workspaces (sem barra) responde direto, sem 307",
+          res.status_code == 200, f"status={res.status_code}")
+
+    # Regressão do NGINX, que segue valendo: onde ainda há redirecionamento, o
+    # `Location` precisa preservar host:porta (`$http_host`). Com `$host` a porta
+    # some, o navegador segue para a porta errada e a sessão cai.
+    #
+    # O alvo é `/auth/me/` — registrada SEM barra, então chamá-la COM barra ainda
+    # produz o 307. Antes este teste usava `/workspaces`, e ao consertar aquela
+    # rota a verificação passou a ser pulada em silêncio: o gate perdia uma
+    # asserção sem que nada ficasse vermelho.
+    res = alice.client.get(f"{BASE}/api/v1/auth/me/", headers=alice._headers(),
+                           follow_redirects=False)
+    check("ainda existe rota que redireciona (senão este teste não mede nada)",
+          res.status_code == 307, f"status={res.status_code}")
+    loc = res.headers.get("location", "")
+    check("307 preserva host:porta no Location",
+          loc.startswith(f"{BASE}/") or loc.startswith("/"), f"Location={loc}")
+    seguido = alice.client.get(
+        loc if loc.startswith("http") else f"{BASE}{loc}", headers=alice._headers()
+    )
+    check("seguir o 307 chega ao backend autenticado", seguido.status_code == 200)
 
     res = alice.post("/auth/onboarding", json={
         "workspace_id": ws_id, "salary": 5000,
@@ -454,6 +469,88 @@ def main():
     check(
         "último superadministrador não consegue se rebaixar", res.status_code == 409,
         f"status={res.status_code} — o site ficaria sem quem o configure",
+    )
+
+    res = admin.patch(f"/admin/users/{admin_id}", json={"is_active": False})
+    check(
+        "ninguém desativa a própria conta", res.status_code == 409,
+        f"status={res.status_code} — o admin acabaria de se trancar do lado de fora",
+    )
+
+    # Curinga do LIKE: `%` precisa ser texto, não "todo mundo". Vale a pena aqui
+    # e não só na suíte porque o escape é o tipo de coisa que muda de
+    # comportamento entre SQLite e Postgres, e produção é Postgres.
+    res = admin.get("/admin/users", params={"busca": "%"})
+    check(
+        "busca não trata '%' como curinga", res.json()["total"] == 0,
+        f"devolveu {res.json()['total']} pessoas — o filtro casou com a lista inteira",
+    )
+    res = admin.get("/admin/users", params={"busca": email_a})
+    check("busca literal continua achando", res.json()["total"] == 1)
+
+    # O teto do processo (`IMPORT_MAX_ROWS`) já é aplicado pelo Pydantic ANTES do
+    # handler: aceitar um valor maior aqui salvaria uma configuração que a tela
+    # mostra como vigente e que não vale nada.
+    res = admin.put("/admin/settings", json={"valores": {"import_max_rows": 999_999}})
+    check(
+        "configuração não afrouxa o teto de importação do processo",
+        res.status_code == 422, f"status={res.status_code}",
+    )
+
+    # --- O convite de workspace é a MESMA capacidade ------------------------
+    #
+    # `who_can_invite` só valia em `/me/registration-invites`, e um
+    # `WorkspaceInvite` autoriza cadastro igual. Como todo usuário nasce `owner`
+    # do próprio workspace, a chave não valia nada: bastava convidar pela tela de
+    # membros. Vale conferir no stack real porque a decisão depende de uma
+    # consulta ("este endereço já tem conta?") que roda em Postgres.
+    admin.put("/admin/settings", json={"valores": {"who_can_invite": "admins_only"}})
+    try:
+        res = alice.post(
+            f"/workspaces/{ws_id}/invites", json={"email": "de-fora-do-smoke@example.com"}
+        )
+        check(
+            "usuário comum não traz gente de fora pelo convite de workspace",
+            res.status_code == 403, f"status={res.status_code} — a porta dos fundos do convite",
+        )
+        res = alice.post(f"/workspaces/{ws_id}/invites/link", json={})
+        check(
+            "usuário comum não gera link de workspace com o convite fechado",
+            res.status_code == 403, f"status={res.status_code}",
+        )
+        res = alice.post(f"/workspaces/{ws_id}/invites/link", json={"max_uses": 999_999})
+        check(
+            "link de workspace tem teto de usos", res.status_code in (403, 422),
+            f"status={res.status_code} — seria um cadastro público com outro nome",
+        )
+    finally:
+        admin.put("/admin/settings", json={"valores": {"who_can_invite": "all_users"}})
+
+    # --- Pausado é pausado: não nascem contas -------------------------------
+    #
+    # O middleware libera `/auth/*` para o administrador CONSEGUIR ENTRAR e
+    # desligar o modo; o cadastro passava de carona. O `finally` não é zelo: uma
+    # falha com a manutenção ligada deixaria o stack inutilizável para os testes
+    # e2e que rodam DEPOIS deste script.
+    admin.put("/admin/settings", json={"valores": {"maintenance_mode": True}})
+    try:
+        res = httpx.post(
+            f"{API}/auth/register",
+            json={"name": "Intrusa", "email": "durante-manutencao@example.com",
+                  "password": "senha123"},
+            timeout=15,
+        )
+        check(
+            "cadastro não passa com a manutenção ligada", res.status_code == 503,
+            f"status={res.status_code} — o site pausado seguiu fazendo nascer conta",
+        )
+    finally:
+        admin.put("/admin/settings", json={"valores": {"maintenance_mode": False}})
+
+    res = httpx.get(f"{API}/notifications", timeout=15)
+    check(
+        "a manutenção foi mesmo desligada", res.status_code != 503,
+        "o stack ficou em manutenção — os testes seguintes falhariam todos",
     )
 
     print(f"\nSMOKE DE PRODUCAO: {_passed} verificacoes OK — stack aprovado.")

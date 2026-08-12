@@ -91,6 +91,9 @@ export default defineConfig({
       // `statements` fica em 63 e `lines` em 66 de propósito: subir para 64/67
       // deixaria a margem em 0,14 e 0,65 ponto, e um piso que raspa o medido
       // falha no primeiro refactor — a lição registrada na Onda 9.
+      //
+      // Auditoria da onda: 64,35/58,17/54,67/66,84 (a tela de cadastro e o
+      // helper de clipboard ganharam teste; os pisos seguem os mesmos).
       thresholds: {
         statements: 63,
         branches: 57,

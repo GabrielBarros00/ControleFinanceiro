@@ -191,6 +191,41 @@ def test_ninguem_remove_a_propria_conta_pela_area_administrativa(elenco):
     assert resp.status_code == 409
 
 
+def test_ninguem_desativa_a_propria_conta(elenco):
+    """`delete_user` já barrava a auto-remoção; o PATCH não barrava a
+    auto-desativação, que tem o mesmo efeito e é mais fácil de fazer sem querer.
+
+    É o único ato desta tela sem volta pelas mãos de quem o pratica: a sessão cai
+    junto e o login seguinte é recusado por conta inativa. Vale para admin comum
+    também — não é a trava do último superadministrador, que responde outra
+    pergunta.
+    """
+    for quem in ("admin", "super"):
+        resp = client.patch(
+            f"/api/v1/admin/users/{elenco[quem].id}",
+            json={"is_active": False},
+            headers=_headers(elenco[quem]),
+        )
+        assert resp.status_code == 409, f"{quem} conseguiu se desativar"
+        assert "própria conta" in resp.json()["error"]["message"]
+
+
+def test_rebaixar_a_si_mesmo_continua_permitido(elenco, db_session):
+    """Quem se rebaixa segue usando o sistema — só perde a área administrativa.
+    É diferente de se desativar, e proibir seria impedir um superadministrador de
+    passar o bastão depois de promover outro."""
+    outro = _cria(db_session, "Outro Super", "outro@example.com", PlatformRole.superadmin)
+    assert outro is not None
+
+    resp = client.patch(
+        f"/api/v1/admin/users/{elenco['super'].id}",
+        json={"platform_role": "user"},
+        headers=_headers(elenco["super"]),
+    )
+    assert resp.status_code == 200
+    assert resp.json()["platform_role"] == "user"
+
+
 # --------------------------------------------------------------------------
 # Desativar precisa DERRUBAR a sessão
 # --------------------------------------------------------------------------
@@ -288,6 +323,50 @@ def test_upload_acima_do_teto_do_nginx_e_recusado(elenco):
     assert resp.status_code == 422
 
 
+def test_import_acima_do_teto_do_processo_e_recusado(elenco):
+    """`CommitRequest.rows` tem `Field(max_length=settings.IMPORT_MAX_ROWS)`, e o
+    Pydantic recusa o corpo ANTES de o handler existir.
+
+    Enquanto esta chave aceitava até um milhão, a tela gravava 50.000, dizia
+    "Configuração salva", e a importação seguia morrendo em 5.001 linhas com um
+    erro sobre comprimento de lista — a configuração que reporta sucesso e não
+    vale nada, que é o defeito que o comentário do rate limiter, no mesmo commit,
+    dizia estar evitando. O admin só APERTA este limite.
+    """
+    from app.core.config import settings as cfg
+
+    resp = client.put(
+        "/api/v1/admin/settings",
+        json={"valores": {"import_max_rows": cfg.IMPORT_MAX_ROWS + 1}},
+        headers=_headers(elenco["admin"]),
+    )
+    assert resp.status_code == 422
+
+    apertar = client.put(
+        "/api/v1/admin/settings",
+        json={"valores": {"import_max_rows": 100}},
+        headers=_headers(elenco["admin"]),
+    )
+    assert apertar.status_code == 200
+    assert apertar.json()["valores"]["import_max_rows"] == 100
+
+
+def test_configuracao_gravada_vale_na_requisicao_seguinte(elenco, db_session):
+    """O cache é de processo e é invalidado DUAS vezes: antes do commit (para a
+    própria transação enxergar a escrita) e depois (a janela em que uma leitura
+    concorrente recacheava o valor antigo — para sempre, porque a invalidação já
+    tinha passado)."""
+    client.put(
+        "/api/v1/admin/settings",
+        json={"valores": {"invite_expiry_days": 21}},
+        headers=_headers(elenco["admin"]),
+    )
+    assert app_settings.get(db_session, "invite_expiry_days") == 21
+
+    corpo = client.get("/api/v1/admin/settings", headers=_headers(elenco["admin"])).json()
+    assert corpo["valores"]["invite_expiry_days"] == 21
+
+
 def test_configuracao_e_tudo_ou_nada(elenco, db_session):
     """Um formulário em que o segundo campo é inválido não pode gravar o
     primeiro: o operador leria o erro e concluiria, errado, que nada mudou."""
@@ -312,6 +391,41 @@ def test_settings_diz_o_que_veio_do_ambiente(elenco):
     # ambiente para ela, e a tela precisa saber disso para não prometer ao
     # operador um `.env` que não existe.
     assert por_nome["who_can_invite"]["origem_ambiente"] is None
+
+
+def test_sobrescrito_segue_o_valor_que_esta_valendo(elenco, db_session, monkeypatch):
+    """"Existe linha no banco" e "o banco é quem manda" não são a mesma pergunta.
+
+    `get` descarta a linha que não passa na validação e recua para o ambiente —
+    é o que acontece ao baixar `IMPORT_MAX_ROWS` abaixo de um número gravado
+    antes. Enquanto `sobrescrito` respondia só "existe linha", a tela mostrava o
+    valor do `.env` com a marca de "gravado aqui", e o operador ia procurar a
+    causa no lugar errado.
+    """
+    from app.core.config import settings as cfg
+
+    def _chaves():
+        corpo = client.get("/api/v1/admin/settings", headers=_headers(elenco["admin"])).json()
+        return corpo, {c["nome"]: c for c in corpo["chaves"]}
+
+    client.put(
+        "/api/v1/admin/settings",
+        json={"valores": {"import_max_rows": 4000}},
+        headers=_headers(elenco["admin"]),
+    )
+    corpo, por_nome = _chaves()
+    assert corpo["valores"]["import_max_rows"] == 4000
+    assert por_nome["import_max_rows"]["sobrescrito"] is True
+
+    # O operador aperta o teto do PROCESSO abaixo do que estava gravado.
+    monkeypatch.setattr(cfg, "IMPORT_MAX_ROWS", 1000)
+    app_settings.invalidate_cache()
+
+    corpo, por_nome = _chaves()
+    assert corpo["valores"]["import_max_rows"] == 1000, "a linha inválida continuou valendo"
+    assert por_nome["import_max_rows"]["sobrescrito"] is False, (
+        "a tela creditou ao banco um valor que veio do ambiente"
+    )
 
 
 # --------------------------------------------------------------------------
@@ -347,6 +461,32 @@ def test_lista_de_usuarios_traz_uso_por_pessoa(elenco):
     linha = next(u for u in corpo["items"] if u["email"] == "comum@example.com")
     for campo in ("workspaces", "lancamentos", "anexos_bytes", "last_login_at", "platform_role"):
         assert campo in linha
+
+
+@pytest.mark.parametrize("curinga", ["%", "_", "%%", "c%m"])
+def test_busca_trata_curinga_do_like_como_texto(elenco, curinga):
+    """`%` e `_` são curingas do LIKE e precisam de escape.
+
+    Sem `autoescape=True`, buscar "%" devolvia a LISTA INTEIRA e "c_mum" casava
+    com qualquer letra no lugar do sublinhado. Não é injeção — o valor é
+    parametrizado —, é um filtro que silenciosamente responde outra pergunta, e
+    numa tela de administração isso é a diferença entre "ninguém com esse nome" e
+    "todo mundo". O projeto já tinha resolvido o mesmo problema na busca de
+    lançamentos (`transactions.py`); esta rota nasceu sem.
+    """
+    resp = client.get(
+        "/api/v1/admin/users", params={"busca": curinga}, headers=_headers(elenco["admin"])
+    )
+    assert resp.status_code == 200
+    assert resp.json()["total"] == 0, f"{curinga!r} funcionou como curinga"
+
+
+def test_busca_por_texto_literal_continua_achando(elenco):
+    """A trava não pode virar um filtro que nunca acha nada."""
+    resp = client.get(
+        "/api/v1/admin/users", params={"busca": "comum@"}, headers=_headers(elenco["admin"])
+    )
+    assert [u["email"] for u in resp.json()["items"]] == ["comum@example.com"]
 
 
 # --------------------------------------------------------------------------

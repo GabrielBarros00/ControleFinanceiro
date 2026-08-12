@@ -63,10 +63,13 @@ O cadastro do site **nasce fechado**: só entra quem tem convite ([ADR 0026](doc
 Sem isso, publicar o app na internet significaria deixar qualquer pessoa criar
 conta no seu servidor.
 
-**Primeiro acesso.** Vá em `{FRONTEND_URL}/register` e cadastre-se com o e-mail
-de `SUPERADMIN_EMAIL`. Essa conta é a única que passa sem convite, e só enquanto
-não existir nenhum superadministrador — depois de criada, a janela fecha sozinha.
-Você entra já com o item **Administração** no menu.
+**Primeiro acesso.** Vá em `{FRONTEND_URL}/register`. Enquanto o site não tiver
+administrador, a tela se anuncia como **Primeiro acesso** e aceita o cadastro:
+use o e-mail de `SUPERADMIN_EMAIL`. Essa conta é a única que passa sem convite, e
+só enquanto não existir nenhum superadministrador — depois de criada, a janela
+fecha sozinha e a mesma tela volta a exigir convite. Você entra já com o item
+**Administração** no menu. Entrar com Google também funciona aqui, se você tiver
+configurado o OAuth com esse mesmo endereço.
 
 **Convidar as outras pessoas.** Em *Administração → Convites*, gere um convite
 (com e-mail, e ele é enviado; sem e-mail, você copia o link). Quem entrar por ele
@@ -87,6 +90,18 @@ de uma cota mensal.
 | Linhas por importação | — |
 | Rate limit de login | por IP e por conta |
 | Modo manutenção | só administradores usam o site; você continua entrando para desligar |
+
+Os quatro últimos ajustes também existem como variável de ambiente
+(`ATTACHMENT_QUOTA_BYTES`, `UPLOAD_MAX_BYTES`, `IMPORT_MAX_ROWS`,
+`RATE_LIMIT_*`). A ordem é **banco → `.env` → padrão embutido**: enquanto você
+não gravar nada pela tela, o valor acompanha o `.env`; depois de gravar, a tela
+vence, e ela mostra quais chaves ainda seguem o ambiente. `IMPORT_MAX_ROWS` é o
+único que a tela só consegue **apertar** — o teto do processo é o do `.env`.
+
+**O login com Google respeita o portão.** Autenticar com o Google prova quem a
+pessoa é; não responde se ela pode ter conta neste site. Com o cadastro por
+convite, um endereço sem conta e sem convite recebe a mesma recusa que receberia
+no formulário. Quem já tem conta continua entrando normalmente.
 
 **O que o administrador NÃO vê:** lançamentos, valores, cartões ou renda de
 outras pessoas. A área administrativa mostra contagem, tamanho em disco, último

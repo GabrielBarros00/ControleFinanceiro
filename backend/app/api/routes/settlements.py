@@ -8,6 +8,7 @@ from pydantic import BaseModel, Field
 from app.schemas.common import DESCRIPTION_MAX, MAX_MONEY
 from sqlmodel import Session, select
 
+from app.db.locks import trava_workspace
 from app.db.session import get_session
 from app.domain.access_policy import assert_can_write, can_write, participant_scope
 from app.domain.query_policy import workspace_base_currency
@@ -73,6 +74,15 @@ def create_settlement(
             status_code=403,
             detail="Você só pode registrar acertos em que você é o pagador",
         )
+
+    # ANTES de ler o saldo (ver `db/locks.py`): o teto abaixo é uma soma sobre
+    # várias linhas conferida por um `if`, e sem trava duas quitações simultâneas
+    # da dívida inteira leem o mesmo saldo e passam as duas. Medido antes da
+    # correção: 8 acertos de R$ 500 numa dívida de R$ 500 — R$ 3.500 de crédito
+    # artificial para o devedor, que é a exata inversão de relação que o ADR 0009
+    # proíbe. A linha travada é a do WORKSPACE porque o saldo deriva dele inteiro
+    # (pagos − devidos − acertos de todos os membros), não de um par de pessoas.
+    trava_workspace(session, workspace_id)
 
     # Direção e teto (ADR 0009): o acerto segue a dívida líquida e não pode
     # excedê-la — sobrepagamento inverteria a relação (crédito artificial).

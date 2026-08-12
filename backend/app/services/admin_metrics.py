@@ -174,11 +174,20 @@ def lista_de_usuarios(
     if not incluir_removidos:
         condicoes.append(User.deleted_at.is_(None))
     if busca:
-        # `ilike` e não `like`: no Postgres `like` é sensível a maiúsculas, e a
-        # busca por "Gabriel" não acharia "gabriel@..." — um filtro que mente
-        # sobre não haver resultado é pior que não ter filtro.
-        alvo = f"%{busca.strip()}%"
-        condicoes.append(User.name.ilike(alvo) | User.email.ilike(alvo))
+        # Mesmo par de cuidados da busca de lançamentos (`transactions.py`):
+        #
+        # 1. `autoescape=True` — `%` e `_` são curingas do LIKE. Sem escapá-los,
+        #    buscar "%" devolvia a LISTA INTEIRA de usuários e "gabr_el" casava
+        #    com qualquer letra no lugar do sublinhado. Não é injeção (o valor é
+        #    parametrizado), é um filtro que responde outra pergunta.
+        # 2. `lower()` nos DOIS lados — LIKE é sensível a maiúsculas no Postgres
+        #    e insensível no SQLite. Buscar "Gabriel" tem de achar
+        #    "gabriel@..." em produção, não só em dev.
+        alvo = busca.strip().lower()
+        condicoes.append(
+            func.lower(User.name).contains(alvo, autoescape=True)
+            | func.lower(User.email).contains(alvo, autoescape=True)
+        )
 
     total = db.exec(select(func.count(User.id)).where(*condicoes)).one()
     usuarios = db.exec(

@@ -28,6 +28,27 @@ from app.services.event_service import publish_event
 router = APIRouter(prefix="/workspaces", tags=["workspaces"])
 
 
+def _tambem_sem_barra(metodo: str, **kwargs):
+    """Registra a coleção também SEM a barra final, fora do schema.
+
+    O redirecionamento automático do Starlette responde 307, e nesse salto o
+    **cookie de sessão não acompanha**: `POST .../{caminho}` (sem barra) chegava
+    como 401 em vez de funcionar. É a mesma armadilha que `me_accounts`,
+    `me_cards`, `me_financing`, `me_income` e `admin` já eliminaram com o
+    `_colecao` deles — estas duas coleções, que são as mais usadas do app,
+    tinham ficado de fora.
+
+    Aqui o canônico é a forma COM barra (ao contrário do `_colecao`), e a nova
+    entra com `include_in_schema=False`: é a que o `openapi.json` já documenta e
+    contra a qual o frontend foi escrito, então manter o schema intacto evita
+    regerar `api.gen.ts` por uma correção que não muda contrato nenhum.
+    """
+    def decorador(func):
+        getattr(router, metodo)("", include_in_schema=False, **kwargs)(func)
+        return func
+    return decorador
+
+
 def _build_read(
     workspace: Workspace, owner_name: Optional[str], member_count: int
 ) -> WorkspaceRead:
@@ -84,6 +105,7 @@ def _to_read_many(session: Session, workspaces: List[Workspace]) -> List[Workspa
     ]
 
 
+@_tambem_sem_barra("post", response_model=WorkspaceRead)
 @router.post("/", response_model=WorkspaceRead)
 def create_workspace(
     *,
@@ -118,6 +140,7 @@ def create_workspace(
     return _to_read(session, workspace)
 
 
+@_tambem_sem_barra("get", response_model=List[WorkspaceRead])
 @router.get("/", response_model=List[WorkspaceRead])
 def list_workspaces(
     session: Session = Depends(get_session),
