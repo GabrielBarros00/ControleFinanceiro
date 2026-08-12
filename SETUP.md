@@ -16,6 +16,10 @@ Guia de referência para configurar o Controle Financeiro V4 em **produção** e
 
 ## Produção — passo a passo
 
+> **Primeira vez numa VPS?** Este arquivo é a *referência* de cada variável.
+> Para o roteiro do zero ao ar — servidor, firewall, HTTPS com Caddy, primeiro
+> acesso e backup no cron — siga [docs/deploy-vps.md](docs/deploy-vps.md).
+
 ```bash
 cp .env.example .env
 nano .env                      # preencha conforme a tabela abaixo
@@ -144,9 +148,18 @@ Qualquer provedor SMTP serve (Resend, Brevo, Mailgun...) — mesmos campos.
 ### Depois de subir
 
 - **Smoke test**: `python scripts/smoke_prod.py` (ou `SMOKE_BASE_URL=https://seu-dominio python scripts/smoke_prod.py`).
-- **Backup — são DOIS artefatos** (agende os dois no mesmo cron). O dump sozinho
-  restaura os lançamentos com os **recibos quebrados**: desde o [ADR 0007](docs/adr/0007-anexos-fora-do-banco-com-hash.md)
+- **Backup — são DOIS artefatos**. O dump sozinho restaura os lançamentos com os
+  **recibos quebrados**: desde o [ADR 0007](docs/adr/0007-anexos-fora-do-banco-com-hash.md)
   o conteúdo dos anexos mora no volume `attachments_data`, não no banco.
+
+  O jeito recomendado é o **`scripts/backup.sh`**, que grava os dois, confere que
+  nenhum saiu truncado e sai com código != 0 quando algo falha (é assim que o
+  cron te avisa) — veja [docs/deploy-vps.md](docs/deploy-vps.md#7-backup-automático-não-pule):
+  ```bash
+  ./scripts/backup.sh                 # ./backups, retenção de 30 dias
+  ./scripts/backup.sh /mnt/externo 60
+  ```
+  Os comandos equivalentes, se preferir fazer à mão:
   ```bash
   # 1. banco
   docker compose exec db pg_dump -U cf4 controle_financeiro > backup_$(date +%F).sql

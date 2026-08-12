@@ -66,16 +66,25 @@ Abra <http://localhost:5173>. Em dev, os links de convite/reset de senha aparece
 ```bash
 cp .env.example .env            # preencha SECRET_KEY, POSTGRES_PASSWORD, FRONTEND_URL...
 docker compose up --build -d
-python scripts/smoke_prod.py    # verificações pós-deploy
+python scripts/smoke_prod.py    # jornada completa — em stack de TESTE, não em produção
 ```
 
-O passo a passo completo (cada variável, HTTPS vs HTTP, Google OAuth, SMTP, backup, troubleshooting) está em **[SETUP.md](SETUP.md)**.
+O `smoke_prod.py` cria contas e lançamentos e começa registrando um
+superadministrador pela janela de primeiro acesso: é um gate de stack
+descartável. Contra uma instância real, que já tem administrador, ele falha no
+início — a conferência de produção está no guia abaixo.
+
+**Vai publicar numa VPS?** O roteiro do zero ao ar — servidor, HTTPS, primeiro
+acesso e backup no cron — é o **[docs/deploy-vps.md](docs/deploy-vps.md)**.
+A referência de cada variável está em **[SETUP.md](SETUP.md)**.
 
 ## Documentação
 
 | Documento | Conteúdo |
 |---|---|
 | **[SETUP.md](SETUP.md)** | Configuração e deploy: variáveis de ambiente, produção vs dev, OAuth, SMTP, backup, problemas comuns |
+| **[docs/deploy-vps.md](docs/deploy-vps.md)** | Primeiro deploy numa VPS, do zero ao ar: servidor, HTTPS com Caddy, primeiro acesso, backup automático |
+| **[docs/runbook-deploy.md](docs/runbook-deploy.md)** | Atualizar um deploy existente: backup, ensaio da migração, rollback |
 | **[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)** | Arquitetura: camadas, modelo de dados, tempo real, autenticação, migrações, topologia de deploy |
 | **[docs/API.md](docs/API.md)** | Referência da API: convenções, autenticação, envelope de erro, endpoints por recurso, WebSocket |
 | **[docs/adr/](docs/adr/README.md)** | Architecture Decision Records — as 16 decisões-chave e o porquê de cada uma |
@@ -101,8 +110,11 @@ controle_financeiro_v4/
 │   └── scripts/             # utilitários (dump do OpenAPI)
 ├── frontend/                # SPA React + Vite
 │   └── src/{pages,components,hooks,api,stores,lib,types}
-├── docs/                    # arquitetura, API e ADRs
-├── scripts/smoke_prod.py    # smoke test do stack de produção
+├── docs/                    # arquitetura, API, ADRs e guias de deploy
+├── deploy/Caddyfile.example # TLS na frente do Compose (Let's Encrypt automático)
+├── scripts/
+│   ├── smoke_prod.py        # smoke test do stack de produção
+│   └── backup.sh            # backup dos DOIS artefatos (banco + volume de anexos)
 ├── docker-compose.yml       # nginx + backend + Postgres (+ pgadmin no profile dev)
 └── Makefile                 # atalhos de test/lint/build
 ```
@@ -136,4 +148,6 @@ As decisões estão registradas em [docs/adr/](docs/adr/README.md).
 
 ## Licença
 
-[MIT](LICENSE) © 2026 Gabriel Barros
+[GNU Affero General Public License v3.0](LICENSE) (`AGPL-3.0-only`) © 2026 Gabriel Barros
+
+Versões modificadas disponibilizadas por rede devem oferecer aos usuários acesso ao código-fonte correspondente, nos termos da licença.

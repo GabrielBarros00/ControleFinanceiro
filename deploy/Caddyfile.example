@@ -1,0 +1,49 @@
+# TLS na frente do Compose — exemplo mínimo para o Caddy rodando NO HOST.
+#
+# Por que um proxy separado, e não TLS dentro do Compose: o nginx do container
+# `frontend` serve a SPA e faz proxy da API, mas não gerencia certificado. O
+# Caddy emite e RENOVA o Let's Encrypt sozinho, sem cron e sem intervenção — que
+# é exatamente o que um deploy caseiro não pode depender de lembrar.
+#
+# Instalação: use o repositório OFICIAL do Caddy — o pacote do apt padrão do
+# Debian/Ubuntu costuma estar defasado, quando existe. Os comandos estão em
+# docs/deploy-vps.md, seção 5. Depois:
+#     sudo cp deploy/Caddyfile.example /etc/caddy/Caddyfile
+#     sudo nano /etc/caddy/Caddyfile        # troque o domínio e a porta
+#     sudo systemctl reload caddy
+#
+# PRÉ-REQUISITOS, os dois igualmente obrigatórios:
+#
+#   1. O domínio abaixo já resolve para o IP deste servidor (registro A/AAAA).
+#      O Let's Encrypt valida pela porta 80 vinda da internet; sem DNS
+#      apontando, a emissão falha e o site fica fora do ar.
+#
+#   2. No `.env`:  BIND_ADDR=127.0.0.1
+#      Sem isso a porta do Compose continua aberta em 0.0.0.0 e o aplicativo
+#      segue respondendo em http://IP:PORTA — o TLS vira opcional para quem
+#      souber o número da porta, e o cookie `Secure` acaba viajando numa
+#      conexão que não é segura. Com 127.0.0.1, só este Caddy alcança.
+
+financas.seudominio.com {
+	# A porta é o HTTP_PORT do .env. Mantenha 127.0.0.1 aqui também.
+	reverse_proxy 127.0.0.1:8890
+
+	# O Caddy já manda o cabeçalho X-Forwarded-For com o IP real do cliente, e o
+	# nginx de dentro do Compose o SOBRESCREVE com o endereço de quem o
+	# alcançou — que, a partir daqui, é este Caddy. Ou seja: o rate limit por IP
+	# passa a ver um único endereço para todo mundo.
+	#
+	# Para o IP real chegar ao backend, o nginx do container precisa confiar
+	# nesta borda. Ver a nota "Rate limit atrás de proxy" em docs/deploy-vps.md
+	# antes de mexer: confiar em X-Forwarded-For sem uma borda que o sobrescreva
+	# devolve ao cliente o poder de forjar o próprio IP.
+
+	header {
+		# HSTS: o navegador passa a recusar http:// neste domínio. Só ligue
+		# depois de o HTTPS estar funcionando — com o certificado quebrado, o
+		# site fica inacessível pelo tempo do max-age (aqui, um ano).
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+	}
+
+	encode gzip
+}
