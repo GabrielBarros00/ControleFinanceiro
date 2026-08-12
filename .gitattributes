@@ -1,0 +1,18 @@
+# Scripts de shell SEMPRE com LF, no repositório e na cópia de trabalho.
+#
+# Este projeto é desenvolvido no Windows e roda em Linux. Um `\r` no fim do
+# shebang faz o kernel procurar um interpretador chamado "bash\r" e o script
+# morre com `bad interpreter: /usr/bin/env bash^M` — no servidor, dentro do
+# cron, no meio da madrugada. O `scripts/backup.sh` é exatamente esse caso.
+#
+# Hoje o `core.autocrlf=true` da máquina de quem escreveu isto normaliza para
+# LF na gravação, mas isso é configuração LOCAL: não acompanha o clone. Aqui a
+# regra passa a viajar junto com o repositório.
+*.sh text eol=lf
+
+# O entrypoint das imagens e os arquivos lidos por container seguem a mesma
+# lógica — são consumidos por Linux, não pelo editor de ninguém.
+Dockerfile text eol=lf
+*.Dockerfile text eol=lf
+docker-compose*.yml text eol=lf
+.env.example text eol=lf
