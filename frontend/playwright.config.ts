@@ -125,7 +125,12 @@ export default defineConfig({
       // A suíte registra vários usuários em sequência — o rate limit de auth
       // derrubaria os specs; a proteção em si tem testes no backend (e a suíte
       // `e2e-prod` a exercita ligada, contra o stack real).
-      env: { RATE_LIMIT_ENABLED: 'False', DATABASE_URL: 'sqlite:///./e2e.db' },
+      env: {
+        RATE_LIMIT_ENABLED: 'False',
+        DATABASE_URL: 'sqlite:///./e2e.db',
+        // Janela de bootstrap para o spec de a11y alcançar /admin (ver e2e.mjs).
+        SUPERADMIN_EMAIL: 'admin-a11y@e2e.com',
+      },
     },
     {
       // `node` no script do vite, e não `npm run dev` NEM `npx vite`: os dois são

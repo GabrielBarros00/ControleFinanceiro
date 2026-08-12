@@ -8,6 +8,7 @@ from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Respons
 from pydantic import BaseModel
 from sqlmodel import Session, select, func
 
+from app.db.locks import trava_workspace
 from app.db.session import get_session
 from app.models.attachment import Attachment
 from app.models.transaction import Transaction
@@ -148,6 +149,13 @@ async def upload_attachment(
             status_code=400,
             detail="Conteúdo do arquivo não corresponde ao tipo declarado",
         )
+    # ANTES da soma da cota (ver `db/locks.py`): `_ensure_quota` lê os bytes já
+    # usados e o `if` decide, mas o INSERT vem depois — oito envios simultâneos
+    # leem o mesmo total e passam todos. Medido antes da correção: 2,4 MB
+    # gravados numa cota de 1 MB. A trava fica aqui, e não dentro de
+    # `_ensure_quota`, porque a função também é chamada em leitura e travar numa
+    # consulta seria surpresa.
+    trava_workspace(session, workspace_id)
     _ensure_quota(session, workspace_id, len(data))
 
     # Conteúdo vai para o armazenamento (ADR 0007); o banco fica com metadados +

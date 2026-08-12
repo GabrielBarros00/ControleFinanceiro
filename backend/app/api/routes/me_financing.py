@@ -45,10 +45,30 @@ from app.models.workspace import WorkspaceMembership
 from app.schemas.common import DESCRIPTION_MAX, MAX_MONEY, OptionalCurrencyCode, TITLE_MAX
 from app.services.base_conversion import compute_base_conversion
 from app.services.event_service import publish_event
-from app.services.financing_service import FinancingService
+from app.services.financing_service import AmortizationError, FinancingService
 from app.domain.dates import month_key_local, today_local
 
 router = APIRouter(prefix="/me/financing", tags=["me-financing"])
+
+
+def _cronograma_de(financing: "Financing") -> list:
+    """Gera as parcelas, traduzindo a recusa do domínio em 422.
+
+    `AmortizationError` é `ValueError`, e sem este `except` ele caía no handler
+    genérico como **500** — que é o que a rota respondia para uma taxa de 0,5 ao
+    mês em 360x. Entrada absurda merece "não dá, e por quê"; 500 é o servidor
+    dizendo que o problema é dele.
+    """
+    try:
+        return FinancingService.calculate_amortization_schedule(
+            total_amount=financing.total_amount,
+            interest_rate=financing.interest_rate,
+            installments_count=financing.installments_count,
+            start_date=financing.start_date,
+            method=financing.method,
+        )
+    except AmortizationError as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
 
 
 def _colecao(metodo: str, caminho: str, **kwargs):
@@ -150,13 +170,7 @@ def create_financing(
     # falha na geração das parcelas não deixa financiamento órfão (ADR 0010)
     session.flush()
 
-    for installment in FinancingService.calculate_amortization_schedule(
-        total_amount=financing.total_amount,
-        interest_rate=financing.interest_rate,
-        installments_count=financing.installments_count,
-        start_date=financing.start_date,
-        method=financing.method,
-    ):
+    for installment in _cronograma_de(financing):
         installment.financing_id = financing.id
         session.add(installment)
     session.commit()
@@ -287,13 +301,7 @@ def update_financing(
         for antiga in antigas:
             session.delete(antiga)
         session.flush()
-        for parcela in FinancingService.calculate_amortization_schedule(
-            total_amount=financing.total_amount,
-            interest_rate=financing.interest_rate,
-            installments_count=financing.installments_count,
-            start_date=financing.start_date,
-            method=financing.method,
-        ):
+        for parcela in _cronograma_de(financing):
             parcela.financing_id = financing.id
             session.add(parcela)
 

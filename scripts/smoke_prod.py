@@ -185,17 +185,32 @@ def main():
     ws_id = res.json()[0]["id"]
     check("workspace padrão criado", res.status_code == 200 and len(res.json()) == 1)
 
-    # Regressão: path sem barra final gera 307 do FastAPI; o Location precisa
-    # preservar host:porta (nginx com $http_host). Com $host a porta some,
-    # o browser segue para a porta errada e o frontend derruba a sessão.
+    # `/workspaces` (sem barra) já NÃO redireciona: a rota irmã foi registrada
+    # depois que a auditoria mostrou que o 307 perdia o cookie e devolvia 401.
+    # A checagem continua porque é a garantia de que a irmã existe.
     res = alice.get("/workspaces")
-    if res.status_code == 307:
-        loc = res.headers.get("location", "")
-        check("307 sem barra preserva host:porta", loc.startswith(f"{BASE}/") or loc.startswith("/"),
-              f"Location={loc}")
-        follow_url = loc if loc.startswith("http") else f"{BASE}{loc}"
-        res = alice.client.get(follow_url, headers=alice._headers())
-    check("GET /workspaces (sem barra) chega ao backend autenticado", res.status_code == 200)
+    check("GET /workspaces (sem barra) responde direto, sem 307",
+          res.status_code == 200, f"status={res.status_code}")
+
+    # Regressão do NGINX, que segue valendo: onde ainda há redirecionamento, o
+    # `Location` precisa preservar host:porta (`$http_host`). Com `$host` a porta
+    # some, o navegador segue para a porta errada e a sessão cai.
+    #
+    # O alvo é `/auth/me/` — registrada SEM barra, então chamá-la COM barra ainda
+    # produz o 307. Antes este teste usava `/workspaces`, e ao consertar aquela
+    # rota a verificação passou a ser pulada em silêncio: o gate perdia uma
+    # asserção sem que nada ficasse vermelho.
+    res = alice.client.get(f"{BASE}/api/v1/auth/me/", headers=alice._headers(),
+                           follow_redirects=False)
+    check("ainda existe rota que redireciona (senão este teste não mede nada)",
+          res.status_code == 307, f"status={res.status_code}")
+    loc = res.headers.get("location", "")
+    check("307 preserva host:porta no Location",
+          loc.startswith(f"{BASE}/") or loc.startswith("/"), f"Location={loc}")
+    seguido = alice.client.get(
+        loc if loc.startswith("http") else f"{BASE}{loc}", headers=alice._headers()
+    )
+    check("seguir o 307 chega ao backend autenticado", seguido.status_code == 200)
 
     res = alice.post("/auth/onboarding", json={
         "workspace_id": ws_id, "salary": 5000,

@@ -17,7 +17,8 @@ from typing import Any, Dict, List, Optional
 import structlog
 from fastapi import APIRouter, Body, Depends, HTTPException, Query, Request, status
 from pydantic import BaseModel, EmailStr, Field
-from sqlmodel import Session, func, select
+from sqlalchemy import update
+from sqlmodel import Session, select
 
 from app.api.deps import require_platform_role
 from app.api.routes.auth import get_current_user
@@ -179,14 +180,45 @@ def _get_alvo(db: Session, user_id: int) -> User:
 
 
 def _conta_superadmins(db: Session, exceto: Optional[int] = None) -> int:
-    stmt = select(func.count(User.id)).where(
+    """Quantos superadministradores ativos existem — SERIALIZANDO a contagem.
+
+    Sem o `UPDATE` abaixo isto era um SELECT solto antes de um UPDATE, e dois
+    rebaixamentos simultâneos de superadmins DIFERENTES passavam os dois: cada
+    requisição contava o outro, cada uma via um restante, e o site terminava sem
+    superadministrador nenhum — o estado exato que `_assert_pode_mexer_em` existe
+    para impedir, com a saída sendo SQL dentro do container.
+
+    **Por que um `UPDATE` que não muda nada.** É a mesma trava do
+    `CreditCardService.pay_statement`: a PRIMEIRA escrita da operação, tocando as
+    linhas que a decisão vai ler. `SELECT ... FOR UPDATE` seria mais direto e é o
+    que a leitura sugere, mas o dialeto SQLite o ignora em silêncio — a proteção
+    sumiria em dev e no leg SQLite do CI, e sobraria só no Postgres. Um `UPDATE`
+    condicional sobre o alvo também não resolveria: a condição "existe outro
+    superadmin" seria avaliada contra o snapshot commitado, onde o outro AINDA é
+    superadmin. É a diferença entre um contador (que o incremento atômico
+    resolve) e uma invariante sobre VÁRIAS linhas.
+
+    A trava cobre TODAS as linhas de superadmin, e o `exceto` é aplicado depois,
+    em Python, de propósito: travar já excluindo o alvo faz cada requisição
+    travar um conjunto DIFERENTE (a de A tranca B, a de B tranca A), os conjuntos
+    não se cruzam e nada é serializado. Travando o conjunto inteiro, a segunda
+    requisição espera a primeira e relê — no READ COMMITTED o Postgres reavalia a
+    linha depois do lock — enxergando então o rebaixamento que acabou de
+    acontecer.
+
+    `updated_at` das outras linhas muda de carona. Não é exibido em lugar nenhum
+    (nem em `admin_metrics`, nem no `UserRead`, nem na tela), e o `UPDATE` via
+    Core não passa pelos mapper events, então também não gera AuditLog espúrio —
+    o mesmo cuidado do `publish_event`.
+    """
+    condicoes = (
         User.platform_role == PlatformRole.superadmin,
         User.deleted_at.is_(None),
         User.is_active.is_(True),
     )
-    if exceto is not None:
-        stmt = stmt.where(User.id != exceto)
-    return db.exec(stmt).one()
+    db.execute(update(User).where(*condicoes).values(updated_at=datetime.now(UTC)))
+    ids = db.exec(select(User.id).where(*condicoes)).all()
+    return len([i for i in ids if i != exceto])
 
 
 def _assert_pode_mexer_em(db: Session, ator: User, alvo: User, *, removendo_poder: bool) -> None:

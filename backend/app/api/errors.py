@@ -66,6 +66,32 @@ _SECURITY_HEADERS = {
 }
 
 
+async def numero_fora_de_faixa_handler(request: Request, exc: Exception):
+    """Identificador maior do que o banco consegue representar → 422, não 500.
+
+    `int` em Python não tem teto; a coluna tem. Um id acima de 2^63-1 numa rota
+    (`/transactions/99999999999999999999`) ou num corpo (`category_id`) chegava
+    intacto pelo Pydantic e estourava só no driver — `OverflowError` no SQLite,
+    `NumericValueOutOfRange` (que o SQLAlchemy embrulha em `DataError`) no
+    Postgres. As duas viravam **500**: o servidor assumindo a culpa por um número
+    que o cliente digitou. Medido em `GET .../transactions/{id}`,
+    `GET /me/financing/{id}` e `DELETE .../transactions/{id}`, entre outras.
+
+    O tratamento é global e não rota a rota de propósito: são ~50 assinaturas com
+    `id: int`, e a semântica é UMA — "o cliente mandou um número que não cabe".
+    Espalhar `le=2**63-1` por cada uma seria cinquenta oportunidades de esquecer
+    a próxima.
+    """
+    error_res = ErrorResponse(
+        error=ErrorDetail(
+            code="VALIDATION_ERROR",
+            message="Identificador ou valor numérico fora da faixa aceita.",
+            details={},
+        )
+    )
+    return JSONResponse(status_code=HTTP_422, content=error_res.model_dump())
+
+
 async def internal_server_error_handler(request: Request, exc: Exception):
     """Tratamento de erros inesperados (500).
 

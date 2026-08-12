@@ -275,6 +275,61 @@ test.describe('Acessibilidade (axe · WCAG 2 A/AA)', () => {
   });
 
   /*
+   * ADMINISTRAÇÃO DO SITE — a tela mais nova (ADR 0026) e a mais densa em
+   * controle: abas, tabelas de pessoas, formulário de configuração, lista de
+   * convites e a trilha de auditoria. O scanner nunca tinha entrado aqui, que é
+   * exatamente onde um regressor de rótulo ou de contraste passa despercebido.
+   *
+   * A conta nasce pela JANELA DE BOOTSTRAP: `SUPERADMIN_EMAIL` está no `env` do
+   * backend do e2e (ver `scripts/e2e.mjs`), e a primeira conta com aquele
+   * endereço nasce superadministradora. Sem isso não há caminho de teste para
+   * `/admin` — e era por isso que a tela ficava de fora.
+   */
+  test('Administração do site — a tela que o scanner nunca tinha visitado', async ({ browser }) => {
+    const context = await browser.newContext();
+    const email = 'admin-a11y@e2e.com';
+    await context.request.post(`${API}/auth/register`, {
+      data: { name: 'Admin A11y', email, password: 'senha123' },
+    });
+    const login = await context.request.post(`${API}/auth/login`, {
+      data: { email, password: 'senha123' },
+    });
+    expect(login.ok(), 'a janela de bootstrap não criou o superadministrador').toBeTruthy();
+    const me = await (await context.request.get(`${API}/auth/me`)).json();
+    expect(me.platform_role, `papel recebido: ${JSON.stringify(me)}`).toBe('superadmin');
+    // Onboarding CONCLUÍDO antes de navegar, como nos demais testes daqui. Sem
+    // isto o modal de boas-vindas abre por cima de qualquer rota, e o Radix
+    // marca todo o resto da página com `aria-hidden` — o `h1` da tela existe no
+    // DOM e some da árvore de acessibilidade, que é exatamente o que o axe (e o
+    // `getByRole`) enxergam. O sintoma era "element(s) not found" numa página
+    // que o snapshot mostrava inteira.
+    await context.request.post(`${API}/auth/onboarding`, { data: { salary: 4000 } });
+
+    const page = await context.newPage();
+    const erros = vigiarConsole(page);
+    await page.goto('/admin');
+    // Timeout folgado SÓ aqui: `/admin` é `React.lazy` e esta é a única visita
+    // da suíte, então o servidor de desenvolvimento compila o chunk na hora.
+    await expect(page.getByRole('heading', { name: /Administração/i })).toBeVisible({
+      timeout: 30_000,
+    });
+
+    // Cada aba é uma tela diferente: varrer só a primeira mediria um quinto.
+    const { violations } = await analisar(page);
+    expect(resumir(violations)).toBe('');
+
+    for (const aba of [/Pessoas/i, /Convites/i, /Configurações/i, /Auditoria/i]) {
+      const alvo = page.getByRole('tab', { name: aba });
+      if (await alvo.count() === 0) continue;
+      await alvo.click();
+      const resultado = await analisar(page);
+      expect(resumir(resultado.violations), `aba ${aba}`).toBe('');
+    }
+    expect(erros).toEqual([]);
+    await context.close();
+  });
+
+  /*
    * As telas PÚBLICAS, que a suíte nunca tinha visitado.
    *
    * Todo teste acima entra com uma conta criada por `contaNova` — ou seja, a

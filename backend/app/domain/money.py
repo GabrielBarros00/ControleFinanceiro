@@ -78,6 +78,13 @@ class Money:
         participantes (ADR 0001). Soma exata por construção."""
         if sum(percentages) != Decimal("100"):
             raise MoneyError("Os percentuais devem somar 100.")
+        # Somar 100 não basta: `[200, -100]` soma 100 e produzia uma cota
+        # NEGATIVA — alguém "devendo" menos que zero, o que inverteria a relação
+        # no acerto de contas. O schema da API já barra (`0 < pct <= 100`), então
+        # isto é a mesma regra no domínio, onde a classe consegue se defender de
+        # um chamador futuro que não passe pelo schema.
+        if any(p < 0 for p in percentages):
+            raise MoneyError("Percentual negativo não divide despesa nenhuma.")
 
         total_cents = self._total_cents()
         floors = [

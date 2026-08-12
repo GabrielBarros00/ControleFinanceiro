@@ -10,10 +10,11 @@ from datetime import datetime, timedelta, UTC
 from typing import Optional, Tuple
 
 from fastapi import HTTPException, status
-from sqlalchemy import or_
+from sqlalchemy import or_, update
 from sqlmodel import Session, func, select
 
 from app.core.config import settings
+from app.db.locks import trava_usuario
 from app.models.registration_invite import RegistrationInvite
 from app.models.user import PlatformRole, User, platform_level
 from app.models.workspace import InviteStatus, WorkspaceInvite
@@ -166,15 +167,61 @@ def assert_pode_cadastrar(
 
 
 def consome_convite(db: Session, convite: RegistrationInvite, user: User) -> None:
-    """Marca o uso. Só `flush` — o commit é do chamador (ADR 0010)."""
-    convite.uses += 1
-    if convite.accepted_by_user_id is None:
-        convite.accepted_by_user_id = user.id
-    # Convite nominal ou de link no último uso: encerra. `max_uses=None` num
-    # convite nominal significa uso único — o e-mail já é o teto.
-    if convite.max_uses is None or convite.uses >= convite.max_uses:
+    """Marca o uso — e é AQUI que quem passou do teto é recusado.
+
+    O `where` desta UPDATE é o teto de verdade; a checagem em
+    `_convite_de_cadastro_valido` é só a mensagem de erro amigável, e sozinha ela
+    não vale nada: é um SELECT, e entre ele e a escrita cabem N requisições.
+
+    Com `convite.uses += 1` em Python — como estava — oito cadastros simultâneos
+    liam `uses=0`, todos passavam pelo portão e todos escreviam `uses=1`: um
+    convite de uso único fazia nascer oito contas. Num site `invite_only` (o
+    padrão do ADR 0026) este contador é o que decide quem pode existir no
+    servidor, então o link vazado num grupo de mensagens deixava de ter limite.
+
+    É o mesmo defeito que `members.accept_invite` já tinha corrigido para o
+    `WorkspaceInvite`, e que voltou aqui porque a tabela é nova.
+
+    `COALESCE(max_uses, 1)` traduz a regra do modelo: nulo é uso ÚNICO num
+    convite de cadastro (no `WorkspaceInvite`, nulo é ilimitado — por isso a
+    condição de lá não é igual a esta).
+
+    Só `flush` — o commit é do chamador (ADR 0010).
+    """
+    novo_uso = db.execute(
+        update(RegistrationInvite)
+        .where(
+            RegistrationInvite.id == convite.id,
+            RegistrationInvite.status == InviteStatus.pending,
+            RegistrationInvite.uses < func.coalesce(RegistrationInvite.max_uses, 1),
+        )
+        .values(
+            uses=RegistrationInvite.uses + 1,
+            # No mesmo UPDATE, senão o "quem entrou por este convite" vira outro
+            # lê-depois-escreve — e o primeiro a chegar não seria o registrado.
+            accepted_by_user_id=func.coalesce(
+                RegistrationInvite.accepted_by_user_id, user.id
+            ),
+        )
+        .returning(RegistrationInvite.uses)
+    ).scalar_one_or_none()
+
+    if novo_uso is None:
+        # Perdeu a corrida. Levanta a MESMA mensagem do portão: para quem está do
+        # lado de fora, um convite esgotado no meio do caminho é indistinguível
+        # de um convite que já estava esgotado — e assim continua sem revelar
+        # nada sobre o convite alheio.
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Convite inválido, expirado ou já utilizado.",
+        )
+
+    # O objeto ORM ficou velho depois da UPDATE via Core.
+    db.refresh(convite)
+    # Convite nominal ou de link no último uso: encerra.
+    if convite.max_uses is None or novo_uso >= convite.max_uses:
         convite.status = InviteStatus.accepted
-    db.add(convite)
+        db.add(convite)
     db.flush()
 
 
@@ -238,6 +285,14 @@ def assert_pode_convidar(db: Session, autor: User) -> None:
     # encher o site de contas, tem a tela de configuração para abrir o cadastro.
     if e_admin:
         return
+
+    # ANTES da contagem (ver `db/locks.py`): a cota é um `COUNT` conferido por um
+    # `if` e seguido de um `INSERT` na rota. Sem a trava, N emissões simultâneas
+    # contam o mesmo total e passam todas — a mesma forma dos outros tetos, e a
+    # última instância dela no projeto. O estrago aqui é menor (a rodada seguinte
+    # já enxerga o excesso e barra, então o teto degrada para "teto + rajada" em
+    # vez de cair), mas o mecanismo é idêntico e o custo de fechar é uma linha.
+    trava_usuario(db, autor.id)
 
     teto = app_settings.get(db, "user_invite_quota_per_month")
     desde = datetime.now(UTC) - timedelta(days=30)

@@ -2,7 +2,7 @@ from datetime import datetime, timedelta, UTC
 from typing import List
 
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy import update
+from sqlalchemy import or_, update
 from sqlmodel import Session, select
 
 from app.api.deps import get_workspace_membership, require_role
@@ -552,12 +552,37 @@ def accept_invite(
         # Incremento ATÔMICO no banco (mesmo padrão do seq em publish_event).
         # Com `invite.uses += 1` em Python, dois aceites simultâneos liam o mesmo
         # valor e o link estourava o max_uses.
+        #
+        # O `where` — e não só o incremento — é o que RECUSA. Sem ele o contador
+        # ficava certo (cada thread recebia um valor distinto) e mesmo assim
+        # todo mundo entrava: quem recebia o valor acima do teto não era barrado
+        # por ninguém, e um link de uso único admitia oito pessoas no workspace.
+        # A checagem em `_get_valid_invite` não fecha isso porque é um SELECT, e
+        # entre ele e a escrita cabem N requisições.
+        #
+        # Aqui `max_uses=None` é ILIMITADO (é o convite de link antigo, sem
+        # teto); no `RegistrationInvite` nulo significa uso único, e por isso a
+        # condição de lá usa COALESCE em vez deste `or_`.
         novo_uso = session.execute(
             update(WorkspaceInvite)
-            .where(WorkspaceInvite.id == invite.id)
+            .where(
+                WorkspaceInvite.id == invite.id,
+                WorkspaceInvite.status == InviteStatus.pending,
+                or_(
+                    WorkspaceInvite.max_uses.is_(None),
+                    WorkspaceInvite.uses < WorkspaceInvite.max_uses,
+                ),
+            )
             .values(uses=WorkspaceInvite.uses + 1)
             .returning(WorkspaceInvite.uses)
-        ).scalar_one()
+        ).scalar_one_or_none()
+        if novo_uso is None:
+            # A membership criada acima cai junto: o commit é único (ADR 0010),
+            # então levantar aqui desfaz a entrada no workspace.
+            raise HTTPException(
+                status_code=403,
+                detail="Este convite não é mais válido ou já atingiu o limite de usos",
+            )
         session.refresh(invite)
         if invite.max_uses is not None and novo_uso >= invite.max_uses:
             invite.status = InviteStatus.accepted

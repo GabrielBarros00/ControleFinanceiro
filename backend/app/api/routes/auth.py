@@ -836,7 +836,15 @@ def google_callback(
         # notificação, como sempre.
         _resolve_pending_invites(db, user, accept_token=invite_token)
         if convite is not None:
-            consome_convite(db, convite, user)
+            try:
+                consome_convite(db, convite, user)
+            except HTTPException:
+                # `consome_convite` também RECUSA: é ele quem barra quem perdeu a
+                # corrida pelo último uso do convite. Pelo mesmo motivo do
+                # `assert_pode_cadastrar` acima, aqui a recusa vira redirect com
+                # código — e sem o commit, a conta recém-criada não chega a
+                # existir.
+                return fail("cadastro_por_convite")
         db.commit()
         db.refresh(user)
     elif user.deleted_at is not None or not user.is_active:

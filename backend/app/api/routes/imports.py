@@ -7,6 +7,7 @@ from typing import List, Dict, Any, Optional
 import io
 
 from app.core.config import settings
+from app.db.locks import trava_workspace
 from app.db.session import get_session
 from app.domain.dates import civil_instant, local_day, month_key_local
 from app.domain.query_policy import workspace_base_currency
@@ -177,6 +178,20 @@ def commit_import(
             status_code=422,
             detail=f"Importação limitada a {teto_linhas} linhas por lote",
         )
+    # ANTES de ler os fingerprints já importados (ver `db/locks.py`): a
+    # idempotência do ADR 0008 é um `set` lido uma vez e consultado no laço, e
+    # dois envios simultâneos do mesmo arquivo leem o mesmo conjunto e inserem os
+    # dois. Medido antes da correção: 8 lançamentos para a MESMA linha de
+    # extrato. O gatilho realista não é ataque nenhum — é o duplo clique no botão
+    # de confirmar.
+    #
+    # `ImportRow.fingerprint` tem índice mas não é único, então não há nada no
+    # banco recusando a segunda inserção. Um índice parcial único resolveria de
+    # forma mais fina (sem serializar o lote inteiro), mas exigiria migração e
+    # tratamento de conflito linha a linha; importar é operação rara e manual, e
+    # aqui a serialização por workspace é o custo menor.
+    trava_workspace(session, workspace_id)
+
     # Moeda-base do workspace, não "BRL" fixo: com o literal, TODA linha
     # importada num workspace em outra moeda caía fora das agregações (que
     # filtram `currency == base`) e sumia sem aviso nenhum.
