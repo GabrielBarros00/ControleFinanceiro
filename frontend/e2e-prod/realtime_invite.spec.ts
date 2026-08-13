@@ -44,6 +44,26 @@ test.describe('Stack de produção: tempo real e convite por link', () => {
     const pageA = await contextA.newPage();
     const pageB = await contextB.newPage();
 
+    // Toda busca de lançamentos que B faz por HTTP.
+    //
+    // O teste afirma que B NÃO fica sabendo do lançamento enquanto o socket
+    // está caído. Só que "não aparece na tela" é consequência, não causa: se o
+    // TanStack Query resolver rebuscar por conta própria — foco de janela,
+    // reconexão, montagem — o lançamento chega sem WebSocket nenhum e a
+    // asserção reprova sem que nada esteja errado no produto.
+    //
+    // Contar as buscas transforma isso em evidência: durante a queda o número
+    // não pode subir, e depois da reconexão TEM de subir (é o resync). Se o
+    // teste falhar, a mensagem diz qual dos dois aconteceu.
+    let buscasDeB = 0;
+    const urlsDeB: string[] = [];
+    pageB.on('request', (r) => {
+      if (r.method() === 'GET' && /\/transactions/.test(r.url())) {
+        buscasDeB += 1;
+        urlsDeB.push(r.url());
+      }
+    });
+
     // Queda de rede CONTROLADA para o socket de B.
     //
     // Aqui havia `contextB.setOffline(true)`, e ele não serve para este teste:
@@ -134,7 +154,19 @@ test.describe('Stack de produção: tempo real e convite por link', () => {
     // e não diz nada sobre B. Provar uma ausência exige uma janela — esta é a
     // margem em que B, se o socket estivesse vivo, teria renderizado com folga
     // (o `titleLive` acima aparece em bem menos que isso).
+    const buscasAntes = buscasDeB;
     await pageB.waitForTimeout(3_000);
+
+    // Antes de olhar a tela: B buscou lançamentos por HTTP nesta janela? Se
+    // buscou, o lançamento chegou por um caminho que não é o WebSocket, e a
+    // asserção visual abaixo estaria medindo outra coisa.
+    expect(
+      buscasDeB,
+      `B buscou lançamentos por HTTP com o socket caído — o dado não veio do WS.
+` +
+        `URLs: ${urlsDeB.slice(buscasAntes).join(', ')}`,
+    ).toBe(buscasAntes);
+
     await expect(pageB.getByText(titleOffline)).not.toBeVisible();
 
     // Religa a rede. O app reconecta sozinho (backoff exponencial com jitter,
@@ -145,6 +177,15 @@ test.describe('Stack de produção: tempo real e convite por link', () => {
     // backoff para cima.
     quedaDeRede = false;
     await expect(pageB.getByText(titleOffline)).toBeVisible({ timeout: 45_000 });
+
+    // E o lançamento apareceu porque houve RESYNC, não por outro caminho: a
+    // reconexão vê `hello.seq` à frente e invalida as queries, o que
+    // obrigatoriamente gera busca HTTP. Sem esta asserção, "apareceu na tela"
+    // não distinguiria resync de qualquer outra rebusca.
+    expect(
+      buscasDeB,
+      'B não buscou lançamentos após reconectar — o resync não aconteceu',
+    ).toBeGreaterThan(buscasAntes);
 
     await contextA.close();
     await contextB.close();
