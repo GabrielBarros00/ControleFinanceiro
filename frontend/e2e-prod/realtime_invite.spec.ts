@@ -55,14 +55,24 @@ test.describe('Stack de produção: tempo real e convite por link', () => {
     // Contar as buscas transforma isso em evidência: durante a queda o número
     // não pode subir, e depois da reconexão TEM de subir (é o resync). Se o
     // teste falhar, a mensagem diz qual dos dois aconteceu.
+    // QUALQUER GET da API, não apenas `/transactions`: a tela de Início monta a
+    // lista "Onde você está envolvido" a partir de outros endpoints, então um
+    // contador estreito diria "B não buscou nada" enquanto B buscava por outro
+    // caminho — um falso negativo que apontaria a investigação para o lado
+    // errado. Foi exatamente o risco na rodada anterior.
     let buscasDeB = 0;
     const urlsDeB: string[] = [];
     pageB.on('request', (r) => {
-      if (r.method() === 'GET' && /\/transactions/.test(r.url())) {
+      if (r.method() === 'GET' && r.url().includes('/api/v1/')) {
         buscasDeB += 1;
-        urlsDeB.push(r.url());
+        urlsDeB.push(r.url().replace(/^https?:\/\/[^/]+/, ''));
       }
     });
+
+    // Quantas vezes a rota de WebSocket foi acionada. Se este número for ZERO,
+    // a interceptação não está funcionando e todo o mecanismo de queda é
+    // decorativo — o socket de B nunca passou por aqui.
+    let rotasAcionadas = 0;
 
     // Queda de rede CONTROLADA para o socket de B.
     //
@@ -86,6 +96,7 @@ test.describe('Stack de produção: tempo real e convite por link', () => {
     let quedaDeRede = false;
     const socketsDeB = new Set<RotaWS>();
     await contextB.routeWebSocket(/\/ws\/workspaces\//, (ws) => {
+      rotasAcionadas += 1;
       if (quedaDeRede) {
         ws.close();
         return;
@@ -132,9 +143,31 @@ test.describe('Stack de produção: tempo real e convite por link', () => {
     // ausência reprovava — a mesma falha que este spec já tinha, só que agora
     // por falta de `await` em vez de por `setOffline`. Passava aqui e reprovava
     // no runner do CI, que é mais rápido: 2 de 9 execuções.
+    // Antes de derrubar: a interceptação está mesmo de pé? Sem esta asserção, um
+    // `routeWebSocket` que não casou a URL deixaria `socketsDeB` vazio, o
+    // `close()` não fecharia nada, e o teste reprovaria lá embaixo culpando a
+    // entrega ao vivo — quando a causa seria a queda que nunca aconteceu.
+    expect(
+      rotasAcionadas,
+      'a rota de WebSocket nunca foi acionada — a interceptação não pegou o socket de B',
+    ).toBeGreaterThan(0);
+    expect(
+      socketsDeB.size,
+      `nenhum socket vivo de B para derrubar (rota acionada ${rotasAcionadas}x)`,
+    ).toBeGreaterThan(0);
+
     quedaDeRede = true;
     await Promise.all([...socketsDeB].map((ws) => ws.close()));
     socketsDeB.clear();
+
+    // A linha de base vem ANTES de criar o lançamento.
+    //
+    // Estava depois da espera por A renderizar, e isso deixava um buraco: entre
+    // o POST e A aparecer na tela passam segundos, e uma busca de B nesse
+    // intervalo não entrava na conta. O contador então dizia "B não buscou
+    // nada" medindo o pedaço errado do tempo — e a investigação apontava para o
+    // WebSocket quando a entrega tinha vindo por HTTP.
+    const buscasAntes = buscasDeB;
 
     const titleOffline = `Offline ${ts}`;
     expect((await createTxAs(titleOffline)).ok()).toBeTruthy();
@@ -154,7 +187,6 @@ test.describe('Stack de produção: tempo real e convite por link', () => {
     // e não diz nada sobre B. Provar uma ausência exige uma janela — esta é a
     // margem em que B, se o socket estivesse vivo, teria renderizado com folga
     // (o `titleLive` acima aparece em bem menos que isso).
-    const buscasAntes = buscasDeB;
     await pageB.waitForTimeout(3_000);
 
     // Antes de olhar a tela: B buscou lançamentos por HTTP nesta janela? Se
@@ -167,7 +199,11 @@ test.describe('Stack de produção: tempo real e convite por link', () => {
         `URLs: ${urlsDeB.slice(buscasAntes).join(', ')}`,
     ).toBe(buscasAntes);
 
-    await expect(pageB.getByText(titleOffline)).not.toBeVisible();
+    await expect(
+      pageB.getByText(titleOffline),
+      `B mostrou o lançamento sem buscar nada por HTTP (rota WS acionada ${rotasAcionadas}x). ` +
+        `Últimas URLs: ${urlsDeB.slice(-6).join(', ')}`,
+    ).not.toBeVisible();
 
     // Religa a rede. O app reconecta sozinho (backoff exponencial com jitter,
     // 1s → 30s, que zera no `hello`), vê `hello.seq` à frente do último seq que
