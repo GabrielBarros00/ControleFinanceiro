@@ -83,8 +83,16 @@ export function CreditCardVisual({
           ações reativam com `pointer-events-auto`. */}
       <div className="pointer-events-none relative z-10 flex items-start justify-between">
         <div className="flex items-center gap-2">
-          <CardIcon className="h-6 w-6 opacity-90" />
-          <span className="font-semibold">{name}</span>
+          <CardIcon className="h-6 w-6 shrink-0 opacity-90" />
+          {/* `line-clamp-2`: o cartão tem proporção FIXA (`aspect-[1.9/1]`) e
+              `overflow-hidden`. Um nome de três linhas — "Cartão da loja de
+              materiais de construção (parcelamento sem juros)" — empurrava o
+              rodapé para fora e o limite aparecia CORTADO ao meio na borda.
+              Recortar o nome é a escolha certa: o formato de cartão é a
+              metáfora da tela, e o que não pode sumir é o dinheiro. O nome
+              completo continua no `aria-label` do botão, para quem usa leitor
+              de tela. */}
+          <span className="line-clamp-2 font-semibold" title={name}>{name}</span>
         </div>
         <div className="flex items-center gap-1">
           {onEdit && (
