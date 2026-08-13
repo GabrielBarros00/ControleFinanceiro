@@ -106,8 +106,14 @@ test.describe('Stack de produção: tempo real e convite por link', () => {
     expect((await createTxAs(titleLive)).ok()).toBeTruthy();
     await expect(pageB.getByText(titleLive)).toBeVisible({ timeout: 15_000 });
 
+    // `close()` do WebSocketRoute devolve Promise, e o `for` abaixo descartava
+    // essas promises: o teste seguia para o POST com os sockets possivelmente
+    // ainda ABERTOS. O lançamento então chegava ao vivo em B e a asserção de
+    // ausência reprovava — a mesma falha que este spec já tinha, só que agora
+    // por falta de `await` em vez de por `setOffline`. Passava aqui e reprovava
+    // no runner do CI, que é mais rápido: 2 de 9 execuções.
     quedaDeRede = true;
-    for (const ws of socketsDeB) ws.close();
+    await Promise.all([...socketsDeB].map((ws) => ws.close()));
     socketsDeB.clear();
 
     const titleOffline = `Offline ${ts}`;
