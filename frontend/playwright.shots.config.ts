@@ -29,7 +29,23 @@ export default defineConfig({
       reuseExistingServer: true,
       timeout: 60_000,
       // Banco descartável e rate limit desligado (roteiro registra usuário).
-      env: { RATE_LIMIT_ENABLED: 'False', DATABASE_URL: 'sqlite:///./shots.db' },
+      //
+      // `REGISTRATION_MODE=open` porque o roteiro SEMEIA os dados criando uma
+      // conta, e desde o ADR 0026 o cadastro nasce por convite: sem isto o
+      // `/auth/register` devolve 403 e a captura morre antes da primeira tela.
+      // Ficou quebrado desde que o portão entrou — ninguém executa este roteiro
+      // no CI, então nada avisou. Abrir aqui não afrouxa nada: o servidor é
+      // local, efêmero e escreve num `shots.db` descartável.
+      //
+      // `SUPERADMIN_EMAIL` precisa casar com o `email` do roteiro: é o que faz a
+      // conta nascer superadministradora e torna `/admin` alcançável. Sem isto,
+      // a captura da área administrativa sairia como tela de erro.
+      env: {
+        RATE_LIMIT_ENABLED: 'False',
+        DATABASE_URL: 'sqlite:///./shots.db',
+        REGISTRATION_MODE: 'open',
+        SUPERADMIN_EMAIL: 'demo@cf4.app',
+      },
     },
     {
       // `node` no script do vite pelo mesmo motivo do config principal: `npm run

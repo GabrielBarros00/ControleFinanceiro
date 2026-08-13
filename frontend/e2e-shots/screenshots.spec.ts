@@ -16,8 +16,17 @@ import path from 'path';
 const HOST = 'http://localhost:8000';
 const u = (p: string) => `${HOST}/api/v1${p}`;
 const SHOTS = path.join(process.cwd(), 'screenshots');
-const ts = Date.now();
-const email = `demo_${ts}@cf4.app`;
+// E-mail FIXO, e igual ao `SUPERADMIN_EMAIL` que a config passa ao servidor: é
+// o que faz esta conta nascer superadministradora pela janela de bootstrap
+// (ADR 0026) e, com isso, alcançar `/admin` — a única tela do site que um
+// usuário comum não vê. Com e-mail sorteado por timestamp ela nunca casaria com
+// o `SUPERADMIN_EMAIL`, e a área administrativa ficaria fora do catálogo.
+//
+// Ser fixo significa que a conta sobrevive entre execuções; por isso o cadastro
+// abaixo tolera "já existe" e cai no login, e a semeadura só roda em banco
+// vazio. Mesmo padrão do `scripts/smoke_prod.py`, pela mesma razão: o roteiro
+// precisa ser repetível.
+const email = 'demo@cf4.app';
 const password = 'password123';
 const name = 'Ana Martins';
 
@@ -28,18 +37,49 @@ function iso(daysAgo: number): string {
   return d.toISOString();
 }
 
-// Rotas autenticadas do app (title do Layout como âncora de "carregou")
-const APP_ROUTES: Array<{ path: string; slug: string }> = [
-  { path: '/', slug: 'dashboard' },
-  { path: '/transactions', slug: 'lancamentos' },
-  { path: '/income', slug: 'rendas' },
-  { path: '/cards', slug: 'cartoes' },
-  { path: '/financing', slug: 'financiamentos' },
-  { path: '/reports', slug: 'relatorios' },
-  { path: '/recurring', slug: 'recorrencia' },
-  { path: '/debts', slug: 'dividas' },
-  { path: '/import', slug: 'importar' },
-  { path: '/settings', slug: 'configuracoes' },
+// Telas PÚBLICAS. Capturadas nos dois temas: são a primeira coisa que alguém vê
+// e, até esta rodada, só existiam em claro no catálogo.
+const AUTH_ROUTES: Array<{ path: string; slug: string }> = [
+  { path: '/login', slug: 'auth-login' },
+  { path: '/register', slug: 'auth-register' },
+  { path: '/forgot-password', slug: 'auth-esqueci-senha' },
+  // Sem token válido a tela se mostra no estado de link inválido — que é
+  // justamente o estado que alguém encontra ao clicar num link vencido.
+  { path: '/reset-password', slug: 'auth-redefinir-senha' },
+];
+
+/**
+ * Rotas autenticadas, com os caminhos CANÔNICOS.
+ *
+ * Antes esta lista usava `/income`, `/cards`, `/transactions`… que hoje são
+ * apenas redirecionamentos legados mantidos para quem tinha URL salva. Funcionava
+ * por acidente: no dia em que esses aliases saírem, metade do catálogo passaria a
+ * fotografar a mesma tela de Início sem ninguém perceber — as capturas continuam
+ * "verdes" porque ninguém as confere.
+ *
+ * As três seções seguem os eixos do produto: pessoal (ADR 0021), colaboração e
+ * plataforma (ADR 0026).
+ */
+const appRoutes = (wsId: number): Array<{ path: string; slug: string }> => [
+  // --- Pessoal: o que é da pessoa e a acompanha ---
+  { path: '/overview', slug: 'inicio-global' },
+  { path: '/me/income', slug: 'rendas' },
+  { path: '/me/cards', slug: 'cartoes' },
+  { path: '/me/financing', slug: 'financiamentos' },
+  { path: '/me/commitments', slug: 'compromissos' },
+  { path: '/me/reports', slug: 'meus-relatorios' },
+  { path: '/me/ledger', slug: 'extrato' },
+  { path: '/me/settings', slug: 'configuracoes-pessoais' },
+  // --- Colaboração: o workspace ---
+  { path: `/w/${wsId}`, slug: 'painel-workspace' },
+  { path: `/w/${wsId}/transactions`, slug: 'lancamentos' },
+  { path: `/w/${wsId}/reports`, slug: 'relatorios' },
+  { path: `/w/${wsId}/recurring`, slug: 'recorrencia' },
+  { path: `/w/${wsId}/debts`, slug: 'acertos' },
+  { path: `/w/${wsId}/import`, slug: 'importar' },
+  { path: `/w/${wsId}/settings`, slug: 'configuracoes-workspace' },
+  // --- Plataforma: quem opera o site ---
+  { path: '/admin', slug: 'administracao' },
 ];
 
 test('seed data and capture all screens', async ({ page, playwright }) => {
@@ -49,79 +89,118 @@ test('seed data and capture all screens', async ({ page, playwright }) => {
   // ------------------------------------------------------------------ SEED
   const api = await playwright.request.newContext();
 
+  // 400 = a conta sobrou de uma execução anterior contra o mesmo `shots.db`.
+  // Não é erro: o roteiro segue pelo login. Só o 403 seria fatal, e ele
+  // significaria que o `REGISTRATION_MODE=open` da config não chegou ao servidor.
   const reg = await api.post(u('/auth/register'), { data: { name, email, password } });
-  expect(reg.ok(), `register: ${await reg.text()}`).toBeTruthy();
-  const user = await reg.json();
-  const uid: number = user.id;
+  expect(
+    reg.ok() || reg.status() === 400,
+    `register: ${reg.status()} ${await reg.text()}`,
+  ).toBeTruthy();
 
   const login = await api.post(u('/auth/login'), { data: { email, password } });
   expect(login.ok(), `login: ${await login.text()}`).toBeTruthy();
+  const eu = await (await api.get(u('/auth/me'))).json();
+  const uid: number = eu.id;
+
+  // A área administrativa só existe para quem opera o site. Se esta conta não
+  // nasceu superadministradora, o `SUPERADMIN_EMAIL` do servidor não bate com o
+  // e-mail acima — e a captura de `/admin` sairia como uma tela de erro, sem que
+  // ninguém notasse ao olhar o catálogo.
+  expect(
+    eu.platform_role,
+    'a conta do roteiro precisa ser superadmin para capturar /admin — confira o SUPERADMIN_EMAIL em playwright.shots.config.ts',
+  ).toBe('superadmin');
 
   const wss = await (await api.get(u('/workspaces/'))).json();
   const wsId: number = wss[0].id;
 
+  // Semeadura só em banco vazio: rodando de novo sobre o mesmo `shots.db`, os
+  // lançamentos dobrariam a cada execução e as telas mudariam de conteúdo sem
+  // que nada no produto tivesse mudado.
+  const jaTemDados =
+    ((await (await api.get(u(`/workspaces/${wsId}/transactions/?limit=1&page=1`))).json())?.items
+      ?.length ?? 0) > 0;
+
   const cats: { id: number; name: string }[] = await (await api.get(u(`/workspaces/${wsId}/categories`))).json();
   const catId = (n: string): number | undefined => cats.find((c) => c.name === n)?.id;
 
-  // Rendas
-  await api.post(u(`/workspaces/${wsId}/income/`), { data: { title: 'Salário', amount: 7200, received_at: iso(20) } });
-  await api.post(u(`/workspaces/${wsId}/income/`), { data: { title: 'Freelance Design', amount: 1850, received_at: iso(8) } });
-
-  // Despesas (bulk) — títulos e valores realistas, espalhados no mês
-  const txs = [
-    { title: 'Supermercado Pão de Açúcar', total_amount: 435.9, transaction_date: iso(2), cat: 'Mercado' },
-    { title: 'Aluguel Apartamento', total_amount: 2100, transaction_date: iso(18), cat: 'Moradia' },
-    { title: 'Conta de Luz', total_amount: 187.42, transaction_date: iso(15), cat: 'Moradia' },
-    { title: 'Uber para o trabalho', total_amount: 32.8, transaction_date: iso(1), cat: 'Transporte' },
-    { title: 'Farmácia Drogasil', total_amount: 76.3, transaction_date: iso(6), cat: 'Saúde' },
-    { title: 'Cinema Iguatemi', total_amount: 90, transaction_date: iso(4), cat: 'Lazer' },
-    { title: 'Curso de Inglês', total_amount: 320, transaction_date: iso(12), cat: 'Educação' },
-    { title: 'Netflix', total_amount: 55.9, transaction_date: iso(10), cat: 'Assinaturas' },
-    { title: 'Spotify', total_amount: 21.9, transaction_date: iso(10), cat: 'Assinaturas' },
-    { title: 'Restaurante Japonês', total_amount: 148.5, transaction_date: iso(3), cat: 'Alimentação' },
-    { title: 'Padaria', total_amount: 28.4, transaction_date: iso(0), cat: 'Alimentação' },
-    { title: 'Gasolina', total_amount: 250, transaction_date: iso(7), cat: 'Transporte' },
-    { title: 'Presente Aniversário', total_amount: 120, transaction_date: iso(5), cat: 'Outros' },
-  ];
-  await api.post(u(`/workspaces/${wsId}/transactions/bulk`), {
-    data: txs.map((t) => ({ title: t.title, total_amount: t.total_amount, transaction_date: t.transaction_date })),
-  });
-
-  // Atribui categoria (item único) a cada despesa recém-criada
-  const list = await (await api.get(u(`/workspaces/${wsId}/transactions/?limit=100&page=1`))).json();
-  for (const item of list.items) {
-    const seed = txs.find((t) => t.title === item.title);
-    const cid = seed?.cat ? catId(seed.cat) : undefined;
-    if (cid) {
-      await api.put(u(`/workspaces/${wsId}/transactions/${item.id}`), { data: { category_id: cid } });
+  if (!jaTemDados) {
+    // Rendas — em `/me/income`, não em `/workspaces/{id}/income`.
+    //
+    // O caminho antigo saiu no ADR 0021, quando renda virou pessoal, e este
+    // roteiro continuou postando lá: as chamadas falhavam em silêncio, porque
+    // ninguém conferia a resposta. O efeito aparecia em TODAS as capturas —
+    // "Renda R$ 0,00" no Início, "Nenhuma renda registrada" na tela de Rendas —
+    // e passava por estado legítimo do app em vez de defeito do roteiro.
+    //
+    // Daí o `expect`: semeadura que falha tem de derrubar a captura, não gerar
+    // um catálogo de telas vazias.
+    for (const renda of [
+      { title: 'Salário', amount: 7200, received_at: iso(6) },
+      { title: 'Freelance Design', amount: 1850, received_at: iso(3) },
+    ]) {
+      const res = await api.post(u('/me/income/'), { data: renda });
+      expect(res.ok(), `renda "${renda.title}": ${res.status()} ${await res.text()}`).toBeTruthy();
     }
-  }
 
-  // Cartão de crédito + lançamentos na fatura (create completo com payer/split)
-  const card = await (
-    await api.post(u(`/workspaces/${wsId}/credit-cards/`), {
-      data: { name: 'Nubank Ultravioleta', limit: 12000, closing_day: 28, due_day: 7 },
-    })
-  ).json();
-  const charges = [
-    { title: 'iFood', amount: 68.5 },
-    { title: 'Amazon.com.br', amount: 239.9 },
-    { title: 'Posto Shell', amount: 300 },
-    { title: 'Zara', amount: 419.9 },
-  ];
-  for (const c of charges) {
-    await api.post(u(`/workspaces/${wsId}/transactions/`), {
-      data: {
-        title: c.title,
-        total_amount: c.amount,
-        transaction_date: iso(3),
-        payment_method: 'credit_card',
-        credit_card_id: card.id,
-        split_mode: 'transaction',
-        payers: [{ user_id: uid, amount: c.amount }],
-        splits: [{ user_id: uid, split_method: 'equal', input_value: 100 }],
-      },
+    // Despesas (bulk) — títulos e valores realistas, espalhados no mês
+    const txs = [
+      { title: 'Supermercado Pão de Açúcar', total_amount: 435.9, transaction_date: iso(2), cat: 'Mercado' },
+      { title: 'Aluguel Apartamento', total_amount: 2100, transaction_date: iso(18), cat: 'Moradia' },
+      { title: 'Conta de Luz', total_amount: 187.42, transaction_date: iso(15), cat: 'Moradia' },
+      { title: 'Uber para o trabalho', total_amount: 32.8, transaction_date: iso(1), cat: 'Transporte' },
+      { title: 'Farmácia Drogasil', total_amount: 76.3, transaction_date: iso(6), cat: 'Saúde' },
+      { title: 'Cinema Iguatemi', total_amount: 90, transaction_date: iso(4), cat: 'Lazer' },
+      { title: 'Curso de Inglês', total_amount: 320, transaction_date: iso(12), cat: 'Educação' },
+      { title: 'Netflix', total_amount: 55.9, transaction_date: iso(10), cat: 'Assinaturas' },
+      { title: 'Spotify', total_amount: 21.9, transaction_date: iso(10), cat: 'Assinaturas' },
+      { title: 'Restaurante Japonês', total_amount: 148.5, transaction_date: iso(3), cat: 'Alimentação' },
+      { title: 'Padaria', total_amount: 28.4, transaction_date: iso(0), cat: 'Alimentação' },
+      { title: 'Gasolina', total_amount: 250, transaction_date: iso(7), cat: 'Transporte' },
+      { title: 'Presente Aniversário', total_amount: 120, transaction_date: iso(5), cat: 'Outros' },
+    ];
+    await api.post(u(`/workspaces/${wsId}/transactions/bulk`), {
+      data: txs.map((t) => ({ title: t.title, total_amount: t.total_amount, transaction_date: t.transaction_date })),
     });
+
+    // Atribui categoria (item único) a cada despesa recém-criada
+    const list = await (await api.get(u(`/workspaces/${wsId}/transactions/?limit=100&page=1`))).json();
+    for (const item of list.items) {
+      const seed = txs.find((t) => t.title === item.title);
+      const cid = seed?.cat ? catId(seed.cat) : undefined;
+      if (cid) {
+        await api.put(u(`/workspaces/${wsId}/transactions/${item.id}`), { data: { category_id: cid } });
+      }
+    }
+
+    // Cartão de crédito + lançamentos na fatura (create completo com payer/split)
+    const card = await (
+      await api.post(u(`/workspaces/${wsId}/credit-cards/`), {
+        data: { name: 'Nubank Ultravioleta', limit: 12000, closing_day: 28, due_day: 7 },
+      })
+    ).json();
+    const charges = [
+      { title: 'iFood', amount: 68.5 },
+      { title: 'Amazon.com.br', amount: 239.9 },
+      { title: 'Posto Shell', amount: 300 },
+      { title: 'Zara', amount: 419.9 },
+    ];
+    for (const c of charges) {
+      await api.post(u(`/workspaces/${wsId}/transactions/`), {
+        data: {
+          title: c.title,
+          total_amount: c.amount,
+          transaction_date: iso(3),
+          payment_method: 'credit_card',
+          credit_card_id: card.id,
+          split_mode: 'transaction',
+          payers: [{ user_id: uid, amount: c.amount }],
+          splits: [{ user_id: uid, split_method: 'equal', input_value: 100 }],
+        },
+      });
+    }
+
   }
 
   // ----------------------------------------------------------- SCREENSHOTS
@@ -142,18 +221,22 @@ test('seed data and capture all screens', async ({ page, playwright }) => {
     await page.waitForTimeout(900); // deixa as animações fade-in/framer terminarem
   };
 
-  // ---- Público (tema claro) ----
-  await page.goto('/login');
-  await settle();
-  await shot('auth-login');
-
-  await page.goto('/register');
-  await settle();
-  await shot('auth-register');
-
-  await page.goto('/forgot-password');
-  await settle();
-  await shot('auth-forgot-password');
+  // ---- Público, nos DOIS temas ----
+  // O tema mora no localStorage e é lido na carga; por isso grava-se antes de
+  // navegar. Estas telas são as únicas que alguém vê deslogado, e o catálogo
+  // não tinha a versão escura de nenhuma delas.
+  const capturarPublicas = async (theme: 'light' | 'dark') => {
+    await page.goto('/login');
+    await page.evaluate((t) => localStorage.setItem('theme', t), theme);
+    for (const r of AUTH_ROUTES) {
+      await page.goto(r.path);
+      await page.reload();
+      await settle();
+      await shot(`${r.slug}-${theme}`);
+    }
+  };
+  await capturarPublicas('light');
+  await capturarPublicas('dark');
 
   // ---- Login pela UI (garante cookie no contexto do browser) ----
   await page.goto('/login');
@@ -176,14 +259,14 @@ test('seed data and capture all screens', async ({ page, playwright }) => {
     await page.reload();
     await settle();
 
-    for (const r of APP_ROUTES) {
+    for (const r of appRoutes(wsId)) {
       await page.goto(r.path);
       await settle();
       await shot(`${r.slug}-${theme}`);
     }
 
-    // Modal Nova Despesa (a partir do dashboard)
-    await page.goto('/');
+    // Modal Nova Despesa (a partir do painel do workspace)
+    await page.goto(`/w/${wsId}`);
     await settle();
     const novaBtn = page.getByRole('button', { name: 'Nova Despesa' });
     if (await novaBtn.count()) {
@@ -196,7 +279,7 @@ test('seed data and capture all screens', async ({ page, playwright }) => {
 
     // Modal Nova Renda — verifica o switch "Renda recorrente" (contraste OFF/ON)
     // e o campo "Começa em" do editor de recorrência.
-    await page.goto('/income');
+    await page.goto('/me/income');
     await settle();
     const novaRenda = page.getByRole('button', { name: /Nova renda/i });
     if (await novaRenda.count()) {
@@ -217,19 +300,26 @@ test('seed data and capture all screens', async ({ page, playwright }) => {
   await captureAll('light');
   await captureAll('dark');
 
-  // ---- Mobile (bottom-nav + responsivo, tema claro) ----
-  await page.goto('/');
-  await page.evaluate(() => localStorage.setItem('theme', 'light'));
+  // ---- Mobile (bottom-nav + responsivo), nos DOIS temas ----
   await page.setViewportSize({ width: 390, height: 844 });
-  for (const r of [
-    { path: '/', slug: 'inicio' },
-    { path: '/transactions', slug: 'lancamentos' },
-    { path: '/reports', slug: 'relatorios' },
-  ]) {
-    await page.goto(r.path);
+  const capturarMobile = async (theme: 'light' | 'dark') => {
+    await page.goto('/overview');
+    await page.evaluate((t) => localStorage.setItem('theme', t), theme);
+    await page.reload();
     await settle();
-    await shot(`mobile-${r.slug}`);
-  }
+    for (const r of [
+      { path: '/overview', slug: 'inicio' },
+      { path: `/w/${wsId}/transactions`, slug: 'lancamentos' },
+      { path: `/w/${wsId}/reports`, slug: 'relatorios' },
+      { path: '/me/cards', slug: 'cartoes' },
+    ]) {
+      await page.goto(r.path);
+      await settle();
+      await shot(`mobile-${r.slug}-${theme}`);
+    }
+  };
+  await capturarMobile('light');
+  await capturarMobile('dark');
 
   console.log(`\n>>> Screenshots salvos em: ${SHOTS}\n`);
 });
