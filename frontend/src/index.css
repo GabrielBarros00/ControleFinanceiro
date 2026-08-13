@@ -6,10 +6,90 @@
    3.4, que não conhece essas at-rules: elas não viravam CSS nenhum, e todas
    as animações do app estavam mortas em silêncio — o build passava, só não
    animava nada. */
-@import "@fontsource-variable/geist";
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
+@import '@fontsource-variable/geist' layer(base);
+@import 'tailwindcss';
+
+@plugin 'tailwindcss-animate';
+
+@custom-variant dark (&:is(.dark *));
+
+@theme {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+
+  --color-brand: var(--brand);
+  --color-brand-hover: var(--brand-hover);
+  --color-brand-subtle: var(--brand-subtle);
+  --color-brand-border: var(--brand-border);
+
+  --color-income: var(--income);
+  --color-income-subtle: var(--income-subtle);
+
+  --color-expense: var(--expense);
+  --color-expense-subtle: var(--expense-subtle);
+
+  --color-warning: var(--warning);
+  --color-warning-subtle: var(--warning-subtle);
+
+  --color-success: var(--success);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+
+  --color-chart-1: var(--chart-1);
+  --color-chart-2: var(--chart-2);
+  --color-chart-3: var(--chart-3);
+  --color-chart-4: var(--chart-4);
+  --color-chart-5: var(--chart-5);
+  --color-chart-6: var(--chart-6);
+
+  --radius-lg: var(--radius);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-sm: calc(var(--radius) - 4px);
+
+  --shadow-sm: var(--shadow-sm);
+  --shadow-md: var(--shadow-md);
+  --shadow-lg: var(--shadow-lg);
+}
+
+/*
+  The default border color has changed to `currentcolor` in Tailwind CSS v4,
+  so we've added these compatibility styles to make sure everything still
+  looks the same as it did with Tailwind CSS v3.
+
+  If we ever want to remove these styles, we need to add an explicit border
+  color utility to any element that depends on these defaults.
+*/
+@layer base {
+  *,
+  ::after,
+  ::before,
+  ::backdrop,
+  ::file-selector-button {
+    border-color: var(--color-gray-200, currentcolor);
+  }
+}
 
 /*
  * Design system — "Calm Finance / Ledger" (docs/frontend-redesign/03-design-system.md)
@@ -137,6 +217,18 @@
 
   * {
     @apply border-border outline-ring;
+    /* Cor PADRÃO do anel (`ring-*` sem cor explícita).
+     *
+     * Vários componentes usam `ring-1` sem dizer a cor — os cartões, entre
+     * outros. No Tailwind v3 esse padrão era `blue-500/50`, então os contornos
+     * saíam azulados por acidente do framework, não por escolha. O v4 mudou o
+     * padrão para `currentColor`, o que os transformava em traços escuros do
+     * tom do texto.
+     *
+     * Nenhum dos dois foi decidido por alguém. Aqui o padrão passa a ser a cor
+     * de borda do próprio tema: o contorno fica coerente com o resto do design
+     * system e acompanha o tema claro/escuro sozinho. */
+    --tw-ring-color: var(--color-border);
   }
   body {
     @apply bg-background text-foreground;

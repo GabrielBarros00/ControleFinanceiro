@@ -10,7 +10,7 @@ import {
 
 // <select> nativo: usado dentro de Dialog (Radix), onde o Select do Base UI foge do focus-trap
 const selectClass =
-  'flex h-10 w-full rounded-md border border-border bg-background px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring';
+  'flex h-10 w-full rounded-md border border-border bg-background px-3 py-2 text-sm text-foreground focus:outline-hidden focus:ring-2 focus:ring-ring';
 
 const FREQS: RecurrenceFrequency[] = ['daily', 'weekly', 'monthly', 'yearly'];
 

@@ -38,7 +38,7 @@ function ToastCard({ toast }: { toast: Toast }) {
       <div className="min-w-0 flex-1 space-y-0.5">
         <p className="text-sm font-bold text-foreground">{toast.title}</p>
         {toast.description && (
-          <p className="text-xs text-muted-foreground break-words">{toast.description}</p>
+          <p className="text-xs text-muted-foreground wrap-break-word">{toast.description}</p>
         )}
       </div>
       <button
@@ -57,7 +57,7 @@ function ToastCard({ toast }: { toast: Toast }) {
 export function Toaster() {
   const toasts = useToastStore((s) => s.toasts);
   return (
-    <div className="pointer-events-none fixed bottom-4 right-4 z-[100] flex flex-col gap-2">
+    <div className="pointer-events-none fixed bottom-4 right-4 z-100 flex flex-col gap-2">
       <AnimatePresence initial={false}>
         {toasts.map((t) => (
           <ToastCard key={t.id} toast={t} />

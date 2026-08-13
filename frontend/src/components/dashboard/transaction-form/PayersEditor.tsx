@@ -10,7 +10,7 @@ import type { Participant } from './SplitEditor';
 import type { TransactionFormValues } from './schema';
 
 const selectClass =
-  'flex h-10 w-full rounded-md border border-border bg-background px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring';
+  'flex h-10 w-full rounded-md border border-border bg-background px-3 py-2 text-sm text-foreground focus:outline-hidden focus:ring-2 focus:ring-ring';
 
 interface PayersEditorProps {
   participants: Participant[];
@@ -75,7 +75,7 @@ export function PayersEditor({ participants }: PayersEditorProps) {
                 // `min-w` + `flex-1` no lugar de `w-32`: o MoneyInput reserva
                 // ~48px para o prefixo da moeda e a borda, então 128px fixos
                 // deixavam 80px de dígitos — um valor de milhar já não cabia.
-                <div className="min-w-[7rem] flex-1 sm:max-w-[10rem]">
+                <div className="min-w-28 flex-1 sm:max-w-40">
                   <Controller
                     name={`payers.${index}.amount` as const}
                     control={control}

@@ -45,7 +45,7 @@ import { PageHeader } from '@/components/layout/PageHeader';
 // Base UI Select foge do focus-trap do Dialog (Radix) — dentro de modal usamos
 // <select> nativo, mesmo padrão de AmortizationTable/PaymentMethodField.
 const selectClass =
-  'flex h-10 w-full rounded-md border border-border bg-background px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring';
+  'flex h-10 w-full rounded-md border border-border bg-background px-3 py-2 text-sm text-foreground focus:outline-hidden focus:ring-2 focus:ring-ring';
 
 const recurringSchema = z.object({
   title: z.string().min(1, 'Título é obrigatório'),
@@ -489,7 +489,7 @@ export function RecurringTransactionsPage() {
                   id="edit-scope"
                   value={editScope}
                   onChange={(e) => setEditScope(e.target.value as 'none' | 'future' | 'all')}
-                  className="flex h-10 w-full rounded-md border border-border bg-background px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+                  className="flex h-10 w-full rounded-md border border-border bg-background px-3 py-2 text-sm text-foreground focus:outline-hidden focus:ring-2 focus:ring-ring"
                 >
                   <option value="future">Deste mês em diante (lançamentos não pagos)</option>
                   <option value="all">Todos os lançamentos não pagos</option>

@@ -855,7 +855,7 @@ function CategoriesTab() {
               value={newName}
               onChange={(e) => setNewName(e.target.value)}
               onKeyDown={(e) => e.key === 'Enter' && handleCreate()}
-              className="min-w-[12rem] flex-1 bg-background/50 border-border"
+              className="min-w-48 flex-1 bg-background/50 border-border"
             />
             <Button onClick={handleCreate} disabled={newName.trim().length < 2} className="bg-primary font-bold gap-2">
               <Plus className="h-4 w-4" /> Criar
@@ -955,7 +955,7 @@ function AccountsTab() {
               value={newName}
               onChange={(e) => setNewName(e.target.value)}
               onKeyDown={(e) => e.key === 'Enter' && handleCreate()}
-              className="min-w-[12rem] flex-1 bg-background/50 border-border"
+              className="min-w-48 flex-1 bg-background/50 border-border"
             />
             <Select items={ACCOUNT_TYPE_OPTIONS} value={newType} onValueChange={(value) => setNewType(value as PaymentAccountType)}>
               <SelectTrigger aria-label="Tipo da conta" className="h-10 w-full text-sm sm:w-[150px]"><SelectValue /></SelectTrigger>

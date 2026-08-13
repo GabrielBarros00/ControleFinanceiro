@@ -104,7 +104,7 @@ export function BottomNav() {
 
   return (
     <>
-      <nav className="fixed inset-x-0 bottom-0 z-40 flex items-center justify-around border-t border-border bg-card/95 px-2 backdrop-blur md:hidden">
+      <nav className="fixed inset-x-0 bottom-0 z-40 flex items-center justify-around border-t border-border bg-card/95 px-2 backdrop-blur-sm md:hidden">
         {primary.slice(0, 2).map(item)}
         {/* O FAB só existe DENTRO de um workspace. Fora dele — na Visão global,
             em `/me/*` — ele abria o diálogo com o último workspace visitado, sem

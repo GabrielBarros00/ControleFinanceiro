@@ -190,7 +190,7 @@ export function NotificationCenter() {
         <button
           type="button"
           onClick={() => setAberto(true)}
-          className="fixed inset-x-3 bottom-20 z-40 flex items-center gap-2 rounded-xl border border-brand/40 bg-brand/10 px-4 py-3 text-left shadow-lg backdrop-blur animate-in slide-in-from-bottom-2 md:inset-x-auto md:right-6 md:bottom-6 md:max-w-sm"
+          className="fixed inset-x-3 bottom-20 z-40 flex items-center gap-2 rounded-xl border border-brand/40 bg-brand/10 px-4 py-3 text-left shadow-lg backdrop-blur-sm animate-in slide-in-from-bottom-2 md:inset-x-auto md:right-6 md:bottom-6 md:max-w-sm"
         >
           <Mail className="h-4 w-4 shrink-0 text-brand" />
           <span className="text-sm font-semibold text-foreground">
