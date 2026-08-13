@@ -13,7 +13,7 @@ import type { Participant } from './SplitEditor';
 import type { TransactionFormValues } from './schema';
 
 const selectClass =
-  'flex h-9 w-full rounded-md border border-border bg-background px-3 py-1 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary text-foreground';
+  'flex h-9 w-full rounded-md border border-border bg-background px-3 py-1 text-sm shadow-sm transition-colors focus-visible:outline-hidden focus-visible:ring-1 focus-visible:ring-primary text-foreground';
 
 interface ItemsEditorProps {
   participants: Participant[];
@@ -300,7 +300,7 @@ function ItemRow({ index, participants, onRemove }: ItemRowProps) {
                 className={
                   shareMethod === 'percentage'
                     ? 'w-24 shrink-0'
-                    : 'min-w-[7rem] flex-1 sm:max-w-[10rem]'
+                    : 'min-w-28 flex-1 sm:max-w-40'
                 }
               >
                 {shareMethod === 'percentage' ? (

@@ -18,9 +18,9 @@ export function GoogleLoginButton({
   return (
     <div className="w-full space-y-4">
       <div className="relative flex items-center">
-        <div className="flex-grow border-t border-border" />
+        <div className="grow border-t border-border" />
         <span className="mx-3 text-[10px] uppercase tracking-widest text-muted-foreground font-bold">ou</span>
-        <div className="flex-grow border-t border-border" />
+        <div className="grow border-t border-border" />
       </div>
       <Button
         type="button"

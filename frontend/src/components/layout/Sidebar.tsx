@@ -158,7 +158,13 @@ export function Sidebar() {
       <nav className="flex-1 space-y-5 overflow-y-auto px-3 py-5">
         {navSections(workspaceIdAtual, ehAdminDaPlataforma).map((section) => (
           <div key={section.label} className="space-y-1">
-            <p className="px-3 pb-1 text-[11px] font-medium uppercase tracking-wide text-muted-foreground/70">
+            {/* Sem o `/70` que havia aqui: com 11px e maiúsculas, 70% de opacidade
+                sobre `muted-foreground` fica abaixo do mínimo de contraste do
+                WCAG AA, e o axe reprova em todas as telas — a barra lateral
+                aparece em todas. No Tailwind v3 o modificador não gerava regra
+                nenhuma, então o rótulo sempre foi renderizado opaco: tirar o
+                `/70` mantém exatamente a aparência que o app já tem. */}
+            <p className="px-3 pb-1 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
               {section.label}
             </p>
             {section.items.map((item) => {

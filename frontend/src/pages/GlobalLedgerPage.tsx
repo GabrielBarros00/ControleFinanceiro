@@ -235,7 +235,7 @@ export function GlobalLedgerPage() {
                 aria-label="Filtrar por workspace"
                 value={workspaceFiltro ?? ''}
                 onChange={(e) => definirWorkspace(e.target.value)}
-                className="h-10 min-w-[10rem] rounded-md border border-border bg-background px-3 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+                className="h-10 min-w-40 rounded-md border border-border bg-background px-3 text-sm text-foreground focus:outline-hidden focus:ring-2 focus:ring-ring"
               >
                 <option value="">Todos os workspaces</option>
                 {workspaces.map((w) => (
@@ -250,7 +250,7 @@ export function GlobalLedgerPage() {
                 aria-label="Filtrar por cartão"
                 value={cartaoFiltro ?? ''}
                 onChange={(e) => definirCartao(e.target.value)}
-                className="h-10 min-w-[10rem] rounded-md border border-border bg-background px-3 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+                className="h-10 min-w-40 rounded-md border border-border bg-background px-3 text-sm text-foreground focus:outline-hidden focus:ring-2 focus:ring-ring"
               >
                 <option value="">Todos os cartões</option>
                 {(cards as CreditCardSummary[]).map((c) => (

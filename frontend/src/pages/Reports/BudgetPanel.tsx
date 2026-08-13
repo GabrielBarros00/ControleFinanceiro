@@ -12,7 +12,7 @@ import { getApiErrorMessage } from '@/lib/api-error';
 import { currencySymbol, formatMoney } from '@/lib/money';
 
 const selectClass =
-  'flex h-10 w-full rounded-md border border-border bg-background px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring';
+  'flex h-10 w-full rounded-md border border-border bg-background px-3 py-2 text-sm text-foreground focus:outline-hidden focus:ring-2 focus:ring-ring';
 
 
 interface BudgetPanelProps {
@@ -219,7 +219,7 @@ export function BudgetPanel({
         {/* `flex-wrap`: três controles numa linha sem quebra transbordavam o
             cartão em telas estreitas, em vez de descer para a linha seguinte. */}
         <div className="flex flex-wrap items-end gap-3 border-t border-border pt-4">
-          <div className="min-w-[10rem] flex-1 space-y-1.5">
+          <div className="min-w-40 flex-1 space-y-1.5">
             <Label htmlFor="budget-category" className="text-xs font-semibold">Categoria</Label>
             <select
               id="budget-category"
@@ -233,7 +233,7 @@ export function BudgetPanel({
               ))}
             </select>
           </div>
-          <div className="min-w-[9rem] flex-1 space-y-1.5 sm:max-w-[12rem]">
+          <div className="min-w-36 flex-1 space-y-1.5 sm:max-w-48">
             <Label htmlFor="budget-amount" className="text-xs font-semibold">Meta do mês</Label>
             {/* Prefixo na moeda-base: o default do MoneyInput é "R$" e mentia
                 num workspace configurado em outra moeda. */}

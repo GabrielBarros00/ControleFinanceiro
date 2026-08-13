@@ -61,7 +61,7 @@ export function TagMultiSelect() {
           aria-expanded={open}
           aria-haspopup="listbox"
           aria-label="Tags"
-          className="flex min-h-10 w-full items-center justify-between gap-2 rounded-md border border-border bg-background px-3 py-1.5 text-sm transition-colors hover:border-primary/50 focus:outline-none focus:ring-2 focus:ring-ring"
+          className="flex min-h-10 w-full items-center justify-between gap-2 rounded-md border border-border bg-background px-3 py-1.5 text-sm transition-colors hover:border-primary/50 focus:outline-hidden focus:ring-2 focus:ring-ring"
         >
           <span className="flex flex-1 flex-wrap items-center gap-1.5">
             {selectedTags.length === 0 ? (

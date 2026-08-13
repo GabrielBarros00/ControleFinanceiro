@@ -9,7 +9,7 @@ import { Landmark } from 'lucide-react';
 export function AuthShell({ children }: { children: ReactNode }) {
   return (
     <div className="min-h-screen w-full md:grid md:grid-cols-[1.1fr_1fr] lg:grid-cols-[1.25fr_1fr]">
-      <div className="relative hidden overflow-hidden bg-gradient-to-br from-brand to-brand-hover p-12 text-primary-foreground md:flex md:flex-col md:justify-between">
+      <div className="relative hidden overflow-hidden bg-linear-to-br from-brand to-brand-hover p-12 text-primary-foreground md:flex md:flex-col md:justify-between">
         <div className="flex items-center gap-2 text-lg font-semibold">
           <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-white/15">
             <Landmark className="h-5 w-5" />
