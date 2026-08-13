@@ -92,7 +92,7 @@ export function CurrencyCombobox({
         aria-haspopup="listbox"
         aria-expanded={open}
         onClick={() => (open ? setOpen(false) : openMenu())}
-        className="flex h-10 min-w-[64px] shrink items-center justify-between gap-1 rounded-md border border-border bg-background px-2 text-sm font-semibold text-foreground focus:outline-none focus:ring-2 focus:ring-ring sm:w-[92px] sm:shrink-0"
+        className="flex h-10 min-w-[64px] shrink items-center justify-between gap-1 rounded-md border border-border bg-background px-2 text-sm font-semibold text-foreground focus:outline-hidden focus:ring-2 focus:ring-ring sm:w-[92px] sm:shrink-0"
       >
         {value}
         <ChevronDown className="h-3.5 w-3.5 text-muted-foreground" />
@@ -106,7 +106,7 @@ export function CurrencyCombobox({
             onChange={(e) => { setQuery(e.target.value); setHighlight(0); }}
             onKeyDown={onKeyDown}
             placeholder="Buscar moeda..."
-            className="w-full border-b border-border bg-background px-3 py-2 text-sm outline-none"
+            className="w-full border-b border-border bg-background px-3 py-2 text-sm outline-hidden"
           />
           <div ref={listRef} role="listbox" className="max-h-56 overflow-auto py-1">
             {filtered.length === 0 ? (

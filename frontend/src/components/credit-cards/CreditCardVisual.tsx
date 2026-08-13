@@ -57,7 +57,7 @@ export function CreditCardVisual({
   // teclado. Antes era `opacity-0` incondicional — invisível para sempre em
   // telefone, e ainda assim clicável.
   const acaoClasse =
-    'pointer-events-auto rounded-md p-1 text-primary-foreground/70 transition-opacity hover:bg-white/15 hover:text-primary-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/70 sm:opacity-0 sm:group-hover:opacity-100 sm:group-focus-within:opacity-100';
+    'pointer-events-auto rounded-md p-1 text-primary-foreground/70 transition-opacity hover:bg-white/15 hover:text-primary-foreground focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-white/70 sm:opacity-0 sm:group-hover:opacity-100 sm:group-focus-within:opacity-100';
 
   return (
     // <div>, não <button>: editar e excluir eram `<span role="button">` DENTRO
@@ -67,7 +67,7 @@ export function CreditCardVisual({
     // cobre o cartão, e as ações são botões IRMÃOS por cima dele.
     <div
       className={cn(
-        'group relative aspect-[1.9/1] w-full overflow-hidden rounded-2xl bg-gradient-to-br from-brand to-brand-hover p-5 text-left text-primary-foreground transition-all',
+        'group relative aspect-[1.9/1] w-full overflow-hidden rounded-2xl bg-linear-to-br from-brand to-brand-hover p-5 text-left text-primary-foreground transition-all',
         selected
           ? 'ring-2 ring-brand ring-offset-2 ring-offset-background'
           : 'opacity-95 hover:opacity-100',
@@ -77,7 +77,7 @@ export function CreditCardVisual({
         type="button"
         onClick={onClick}
         aria-label={`Ver faturas do cartão ${name}`}
-        className="absolute inset-0 z-0 rounded-2xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-white/70"
+        className="absolute inset-0 z-0 rounded-2xl focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-white/70"
       />
       {/* `pointer-events-none` para o clique atravessar até o botão de baixo; as
           ações reativam com `pointer-events-auto`. */}

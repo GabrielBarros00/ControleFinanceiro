@@ -74,7 +74,7 @@ export function SplitEditor({ participants }: SplitEditorProps) {
               <div className="flex-1">
                 <select
                   aria-label="Participante"
-                  className="flex h-9 w-full rounded-md border border-border bg-background px-3 py-1 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary text-foreground"
+                  className="flex h-9 w-full rounded-md border border-border bg-background px-3 py-1 text-sm shadow-sm transition-colors focus-visible:outline-hidden focus-visible:ring-1 focus-visible:ring-primary text-foreground"
                   {...register(`splits.${index}.user_id` as const)}
                 >
                   <option value="" className="bg-card">Usuário...</option>
@@ -88,7 +88,7 @@ export function SplitEditor({ participants }: SplitEditorProps) {
               {splitMethod !== 'equal' && (
                 // 112px fixos deixavam 64px de dígitos no modo "valor fixo",
                 // depois do prefixo da moeda.
-                <div className="min-w-[6.5rem] flex-1 sm:max-w-[9rem]">
+                <div className="min-w-26 flex-1 sm:max-w-36">
                   {splitMethod === 'percentage' ? (
                     <Input
                       type="number"
