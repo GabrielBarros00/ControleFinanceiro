@@ -217,7 +217,7 @@ export function OverviewPage() {
                     <Link
                       to={`/me/ledger?month=${month}&source=${origem}`}
                       aria-labelledby={`saida-${origem} valor-${origem}`}
-                      className="block rounded-sm after:absolute after:inset-0 after:rounded-md after:content-[''] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                      className="block rounded-sm after:absolute after:inset-0 after:rounded-md after:content-[''] focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring"
                     >
                       {fmt(valor)}
                     </Link>

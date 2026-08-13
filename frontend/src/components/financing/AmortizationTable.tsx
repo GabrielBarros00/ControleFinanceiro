@@ -24,7 +24,7 @@ import { parseApiDate, todayLocalISO } from '@/lib/date';
 // na hora — dentro de diálogos usamos <select> nativo (mesmo padrão de
 // SettlementDialog/RecurringTransactionsPage/PaymentMethodField).
 const selectClass =
-  'flex h-10 w-full rounded-md border border-border bg-background px-3 py-2 text-sm font-semibold text-foreground focus:outline-none focus:ring-2 focus:ring-ring';
+  'flex h-10 w-full rounded-md border border-border bg-background px-3 py-2 text-sm font-semibold text-foreground focus:outline-hidden focus:ring-2 focus:ring-ring';
 
 // Um ano por página: o recorte natural de um cronograma de amortização
 const PARCELAS_POR_PAGINA = 12;
