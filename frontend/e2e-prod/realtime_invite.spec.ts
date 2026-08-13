@@ -43,6 +43,38 @@ test.describe('Stack de produção: tempo real e convite por link', () => {
 
     const pageA = await contextA.newPage();
     const pageB = await contextB.newPage();
+
+    // Queda de rede CONTROLADA para o socket de B.
+    //
+    // Aqui havia `contextB.setOffline(true)`, e ele não serve para este teste:
+    // o modo offline do Chromium bloqueia conexões NOVAS, mas não derruba um
+    // WebSocket JÁ ABERTO. O que a asserção seguinte media, na prática, era uma
+    // corrida entre a emulação de rede e a chegada do frame — e o CI perdeu
+    // essa corrida com o MESMO build de Chromium (v1217) em que ela passa
+    // localmente. Teste que depende de quem chega primeiro reprova sozinho, e o
+    // custo disso é um gate vermelho que ninguém confia (ver o histórico de
+    // gates deste repositório).
+    //
+    // Derrubar o socket explicitamente é também o único jeito de GARANTIR a
+    // lacuna de `seq`. Sem lacuna, o lançamento chegaria ao vivo e o teste
+    // passaria sem nunca exercitar o resync — verde pelo motivo errado, que é
+    // pior do que vermelho.
+    //
+    // Enquanto `quedaDeRede` estiver ligada, as reconexões do app também são
+    // recusadas: é o que mantém B no escuro durante a janela.
+    type RotaWS = Parameters<Parameters<typeof contextB.routeWebSocket>[1]>[0];
+    let quedaDeRede = false;
+    const socketsDeB = new Set<RotaWS>();
+    await contextB.routeWebSocket(/\/ws\/workspaces\//, (ws) => {
+      if (quedaDeRede) {
+        ws.close();
+        return;
+      }
+      socketsDeB.add(ws);
+      ws.onClose(() => socketsDeB.delete(ws));
+      ws.connectToServer();
+    });
+
     await pageA.goto('/');
     await expect(pageA.getByRole('heading', { name: 'Início' })).toBeVisible({ timeout: 15_000 });
     await pageB.goto('/');
@@ -74,13 +106,39 @@ test.describe('Stack de produção: tempo real e convite por link', () => {
     expect((await createTxAs(titleLive)).ok()).toBeTruthy();
     await expect(pageB.getByText(titleLive)).toBeVisible({ timeout: 15_000 });
 
-    await contextB.setOffline(true);
+    quedaDeRede = true;
+    for (const ws of socketsDeB) ws.close();
+    socketsDeB.clear();
+
     const titleOffline = `Offline ${ts}`;
     expect((await createTxAs(titleOffline)).ok()).toBeTruthy();
+
+    // Ponto de sincronização, e não um `waitForTimeout`: espera A — que segue
+    // ONLINE — renderizar o lançamento. Quando isso acontece, o evento
+    // comprovadamente saiu do servidor e percorreu um caminho MAIS LONGO que o
+    // de B (frame → invalidação → refetch → render). Só então faz sentido
+    // afirmar que B não o tem.
+    //
+    // Sem esta espera a asserção seguinte não vale nada: `not.toBeVisible()`
+    // resolve na PRIMEIRA checagem, e logo após o POST o lançamento ainda não
+    // teria aparecido nem com o socket de B intacto. Verificado por
+    // falsificação — desligando a queda de rede, o teste continuava verde.
+    await expect(pageA.getByText(titleOffline)).toBeVisible({ timeout: 15_000 });
+    // A e B correm em PARALELO: A renderizar primeiro é questão de milissegundos
+    // e não diz nada sobre B. Provar uma ausência exige uma janela — esta é a
+    // margem em que B, se o socket estivesse vivo, teria renderizado com folga
+    // (o `titleLive` acima aparece em bem menos que isso).
+    await pageB.waitForTimeout(3_000);
     await expect(pageB.getByText(titleOffline)).not.toBeVisible();
 
-    await contextB.setOffline(false);
-    await expect(pageB.getByText(titleOffline)).toBeVisible({ timeout: 30_000 });
+    // Religa a rede. O app reconecta sozinho (backoff exponencial com jitter,
+    // 1s → 30s, que zera no `hello`), vê `hello.seq` à frente do último seq que
+    // conhecia e faz resync completo — é esse caminho, e não a entrega ao vivo,
+    // que a asserção abaixo prova. O timeout é folgado de propósito: a janela
+    // acima já custou algumas tentativas de reconexão, e cada uma empurra o
+    // backoff para cima.
+    quedaDeRede = false;
+    await expect(pageB.getByText(titleOffline)).toBeVisible({ timeout: 45_000 });
 
     await contextA.close();
     await contextB.close();
