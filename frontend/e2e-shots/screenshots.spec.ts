@@ -137,7 +137,12 @@ test('seed data and capture all screens', async ({ page, playwright }) => {
     // Daí o `expect`: semeadura que falha tem de derrubar a captura, não gerar
     // um catálogo de telas vazias.
     for (const renda of [
-      { title: 'Salário', amount: 7200, received_at: iso(6) },
+      // Valores GRANDES e títulos LONGOS de propósito: o catálogo existe para
+      // mostrar a interface sob carga real, e é com sete dígitos e nome comprido
+      // que aparece truncamento, quebra de coluna e número espremido. Dado
+      // pequeno esconde exatamente o defeito que a captura deveria revelar.
+      { title: 'Salário — Consultoria Internacional de Tecnologia Ltda.', amount: 187_450.9, received_at: iso(6) },
+      { title: 'Participação nos Lucros e Resultados (PLR anual)', amount: 1_284_390.55, received_at: iso(9) },
       { title: 'Freelance Design', amount: 1850, received_at: iso(3) },
     ]) {
       const res = await api.post(u('/me/income/'), { data: renda });
@@ -159,6 +164,10 @@ test('seed data and capture all screens', async ({ page, playwright }) => {
       { title: 'Padaria', total_amount: 28.4, transaction_date: iso(0), cat: 'Alimentação' },
       { title: 'Gasolina', total_amount: 250, transaction_date: iso(7), cat: 'Transporte' },
       { title: 'Presente Aniversário', total_amount: 120, transaction_date: iso(5), cat: 'Outros' },
+      // Casos-limite: valor de sete dígitos e descrição que não cabe na coluna.
+      { title: 'Reforma completa do apartamento — mão de obra, material e projeto de arquitetura', total_amount: 1_487_632.41, transaction_date: iso(14), cat: 'Moradia' },
+      { title: 'Matrícula e mensalidade anual da escola bilíngue das crianças', total_amount: 94_800, transaction_date: iso(11), cat: 'Educação' },
+      { title: 'Centavo', total_amount: 0.01, transaction_date: iso(1), cat: 'Outros' },
     ];
     await api.post(u(`/workspaces/${wsId}/transactions/bulk`), {
       data: txs.map((t) => ({ title: t.title, total_amount: t.total_amount, transaction_date: t.transaction_date })),
@@ -174,16 +183,26 @@ test('seed data and capture all screens', async ({ page, playwright }) => {
       }
     }
 
-    // Cartão de crédito + lançamentos na fatura (create completo com payer/split)
-    const card = await (
-      await api.post(u(`/workspaces/${wsId}/credit-cards/`), {
-        data: { name: 'Nubank Ultravioleta', limit: 12000, closing_day: 28, due_day: 7 },
-      })
-    ).json();
+    // Cartão de crédito — em `/me/credit-cards`, NÃO em `/workspaces/{id}/...`.
+    //
+    // Mesmo defeito das rendas: o caminho antigo saiu no ADR 0021 e o roteiro
+    // continuou postando lá sem conferir a resposta. A tela de Cartões saía com
+    // "Nenhum cartão cadastrado" no catálogo inteiro — e, como é um estado
+    // legítimo do app, ninguém desconfiava.
+    const cardRes = await api.post(u('/me/credit-cards/'), {
+      data: {
+        name: 'Cartão Platinum Internacional — Banco do Brasil',
+        limit: 250_000,
+        closing_day: 28,
+        due_day: 7,
+      },
+    });
+    expect(cardRes.ok(), `cartão: ${cardRes.status()} ${await cardRes.text()}`).toBeTruthy();
+    const card = await cardRes.json();
     const charges = [
       { title: 'iFood', amount: 68.5 },
       { title: 'Amazon.com.br', amount: 239.9 },
-      { title: 'Posto Shell', amount: 300 },
+      { title: 'Passagens aéreas internacionais para a família (quatro pessoas)', amount: 78_940.3 },
       { title: 'Zara', amount: 419.9 },
     ];
     for (const c of charges) {
@@ -201,6 +220,102 @@ test('seed data and capture all screens', async ({ page, playwright }) => {
       });
     }
 
+    // ---------------------------------------------------------------- ------
+    // O que nunca foi semeado, e por isso saía vazio no catálogo: as telas de
+    // Financiamentos, Recorrência, Compromissos, Acertos e Orçamento
+    // mostravam o estado "nenhum registro" como se fosse a cara do produto.
+    // -----------------------------------------------------------------------
+
+    // Financiamento (aparece em Financiamentos e em Compromissos)
+    const fin = await api.post(u('/me/financing/'), {
+      data: {
+        title: 'Financiamento Imobiliário — Apartamento Vila Madalena, 3 dormitórios',
+        total_amount: 1_250_000,
+        // Fração MENSAL, não porcentagem anual: o modelo documenta `0.01 = 1% a.m.`.
+        // Passar 9.75 aqui significa 975% ao mês, e o serviço recusa com razão
+        // ("a prestação não cobre nem os juros"). 0.0078 ≈ 9,75% ao ano.
+        interest_rate: 0.0078,
+        start_date: iso(400).slice(0, 10),
+        installments_count: 360,
+        method: 'PRICE',
+      },
+    });
+    expect(fin.ok(), `financiamento: ${fin.status()} ${await fin.text()}`).toBeTruthy();
+
+    // Conta de pagamento (origem do dinheiro nos lançamentos)
+    const conta = await api.post(u('/me/payment-accounts/'), {
+      data: { name: 'Conta Corrente Itaú Personnalité — Agência 0912', type: 'checking' },
+    });
+    expect(conta.ok(), `conta: ${conta.status()} ${await conta.text()}`).toBeTruthy();
+
+    // Despesa recorrente (tela de Recorrência)
+    for (const rec of [
+      { title: 'Aluguel do apartamento com condomínio e IPTU incluídos', base_amount: 8_450.75, frequency: 'monthly', day_of_month: 5 },
+      { title: 'Plano de saúde familiar', base_amount: 3_280.4, frequency: 'monthly', day_of_month: 12 },
+    ]) {
+      const r = await api.post(u(`/workspaces/${wsId}/recurring`), { data: rec });
+      expect(r.ok(), `recorrência "${rec.title}": ${r.status()} ${await r.text()}`).toBeTruthy();
+    }
+
+    // Renda recorrente (segunda tabela da tela de Rendas)
+    const recIncome = await api.post(u('/me/recurring-income/'), {
+      data: { title: 'Salário mensal líquido', base_amount: 187_450.9, frequency: 'monthly', day_of_month: 5 },
+    });
+    expect(recIncome.ok(), `renda recorrente: ${recIncome.status()} ${await recIncome.text()}`).toBeTruthy();
+
+    // Orçamento por categoria (aba Orçamento em Relatórios)
+    const mesAtual = new Date().toISOString().slice(0, 7);
+    for (const orc of [
+      { category: 'Moradia', amount: 12_000, month: mesAtual },
+      { category: 'Alimentação', amount: 4_500, month: mesAtual },
+      { category: 'Transporte', amount: 2_800, month: mesAtual },
+    ]) {
+      const r = await api.post(u(`/workspaces/${wsId}/analytics/estimates`), { data: orc });
+      expect(r.ok(), `orçamento "${orc.category}": ${r.status()} ${await r.text()}`).toBeTruthy();
+    }
+
+    // Segunda pessoa no workspace. Sem ela a tela de Acertos não tem o que
+    // mostrar: dívida entre pessoas pressupõe divisão, e com um único usuário o
+    // saldo é sempre zero — era por isso que "Acertos" aparecia vazia no
+    // catálogo, sem que nada estivesse errado.
+    const apiB = await playwright.request.newContext();
+    const emailB = 'bruno.demo@cf4.app';
+    await apiB.post(u('/auth/register'), {
+      data: { name: 'Bruno Nascimento Albuquerque', email: emailB, password },
+    });
+    const loginB = await apiB.post(u('/auth/login'), { data: { email: emailB, password } });
+    expect(loginB.ok(), `login de Bruno: ${await loginB.text()}`).toBeTruthy();
+    const bruno = await (await apiB.get(u('/auth/me'))).json();
+
+    const convite = await api.post(u(`/workspaces/${wsId}/invites`), {
+      data: { email: emailB, role: 'member' },
+    });
+    expect(convite.ok(), `convite: ${convite.status()} ${await convite.text()}`).toBeTruthy();
+    const avisos = await (await apiB.get(u('/notifications'))).json();
+    const token = avisos.items.find((n: { invite_token?: string }) => n.invite_token)?.invite_token;
+    expect(token, 'Bruno recebeu o convite').toBeTruthy();
+    expect((await apiB.post(u(`/invites/accept/${token}`))).ok()).toBeTruthy();
+
+    // Despesas rateadas: é o que gera saldo devedor entre as duas pessoas.
+    for (const d of [
+      { title: 'Jantar de comemoração no restaurante do hotel', total: 3_890.6 },
+      { title: 'Viagem de fim de ano — hospedagem e passagens', total: 214_500 },
+    ]) {
+      const r = await api.post(u(`/workspaces/${wsId}/transactions/`), {
+        data: {
+          title: d.title,
+          total_amount: d.total,
+          transaction_date: iso(4),
+          payers: [{ user_id: uid, amount: d.total }],
+          splits: [
+            { user_id: uid, split_method: 'equal', input_value: 0 },
+            { user_id: bruno.id, split_method: 'equal', input_value: 0 },
+          ],
+        },
+      });
+      expect(r.ok(), `despesa rateada "${d.title}": ${r.status()} ${await r.text()}`).toBeTruthy();
+    }
+    await apiB.dispose();
   }
 
   // ----------------------------------------------------------- SCREENSHOTS
