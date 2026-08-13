@@ -36,11 +36,14 @@ Aplicação full-stack para controlar gastos, **dividir despesas entre pessoas**
 
 ## Screenshots
 
-| Dashboard | Divisão por item |
+| Início — o mês somando todos os workspaces | Nova despesa, com divisão por item |
 |:---:|:---:|
-| [![Dashboard](docs/images/dashboard.png)](docs/images/dashboard.png) | [![Nova despesa dividida por item](docs/images/nova-despesa.png)](docs/images/nova-despesa.png) |
-| **Relatórios** | **Login** |
-| [![Relatórios](docs/images/relatorios.png)](docs/images/relatorios.png) | [![Login](docs/images/login.png)](docs/images/login.png) |
+| [![Início](docs/images/inicio-global-light.png)](docs/images/inicio-global-light.png) | [![Nova despesa dividida por item](docs/images/nova-despesa-modal-light.png)](docs/images/nova-despesa-modal-light.png) |
+| **Relatórios — tema escuro** | **Acertos — quem deve para quem** |
+| [![Relatórios](docs/images/relatorios-dark.png)](docs/images/relatorios-dark.png) | [![Acertos](docs/images/acertos-light.png)](docs/images/acertos-light.png) |
+
+**[Catálogo completo →](docs/SCREENSHOTS.md)** — todas as 24 telas do aplicativo
+em tema claro e escuro, incluindo mobile, modais e a área administrativa.
 
 ## Início rápido
 
@@ -82,6 +85,7 @@ A referência de cada variável está em **[SETUP.md](SETUP.md)**.
 
 | Documento | Conteúdo |
 |---|---|
+| **[docs/SCREENSHOTS.md](docs/SCREENSHOTS.md)** | Catálogo de todas as telas, em tema claro e escuro — inclusive mobile e área administrativa |
 | **[SETUP.md](SETUP.md)** | Configuração e deploy: variáveis de ambiente, produção vs dev, OAuth, SMTP, backup, problemas comuns |
 | **[docs/deploy-vps.md](docs/deploy-vps.md)** | Primeiro deploy numa VPS, do zero ao ar: servidor, HTTPS com Caddy, primeiro acesso, backup automático |
 | **[docs/runbook-deploy.md](docs/runbook-deploy.md)** | Atualizar um deploy existente: backup, ensaio da migração, rollback |
