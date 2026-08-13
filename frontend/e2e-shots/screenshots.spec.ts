@@ -189,16 +189,23 @@ test('seed data and capture all screens', async ({ page, playwright }) => {
     // continuou postando lá sem conferir a resposta. A tela de Cartões saía com
     // "Nenhum cartão cadastrado" no catálogo inteiro — e, como é um estado
     // legítimo do app, ninguém desconfiava.
-    const cardRes = await api.post(u('/me/credit-cards/'), {
-      data: {
-        name: 'Cartão Platinum Internacional — Banco do Brasil',
-        limit: 250_000,
-        closing_day: 28,
-        due_day: 7,
-      },
-    });
-    expect(cardRes.ok(), `cartão: ${cardRes.status()} ${await cardRes.text()}`).toBeTruthy();
-    const card = await cardRes.json();
+    // CINCO cartões: a tela os dispõe numa grade, e o comportamento com vários
+    // (quebra de linha, cartão selecionado, faixa de limite) só aparece com
+    // mais de um. Limites de ordens de grandeza diferentes de propósito — o
+    // menor tem quatro dígitos, o maior seis.
+    let card: { id: number } | null = null;
+    for (const c of [
+      { name: 'Cartão Platinum Internacional — Banco do Brasil', limit: 250_000, closing_day: 28, due_day: 7 },
+      { name: 'Nubank Ultravioleta', limit: 38_000, closing_day: 15, due_day: 22 },
+      { name: 'Itaú Personnalité Mastercard Black', limit: 120_000, closing_day: 5, due_day: 12 },
+      { name: 'Cartão da loja de materiais de construção (parcelamento sem juros)', limit: 9_500, closing_day: 20, due_day: 28 },
+      { name: 'C6 Carbon', limit: 65_000, closing_day: 10, due_day: 18 },
+    ]) {
+      const r = await api.post(u('/me/credit-cards/'), { data: c });
+      expect(r.ok(), `cartão "${c.name}": ${r.status()} ${await r.text()}`).toBeTruthy();
+      card = card ?? (await r.json());
+    }
+    expect(card, 'o primeiro cartão precisa existir para receber as compras').toBeTruthy();
     const charges = [
       { title: 'iFood', amount: 68.5 },
       { title: 'Amazon.com.br', amount: 239.9 },
@@ -212,7 +219,7 @@ test('seed data and capture all screens', async ({ page, playwright }) => {
           total_amount: c.amount,
           transaction_date: iso(3),
           payment_method: 'credit_card',
-          credit_card_id: card.id,
+          credit_card_id: card!.id,
           split_mode: 'transaction',
           payers: [{ user_id: uid, amount: c.amount }],
           splits: [{ user_id: uid, split_method: 'equal', input_value: 100 }],
@@ -227,31 +234,55 @@ test('seed data and capture all screens', async ({ page, playwright }) => {
     // -----------------------------------------------------------------------
 
     // Financiamento (aparece em Financiamentos e em Compromissos)
-    const fin = await api.post(u('/me/financing/'), {
-      data: {
-        title: 'Financiamento Imobiliário — Apartamento Vila Madalena, 3 dormitórios',
-        total_amount: 1_250_000,
-        // Fração MENSAL, não porcentagem anual: o modelo documenta `0.01 = 1% a.m.`.
-        // Passar 9.75 aqui significa 975% ao mês, e o serviço recusa com razão
-        // ("a prestação não cobre nem os juros"). 0.0078 ≈ 9,75% ao ano.
-        interest_rate: 0.0078,
-        start_date: iso(400).slice(0, 10),
-        installments_count: 360,
-        method: 'PRICE',
-      },
-    });
-    expect(fin.ok(), `financiamento: ${fin.status()} ${await fin.text()}`).toBeTruthy();
+    // SEIS financiamentos, com variedade de método, prazo, valor e tamanho de
+    // nome. A tela os apresenta como uma FAIXA DE BOTÕES com `flex-wrap`, cada
+    // um exibindo o título inteiro — é justamente aí que a coleção encontra seu
+    // limite: com poucos contratos parece um seletor discreto, com muitos vira
+    // uma parede que empurra a tabela para fora da tela. Um item só nunca
+    // mostraria isso.
+    for (const f of [
+      { title: 'Financiamento Imobiliário — Apartamento Vila Madalena, 3 dormitórios', total_amount: 1_250_000, interest_rate: 0.0078, installments_count: 360, method: 'PRICE' },
+      { title: 'Consórcio de imóvel contemplado — Casa em Atibaia com piscina e quintal', total_amount: 680_000, interest_rate: 0.0065, installments_count: 240, method: 'SAC' },
+      { title: 'Veículo — SUV híbrida', total_amount: 289_900, interest_rate: 0.0142, installments_count: 60, method: 'PRICE' },
+      { title: 'Reforma da cozinha', total_amount: 87_400, interest_rate: 0.0189, installments_count: 24, method: 'SAC' },
+      { title: 'Empréstimo consignado para quitação de dívidas do cartão de crédito', total_amount: 45_000, interest_rate: 0.0215, installments_count: 36, method: 'PRICE' },
+      { title: 'Notebook', total_amount: 12_800, interest_rate: 0.0199, installments_count: 12, method: 'PRICE' },
+    ]) {
+      const r = await api.post(u('/me/financing/'), {
+        data: { ...f, start_date: iso(400).slice(0, 10) },
+      });
+      expect(r.ok(), `financiamento "${f.title}": ${r.status()} ${await r.text()}`).toBeTruthy();
+    }
 
     // Conta de pagamento (origem do dinheiro nos lançamentos)
-    const conta = await api.post(u('/me/payment-accounts/'), {
-      data: { name: 'Conta Corrente Itaú Personnalité — Agência 0912', type: 'checking' },
-    });
-    expect(conta.ok(), `conta: ${conta.status()} ${await conta.text()}`).toBeTruthy();
+    for (const ct of [
+      { name: 'Conta Corrente Itaú Personnalité — Agência 0912', type: 'checking' },
+      { name: 'Poupança Caixa', type: 'savings' },
+      { name: 'Carteira digital', type: 'digital_wallet' },
+      { name: 'Conta digital Nubank', type: 'checking' },
+      { name: 'Reserva de emergência — CDB com liquidez diária', type: 'savings' },
+    ]) {
+      const r = await api.post(u('/me/payment-accounts/'), { data: ct });
+      expect(r.ok(), `conta "${ct.name}": ${r.status()} ${await r.text()}`).toBeTruthy();
+    }
 
     // Despesa recorrente (tela de Recorrência)
+    // OITO recorrências, cobrindo as quatro frequências e o "a cada N". A tabela
+    // precisa descrever cada padrão numa coluna estreita ("Dia 5", "Toda
+    // segunda", "A cada 3 meses"), e é com variedade que se vê se a descrição
+    // cabe ou vira sopa de letras.
     for (const rec of [
       { title: 'Aluguel do apartamento com condomínio e IPTU incluídos', base_amount: 8_450.75, frequency: 'monthly', day_of_month: 5 },
       { title: 'Plano de saúde familiar', base_amount: 3_280.4, frequency: 'monthly', day_of_month: 12 },
+      { title: 'Faxina', base_amount: 220, frequency: 'weekly', day_of_week: 2 },
+      { title: 'Assinatura anual do software de edição de vídeo e banco de imagens', base_amount: 4_780, frequency: 'yearly', month_of_year: 3, day_of_month: 15 },
+      { title: 'Mensalidade da academia com personal trainer duas vezes por semana', base_amount: 890.5, frequency: 'monthly', day_of_month: 8 },
+      { title: 'Estacionamento mensal do prédio comercial', base_amount: 640, frequency: 'monthly', interval: 1, day_of_month: 1 },
+      // `interval > 1` é a recorrência "a cada N", e ela EXIGE `start_date`: sem
+      // âncora não há como saber a partir de quando contar os 3 meses. O
+      // `interval: 1` acima é o preset legado e dispensa.
+      { title: 'Manutenção preventiva do carro', base_amount: 1_350, frequency: 'monthly', interval: 3, day_of_month: 20, start_date: iso(60).slice(0, 10) },
+      { title: 'Café', base_amount: 12.5, frequency: 'daily' },
     ]) {
       const r = await api.post(u(`/workspaces/${wsId}/recurring`), { data: rec });
       expect(r.ok(), `recorrência "${rec.title}": ${r.status()} ${await r.text()}`).toBeTruthy();
@@ -278,28 +309,63 @@ test('seed data and capture all screens', async ({ page, playwright }) => {
     // mostrar: dívida entre pessoas pressupõe divisão, e com um único usuário o
     // saldo é sempre zero — era por isso que "Acertos" aparecia vazia no
     // catálogo, sem que nada estivesse errado.
-    const apiB = await playwright.request.newContext();
-    const emailB = 'bruno.demo@cf4.app';
-    await apiB.post(u('/auth/register'), {
-      data: { name: 'Bruno Nascimento Albuquerque', email: emailB, password },
-    });
-    const loginB = await apiB.post(u('/auth/login'), { data: { email: emailB, password } });
-    expect(loginB.ok(), `login de Bruno: ${await loginB.text()}`).toBeTruthy();
-    const bruno = await (await apiB.get(u('/auth/me'))).json();
+    // TRÊS pessoas além da dona: nome longo, nome curto e nome com acento, para
+    // ver o avatar de iniciais, a lista de membros e — principalmente — a
+    // divisão de uma despesa entre quatro, que é onde os selos de participante
+    // disputam espaço na linha.
+    const convidados: Array<{ id: number; nome: string }> = [];
+    for (const c of [
+      { nome: 'Bruno Nascimento Albuquerque', email: 'bruno.demo@cf4.app', role: 'member', rendaBase: 42_300.5, cartao: 'Bradesco Elo Nanquim', limite: 45_000 },
+      { nome: "Carla Íris D'Ávila", email: 'carla.demo@cf4.app', role: 'admin', rendaBase: 9_870.25, cartao: 'Santander Unique', limite: 28_000 },
+      { nome: 'Téo', email: 'teo.demo@cf4.app', role: 'viewer', rendaBase: 3_150, cartao: 'Cartão pré-pago', limite: 2_000 },
+    ]) {
+      const apiC = await playwright.request.newContext();
+      await apiC.post(u('/auth/register'), { data: { name: c.nome, email: c.email, password } });
+      const log = await apiC.post(u('/auth/login'), { data: { email: c.email, password } });
+      expect(log.ok(), `login de ${c.nome}: ${await log.text()}`).toBeTruthy();
+      const eu2 = await (await apiC.get(u('/auth/me'))).json();
 
-    const convite = await api.post(u(`/workspaces/${wsId}/invites`), {
-      data: { email: emailB, role: 'member' },
-    });
-    expect(convite.ok(), `convite: ${convite.status()} ${await convite.text()}`).toBeTruthy();
-    const avisos = await (await apiB.get(u('/notifications'))).json();
-    const token = avisos.items.find((n: { invite_token?: string }) => n.invite_token)?.invite_token;
-    expect(token, 'Bruno recebeu o convite').toBeTruthy();
-    expect((await apiB.post(u(`/invites/accept/${token}`))).ok()).toBeTruthy();
+      const cv = await api.post(u(`/workspaces/${wsId}/invites`), {
+        data: { email: c.email, role: c.role },
+      });
+      expect(cv.ok(), `convite de ${c.nome}: ${cv.status()} ${await cv.text()}`).toBeTruthy();
+      const av = await (await apiC.get(u('/notifications'))).json();
+      const tk = av.items.find((n: { invite_token?: string }) => n.invite_token)?.invite_token;
+      expect(tk, `${c.nome} recebeu o convite`).toBeTruthy();
+      expect((await apiC.post(u(`/invites/accept/${tk}`))).ok()).toBeTruthy();
+      // Cada pessoa com o SEU patrimônio pessoal. Renda, cartão e conta são
+      // recursos da pessoa (ADR 0021), então isso não aparece nas telas da Ana
+      // — de propósito, é o que a privacidade garante. Aparece no painel
+      // administrativo (contagem, uso, espaço) e torna o cenário verossímil em
+      // vez de um único usuário rico cercado de contas zeradas.
+      const rendaC = await apiC.post(u('/me/income/'), {
+        data: { title: `Salário de ${c.nome.split(' ')[0]}`, amount: c.rendaBase, received_at: iso(7) },
+      });
+      expect(rendaC.ok(), `renda de ${c.nome}: ${rendaC.status()} ${await rendaC.text()}`).toBeTruthy();
+
+      const cartaoC = await apiC.post(u('/me/credit-cards/'), {
+        data: { name: c.cartao, limit: c.limite, closing_day: 10, due_day: 20 },
+      });
+      expect(cartaoC.ok(), `cartão de ${c.nome}: ${cartaoC.status()} ${await cartaoC.text()}`).toBeTruthy();
+
+      convidados.push({ id: eu2.id, nome: c.nome });
+      await apiC.dispose();
+    }
+    const bruno = convidados[0];
 
     // Despesas rateadas: é o que gera saldo devedor entre as duas pessoas.
+    const todos = [uid, ...convidados.map((c) => c.id)];
     for (const d of [
-      { title: 'Jantar de comemoração no restaurante do hotel', total: 3_890.6 },
-      { title: 'Viagem de fim de ano — hospedagem e passagens', total: 214_500 },
+      // Dois participantes
+      { title: 'Jantar de comemoração no restaurante do hotel', total: 3_890.6, com: [uid, bruno.id] },
+      { title: 'Viagem de fim de ano — hospedagem e passagens', total: 214_500, com: [uid, bruno.id] },
+      // QUATRO participantes: é aqui que os selos de quem participou disputam a
+      // largura da linha, na tela de Acertos e na lista de Lançamentos.
+      { title: 'Churrasco de confraternização do fim de ano com as famílias', total: 2_480.9, com: todos },
+      { title: 'Presente coletivo de casamento', total: 1_200, com: todos },
+      { title: 'Aluguel da casa de praia no feriado prolongado de novembro', total: 18_900, com: todos },
+      // Três participantes, valor alto
+      { title: 'Reforma da área comum do prédio — rateio extraordinário', total: 96_750.44, com: todos.slice(0, 3) },
     ]) {
       const r = await api.post(u(`/workspaces/${wsId}/transactions/`), {
         data: {
@@ -307,15 +373,90 @@ test('seed data and capture all screens', async ({ page, playwright }) => {
           total_amount: d.total,
           transaction_date: iso(4),
           payers: [{ user_id: uid, amount: d.total }],
-          splits: [
-            { user_id: uid, split_method: 'equal', input_value: 0 },
-            { user_id: bruno.id, split_method: 'equal', input_value: 0 },
-          ],
+          splits: d.com.map((id) => ({ user_id: id, split_method: 'equal', input_value: 0 })),
         },
       });
       expect(r.ok(), `despesa rateada "${d.title}": ${r.status()} ${await r.text()}`).toBeTruthy();
     }
-    await apiB.dispose();
+
+    // -----------------------------------------------------------------------
+    // Os OUTROS tipos de divisão. Até aqui tudo era `equal`, e o catálogo não
+    // mostrava porcentagem, valor fixo nem divisão por item — que são
+    // justamente os modos onde a linha precisa exibir mais informação por
+    // participante e onde o layout aperta.
+    // -----------------------------------------------------------------------
+
+    // Porcentagem desigual (60/25/15)
+    const porcent = await api.post(u(`/workspaces/${wsId}/transactions/`), {
+      data: {
+        title: 'Conta de energia do escritório compartilhado — rateio por sala ocupada',
+        total_amount: 4_820.35,
+        transaction_date: iso(6),
+        payment_method: 'pix',
+        payers: [{ user_id: uid, amount: 4_820.35 }],
+        splits: [
+          { user_id: uid, split_method: 'percentage', input_value: 60 },
+          { user_id: convidados[0].id, split_method: 'percentage', input_value: 25 },
+          { user_id: convidados[1].id, split_method: 'percentage', input_value: 15 },
+        ],
+      },
+    });
+    expect(porcent.ok(), `divisão por porcentagem: ${porcent.status()} ${await porcent.text()}`).toBeTruthy();
+
+    // Valor fixo por pessoa, e quem PAGOU não é a dona da tela
+    const fixo = await api.post(u(`/workspaces/${wsId}/transactions/`), {
+      data: {
+        title: 'Assinatura do plano familiar de streaming dividida em valores combinados',
+        total_amount: 189.9,
+        transaction_date: iso(5),
+        payment_method: 'boleto',
+        payers: [{ user_id: convidados[0].id, amount: 189.9 }],
+        splits: [
+          { user_id: uid, split_method: 'fixed', input_value: 89.9 },
+          { user_id: convidados[0].id, split_method: 'fixed', input_value: 60 },
+          { user_id: convidados[1].id, split_method: 'fixed', input_value: 40 },
+        ],
+      },
+    });
+    expect(fixo.ok(), `divisão por valor fixo: ${fixo.status()} ${await fixo.text()}`).toBeTruthy();
+
+    // Divisão POR ITEM: cada item com participantes próprios (ADR do rateio por
+    // item). É o caso mais denso da interface — quantidade, valor unitário e
+    // quem participa de cada linha.
+    const porItem = await api.post(u(`/workspaces/${wsId}/transactions/`), {
+      data: {
+        title: 'Supermercado do mês — compras separadas por quem consome',
+        total_amount: 1_284.59,
+        transaction_date: iso(2),
+        split_mode: 'item',
+        payment_method: 'debit_card',
+        payers: [{ user_id: uid, amount: 1_284.59 }],
+        items: [
+          { title: 'Carne, frango e peixe para a semana', amount: 486.9, quantity: 1, shares: [{ user_id: uid, split_method: 'equal', input_value: 0 }, { user_id: convidados[0].id, split_method: 'equal', input_value: 0 }] },
+          { title: 'Ração e areia do gato', amount: 312.4, quantity: 2, unit_amount: 156.2, shares: [{ user_id: convidados[1].id, split_method: 'equal', input_value: 0 }] },
+          { title: 'Fraldas', amount: 289.9, quantity: 1, shares: [{ user_id: convidados[0].id, split_method: 'equal', input_value: 0 }, { user_id: convidados[2].id, split_method: 'equal', input_value: 0 }] },
+          { title: 'Café, filtro e açúcar', amount: 195.39, quantity: 3, unit_amount: 65.13, shares: [{ user_id: uid, split_method: 'equal', input_value: 0 }, { user_id: convidados[0].id, split_method: 'equal', input_value: 0 }, { user_id: convidados[1].id, split_method: 'equal', input_value: 0 }, { user_id: convidados[2].id, split_method: 'equal', input_value: 0 }] },
+        ],
+      },
+    });
+    expect(porItem.ok(), `divisão por item: ${porItem.status()} ${await porItem.text()}`).toBeTruthy();
+
+    // Vários PAGADORES na mesma despesa (cada um adiantou uma parte)
+    const multi = await api.post(u(`/workspaces/${wsId}/transactions/`), {
+      data: {
+        title: 'Material de construção da reforma — cada um adiantou uma parte',
+        total_amount: 27_640.8,
+        transaction_date: iso(8),
+        payment_method: 'bank_transfer',
+        payers: [
+          { user_id: uid, amount: 15_000 },
+          { user_id: convidados[0].id, amount: 8_640.8 },
+          { user_id: convidados[1].id, amount: 4_000 },
+        ],
+        splits: todos.map((id) => ({ user_id: id, split_method: 'equal', input_value: 0 })),
+      },
+    });
+    expect(multi.ok(), `múltiplos pagadores: ${multi.status()} ${await multi.text()}`).toBeTruthy();
   }
 
   // ----------------------------------------------------------- SCREENSHOTS
