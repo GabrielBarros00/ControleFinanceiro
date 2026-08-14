@@ -1,5 +1,7 @@
 """Contrato de IP real entre cloudflared, nginx e o backend."""
 
+import ipaddress
+import re
 from pathlib import Path
 
 
@@ -77,6 +79,80 @@ def test_compose_oferece_cloudflared_opcional_e_isolado():
     assert "ipv4_address: 172.31.255.2" in compose
     assert "subnet: 172.31.255.0/29" in compose
     assert "cloudflare_edge:" in compose
+
+
+SUB_REDE_DO_TUNNEL = ipaddress.ip_network("172.31.255.0/29")
+IP_DO_CLOUDFLARED = "172.31.255.2"
+
+
+def _servicos_do_compose() -> dict[str, str]:
+    """Nome -> corpo de cada serviço, recortado do bloco `services:`."""
+    servicos: dict[str, list[str]] = {}
+    atual: str | None = None
+    dentro = False
+
+    for linha in COMPOSE.read_text(encoding="utf-8").splitlines():
+        if linha.startswith("services:"):
+            dentro = True
+            continue
+        if not dentro:
+            continue
+        if linha and not linha.startswith(" "):
+            break  # chegou em `volumes:`/`networks:`, na raiz do arquivo
+        cabecalho = re.fullmatch(r" {2}([\w.-]+):[ \t]*", linha)
+        if cabecalho:
+            atual = cabecalho.group(1)
+            servicos[atual] = []
+        elif atual is not None:
+            servicos[atual].append(linha)
+
+    return {nome: "\n".join(corpo) for nome, corpo in servicos.items()}
+
+
+def _endereco_fixo_na_rede_do_tunnel(corpo: str) -> str | None:
+    bloco = re.search(
+        r"^ {6}cloudflare_edge:[ \t]*$\n((?:^ {8}\S.*$\n?)*)",
+        corpo,
+        re.MULTILINE,
+    )
+    if bloco is None:
+        return None
+    endereco = re.search(r"ipv4_address:\s*(\S+)", bloco.group(1))
+    return endereco.group(1) if endereco else None
+
+
+def test_todo_servico_da_rede_do_tunnel_tem_endereco_fixo():
+    """Endereço dinâmico nessa rede é deploy quebrado, não detalhe de estilo.
+
+    A `cloudflare_edge` é uma /29: livres, só .2 a .6 (o .1 é o gateway). O IPAM
+    do Docker entrega o primeiro livre — o .2 — a quem sobe sem pedir endereço,
+    e o `cloudflared` sobe por último, porque espera o healthcheck do frontend.
+    Foi o que aconteceu no primeiro deploy com Tunnel: o frontend tomou o .2, o
+    `cloudflared` pediu o mesmo .2 fixo e morreu em
+    "failed to set up container networking: Address already in use", com todo o
+    resto do stack `healthy` e o app inalcançável de fora.
+
+    O .2 é endereço de contrato (o `geo` do nginx.conf), não pode mudar de dono.
+    """
+    na_rede = {
+        nome: corpo
+        for nome, corpo in _servicos_do_compose().items()
+        if "cloudflare_edge:" in corpo
+    }
+    assert set(na_rede) == {"frontend", "cloudflared"}
+
+    enderecos: dict[str, str] = {}
+    for nome, corpo in na_rede.items():
+        endereco = _endereco_fixo_na_rede_do_tunnel(corpo)
+        assert endereco is not None, (
+            f"`{nome}` entra na cloudflare_edge sem ipv4_address: o IPAM vai"
+            f" dar a ele o {IP_DO_CLOUDFLARED} e o Tunnel não sobe."
+        )
+        assert ipaddress.ip_address(endereco) in SUB_REDE_DO_TUNNEL
+        enderecos[nome] = endereco
+
+    assert enderecos["cloudflared"] == IP_DO_CLOUDFLARED
+    assert len(set(enderecos.values())) == len(enderecos)
 
 
 def test_guia_deploy_documenta_tunnel_e_limite_de_confianca():

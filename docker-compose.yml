@@ -216,7 +216,22 @@ services:
       retries: 5
     networks:
       default:
+      # ENDEREÇO FIXO, e não por capricho: sem ele o Tunnel nunca sobe.
+      #
+      # A `cloudflare_edge` é uma /29 — sobram os endereços .2 a .6, porque o .1
+      # é o gateway. O IPAM do Docker entrega o PRIMEIRO livre a quem chega sem
+      # pedir endereço, e quem chega primeiro é este container: o `cloudflared`
+      # espera o healthcheck do frontend (`depends_on`), então perde a corrida
+      # por construção. O frontend levava o .2, e logo depois o `cloudflared`
+      # pedia o .2 fixo e morria com "failed to set up container networking:
+      # Address already in use" — todo o resto do stack `healthy`, e o app
+      # inalcançável pelo Tunnel.
+      #
+      # O .2 não é intercambiável: é o peer que o `nginx.conf` reconhece para
+      # aceitar `CF-Connecting-IP` (o `geo $cloudflared_source_trusted`). Quem
+      # cede é o frontend.
       cloudflare_edge:
+        ipv4_address: 172.31.255.3
 
   # Opcional: ative com `docker compose --profile cloudflare up --build -d`.
   # O Tunnel alcança a porta interna 8080 do nginx pela rede dedicada. O nginx
