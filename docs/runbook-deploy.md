@@ -13,6 +13,10 @@ real de produção.
 
 ## Antes de todo `docker compose up -d --build`
 
+Quem usa Cloudflare Tunnel deve manter `COMPOSE_PROFILES=cloudflare` no `.env`;
+assim todos os comandos `docker compose` deste runbook incluem e atualizam o
+container `cloudflared` automaticamente.
+
 ### 1. Backup dos DOIS artefatos
 
 O estado do sistema não é só o banco. Anexos moram no volume `attachments_data`
