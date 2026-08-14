@@ -94,10 +94,17 @@ export default defineConfig({
       //
       // Auditoria da onda: 64,35/58,17/54,67/66,84 (a tela de cadastro e o
       // helper de clipboard ganharam teste; os pisos seguem os mesmos).
+      //
+      // Acertos globais (ADR 0027): 63/57/53/66 → 64/58/54/66 (medido
+      // 64,98/59,00/55,61/67,41). A onda acrescentou uma tela grande e três
+      // componentes, e mesmo assim a medição SUBIU — os componentes saíram de
+      // dentro das telas existentes já cobertos, e a tela nova nasceu com teste.
+      // `lines` fica em 66: 67 deixaria 0,41 de margem, abaixo do 0,65 que a
+      // Onda 9 já registrou como fino demais para sobreviver a um refactor.
       thresholds: {
-        statements: 63,
-        branches: 57,
-        functions: 53,
+        statements: 64,
+        branches: 58,
+        functions: 54,
         lines: 66,
       },
     },

@@ -60,6 +60,32 @@ describe('keysForEvent', () => {
     }
   });
 
+  /*
+   * ADR 0027: a tela "Seus acertos" mostra o MESMO acerto das telas de casa,
+   * agrupado por workspace. As famílias dela vêm de `/me/*` e por isso NÃO levam
+   * workspace na chave — o defeito que a Onda 6 caçou (`['me-x', 7]` não casa com
+   * `['me-x']`, porque o TanStack compara por prefixo e o prefixo é o inverso).
+   */
+  it.each([
+    ['settlement.created'],
+    ['settlement.deleted'],
+    ['transaction.created'],
+    ['member.removed'],
+  ])('%s atualiza os acertos globais sem escopo de workspace', (tipo) => {
+    const keys = keysForEvent(tipo, WS_ID) as unknown[][];
+    expect(keys).toContainEqual(['me-debts']);
+    expect(keys).not.toContainEqual(['me-debts', WS_ID]);
+    expect(keys).toContainEqual(['me-debts-monthly']);
+  });
+
+  it('o acerto atualiza também o histórico global e as telas da casa', () => {
+    const keys = keysForEvent('settlement.created', WS_ID) as unknown[][];
+    expect(keys).toContainEqual(['me-settlements']);
+    // A casa continua sendo invalidada com o id — as duas telas convivem.
+    expect(keys).toContainEqual(['settlements', WS_ID]);
+    expect(keys).toContainEqual(['debts', WS_ID]);
+  });
+
   it('ciclo da fatura atualiza cartões e compromissos, não só a fatura', () => {
     const keys = keysForEvent('credit_card.statement_paid', WS_ID) as unknown[][];
     expect(keys).toContainEqual(['statements']);

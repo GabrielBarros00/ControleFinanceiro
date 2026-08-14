@@ -41,12 +41,15 @@ from sqlmodel import Session, func, select
 
 from app.domain.access_policy import involvement_filter
 from app.domain.dates import month_bounds_utc, month_key, today_local
-from app.domain.query_policy import REALIZED_STATUSES, workspace_base_currency
+from app.domain.query_policy import (
+    REALIZED_STATUSES,
+    workspace_base_currency,
+    workspaces_do_usuario,
+)
 from app.models.credit_card import CreditCard, StatementStatus
 from app.models.financing import AmortizationInstallment, Financing, FinancingStatus
 from app.models.transaction import Transaction, TransactionPayer, TransactionSplit
 from app.models.user import User
-from app.models.workspace import Workspace, WorkspaceMembership
 from app.services.cashflow_service import CashFlowService
 from app.services.credit_card_service import CreditCardService
 from app.services.debt_service import DebtService
@@ -70,22 +73,6 @@ class OverviewService:
         passou a usá-la; aqui fica o apelido, para as chamadas existentes.
         """
         return converte(db, valor, de, para, quando)
-
-    @staticmethod
-    def _workspaces_do_usuario(db: Session, user_id: int) -> List[Workspace]:
-        ids = db.exec(
-            select(WorkspaceMembership.workspace_id).where(
-                WorkspaceMembership.user_id == user_id
-            )
-        ).all()
-        if not ids:
-            return []
-        return db.exec(
-            select(Workspace)
-            .where(Workspace.id.in_(ids))
-            .where(Workspace.deleted_at.is_(None))
-            .order_by(Workspace.name)
-        ).all()
 
     # ------------------------------------------------------------------
     @staticmethod
@@ -200,7 +187,7 @@ class OverviewService:
         # São Paulo — gravada como 01/08 01:00Z.
         inicio, fim = month_bounds_utc(primeiro)
 
-        workspaces = OverviewService._workspaces_do_usuario(db, user_id)
+        workspaces = workspaces_do_usuario(db, user_id)
 
         # --- Caixa efetivo e renda (ADR 0022) ----------------------------------
         # Renda sai daqui junto com o caixa porque é uma das seis fontes do
@@ -574,7 +561,7 @@ class OverviewService:
     def get_activity(db: Session, user_id: int, limit: int = 10) -> List[Dict[str, Any]]:
         """Lançamentos recentes em que a pessoa está ENVOLVIDA, em qualquer
         workspace — mesma definição de envolvimento da política (ADR 0018)."""
-        workspaces = OverviewService._workspaces_do_usuario(db, user_id)
+        workspaces = workspaces_do_usuario(db, user_id)
         ids = [ws.id for ws in workspaces]
         if not ids:
             return []

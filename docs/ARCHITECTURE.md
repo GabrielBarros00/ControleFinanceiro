@@ -111,7 +111,16 @@ PESSOA; transação, divisão, acerto, categoria e anexo são do WORKSPACE.
 - **Rotas `/me/*`** (`app/api/routes/me.py` + `overview_service.py`) somam todos os
   workspaces do usuário e separam **consumo** (Σ dos meus splits), **saída de caixa**
   (Σ dos meus payers), **a pagar/receber** (a diferença, por workspace) e **resultado**
-  (renda − consumo). Saldos NUNCA se compensam entre workspaces.
+  (renda − consumo). Saldos NUNCA se compensam entre workspaces. O recorte "meus
+  workspaces" é `query_policy.workspaces_do_usuario` — um só, usado pelos três
+  serviços que agregam (visão global, caixa e acertos).
+- **Acertos existem nas DUAS camadas** (ADR 0027): `/{ws}/debts` responde "como está
+  esta casa" (inclui dívida entre terceiros para quem tem acesso completo) e
+  `/me/debts`, `/me/debts/monthly`, `/me/settlements` (`personal_debt_service.py`)
+  respondem "com quem eu me acerto", agrupado por casa e sempre `involved_only`. A
+  camada global é **só leitura**: registrar acerto continua em
+  `POST /{ws}/settlements`, onde vivem o teto do ADR 0009, o `trava_workspace` e o
+  `publish_event` — que exige workspace.
 - **No frontend, o workspace vive na URL** (`/w/:workspaceId/...`), com
   `useWorkspaceId()` como ponto único de leitura e um `WorkspaceGuard` validando a
   associação antes de a tela montar.

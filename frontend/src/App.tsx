@@ -22,6 +22,7 @@ const ReportsPage = React.lazy(() => import('./pages/Reports/ReportsPage').then(
 const SettingsPage = React.lazy(() => import('./pages/Settings/SettingsPage').then(m => ({ default: m.SettingsPage })));
 const MyReportsPage = React.lazy(() => import('./pages/MyReportsPage').then(m => ({ default: m.MyReportsPage })));
 const GlobalLedgerPage = React.lazy(() => import('./pages/GlobalLedgerPage').then(m => ({ default: m.GlobalLedgerPage })));
+const MySettlementsPage = React.lazy(() => import('./pages/MySettlementsPage').then(m => ({ default: m.MySettlementsPage })));
 const PersonalSettingsPage = React.lazy(() => import('./pages/Settings/SettingsPage').then(m => ({ default: m.PersonalSettingsPage })));
 const RecurringTransactionsPage = React.lazy(() => import('./pages/RecurringTransactionsPage').then(m => ({ default: m.RecurringTransactionsPage })));
 const DebtsPage = React.lazy(() => import('./pages/DebtsPage').then(m => ({ default: m.DebtsPage })));
@@ -202,6 +203,12 @@ function AppContent() {
                 <CommitmentsPage />
               </Layout>
             </ProtectedRoute>
+          } />
+          {/* Acertos entre pessoas somando as casas (ADR 0027). `/w/:id/debts`
+              continua existindo e é outra pergunta: "como está ESTA casa",
+              inclusive as dívidas entre terceiros, que aqui não aparecem. */}
+          <Route path="/me/settlements" element={
+            <ProtectedRoute><Layout><MySettlementsPage /></Layout></ProtectedRoute>
           } />
           {/* Perfil, senha, contas e tema não pertencem a workspace nenhum e
               mesmo assim só existiam dentro de `/w/:id/settings` — quem ficasse

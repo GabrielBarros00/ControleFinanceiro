@@ -20,6 +20,8 @@ from typing import List, Optional
 
 from pydantic import BaseModel
 
+from app.models.transaction import TransactionStatus
+
 
 class WorkspaceSlice(BaseModel):
     """A parte de UM workspace no mês da pessoa."""
@@ -226,3 +228,191 @@ class SeriesRead(BaseModel):
     totals: SeriesTotals
     by_workspace: List[WorkspaceShare]
     excluded_foreign_count: int
+
+
+# --- Acertos entre pessoas, camada global (ADR 0027) ------------------------
+#
+# Espelho tipado de `/{ws}/debts`, `/{ws}/debts/monthly` e `/{ws}/settlements`,
+# agrupado por casa. Aqueles três devolvem `Dict[str, Any]` por serem anteriores a
+# este módulo; os de `/me/*` nascem tipados, que é o ponto do arquivo.
+
+
+class DebtRow(BaseModel):
+    """Uma dívida líquida entre duas pessoas, como o `DebtService` a devolve."""
+    debtor_id: int
+    creditor_id: int
+    amount: Decimal
+
+
+class PersonDebt(DebtRow):
+    """`DebtRow` com os nomes já resolvidos.
+
+    O ledger do workspace devolve só ids — a tela da casa cruza com
+    `/{ws}/members` para achar o nome. A tela global não tem uma casa só de onde
+    buscar membros, então o nome vem junto.
+    """
+    debtor_name: str
+    creditor_name: str
+
+
+class WorkspaceDebtGroup(BaseModel):
+    """O saldo a acertar de UMA casa. Sempre na moeda-base dela."""
+    workspace_id: int
+    workspace_name: str
+    base_currency: str
+    #: Papel do usuário nesta casa; `can_write` é o mesmo gate de
+    #: `require_role(member)` que o POST de acerto aplica.
+    role: Optional[str] = None
+    can_write: bool
+    net_debts: List[PersonDebt]
+    to_pay: Decimal
+    to_receive: Decimal
+    #: `False` = sem cotação para a moeda-base desta casa. O grupo continua na
+    #: tela com os valores dele; o que ele NÃO faz é entrar nos totais.
+    converted: bool
+
+
+class ExcludedWorkspace(BaseModel):
+    """Casa fora dos totais por falta de cotação — com o valor na moeda dela.
+
+    O `/me/overview` devolve só um contador (`excluded_foreign_count`) e some com
+    o workspace inteiro. Aqui o usuário vê QUAL casa ficou de fora e QUANTO é,
+    porque "você deve R$ 0,00" para quem deve USD 100 é pior que omitir.
+    """
+    workspace_id: int
+    workspace_name: str
+    base_currency: str
+    to_pay: Decimal
+    to_receive: Decimal
+
+
+class PersonalDebtsRead(BaseModel):
+    """Com quem eu me acerto, somando todas as casas.
+
+    Não existe "líquido": compensar dívida de uma casa com crédito de outra é o
+    que o ADR 0020 proíbe — são pessoas e acordos diferentes. `to_pay` e
+    `to_receive` andam lado a lado, e cada um é informativo.
+    """
+    currency: str
+    to_pay: Decimal
+    to_receive: Decimal
+    by_workspace: List[WorkspaceDebtGroup]
+    excluded_workspaces: List[ExcludedWorkspace]
+
+
+class Person(BaseModel):
+    """`{user_id, user_name}` — o formato que o componente de ledger consome."""
+    user_id: int
+    user_name: str
+
+
+class LedgerMember(BaseModel):
+    """Quanto UMA pessoa pagou e deve no mês, nesta casa."""
+    user_id: int
+    paid: Decimal
+    owed: Decimal
+    balance: Decimal
+
+
+class LedgerPayer(BaseModel):
+    user_id: int
+    amount: Decimal
+
+
+class LedgerSplit(BaseModel):
+    user_id: int
+    computed_amount: Decimal
+
+
+class LedgerExpense(BaseModel):
+    """Uma despesa do mês, com quem pagou e como foi dividida."""
+    id: int
+    title: str
+    total_amount: Decimal
+    status: TransactionStatus
+    is_paid: bool
+    transaction_date: datetime
+    #: Parcela `n` de `m`; `None` quando a compra não é parcelada.
+    installment_no: Optional[int] = None
+    installments_of: Optional[int] = None
+    payers: List[LedgerPayer]
+    splits: List[LedgerSplit]
+
+
+class LedgerSettlement(BaseModel):
+    id: int
+    from_user_id: int
+    to_user_id: int
+    amount: Decimal
+    note: Optional[str] = None
+    settled_at: datetime
+
+
+class LedgerTotals(BaseModel):
+    total: Decimal
+    paid: Decimal
+    open: Decimal
+
+
+class WorkspaceMonthlyLedger(BaseModel):
+    """O retrato do mês de UMA casa — o mesmo payload de `/{ws}/debts/monthly`.
+
+    Campo a campo idêntico de propósito: é o que deixa o componente do frontend
+    servir às duas telas sem uma segunda forma de ler o ledger.
+    """
+    workspace_id: int
+    workspace_name: str
+    role: Optional[str] = None
+    can_write: bool
+    month: str
+    base_currency: str
+    members: List[LedgerMember]
+    #: Sem nome nas linhas: aqui os nomes vêm todos de uma vez em `people`, que a
+    #: tela já precisa para desenhar pagadores e divisões das despesas.
+    net_debts: List[DebtRow]
+    expenses: List[LedgerExpense]
+    settled_total: Decimal
+    settlements: List[LedgerSettlement]
+    totals: LedgerTotals
+    #: Nomes de todo mundo citado no ledger desta casa.
+    people: List[Person]
+
+
+class PersonalMonthlyDebtsRead(BaseModel):
+    """O mês a acertar, uma seção por casa.
+
+    Sem campo de moeda: cada seção tem a `base_currency` dela e não há total
+    agregado. Um `currency` no topo diria que os números estão numa moeda em que
+    eles não estão.
+    """
+    month: str
+    by_workspace: List[WorkspaceMonthlyLedger]
+
+
+class PersonalSettlementEntry(BaseModel):
+    """Um acerto do histórico global, visto do ponto de vista de quem pediu."""
+    id: int
+    workspace_id: int
+    workspace_name: str
+    #: `Settlement` não tem coluna de moeda: o valor é da moeda-base da casa.
+    currency: str
+    from_user_id: int
+    to_user_id: int
+    counterparty_id: int
+    counterparty_name: str
+    #: `sent` = eu paguei; `received` = eu recebi. Na tela da casa o eixo são os
+    #: nomes; aqui o eixo sou sempre eu.
+    direction: str
+    amount: Decimal
+    note: Optional[str] = None
+    billing_month: Optional[str] = None
+    settled_at: datetime
+    created_by_user_id: Optional[int] = None
+
+
+class PersonalSettlementsRead(BaseModel):
+    items: List[PersonalSettlementEntry]
+    #: Total ANTES da paginação — a tela precisa saber que truncou.
+    total: int
+    limit: int
+    offset: int

@@ -11,6 +11,93 @@ segue [SemVer](https://semver.org/lang/pt-BR/).
 
 ## [Não lançado]
 
+### Acertos também na camada "Meu" — e a tela da casa passa a dizer que é da casa
+
+Quem participa de duas casas não tinha onde perguntar **"com quem eu me acerto,
+somando tudo?"**. Acertos era do workspace de ponta a ponta, e descobrir que se
+deve 150 na Casa e se tem 80 a receber na Viagem exigia abrir cada uma e somar de
+cabeça — a mesma lacuna que o ADR 0020 fechou para renda e resultado, e que ficou
+aberta aqui. Nova tela **Meu › Seus acertos** (`/me/settlements`), com
+`GET /me/debts`, `GET /me/debts/monthly` e `GET /me/settlements` ([ADR
+0027](docs/adr/0027-acertos-na-camada-global.md)).
+
+**As duas telas convivem, e a diferença não é o alcance — é o recorte.** A global
+é sempre `involved_only`, inclusive para admin e owner: dívida entre TERCEIROS
+continua sendo assunto da tela da casa, que é quem a mostra a quem tem acesso
+completo. Mesmo par de "Seus relatórios" × "Relatórios". A tela do workspace
+agora diz isso em voz alta — título `Acertos · {casa}`, subtítulo "Somente esta
+casa" e link para a global —, porque sem isso quem tem duas casas lê os números
+de uma como se fossem o total.
+
+**Agrupa, nunca compensa.** Dever 100 na Casa e ter 100 a receber na Viagem não é
+estar quitado: são pessoas e acordos diferentes. Por isso a tela global **não tem
+"saldo líquido"**, só a pagar e a receber lado a lado. Dentro de cada casa o
+líquido continua existindo, onde ele significa alguma coisa.
+
+**A escrita não mudou de lugar.** `POST /workspaces/{ws}/settlements` segue sendo
+o único caminho — é lá que vivem o teto e a direção do ADR 0009, a trava contra
+sobrepagamento concorrente e o `publish_event`, que exige workspace. A tela
+global manda o `workspace_id` da linha clicada, e o diálogo imprime o nome da
+casa. É o que a distingue do "Nova despesa" ausente na Visão global: lá o destino
+seria ambíguo, aqui ele vem da própria linha.
+
+**Casa sem cotação aparece, em vez de sumir.** Cada grupo vem na moeda-base da
+própria casa; só os totais do topo convertem, e o que fica de fora é listado
+**nominalmente e com o valor na moeda dele**. O `/me/overview` derruba o
+workspace inteiro e devolve só um contador — a regra do ADR 0006 é não somar o
+que não converte, mas "você deve R$ 0,00" para quem deve USD 90 é o mesmo modo de
+falha que o `or ZERO` já produziu uma vez.
+
+**Auditoria da própria onda, quatro achados.** Três eram de comportamento e
+tinham em comum o mesmo defeito de raciocínio — deduzir um fato de uma consulta
+que responde outra pergunta:
+
+- **O histórico chamava de "Casa removida" um workspace vivo.** Os nomes vinham
+  da lista de casas de que sou membro HOJE, e sair de uma é permitido depois de
+  quitar o saldo (`_ensure_no_open_balance`). Quem saísse via todo o histórico
+  daquela casa com um rótulo falso e um link quebrado. Agora o nome vem de uma
+  busca por ID — casa arquivada também mantém o nome, porque história não se
+  reescreve (ADR 0023).
+- **Quitar o mês fazia o retrato dele sumir.** A seção mensal vivia dentro do
+  `if` do saldo consolidado, e `/me/debts` só lista casa COM saldo pendente.
+  Pagar tudo apagava da tela as despesas e o "tudo acertado ✅" — justamente a
+  confirmação que a pessoa foi procurar depois de pagar.
+- **`/me/debts/monthly` aceitava `?currency=` e devolvia o código sem converter
+  nada** — um campo dizendo "estes números estão em USD" sobre valores em BRL.
+  Removido: cada seção é uma casa, na moeda dela, e não há total a converter.
+
+O quarto: o histórico global truncava em 50 sem dizer. Agora devolve `total` e a
+tela avisa quantos ficaram de fora — truncar histórico financeiro em silêncio é o
+mesmo modo de falha do `or ZERO`.
+
+**Layout:** "EM ABERTO" quebrava em duas linhas na tabela de despesas. Um título
+longo estica a primeira coluna, e sem largura fixa nas duas últimas o algoritmo
+de tabela espremia o status até partir o fundo arredondado do badge ao meio.
+Larguras fixas + `whitespace-nowrap` no status, no valor e na data.
+
+Sem duplicação de lógica: `PersonalDebtService` compõe o `DebtService` de sempre,
+`MonthlyLedgerBody` e `BalanceCards` saíram das telas da casa para servirem às
+duas, e `OverviewService._workspaces_do_usuario` virou
+`query_policy.workspaces_do_usuario` — três serviços precisam do mesmo recorte, e
+a terceira cópia seria a chance de um deles esquecer o `deleted_at`. As famílias
+novas entram em `GLOBAIS` no `ws-events.ts`: `['me-debts', 7]` não casa com
+`['me-debts']`, que foi o defeito da Onda 6.
+
+### Catálogo de telas: previews que dá para ver, e uma compressão reproduzível
+
+As capturas eram de **página inteira**: a tela de Acertos saía 1440×5118, uma
+tira de 3,5:1 que o GitHub renderiza como um risco ilegível na tabela do
+catálogo. Agora é o VIEWPORT — 1440×900 no desktop, 390×844 no mobile (o viewport
+CSS do iPhone 12–16 base). Não 1920×1080 porque o conteúdo do `AppShell` para em
+`max-w-[1200px]`: numa janela maior as imagens só ganhariam vazio nas laterais.
+
+E a recompressão para 256 cores, que sempre foi um passo manual dependente de ter
+ImageMagick ou Pillow na máquina, virou `frontend/scripts/comprimir-shots.py` —
+biblioteca padrão só, com `--check`. Numa regeração feita sem essas ferramentas
+as imagens entraram cruas e `docs/images` cresceu 45% sem que nada acusasse; um
+passo de release que ninguém consegue repetir não é um passo. Somados os dois,
+o catálogo caiu de 4,6 MB para 2,1 MB com mais duas telas dentro.
+
 ### Auditoria de rendimento decrescente: a barra final, a tela que ninguém escaneou
 
 Quarta e última passada, nos ângulos que a terceira apontou como sobra:

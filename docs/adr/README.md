@@ -32,6 +32,7 @@ Cada ADR registra **uma decisão** relevante do projeto: o contexto, a decisão 
 | [0024](0024-fatura-na-moeda-do-cartao.md) | Fatura é denominada na moeda do CARTÃO; o lançamento tem perna contábil e perna de fatura | Cartões / moeda |
 | [0025](0025-data-civil-e-instante.md) | Data civil vira instante ancorado ao MEIO-DIA local (`civil_instant`), par de `local_day` | Datas / fuso |
 | [0026](0026-papel-de-plataforma-e-cadastro-por-convite.md) | `platform_role` opera o SITE e não toca `access_policy`; cadastro por convite com janela de bootstrap; configuração em runtime | Plataforma / privacidade |
+| [0027](0027-acertos-na-camada-global.md) | Acertos existem em `/me/*` e no workspace; a global é `involved_only`, agrupa sem compensar, e a escrita continua sendo de UMA casa | Acertos / navegação |
 
 ## Escrevendo um novo ADR
 

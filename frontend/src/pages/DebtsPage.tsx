@@ -1,16 +1,19 @@
 import * as React from 'react';
+import { Link } from 'react-router-dom';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Button } from "@/components/ui/button";
 import { useDebts } from '@/hooks/use-debts';
 import { useBaseCurrency } from '@/hooks/use-base-currency';
 import { useWorkspaceRole } from '@/hooks/use-workspace-role';
+import { useWorkspaces } from '@/hooks/use-workspaces';
 import { formatMoney } from '@/lib/money';
-import { ArrowRight, Users, Loader2, RefreshCcw, Landmark, HandCoins, History, Trash2 } from 'lucide-react';
+import { ArrowRight, Users, Loader2, RefreshCcw, Landmark, HandCoins, History, Trash2, Globe } from 'lucide-react';
 import { useAuth } from '@/hooks/use-auth';
 import { useMembers } from '@/hooks/use-members';
 import { useSettlements } from '@/hooks/use-settlements';
 import { SettlementDialog, type SettlementDraft } from '@/components/debts/SettlementDialog';
+import { BalanceCards } from '@/components/debts/BalanceCards';
 import { MonthlyDebtsSection } from '@/components/debts/MonthlyDebtsSection';
 import { getApiErrorMessage } from '@/lib/api-error';
 import { toast } from '@/stores/toast';
@@ -35,19 +38,19 @@ export function DebtsPage() {
   const { canWrite } = useWorkspaceRole();  // viewer não registra/desfaz acertos (RBAC-FE-001)
   const { members } = useMembers();
   const { settlements, remove } = useSettlements();
+  const { currentWorkspace } = useWorkspaces();
   const confirm = useConfirm();
   const [dialogOpen, setDialogOpen] = React.useState(false);
   const [draft, setDraft] = React.useState<SettlementDraft | null>(null);
 
   const memberName = (id: number) =>
     members.find((m) => m.user_id === id)?.user_name ?? `Membro #${id}`;
-  const memberInitial = (id: number) => memberName(id)[0] ?? '?';
 
-  const openSettlement = (debt: Debt) => {
+  const openSettlement = (debt: { debtor_id: number; creditor_id: number; amount: string | number }) => {
     setDraft({
       from_user_id: debt.debtor_id,
       to_user_id: debt.creditor_id,
-      amount: parseFloat(debt.amount),
+      amount: Number(debt.amount),
     });
     setDialogOpen(true);
   };
@@ -98,24 +101,50 @@ export function DebtsPage() {
 
   return (
     <div className="space-y-6">
+      {/* Título e subtítulo dizem a CASA, no mesmo molde do Painel: sem isso, a
+          pessoa que participa de dois workspaces lia estes números como se
+          fossem o total dela — e eles nunca foram. O total mora em Seus acertos. */}
       <PageHeader
-        title="Acertos entre pessoas"
-        subtitle="Quem deve para quem no rateio — e os acertos já feitos."
+        title={currentWorkspace ? `Acertos · ${currentWorkspace.name}` : 'Acertos entre pessoas'}
+        subtitle="Somente esta casa. Seus acertos de todas as casas ficam em Meu › Seus acertos."
         action={
-          <Button variant="outline" onClick={() => refetch()} className="gap-2">
-            <RefreshCcw className="h-4 w-4" /> Atualizar
-          </Button>
+          <div className="flex items-center gap-2">
+            <Link to="/me/settlements">
+              <Button variant="outline" className="gap-2">
+                <Globe className="h-4 w-4" /> Ver todas as casas
+              </Button>
+            </Link>
+            <Button variant="outline" onClick={() => refetch()} className="gap-2">
+              <RefreshCcw className="h-4 w-4" /> Atualizar
+            </Button>
+          </div>
         }
       />
 
       <div className="grid gap-4 sm:grid-cols-3">
-        <StatTile label="Você deve" value={totalOwed} kind={totalOwed > 0 ? 'expense' : 'neutral'} />
-        <StatTile label="Você recebe" value={totalCredit} kind={totalCredit > 0 ? 'income' : 'neutral'} />
+        <StatTile
+          label="Você deve"
+          value={totalOwed}
+          kind={totalOwed > 0 ? 'expense' : 'neutral'}
+          currency={baseCurrency}
+          hint="Nesta casa"
+        />
+        <StatTile
+          label="Você recebe"
+          value={totalCredit}
+          kind={totalCredit > 0 ? 'income' : 'neutral'}
+          currency={baseCurrency}
+          hint="Nesta casa"
+        />
         <StatTile
           label="Saldo líquido"
           value={netBalance}
           kind={netBalance > 0 ? 'income' : netBalance < 0 ? 'expense' : 'neutral'}
-          hint={netBalance === 0 ? 'Tudo certo por aqui' : netBalance > 0 ? 'a receber, no total' : 'a pagar, no total'}
+          currency={baseCurrency}
+          // Líquido DENTRO da casa é legítimo: são as mesmas pessoas e o mesmo
+          // acordo. Entre casas não é, e por isso a tela global não tem este
+          // número (ADR 0020).
+          hint={netBalance === 0 ? 'Tudo certo nesta casa' : netBalance > 0 ? 'a receber nesta casa' : 'a pagar nesta casa'}
         />
       </div>
 
@@ -132,88 +161,17 @@ export function DebtsPage() {
 
       <div className="space-y-1">
         <h3 className="text-lg font-bold tracking-tight text-foreground">Saldo geral a acertar</h3>
-        <p className="text-sm text-muted-foreground">Balanço consolidado de todos os meses, já descontando os acertos.</p>
+        <p className="text-sm text-muted-foreground">Todos os meses desta casa, já descontando os acertos.</p>
       </div>
 
-      <div className="grid gap-6 md:grid-cols-2">
-        <Card className="bg-card border-border shadow-xl border-l-4 border-l-destructive">
-          <CardHeader>
-            <CardTitle className="text-lg flex items-center gap-2">
-              <div className="p-2 bg-destructive/10 rounded-lg">
-                <ArrowRight className="h-4 w-4 text-destructive rotate-180" />
-              </div>
-              Você deve
-            </CardTitle>
-            <CardDescription>Pagamentos que você precisa fazer para outros membros.</CardDescription>
-          </CardHeader>
-          <CardContent>
-            {myDebts.length === 0 ? (
-              <p className="text-sm text-muted-foreground py-4 text-center">Você não deve nada a ninguém! 🎉</p>
-            ) : (
-              <div className="space-y-4">
-                {myDebts.map((debt) => (
-                  <div key={`${debt.debtor_id}-${debt.creditor_id}`} className="flex items-center justify-between p-3 rounded-xl bg-accent/30 border border-border">
-                    <div className="flex items-center gap-3">
-                      <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center font-bold text-primary">
-                        {memberInitial(debt.creditor_id)}
-                      </div>
-                      <div>
-                        <p className="text-sm font-bold">{memberName(debt.creditor_id)}</p>
-                        <p className="text-[10px] text-muted-foreground uppercase font-semibold">Credor</p>
-                      </div>
-                    </div>
-                    <div className="flex items-center gap-3">
-                      <p className="text-lg font-semibold text-destructive">{formatBRL(debt.amount)}</p>
-                      <Button size="sm" disabled={!canWrite} onClick={() => openSettlement(debt)} className="gap-1.5 bg-primary text-primary-foreground font-bold">
-                        <HandCoins className="h-3.5 w-3.5" /> Paguei
-                      </Button>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </CardContent>
-        </Card>
-
-        <Card className="bg-card border-border shadow-xl border-l-4 border-l-emerald-500">
-          <CardHeader>
-            <CardTitle className="text-lg flex items-center gap-2">
-              <div className="p-2 bg-emerald-500/10 rounded-lg">
-                <ArrowRight className="h-4 w-4 text-emerald-500" />
-              </div>
-              Você recebe
-            </CardTitle>
-            <CardDescription>Pagamentos que outros membros devem fazer para você.</CardDescription>
-          </CardHeader>
-          <CardContent>
-            {myCredits.length === 0 ? (
-              <p className="text-sm text-muted-foreground py-4 text-center">Ninguém te deve nada no momento.</p>
-            ) : (
-              <div className="space-y-4">
-                {myCredits.map((debt) => (
-                  <div key={`${debt.debtor_id}-${debt.creditor_id}`} className="flex items-center justify-between p-3 rounded-xl bg-accent/30 border border-border">
-                    <div className="flex items-center gap-3">
-                      <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center font-bold text-primary">
-                        {memberInitial(debt.debtor_id)}
-                      </div>
-                      <div>
-                        <p className="text-sm font-bold">{memberName(debt.debtor_id)}</p>
-                        <p className="text-[10px] text-muted-foreground uppercase font-semibold">Devedor</p>
-                      </div>
-                    </div>
-                    <div className="flex items-center gap-3">
-                      <p className="text-lg font-semibold text-emerald-500">{formatBRL(debt.amount)}</p>
-                      <Button size="sm" variant="outline" disabled={!canWrite} onClick={() => openSettlement(debt)} className="gap-1.5 border-emerald-500/40 text-emerald-500 font-bold hover:bg-emerald-500/10">
-                        <HandCoins className="h-3.5 w-3.5" /> Recebi
-                      </Button>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </CardContent>
-        </Card>
-      </div>
+      <BalanceCards
+        debts={typedDebts}
+        currentUserId={user?.id}
+        members={members}
+        canWrite={canWrite}
+        currency={baseCurrency}
+        onSettle={openSettlement}
+      />
 
       {otherDebts.length > 0 && (
         <Card className="bg-card border-border shadow-xl">
@@ -243,7 +201,7 @@ export function DebtsPage() {
                       <ArrowRight className="h-4 w-4 text-muted-foreground inline" />
                     </TableCell>
                     <TableCell className="font-bold">{memberName(debt.creditor_id)}</TableCell>
-                    <TableCell className="text-right font-semibold">{formatBRL(debt.amount)}</TableCell>
+                    <TableCell className="text-right font-semibold whitespace-nowrap">{formatBRL(debt.amount)}</TableCell>
                     <TableCell className="text-right">
                       <Button size="sm" variant="ghost" disabled={!canWrite} onClick={() => openSettlement(debt)} className="gap-1.5 text-primary hover:bg-primary/10 font-bold">
                         <HandCoins className="h-3.5 w-3.5" /> Registrar
@@ -283,11 +241,11 @@ export function DebtsPage() {
               <TableBody>
                 {settlements.map((s) => (
                   <TableRow key={s.id} className="border-border hover:bg-accent/30">
-                    <TableCell className="text-xs">{parseApiDate(s.settled_at).toLocaleDateString('pt-BR')}</TableCell>
+                    <TableCell className="text-xs whitespace-nowrap">{parseApiDate(s.settled_at).toLocaleDateString('pt-BR')}</TableCell>
                     <TableCell className="font-bold">{memberName(s.from_user_id)}</TableCell>
                     <TableCell className="font-bold">{memberName(s.to_user_id)}</TableCell>
                     <TableCell className="text-xs text-muted-foreground">{s.note || '—'}</TableCell>
-                    <TableCell className="text-right font-semibold text-emerald-500">{formatBRL(s.amount)}</TableCell>
+                    <TableCell className="text-right font-semibold whitespace-nowrap text-emerald-500">{formatBRL(s.amount)}</TableCell>
                     <TableCell className="text-center">
                       <Button
                         size="sm"

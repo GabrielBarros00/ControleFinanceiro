@@ -30,7 +30,7 @@ Duas consequências que mudam o contrato das respostas:
 1. **Registro invisível responde `404`, não `403`** — um `403` confirmaria que ele existe naquele id.
 2. **Campo da casa suprimido vem `null`, nunca `0`.** Afeta `total_expenses`, `total_income`, `net_savings`, `categories` (em `/analytics/summary` e `/analytics/reports`), as barras de `monthly_history`, e praticamente toda a `/analytics/forecast` — que é projeção de caixa da casa e, sem acesso completo, devolve apenas `my_budget`. Os campos `my_*` **nunca** são suprimidos: são dados do próprio usuário. Clientes devem tratar `null` como "sem acesso" e não coagir para zero.
 
-Em `/debts` e `/debts/monthly` o recorte acontece na **saída**: o ledger é calculado inteiro (o pareamento de dívidas precisa de todos os saldos para dar o valor certo) e depois filtrado nas linhas que envolvem você — com `totals` acompanhando o que ficou listado.
+Em `/debts` e `/debts/monthly` o recorte acontece na **saída**: o ledger é calculado inteiro (o pareamento de dívidas precisa de todos os saldos para dar o valor certo) e depois filtrado nas linhas que envolvem você — com `totals` acompanhando o que ficou listado. Os pares em `/me/*` (`/me/debts`, `/me/debts/monthly`, `/me/settlements`) aplicam esse recorte **sempre**, mesmo para admin/owner: lá o escopo é a pessoa, não a casa (ADR 0027).
 
 ### Escopo pessoal × workspace (ADR 0019)
 
@@ -92,14 +92,15 @@ Base: `/api/v1`. `{ws}` = `workspaces/{workspace_id}`.
 | **Pessoal — renda** | `/me/income`, `/me/recurring-income` | `GET` (filtro `month=YYYY-MM`, por competência), `POST/PUT/DELETE`; `POST /recurring-income/generate`. Moeda default = `User.report_currency` |
 | **Pessoal — cartões** | `/me/credit-cards` | CRUD (o `DELETE` devolve `409` se houver fatura em aberto — senão a dívida ficaria sem tela por onde ser quitada); `GET /{id}/statement-for?on=YYYY-MM-DD` (em qual fatura cairia uma compra nessa data — só leitura); `GET /{id}/statements`; `POST /{id}/statements/{sid}/close\|pay\|reopen` |
 | **Pessoal — contas** | `/me/payment-accounts` | `GET/POST/PUT/DELETE`. Nome único por DONO |
+| **Pessoal — acertos** | `/me/debts`, `/me/settlements` | Com quem eu me acerto somando TODAS as casas (ADR 0027). `GET /debts` (saldo por casa, `by_workspace` + `excluded_workspaces`), `GET /debts/monthly?month=YYYY-MM` (uma seção por casa, mesmo payload de `/{ws}/debts/monthly` + `people`), `GET /settlements?limit=&offset=` (histórico). **Só leitura**, e sempre `involved_only`: acerto entre terceiros não aparece nem para admin. Nada é compensado entre casas |
 | **Pessoal — financiamentos** | `/me/financing` | CRUD; `GET /{id}/schedule`; `POST /{id}/early-settlement`; `POST /{id}/installments/{n}/pay\|unpay` (o `pay` aceita `workspace_id` opcional: informado, lança também a despesa lá) |
 | **Notificações** | `/notifications` | `GET` (as suas + contagem de não lidas), `POST /{id}/read`, `POST /read-all` — escopo PESSOAL, sem `require_role` |
 | **Transações** | `/{ws}/transactions` | `GET` (filtros: mês, busca, categoria, método, tag), `POST`, `PUT`, `DELETE`; `POST /preview` (dry-run da divisão); `POST /bulk`; compra parcelada: `GET/PUT/DELETE /{id}/installment-group` (editar/excluir o grupo inteiro) + `POST /{id}/installment-group/cancel` |
 | **Anexos** | `/{ws}/transactions/{id}/attachments`, `/{ws}/attachments/{id}` | upload (magic bytes + hash), listar, download, excluir. O conteúdo fica fora do banco (ADR 0007); `404` no download significa objeto ausente no armazenamento, não anexo inexistente |
 | **Categorias** | `/{ws}/categories` | `GET/POST/PUT/DELETE` |
 | **Tags** | `/{ws}/tags` | `GET/POST/PUT/DELETE` (nome reativável) |
-| **Dívidas** | `/{ws}/debts` | `GET` (saldo líquido consolidado); `GET /monthly?month=YYYY-MM` (retrato do mês por `billing_month`) |
-| **Acertos** | `/{ws}/settlements` | `GET/POST/DELETE` (validado contra a dívida) |
+| **Dívidas** | `/{ws}/debts` | `GET` (saldo líquido consolidado); `GET /monthly?month=YYYY-MM` (retrato do mês por `billing_month`). **Desta casa**, incluindo dívida entre TERCEIROS para quem tem acesso completo |
+| **Acertos** | `/{ws}/settlements` | `GET/POST/DELETE` (validado contra a dívida). Único caminho de ESCRITA — a tela global manda o `workspace_id` da linha |
 | **Recorrências (despesa)** | `/{ws}/recurring` | CRUD (`PUT` aceita `?scope=none\|future\|all`) + geração/materialização de instâncias |
 | **Importação CSV** | `/{ws}/imports` | `POST /parse` (mapeia colunas + marca duplicatas), `POST /commit` (decisão por linha, idempotente) |
 | **Analytics** | `/{ws}/analytics` | `GET /summary`, `/reports`, `/forecast`, `/exchange-rate`; estimativas: `GET/POST/PUT/DELETE /estimates` |

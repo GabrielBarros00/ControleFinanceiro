@@ -24,7 +24,7 @@ Aplicação full-stack para controlar gastos, **dividir despesas entre pessoas**
 - **Workspaces com papéis** — `owner > admin > member > viewer`; convites por e-mail e por link com expiração.
 - **Despesas com divisão** — pela despesa (igual/%/fixo) ou **por item** (quantidade × valor unitário, com participantes por item); ajustes de total (desconto, frete, gorjeta, imposto, cashback).
 - **Origem do pagamento por pagador** — cada pagador informa método e conta/carteira; vários pagadores por despesa.
-- **Dívidas e acertos** — saldo líquido consolidado entre pessoas; acertos validados contra a dívida (sem sobrepagamento).
+- **Dívidas e acertos** — saldo líquido consolidado entre pessoas; acertos validados contra a dívida (sem sobrepagamento). Em **duas camadas**: a da casa e a sua (“Seus acertos”), que soma todos os workspaces agrupando por casa — nunca compensando entre elas.
 - **Cartões e faturas** — ciclo `aberta → fechada → paga` (+ reabertura), total congelado no fechamento, limite comprometido/disponível, parcelamento coeso.
 - **Recorrências** — diária/semanal/mensal/anual; materializa a despesa **completa** (pagador + divisão + categoria); escopos de edição (só esta / esta e futuras / todas).
 - **Financiamentos** — cronograma SAC/PRICE por mês de calendário; quitação antecipada simulada; pagar parcela vira despesa real.

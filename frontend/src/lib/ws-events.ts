@@ -74,6 +74,10 @@ export const GLOBAIS = new Set([
   'credit-cards', 'statements', 'payment-accounts', 'financing', 'income',
   'recurring-income', 'me-overview', 'me-commitments', 'me-activity', 'me-reports',
   'me-ledger', 'statement-target', 'workspaces',
+  // Acertos na camada global (ADR 0027). Vêm de `/me/*` e por isso NÃO levam
+  // workspace na chave — ao contrário de `debts`/`debts-monthly`/`settlements`,
+  // que são as famílias equivalentes do workspace e ficam de fora deste conjunto.
+  'me-debts', 'me-debts-monthly', 'me-settlements',
 ]);
 
 /**
@@ -90,6 +94,7 @@ const BY_PREFIX: Record<string, string[]> = {
     'transactions', 'transaction', 'installment-group', 'reports', 'analytics-forecast',
     'debts', 'debts-monthly', 'statements', 'credit-cards', 'attachments',
     'me-overview', 'me-ledger', 'me-reports', 'me-activity', 'me-commitments',
+    'me-debts', 'me-debts-monthly',
     ...AUDIT,
   ],
   income: ['income', 'reports', 'analytics-forecast', 'me-overview', 'me-ledger', 'me-reports', ...AUDIT],
@@ -97,6 +102,7 @@ const BY_PREFIX: Record<string, string[]> = {
   recurring: [
     'recurring', 'transactions', 'reports', 'analytics-forecast', 'debts', 'debts-monthly',
     'statements', 'credit-cards', 'me-overview', 'me-ledger', 'me-reports', 'me-activity', 'me-commitments',
+    'me-debts', 'me-debts-monthly',
     ...AUDIT,
   ],
   recurring_income: [
@@ -122,6 +128,10 @@ const BY_PREFIX: Record<string, string[]> = {
   // O acerto mexe no saldo a pagar/receber E no caixa (é dinheiro que muda de mão)
   settlement: [
     'settlements', 'debts', 'debts-monthly', 'me-overview', 'me-ledger', 'me-reports', 'reports',
+    // A tela global mostra o MESMO acerto, agrupado por casa: quem registra por
+    // lá precisa ver o saldo cair na hora, sem depender do evento voltar pela
+    // rede (o WebSocket é por sala de workspace).
+    'me-debts', 'me-debts-monthly', 'me-settlements',
     ...AUDIT,
   ],
   // Entrar/sair muda o RATEIO — e o rateio é a base dos relatórios (totais por
@@ -132,7 +142,10 @@ const BY_PREFIX: Record<string, string[]> = {
   member: [
     'members', 'invites', 'debts', 'debts-monthly', 'settlements', 'transactions',
     'reports', 'analytics-forecast', 'workspaces',
-    'me-overview', 'me-ledger', 'me-reports', 'me-activity', ...AUDIT,
+    'me-overview', 'me-ledger', 'me-reports', 'me-activity',
+    // Entrar/sair muda o rateio, e o rateio é a base do pareamento de dívidas —
+    // inclusive na tela global, onde a casa vira um grupo.
+    'me-debts', 'me-debts-monthly', 'me-settlements', ...AUDIT,
   ],
   invite: ['invites', 'members', ...AUDIT],
   // Renomear/excluir workspace: o NOME é renderizado em `me-reports`
@@ -140,7 +153,10 @@ const BY_PREFIX: Record<string, string[]> = {
   // duas listas com linhas de um workspace que não existe mais.
   workspace: [
     'workspaces', 'transactions', 'reports',
-    'me-overview', 'me-ledger', 'me-reports', 'me-activity', 'me-commitments', ...AUDIT,
+    'me-overview', 'me-ledger', 'me-reports', 'me-activity', 'me-commitments',
+    // O NOME da casa titula cada grupo da tela global de acertos, e excluir uma
+    // deixaria um grupo de workspace que não existe mais.
+    'me-debts', 'me-debts-monthly', 'me-settlements', ...AUDIT,
   ],
 };
 

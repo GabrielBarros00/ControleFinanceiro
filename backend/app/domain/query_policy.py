@@ -4,9 +4,14 @@ Toda agregação (dívidas, relatórios, forecast, total de fatura) usa ESTES
 conjuntos — nunca filtros locais divergentes. É o que garante uma única
 definição de "total do mês" no sistema inteiro.
 """
-from typing import Optional
+from typing import TYPE_CHECKING, List, Optional
+
+from sqlmodel import select
 
 from app.models.transaction import TransactionStatus
+
+if TYPE_CHECKING:
+    from app.models.workspace import Workspace
 
 # Realizado: entra em dívidas, relatórios e faturas
 REALIZED_STATUSES = (
@@ -88,6 +93,32 @@ def user_report_currency(session, user_id: int) -> str:
 
     usuario = session.get(User, user_id)
     return (usuario.report_currency if usuario and usuario.report_currency else BASE_CURRENCY)
+
+
+def workspaces_do_usuario(session, user_id: int) -> List["Workspace"]:
+    """Os workspaces de que a pessoa participa, em ordem de nome.
+
+    O recorte de TODA agregação pessoal (ADR 0020): `/me/*` não tem workspace no
+    caminho, então a varredura é esta lista. Vive aqui, e não numa classe de
+    serviço, porque três serviços precisam do MESMO recorte — visão global, caixa
+    e acertos — e uma cópia a mais era a chance de um deles esquecer o
+    `deleted_at`, listando workspace excluído para sempre.
+    """
+    from app.models.workspace import Workspace, WorkspaceMembership
+
+    ids = session.exec(
+        select(WorkspaceMembership.workspace_id).where(
+            WorkspaceMembership.user_id == user_id
+        )
+    ).all()
+    if not ids:
+        return []
+    return session.exec(
+        select(Workspace)
+        .where(Workspace.id.in_(ids))
+        .where(Workspace.deleted_at.is_(None))
+        .order_by(Workspace.name)
+    ).all()
 
 
 def resolve_personal_currency(session, user_id: int, currency: Optional[str]) -> str:

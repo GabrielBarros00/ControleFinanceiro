@@ -7,8 +7,8 @@ from app.core.config import settings
 from app.db.session import get_session
 from app.api.routes import (
     admin, analytics, attachments, audit, auth, categories, debts, imports, me,
-    me_accounts, me_cards, me_financing, me_income, members, notifications,
-    recurring, settlements, tags, transactions, workspaces,
+    me_accounts, me_cards, me_financing, me_income, me_settlements, members,
+    notifications, recurring, settlements, tags, transactions, workspaces,
 )
 from app.ws import routes as ws_routes
 
@@ -41,6 +41,10 @@ router.include_router(me_income.router)
 router.include_router(me_cards.router)
 router.include_router(me_accounts.router)
 router.include_router(me_financing.router)
+# Acerto entre pessoas atravessa as casas (ADR 0027): só leitura aqui, porque
+# registrar continua sendo ato de UM workspace — é lá que ficam o teto do ADR 0009
+# e a trava contra sobrepagamento.
+router.include_router(me_settlements.router)
 
 router.include_router(auth.router)
 router.include_router(notifications.router)
