@@ -11,6 +11,50 @@ segue [SemVer](https://semver.org/lang/pt-BR/).
 
 ## [Não lançado]
 
+### O e-mail descobre por qual porta sai — e a marca vira "Controle Financeiro"
+
+Em produção, "enviar e-mail de teste" respondia `TimeoutError: timed out` vinte
+segundos depois, e nada na tela dizia o que fazer com isso. A causa não estava na
+configuração de e-mail: **o provedor do VPS bloqueia a SAÍDA em 25, 465 e 587**
+(medida antispam padrão), enquanto o provedor de e-mail atendia normalmente em
+2587 e 2465 — as portas alternativas que existem justamente por causa desse
+bloqueio. Descobrir isso exigia adivinhar uma porta, reiniciar o stack e clicar de
+novo, quantas vezes fossem necessárias.
+
+Agora quem descobre é o backend, em `app/services/smtp_transport.py`: sonda as
+portas do mesmo host **em paralelo** (587, 2587, 2525, 465, 2465, 25 — ~5s no
+pior caso, não a soma dos timeouts), entrega pela primeira que completa o
+handshake e **memoriza a rota** para os envios seguintes. STARTTLS e SSL
+implícito passam a conviver, escolhidos pela porta e pelo que o servidor anuncia.
+A tela de Administração mostra por onde o e-mail saiu, e o erro, quando há, vem
+com o diagnóstico em vez do timeout cru.
+
+Três fronteiras impedem que "tentar de novo" cause dano, e cada uma tem teste:
+
+- **só falha de conexão troca de porta.** Senha recusada ou remetente não
+  verificado é a mesma resposta em qualquer porta — repetir multiplicaria a
+  rejeição no provedor. A distinção é sutil porque `smtplib.SMTPException` herda
+  de `OSError`: um `except OSError` ingênuo tentaria cinco logins com a mesma
+  credencial errada;
+- **nada é reenviado depois do `DATA`.** Queda com a mensagem já entregue vira
+  `EntregaIncerta`, não um e-mail duplicado;
+- **falha total entra em espera de 60s.** SMTP fora do ar não pode custar a
+  sondagem completa a cada convite. O botão de teste ignora a espera, porque quem
+  clica nele acabou de mexer no firewall.
+
+De quebra, credencial não trafega mais em claro: com senha configurada e STARTTLS
+anunciado, o TLS sobe mesmo com `SMTP_TLS=False`; sem STARTTLS anunciado, a rota
+é descartada em vez de degradada.
+
+**A validação que recusava 465/2465 no boot saiu** — ela barrava exatamente as
+portas alternativas de que um servidor com a saída bloqueada precisa, e um `.env`
+correto derrubava o app no start.
+
+Na mesma leva, a identidade visual: `CFv4 Pro` vira **Controle Financeiro** na
+barra lateral e nas telas de entrada, com o ícone do produto no lugar do genérico,
+favicon próprio (`.ico` + `.png`), `<title>` de verdade no lugar de "frontend" e
+`lang="pt-BR"` no HTML.
+
 ### Acertos também na camada "Meu" — e a tela da casa passa a dizer que é da casa
 
 Quem participa de duas casas não tinha onde perguntar **"com quem eu me acerto,

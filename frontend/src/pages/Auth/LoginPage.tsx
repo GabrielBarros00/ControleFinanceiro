@@ -11,7 +11,7 @@ import { useAuth } from '@/hooks/use-auth';
 import { getApiErrorMessage } from '@/lib/api-error';
 import { GoogleLoginButton } from '@/components/auth/GoogleLoginButton';
 import { AuthShell } from '@/components/auth/AuthShell';
-import { Landmark, Lock, Mail, ArrowRight, AlertCircle } from 'lucide-react';
+import { Lock, Mail, ArrowRight, AlertCircle } from 'lucide-react';
 
 const GOOGLE_ERRORS: Record<string, string> = {
   google_cancelado: 'Login com Google cancelado.',
@@ -80,9 +80,12 @@ export function LoginPage() {
     <AuthShell>
       <Card className="w-full border-border shadow-sm">
         <CardHeader className="space-y-2 text-center pt-8">
-          <div className="mx-auto w-12 h-12 bg-primary rounded-xl flex items-center justify-center shadow-lg shadow-primary/20 mb-4 animate-in slide-in-from-top duration-700">
-            <Landmark className="h-6 w-6 text-primary-foreground" />
-          </div>
+          <img
+            src="/sidebar_icon.png"
+            alt=""
+            aria-hidden="true"
+            className="mx-auto w-12 h-12 rounded-xl shadow-lg shadow-primary/20 mb-4 animate-in slide-in-from-top duration-700"
+          />
           <CardTitle className="text-3xl font-bold tracking-tight text-foreground">Bem-vindo</CardTitle>
           <CardDescription className="text-muted-foreground">
             Entre com suas credenciais para acessar o painel.

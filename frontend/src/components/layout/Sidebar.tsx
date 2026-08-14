@@ -1,6 +1,6 @@
 import * as React from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
-import { Landmark, Plus, Check, ChevronsUpDown, Users, LogOut } from 'lucide-react';
+import { Plus, Check, ChevronsUpDown, Users, LogOut } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useWorkspaces, type Workspace } from '@/hooks/use-workspaces';
 import { useAuth } from '@/hooks/use-auth';
@@ -142,12 +142,16 @@ export function Sidebar() {
 
   return (
     <aside className="sticky top-0 hidden h-screen w-[240px] shrink-0 flex-col border-r border-border bg-card md:flex">
-      <div className="px-5 py-5">
-        <Link to="/overview" className="flex items-center gap-2 text-lg font-semibold tracking-tight text-foreground">
-          <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-brand text-primary-foreground">
-            <Landmark className="h-5 w-5" />
-          </span>
-          CFv4 <span className="font-normal text-muted-foreground">Pro</span>
+      <div className="px-4 py-5">
+        {/* O nome por extenso não cabe em 240px a `text-lg`: 15px com
+            `whitespace-nowrap` mantém a marca em uma linha só, sem estourar a
+            barra nem quebrar "Controle / Financeiro" no meio. */}
+        <Link
+          to="/overview"
+          className="flex items-center gap-2 whitespace-nowrap text-[15px] font-semibold tracking-tight text-foreground"
+        >
+          <img src="/sidebar_icon.png" alt="" aria-hidden="true" className="h-8 w-8 shrink-0 rounded-lg" />
+          Controle Financeiro
         </Link>
       </div>
 
