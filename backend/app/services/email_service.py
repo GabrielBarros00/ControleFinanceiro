@@ -1,8 +1,10 @@
 import logging
-import smtplib
 from email.message import EmailMessage
+from typing import Optional
 
 from app.core.config import settings
+from app.services import smtp_transport
+from app.services.smtp_transport import Endpoint
 
 logger = logging.getLogger("app.email")
 
@@ -12,11 +14,22 @@ class EmailService:
 
     Sem SMTP_HOST configurado (ambiente de desenvolvimento), o conteúdo é
     apenas logado — o link aparece no console do backend.
+
+    O *como* falar com o servidor (porta e TLS) não está aqui: fica em
+    `smtp_transport`, que o descobre e memoriza. Este módulo cuida do *o quê* —
+    remetente, assunto, corpo — e da promessa de best-effort.
     """
 
     @staticmethod
-    def send(to: str, subject: str, body: str, raise_on_error: bool = False) -> None:
-        """Envia um e-mail.
+    def send(
+        to: str,
+        subject: str,
+        body: str,
+        raise_on_error: bool = False,
+        *,
+        redescobrir_rota: bool = False,
+    ) -> Optional[Endpoint]:
+        """Envia um e-mail e devolve por qual rota ele saiu (ou `None`).
 
         `raise_on_error` existe para UM chamador: o teste de SMTP da tela de
         Admin (ADR 0026). Todos os outros querem o comportamento best-effort — o
@@ -33,7 +46,7 @@ class EmailService:
                 "SMTP não configurado — email não enviado.\nPara: %s\nAssunto: %s\n%s",
                 to, subject, body,
             )
-            return
+            return None
 
         msg = EmailMessage()
         msg["From"] = settings.EMAIL_FROM or settings.SMTP_USER or "noreply@example.com"
@@ -42,16 +55,12 @@ class EmailService:
         msg.set_content(body)
 
         try:
-            with smtplib.SMTP(settings.SMTP_HOST, settings.SMTP_PORT, timeout=10) as smtp:
-                if settings.SMTP_TLS:
-                    smtp.starttls()
-                if settings.SMTP_USER and settings.SMTP_PASSWORD:
-                    smtp.login(settings.SMTP_USER, settings.SMTP_PASSWORD)
-                smtp.send_message(msg)
+            return smtp_transport.entrega(msg, redescobrir=redescobrir_rota)
         except Exception:
             logger.exception("Falha ao enviar email para %s (assunto: %s)", to, subject)
             if raise_on_error:
                 raise
+            return None
 
     @staticmethod
     def send_password_reset(to: str, reset_link: str) -> None:

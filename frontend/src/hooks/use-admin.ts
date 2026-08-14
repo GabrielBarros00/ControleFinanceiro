@@ -196,6 +196,8 @@ export function useAdminSettings() {
         enviado: boolean;
         configurado: boolean;
         detalhe: string | null;
+        /** Host:porta por onde o envio saiu — pode não ser a porta do `.env`. */
+        rota: string | null;
       },
   });
 

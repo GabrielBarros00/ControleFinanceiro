@@ -259,11 +259,11 @@ class Settings(BaseSettings):
                 raise ValueError(
                     "EMAIL_FROM é obrigatório quando SMTP_HOST está configurado"
                 )
-            if self.SMTP_PORT in (465, 2465):
-                raise ValueError(
-                    "SMTP_PORT 465/2465 usa SSL implícito, não suportado; "
-                    "use a porta STARTTLS do provedor (normalmente 587)"
-                )
+            # Nenhuma checagem de porta aqui: 465/2465 (SSL implícito) e as
+            # portas de STARTTLS são todas aceitas, e `smtp_transport` decide o
+            # modo pelo que o servidor anuncia. A recusa que existia neste ponto
+            # rejeitava justamente as portas alternativas que um VPS com saída
+            # bloqueada precisa usar.
             sender = self.EMAIL_FROM.strip()
             try:
                 if "\r" in sender or "\n" in sender:

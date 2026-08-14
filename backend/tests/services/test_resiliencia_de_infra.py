@@ -18,6 +18,7 @@ from sqlmodel import select
 
 from app.main import app
 from app.models.attachment import Attachment
+from app.services import smtp_transport
 from app.services.attachment_storage import AttachmentStorage, AttachmentStorageError
 from app.services.email_service import EmailService
 
@@ -26,13 +27,29 @@ client = TestClient(app)
 
 @pytest.fixture(name="smtp_quebrado")
 def smtp_quebrado_fixture(monkeypatch):
-    """SMTP configurado e recusando conexão — o pior caso, não o "não configurado"."""
+    """SMTP configurado e recusando conexão — o pior caso, não o "não configurado".
+
+    A porta é dada como ABERTA de propósito: o que se quer exercitar aqui é o
+    servidor derrubando a conexão, não a sondagem descartando a porta antes de
+    tentar. Sem fixar as duas pontas, o teste passaria por um caminho diferente
+    do que o nome promete — e ainda faria DNS de verdade dentro da suíte.
+    """
     monkeypatch.setattr("app.core.config.settings.SMTP_HOST", "smtp.invalido.local")
+    monkeypatch.setattr("app.services.smtp_transport._resolve", lambda host: True)
+    monkeypatch.setattr(
+        "app.services.smtp_transport._alcancavel", lambda host, porta, timeout: True
+    )
+    smtp_transport.esquece_rota()
 
     def explode(*args, **kwargs):
         raise OSError("conexão recusada")
 
     monkeypatch.setattr("smtplib.SMTP", explode)
+    monkeypatch.setattr("smtplib.SMTP_SSL", explode)
+    yield
+    # O endpoint descoberto e a espera pós-falha são estado de MÓDULO: sem esta
+    # limpeza, o fracasso combinado aqui atravessaria para o teste seguinte.
+    smtp_transport.esquece_rota()
 
 
 def test_convite_sobrevive_ao_smtp_fora_do_ar(smtp_quebrado, setup_data, override_get_session):

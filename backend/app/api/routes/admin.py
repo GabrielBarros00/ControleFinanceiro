@@ -493,18 +493,29 @@ def test_email(
                 "SMTP não configurado: os links de convite e de recuperação de "
                 "senha aparecem no log do backend."
             ),
+            "rota": None,
         }
     try:
-        EmailService.send(
+        # `redescobrir_rota`: quem clica aqui acabou de mexer no firewall, na
+        # porta ou no provedor. Reaproveitar a rota memorizada — ou a espera do
+        # último fracasso — responderia sobre o mundo de minutos atrás.
+        rota = EmailService.send(
             dados.para,
             "Teste de configuração — Controle Financeiro",
             "Se você recebeu este e-mail, o envio está funcionando.",
             raise_on_error=True,
+            redescobrir_rota=True,
         )
-        return {"enviado": True, "configurado": True, "detalhe": None}
+        return {
+            "enviado": True,
+            "configurado": True,
+            "detalhe": None,
+            "rota": str(rota) if rota else None,
+        }
     except Exception as exc:
-        logger.warning("teste_de_email_falhou", erro=str(exc))
-        return {"enviado": False, "configurado": True, "detalhe": str(exc)}
+        detalhe = str(exc) or exc.__class__.__name__
+        logger.warning("teste_de_email_falhou", erro=detalhe)
+        return {"enviado": False, "configurado": True, "detalhe": detalhe, "rota": None}
 
 
 # --------------------------------------------------------------------------

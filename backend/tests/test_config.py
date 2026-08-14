@@ -261,15 +261,23 @@ def test_smtp_recusa_credencial_parcial():
         _production_settings(SMTP_USER="resend")
 
 
-def test_smtp_recusa_ssl_implicito_na_porta_465():
-    with pytest.raises(ValueError, match="SSL implícito"):
-        _production_settings(
-            SMTP_HOST="smtp.resend.com",
-            SMTP_PORT=465,
-            SMTP_USER="resend",
-            SMTP_PASSWORD="api-key",
-            EMAIL_FROM="noreply@example.com",
-        )
+@pytest.mark.parametrize("porta", (25, 465, 587, 2465, 2525, 2587))
+def test_smtp_aceita_qualquer_porta_de_submissao(porta):
+    """Nenhuma porta é recusada no boot — quem decide o modo é `smtp_transport`.
+
+    A validação anterior barrava 465/2465 ("SSL implícito não suportado") e, com
+    isso, barrava exatamente as portas alternativas de que um servidor com a
+    saída de SMTP bloqueada precisa: o operador colocava a porta certa e o app
+    se recusava a subir.
+    """
+    config = _production_settings(
+        SMTP_HOST="smtp.resend.com",
+        SMTP_PORT=porta,
+        SMTP_USER="resend",
+        SMTP_PASSWORD="api-key",
+        EMAIL_FROM="noreply@example.com",
+    )
+    assert config.SMTP_PORT == porta
 
 
 def test_smtp_resend_starttls_valido_passa():
