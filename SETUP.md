@@ -184,7 +184,7 @@ SMTP_PORT=587
 SMTP_USER=resend
 SMTP_PASSWORD=<API key da Resend>
 SMTP_TLS=True
-EMAIL_FROM=noreply@seudominio.com
+EMAIL_FROM=Controle Financeiro <noreply@seudominio.com>
 ```
 
 Use a porta 587: o backend faz STARTTLS. A porta 465 usa SSL implícito e não é
