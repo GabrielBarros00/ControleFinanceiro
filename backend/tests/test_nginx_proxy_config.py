@@ -70,6 +70,7 @@ def test_compose_oferece_cloudflared_opcional_e_isolado():
 
     assert 'profiles: ["cloudflare"]' in compose
     assert "image: cloudflare/cloudflared:latest" in compose
+    assert "pull_policy: always" in compose
     assert "TUNNEL_TOKEN: ${CLOUDFLARE_TUNNEL_TOKEN:-}" in compose
     assert "command: tunnel --no-autoupdate run" in compose
     assert '"${BIND_ADDR:-0.0.0.0}:${HTTP_PORT:-80}:80"' in compose
@@ -86,6 +87,9 @@ def test_guia_deploy_documenta_tunnel_e_limite_de_confianca():
     assert "172.31.255.2" in guia
     assert "recebe `403`" in guia
     assert "BIND_ADDR=127.0.0.1" in guia
+    assert "7844" in guia
+    assert "chmod 600 .env" in guia
+    assert "Remove visitor IP headers" in guia
 
 
 def test_abordagem_antiga_de_segredo_foi_removida():
