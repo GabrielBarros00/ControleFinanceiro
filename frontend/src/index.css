@@ -6,7 +6,6 @@
    3.4, que não conhece essas at-rules: elas não viravam CSS nenhum, e todas
    as animações do app estavam mortas em silêncio — o build passava, só não
    animava nada. */
-@import '@fontsource-variable/geist' layer(base);
 @import 'tailwindcss';
 
 @plugin 'tailwindcss-animate';

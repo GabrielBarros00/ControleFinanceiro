@@ -76,6 +76,7 @@ cp .env.example .env
 python3 -c "import secrets; print('POSTGRES_PASSWORD=' + secrets.token_urlsafe(24))"
 python3 -c "import secrets; print('SECRET_KEY=' + secrets.token_urlsafe(48))"
 nano .env
+chmod 600 .env                   # contém senhas, chaves e o token do Tunnel
 ```
 
 O que **precisa** mudar em relação ao arquivo de exemplo:
@@ -104,7 +105,12 @@ CLOUDFLARE_TUNNEL_TOKEN=<token copiado de Networking > Tunnels>
 
 `COMPOSE_PROFILES=cloudflare` faz os comandos normais de atualização também
 recriarem o conector. Quem usa Caddy, Traefik ou acesso direto deixa essas
-variáveis ausentes e o container `cloudflared` não é iniciado.
+variáveis vazias e o container `cloudflared` não é iniciado.
+
+O Tunnel não exige porta web **de entrada**, mas o `cloudflared` precisa alcançar
+a Cloudflare pela porta **7844 de saída, TCP e UDP**. O UFW padrão permite saída;
+se a VPS/rede usa política de egress restritiva, libere 7844 para os endpoints
+oficiais da Cloudflare antes de subir o profile.
 
 `BIND_ADDR=127.0.0.1` é o item que mais passa batido: sem ele o aplicativo
 continua respondendo em `http://SEU_IP:8890`, e o cookie `Secure` acaba viajando
@@ -114,7 +120,8 @@ por uma conexão que não é segura.
 aparência: sem ele, os links de convite e de **recuperação de senha** não são
 enviados — eles saem no `docker compose logs backend`, e alguém que esqueceu a
 senha depende de você ir pescar o link no log do servidor. Uma senha de app do
-Gmail resolve (seção 6 do `.env`).
+Gmail resolve, mas a seção 6 do `.env` também traz o exemplo da Resend. SPF,
+DKIM e DMARC ficam no DNS da Cloudflare, não no `.env`.
 
 Se for usar Google OAuth, preencha a seção 5 agora — o `GOOGLE_REDIRECT_URI`
 tem de ser exatamente
@@ -168,6 +175,11 @@ converte `CF-Connecting-IP` no IP usado pelo backend e pelo rate limit. Uma
 conexão de qualquer outra origem nessa porta recebe `403`, mesmo se alguém a
 publicar posteriormente. O acesso direto na porta 80 continua ignorando headers
 Cloudflare fornecidos pelo cliente.
+
+Não habilite a Transform Rule gerenciada **Remove visitor IP headers** para este
+hostname. Ela remove `CF-Connecting-IP`; sem esse cabeçalho o acesso continua
+funcionando, mas todos os usuários do Tunnel parecem vir do mesmo IP do
+`cloudflared` e passam a compartilhar o mesmo balde de rate limit por IP.
 
 Mantenha `BIND_ADDR=127.0.0.1` se o Tunnel deve ser a única entrada pública.
 Use `0.0.0.0` somente quando quiser oferecer também o acesso HTTP direto.

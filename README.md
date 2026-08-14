@@ -67,7 +67,7 @@ Abra <http://localhost:5173>. Em dev, os links de convite/reset de senha aparece
 ### Produção (Docker Compose)
 
 ```bash
-cp .env.example .env            # preencha SECRET_KEY, POSTGRES_PASSWORD, FRONTEND_URL...
+cp .env.example .env            # preencha os campos [OBRIGATÓRIA] do template
 docker compose up --build -d
 python scripts/smoke_prod.py    # jornada completa — em stack de TESTE, não em produção
 ```

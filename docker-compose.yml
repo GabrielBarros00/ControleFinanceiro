@@ -49,6 +49,19 @@ services:
       APP_ENV: ${APP_ENV:-production}
       DATABASE_URL: postgresql://${POSTGRES_USER:-cf4}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-controle_financeiro}
       SECRET_KEY: ${SECRET_KEY:?defina SECRET_KEY no .env}
+      # Ajustes operacionais que o Settings declara como configuráveis. Mantê-los
+      # explícitos aqui é o que faz uma alteração no `.env` realmente chegar ao
+      # processo; `tests/test_compose_env.py` impede novas omissões silenciosas.
+      DB_POOL_SIZE: ${DB_POOL_SIZE:-10}
+      DB_MAX_OVERFLOW: ${DB_MAX_OVERFLOW:-20}
+      DB_POOL_TIMEOUT_SECONDS: ${DB_POOL_TIMEOUT_SECONDS:-30}
+      DB_POOL_RECYCLE_SECONDS: ${DB_POOL_RECYCLE_SECONDS:-1800}
+      SQL_ECHO: ${SQL_ECHO:-False}
+      ACCESS_TOKEN_EXPIRES_MINUTES: ${ACCESS_TOKEN_EXPIRES_MINUTES:-30}
+      REFRESH_TOKEN_EXPIRES_DAYS: ${REFRESH_TOKEN_EXPIRES_DAYS:-7}
+      RESET_TOKEN_EXPIRES_MINUTES: ${RESET_TOKEN_EXPIRES_MINUTES:-30}
+      EXCHANGE_RATE_TIMEOUT_SECONDS: ${EXCHANGE_RATE_TIMEOUT_SECONDS:-4.0}
+      IOF_INTERNATIONAL_CARD_RATE: ${IOF_INTERNATIONAL_CARD_RATE:-0.035}
       COOKIE_SECURE: ${COOKIE_SECURE:-True}
       COOKIE_SAMESITE: lax
       CORS_ORIGINS: ${CORS_ORIGINS:-}
@@ -65,11 +78,9 @@ services:
       SMTP_PORT: ${SMTP_PORT:-587}
       SMTP_USER: ${SMTP_USER:-}
       SMTP_PASSWORD: ${SMTP_PASSWORD:-}
-      # SMTP_TLS estava documentado no .env.example e no SETUP.md, era lido pelo
-      # `Settings` — e não chegava aqui. Quem precisasse de `False` (porta 465
-      # com SSL implícito, relay local sem TLS) preenchia o campo e nada
-      # acontecia: o container continuava tentando STARTTLS e o envio falhava
-      # sem que a configuração explicasse por quê.
+      # True usa STARTTLS (normalmente porta 587). False significa SMTP sem
+      # STARTTLS, útil apenas para um relay confiável; o backend não implementa
+      # SSL implícito da porta 465.
       SMTP_TLS: ${SMTP_TLS:-True}
       # Primeiro superadministrador (ADR 0026). Obrigatório em produção: é a
       # única conta que se cadastra sem convite no primeiro acesso, e o backend
@@ -135,9 +146,20 @@ services:
     restart: unless-stopped
     environment:
       TZ: ${TZ:-America/Sao_Paulo}
+      # O cron toma decisões de calendário e precisa enxergar o mesmo fuso do
+      # backend. Sem esta linha, mudar APP_TIMEZONE no `.env` só alterava a API.
+      APP_TIMEZONE: ${APP_TIMEZONE:-${TZ:-America/Sao_Paulo}}
       APP_ENV: ${APP_ENV:-production}
       DATABASE_URL: postgresql://${POSTGRES_USER:-cf4}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-controle_financeiro}
       SECRET_KEY: ${SECRET_KEY:?defina SECRET_KEY no .env}
+      DB_POOL_SIZE: ${DB_POOL_SIZE:-10}
+      DB_MAX_OVERFLOW: ${DB_MAX_OVERFLOW:-20}
+      DB_POOL_TIMEOUT_SECONDS: ${DB_POOL_TIMEOUT_SECONDS:-30}
+      DB_POOL_RECYCLE_SECONDS: ${DB_POOL_RECYCLE_SECONDS:-1800}
+      SQL_ECHO: ${SQL_ECHO:-False}
+      # O backfill de câmbio roda neste processo, portanto o timeout configurado
+      # pelo operador também precisa chegar ao cron.
+      EXCHANGE_RATE_TIMEOUT_SECONDS: ${EXCHANGE_RATE_TIMEOUT_SECONDS:-4.0}
       COOKIE_SECURE: ${COOKIE_SECURE:-True}
       ALLOWED_HOSTS: ${ALLOWED_HOSTS:-}
       FRONTEND_URL: ${FRONTEND_URL:-http://localhost}
@@ -201,6 +223,10 @@ services:
   # só confia em CF-Connecting-IP quando o peer é o IP fixo deste container.
   cloudflared:
     image: cloudflare/cloudflared:latest
+    # `--no-autoupdate` evita que o processo altere a própria imagem; o update
+    # acontece de forma reproduzível no `docker compose up`, puxando antes de
+    # recriar o container (recomendação oficial para cloudflared em Docker).
+    pull_policy: always
     profiles: ["cloudflare"]
     restart: unless-stopped
     command: tunnel --no-autoupdate run

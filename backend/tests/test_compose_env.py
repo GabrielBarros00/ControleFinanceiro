@@ -25,6 +25,27 @@ from app.core.config import Settings
 from app.services import app_settings
 
 COMPOSE = Path(__file__).resolve().parents[2] / "docker-compose.yml"
+ENV_EXAMPLE = Path(__file__).resolve().parents[2] / ".env.example"
+SETUP = Path(__file__).resolve().parents[2] / "SETUP.md"
+
+# Estes dois parâmetros pertencem exclusivamente ao profile `dev` do pgAdmin.
+# Não entram no template de produção de propósito.
+CHAVES_EXCLUSIVAS_DE_DEV = {"PGADMIN_EMAIL", "PGADMIN_PASSWORD"}
+
+# Configurações operacionais que não passam pela tela de Administração. Todas
+# devem concordar entre Settings, Compose e o template entregue ao operador.
+CHAVES_AVANCADAS = (
+    "ACCESS_TOKEN_EXPIRES_MINUTES",
+    "REFRESH_TOKEN_EXPIRES_DAYS",
+    "RESET_TOKEN_EXPIRES_MINUTES",
+    "DB_POOL_SIZE",
+    "DB_MAX_OVERFLOW",
+    "DB_POOL_TIMEOUT_SECONDS",
+    "DB_POOL_RECYCLE_SECONDS",
+    "SQL_ECHO",
+    "EXCHANGE_RATE_TIMEOUT_SECONDS",
+    "IOF_INTERNATIONAL_CARD_RATE",
+)
 
 
 def _ambiente_do_servico(nome: str) -> dict[str, str]:
@@ -57,6 +78,19 @@ def _ambiente_do_servico(nome: str) -> dict[str, str]:
         casa = re.match(r"^      ([A-Z][A-Z0-9_]*):\s*(.*)$", linha)
         if casa:
             achados[casa.group(1)] = casa.group(2).strip()
+    return achados
+
+
+def _valores_do_env_example() -> dict[str, str]:
+    """Lê apenas atribuições do template, sem interpretar segredos ou shell."""
+    achados: dict[str, str] = {}
+    for linha in ENV_EXAMPLE.read_text(encoding="utf-8").splitlines():
+        casa = re.match(r"^([A-Z][A-Z0-9_]*)=(.*)$", linha)
+        if casa:
+            assert casa.group(1) not in achados, (
+                f"{casa.group(1)} aparece mais de uma vez no .env.example"
+            )
+            achados[casa.group(1)] = casa.group(2)
     return achados
 
 
@@ -100,6 +134,121 @@ def test_padrao_do_compose_bate_com_o_do_codigo(variavel):
     no_codigo = Settings.model_fields[variavel].default
     assert str(no_codigo) == no_compose, (
         f"{variavel}: compose diz {no_compose!r} e config.py diz {no_codigo!r}"
+    )
+    assert _valores_do_env_example()[variavel] == no_compose, (
+        f"{variavel}: .env.example diverge do padrão {no_compose!r} do deploy"
+    )
+
+
+@pytest.mark.parametrize("variavel", CHAVES_AVANCADAS)
+def test_ajuste_avancado_chega_ao_backend_com_o_padrao_documentado(variavel):
+    """Uma chave no template não pode ser decorativa nem divergir do código."""
+    bruto = _ambiente_do_servico("backend")[variavel]
+    casa = re.match(r"^\$\{" + variavel + r":-(.*)\}$", bruto)
+    assert casa, f"{variavel} não é configurável pelo .env no backend: {bruto!r}"
+
+    esperado = str(Settings.model_fields[variavel].default)
+    assert casa.group(1) == esperado
+    assert _valores_do_env_example()[variavel] == esperado
+
+
+def test_todo_campo_configuravel_do_settings_chega_ao_backend():
+    """Só a versão da release é interna; o restante deve chegar pelo Compose."""
+    faltantes = set(Settings.model_fields) - set(_ambiente_do_servico("backend"))
+    assert faltantes == {"APP_VERSION"}, (
+        "Settings ganhou campo sem wiring no deploy. Passe-o no serviço backend "
+        f"e documente-o no .env.example; campos faltantes: {sorted(faltantes)}"
+    )
+
+
+def test_env_example_cobre_todas_as_variaveis_do_compose_de_producao():
+    """Nenhuma interpolação de produção pode depender de uma chave escondida."""
+    texto = COMPOSE.read_text(encoding="utf-8")
+    no_compose = set(re.findall(r"\$\{([A-Z][A-Z0-9_]*)", texto))
+    no_template = set(_valores_do_env_example())
+
+    assert CHAVES_EXCLUSIVAS_DE_DEV <= no_compose
+    faltantes = no_compose - no_template - CHAVES_EXCLUSIVAS_DE_DEV
+    assert not faltantes, (
+        "variáveis usadas pelo Compose não aparecem no .env.example: "
+        f"{sorted(faltantes)}"
+    )
+
+    # COMPOSE_PROFILES é lida pela CLI do Docker, não interpolada no YAML.
+    sem_consumidor = no_template - no_compose - {"COMPOSE_PROFILES"}
+    assert not sem_consumidor, (
+        "variáveis do .env.example não são consumidas pelo deploy: "
+        f"{sorted(sem_consumidor)}"
+    )
+
+
+def test_toda_variavel_do_env_example_pode_ser_encontrada_no_setup():
+    """O nome completo precisa ser pesquisável; abreviação esconde configuração."""
+    guia = SETUP.read_text(encoding="utf-8")
+    ausentes = sorted(set(_valores_do_env_example()) - {
+        chave for chave in _valores_do_env_example() if chave in guia
+    })
+    assert not ausentes, (
+        "variáveis do .env.example ausentes do SETUP.md: "
+        f"{ausentes}"
+    )
+
+
+def test_defaults_do_env_example_formam_um_settings_de_producao_valido():
+    """Além de documentadas, strings, números, booleanos e fuso devem parsear."""
+    kwargs = {
+        chave: valor
+        for chave, valor in _valores_do_env_example().items()
+        if chave in Settings.model_fields
+    }
+    # Somente os campos marcados como obrigatórios recebem valores seguros de
+    # validação; todo o restante vem literalmente do template versionado.
+    kwargs.update(
+        DATABASE_URL="postgresql://cf4:validation-only@db/controle_financeiro",
+        SECRET_KEY="validation-only-0123456789abcdef",
+        SUPERADMIN_EMAIL="admin@example.com",
+        FRONTEND_URL="https://app.example.com",
+        ALLOWED_HOSTS="app.example.com",
+    )
+
+    config = Settings(_env_file=None, **kwargs)
+    assert config.APP_ENV == "production"
+    assert config.COOKIE_SECURE is True
+    assert config.IOF_INTERNATIONAL_CARD_RATE > 0
+
+
+@pytest.mark.parametrize("diretorio", ("backend", "frontend"))
+def test_contexto_docker_exclui_toda_a_familia_env(diretorio):
+    """O .gitignore não protege o contexto enviado ao daemon/build remoto."""
+    dockerignore = COMPOSE.parent / diretorio / ".dockerignore"
+    regras = {
+        linha.strip()
+        for linha in dockerignore.read_text(encoding="utf-8").splitlines()
+        if linha.strip() and not linha.lstrip().startswith("#")
+    }
+    assert ".env*" in regras, (
+        f"{dockerignore} precisa excluir .env, .env.local, .env.production etc."
+    )
+
+
+@pytest.mark.parametrize(
+    "variavel",
+    (
+        "APP_TIMEZONE",
+        "DB_POOL_SIZE",
+        "DB_MAX_OVERFLOW",
+        "DB_POOL_TIMEOUT_SECONDS",
+        "DB_POOL_RECYCLE_SECONDS",
+        "SQL_ECHO",
+        "EXCHANGE_RATE_TIMEOUT_SECONDS",
+    ),
+)
+def test_cron_recebe_os_ajustes_operacionais_que_usa(variavel):
+    """API e tarefas agendadas não podem obedecer a ambientes diferentes."""
+    backend = _ambiente_do_servico("backend")
+    cron = _ambiente_do_servico("cron")
+    assert cron.get(variavel) == backend[variavel], (
+        f"cron não recebe o mesmo {variavel} do backend"
     )
 
 

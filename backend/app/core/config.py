@@ -1,5 +1,6 @@
 from decimal import Decimal
 from typing import List, Optional
+from urllib.parse import urlsplit
 from zoneinfo import ZoneInfo
 
 from pydantic import model_validator
@@ -145,6 +146,17 @@ class Settings(BaseSettings):
         return self.APP_ENV in ("production", "staging")
 
     @model_validator(mode="after")
+    def _validate_app_env(self):
+        """Um typo não pode transformar produção em ambiente relaxado."""
+        aceitos = ("development", "test", "staging", "production")
+        if self.APP_ENV not in aceitos:
+            raise ValueError(
+                f"APP_ENV inválido: {self.APP_ENV!r}. "
+                f"Use um de: {', '.join(aceitos)}."
+            )
+        return self
+
+    @model_validator(mode="after")
     def _validate_timezone(self):
         """Recusa boot com `APP_TIMEZONE` que não existe — em QUALQUER ambiente.
 
@@ -190,6 +202,78 @@ class Settings(BaseSettings):
         return self
 
     @model_validator(mode="after")
+    def _validate_urls_and_optional_integrations(self):
+        """Recusa integrações pela metade e URLs que só falhariam no uso.
+
+        Essas configurações são opcionais, mas, quando o operador começa a
+        preenchê-las, degradar silenciosamente para "desativado" ou deixar o
+        erro para o primeiro e-mail/login transforma um deploy verde em uma
+        aplicação parcialmente quebrada.
+        """
+        frontend = self.FRONTEND_URL.strip().rstrip("/")
+        try:
+            parsed = urlsplit(frontend)
+            # Acessar `.port` força a validação de porta fora de 1..65535.
+            parsed.port
+        except ValueError as exc:
+            raise ValueError(f"FRONTEND_URL inválida: {self.FRONTEND_URL!r} ({exc})")
+
+        if (
+            parsed.scheme not in ("http", "https")
+            or not parsed.hostname
+            or parsed.username
+            or parsed.password
+            or parsed.path
+            or parsed.query
+            or parsed.fragment
+        ):
+            raise ValueError(
+                "FRONTEND_URL deve ser apenas a origem pública, no formato "
+                "https://app.seudominio.com (sem caminho, query ou credenciais)"
+            )
+        self.FRONTEND_URL = frontend
+
+        google_credentials = bool(self.GOOGLE_CLIENT_ID or self.GOOGLE_CLIENT_SECRET)
+        if google_credentials and not (
+            self.GOOGLE_CLIENT_ID
+            and self.GOOGLE_CLIENT_SECRET
+            and self.GOOGLE_REDIRECT_URI
+        ):
+            raise ValueError(
+                "Google OAuth incompleto: preencha GOOGLE_CLIENT_ID, "
+                "GOOGLE_CLIENT_SECRET e GOOGLE_REDIRECT_URI juntos"
+            )
+
+        smtp_user = bool(self.SMTP_USER)
+        smtp_password = bool(self.SMTP_PASSWORD)
+        if smtp_user != smtp_password:
+            raise ValueError(
+                "SMTP incompleto: SMTP_USER e SMTP_PASSWORD devem ser "
+                "preenchidos juntos"
+            )
+        if (smtp_user or smtp_password) and not self.SMTP_HOST:
+            raise ValueError("SMTP_HOST é obrigatório quando há credenciais SMTP")
+        if self.SMTP_HOST:
+            if not self.EMAIL_FROM:
+                raise ValueError(
+                    "EMAIL_FROM é obrigatório quando SMTP_HOST está configurado"
+                )
+            if self.SMTP_PORT in (465, 2465):
+                raise ValueError(
+                    "SMTP_PORT 465/2465 usa SSL implícito, não suportado; "
+                    "use a porta STARTTLS do provedor (normalmente 587)"
+                )
+            from email_validator import EmailNotValidError, validate_email
+
+            try:
+                validate_email(self.EMAIL_FROM, check_deliverability=False)
+            except EmailNotValidError as exc:
+                raise ValueError(
+                    f"EMAIL_FROM inválido: {self.EMAIL_FROM!r} ({exc})"
+                )
+        return self
+
+    @model_validator(mode="after")
     def _validate_deployment(self):
         """Recusa boot em produção/staging com configuração insegura."""
         if not self.is_deployed:
@@ -209,6 +293,36 @@ class Settings(BaseSettings):
                 "ALLOWED_HOSTS=app.seudominio.com) — \"*\"/vazio desliga a "
                 "checagem de Host"
             )
+
+        frontend = urlsplit(self.FRONTEND_URL)
+        hostname = (frontend.hostname or "").lower()
+
+        def host_permitido(padrao: str) -> bool:
+            padrao = padrao.lower()
+            if padrao.startswith("*."):
+                return hostname.endswith(padrao[1:]) and hostname != padrao[2:]
+            return hostname == padrao
+
+        if not any(host_permitido(host) for host in self.allowed_hosts_list):
+            raise ValueError(
+                f"o host de FRONTEND_URL ({hostname}) precisa constar em "
+                "ALLOWED_HOSTS"
+            )
+
+        if (
+            self.APP_ENV == "production"
+            and frontend.scheme != "https"
+            and hostname not in ("localhost", "127.0.0.1", "::1")
+        ):
+            raise ValueError("FRONTEND_URL deve usar https:// em produção")
+
+        if self.GOOGLE_CLIENT_ID and self.GOOGLE_CLIENT_SECRET:
+            redirect_esperado = f"{self.FRONTEND_URL}/api/v1/auth/google/callback"
+            if self.GOOGLE_REDIRECT_URI != redirect_esperado:
+                raise ValueError(
+                    "GOOGLE_REDIRECT_URI deve ser exatamente "
+                    f"{redirect_esperado!r} neste deploy"
+                )
 
         # Sem superadmin, um deploy novo nasce inoperável: o cadastro é por
         # convite (padrão do ADR 0026), não há quem convide, e não há tela por

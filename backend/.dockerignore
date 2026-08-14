@@ -4,5 +4,7 @@ __pycache__/
 .venv/
 .coverage
 *.db
-.env
+# Segredos locais nunca entram no contexto/imagem — não apenas o nome `.env`,
+# mas também variantes comuns como `.env.production` e `.env.local`.
+.env*
 tests/

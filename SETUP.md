@@ -44,17 +44,27 @@ que entra sem convite — o cadastro do site já nasce fechado (veja
 | `SUPERADMIN_EMAIL` | ✅ | Quem administra o site | Seu e-mail. É a **única conta que se cadastra sem convite**, e só no primeiro acesso. O app **recusa subir** sem ela |
 | `APP_ENV` | ✅ | Modo do app | `production` com HTTPS; `staging` se for HTTP puro (IP local) |
 | `COOKIE_SECURE` | ✅ | Cookie só via HTTPS | `True` com HTTPS; `False` se HTTP puro (senão **ninguém loga**) |
+| `APP_TIMEZONE` / `TZ` | padrão serve | Fuso do calendário do app e do relógio dos containers | Mantenha os dois iguais; `America/Sao_Paulo` é o padrão |
 | `FRONTEND_URL` | ✅ | URL pública do app | O endereço que as pessoas digitam. Vai nos links de email e no redirect do Google |
 | `HTTP_PORT` | padrão serve | Porta do nginx | `80` (ou outra se a 80 estiver ocupada) |
 | `BIND_ADDR` | ✅ se houver proxy TLS | Interface em que a porta é publicada | `127.0.0.1` quando Caddy/Traefik terminam HTTPS no host — senão o app continua respondendo em `http://` na porta direta e o TLS vira opcional. `0.0.0.0` (padrão) sem proxy |
-| `CLOUDFLARE_TUNNEL_TOKEN` | só com Tunnel | Autoriza o container `cloudflared` | Copie o token exibido em **Networking → Tunnels**. Deixe vazio quando o profile `cloudflare` não for usado |
+| `COMPOSE_PROFILES` / `CLOUDFLARE_TUNNEL_TOKEN` | só com Tunnel | Ativa e autoriza o container `cloudflared` | Use `cloudflare` e o token exibido em **Networking → Tunnels**. Deixe ambos vazios nos outros tipos de deploy |
 | `CORS_ORIGINS` | deixar vazio | Origens extras de CORS | Vazio = same-origin via nginx (correto) |
 | `ALLOWED_HOSTS` | ✅ (em `production`) | Host(s) confiável(is) (anti-Host forjado) | Domínio(s) reais separados por vírgula. Em `APP_ENV=production` o app **recusa subir** com `*`/vazio; `localhost` já é aceito p/ o healthcheck. Em `staging` pode deixar vazio |
-| `GOOGLE_CLIENT_ID` / `SECRET` / `REDIRECT_URI` | opcional | Login com Google | Ver seção [Google OAuth](#google-oauth) |
-| `SMTP_*` / `EMAIL_FROM` | opcional | Envio de emails | Ver seção [Email](#email-smtp). Vazio = links no log |
+| `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` / `GOOGLE_REDIRECT_URI` | opcional | Login com Google | Ver seção [Google OAuth](#google-oauth) |
+| `SMTP_*` / `EMAIL_FROM` | opcional; remetente obrigatório com SMTP | Envio de emails | Ver seção [Email](#email-smtp). Sem `SMTP_HOST` = links no log; com SMTP, use um remetente aceito pelo provedor |
+| `REGISTRATION_MODE` | padrão serve | Portão de cadastro antes de haver ajuste salvo na tela | `invite_only` (recomendado), `open` ou `closed` |
 | `RATE_LIMIT_ENABLED` | padrão serve | Anti força-bruta no login | `True` |
-| `RATE_LIMIT_AUTH_PER_MINUTE` / `_ACCOUNT_` | padrão serve | Tetos por minuto: por IP+rota e por conta alvo | `20` / `10`. O de IP é compartilhado por quem está atrás do mesmo Wi-Fi/CGNAT — apertá-lo tranca gente legítima. O de conta deve continuar sendo o menor |
+| `RATE_LIMIT_AUTH_PER_MINUTE` / `RATE_LIMIT_ACCOUNT_PER_MINUTE` | padrão serve | Tetos por minuto: por IP+rota e por conta alvo | `20` / `10`. O de IP é compartilhado por quem está atrás do mesmo Wi-Fi/CGNAT — apertá-lo tranca gente legítima. O de conta deve continuar sendo o menor |
+| `ATTACHMENT_QUOTA_BYTES` / `UPLOAD_MAX_BYTES` | padrão serve | Cota por workspace / teto por arquivo | 200 MB / 5 MB; o nginx impõe teto externo de 6 MB por requisição |
+| `IMPORT_MAX_ROWS` | padrão serve | Teto absoluto por importação CSV | `5000`; a tela de Administração só consegue reduzi-lo |
 | `FORWARDED_ALLOW_IPS` | deixar vazio | Proxies em que o uvicorn confia p/ ler `X-Forwarded-For` | Vazio = faixas privadas (rede do Compose). Abrir para `*` devolve ao cliente o poder de forjar o próprio IP no rate limit |
+| `ACCESS_TOKEN_EXPIRES_MINUTES` / `REFRESH_TOKEN_EXPIRES_DAYS` / `RESET_TOKEN_EXPIRES_MINUTES` | padrão serve | Validade de acesso, sessão e link de recuperação | `30` min / `7` dias / `30` min |
+| `DB_POOL_SIZE` / `DB_MAX_OVERFLOW` | padrão serve | Conexões base e excedentes por processo | `10` / `20`; reduza se o PostgreSQL tiver limite baixo |
+| `DB_POOL_TIMEOUT_SECONDS` / `DB_POOL_RECYCLE_SECONDS` | padrão serve | Espera por conexão / reciclagem do pool | `30` / `1800` segundos |
+| `SQL_ECHO` | manter `False` | Log detalhado de SQL | Pode expor parâmetros sensíveis; habilite só durante diagnóstico controlado |
+| `EXCHANGE_RATE_TIMEOUT_SECONDS` | padrão serve | Timeout por tentativa contra a fonte de câmbio | `4.0`; o look-back pode fazer até cinco tentativas |
+| `IOF_INTERNATIONAL_CARD_RATE` | confira no deploy | Alíquota decimal para novas compras internacionais | `0.035` = 3,5%; lançamentos antigos preservam o valor já congelado |
 
 ### Decisão HTTPS vs HTTP (a mais importante)
 
@@ -85,6 +95,10 @@ Para não repetir `--profile cloudflare` nas atualizações, acrescente também
 usada pela VPS ou por uma VPN, escolha outra `/29` livre e altere em conjunto o
 `ipv4_address` do `cloudflared` no Compose e o endereço confiável no
 `frontend/nginx.conf`.
+
+O token é uma credencial: proteja o arquivo com `chmod 600 .env` no servidor.
+Nenhuma porta web de entrada é necessária, mas redes com egress restritivo devem
+permitir TCP e UDP de saída na porta 7844 para os endpoints da Cloudflare.
 
 Se o site deve ser acessível **somente** pelo Tunnel, use
 `BIND_ADDR=127.0.0.1`. Se também quiser acesso direto pela rede, mantenha
@@ -162,7 +176,23 @@ Sem preencher: o botão "Entrar com Google" avisa que está indisponível; login
 
 Sem `SMTP_HOST`, os links de **convite** e **recuperação de senha** aparecem em `docker compose logs backend` — você copia e envia manualmente.
 
-Para envio real com Gmail:
+Para envio real com Resend e domínio verificado:
+
+```env
+SMTP_HOST=smtp.resend.com
+SMTP_PORT=587
+SMTP_USER=resend
+SMTP_PASSWORD=<API key da Resend>
+SMTP_TLS=True
+EMAIL_FROM=noreply@seudominio.com
+```
+
+Use a porta 587: o backend faz STARTTLS. A porta 465 usa SSL implícito e não é
+suportada por esta implementação. Os registros SPF, DKIM e DMARC ficam no DNS
+do domínio (por exemplo, na Cloudflare); eles não pertencem ao `.env`.
+
+Como alternativa, para Gmail:
+
 1. Ative verificação em 2 etapas na conta Google.
 2. Gere uma **senha de app**: <https://myaccount.google.com/apppasswords>.
 3. No `.env`:
@@ -174,7 +204,7 @@ Para envio real com Gmail:
    SMTP_TLS=True
    EMAIL_FROM=voce@gmail.com
    ```
-Qualquer provedor SMTP serve (Resend, Brevo, Mailgun...) — mesmos campos.
+Outros provedores SMTP com STARTTLS também usam os mesmos campos.
 
 ### Depois de subir
 
