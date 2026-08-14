@@ -1,4 +1,5 @@
 from decimal import Decimal
+from email.headerregistry import HeaderRegistry
 from typing import List, Optional
 from urllib.parse import urlsplit
 from zoneinfo import ZoneInfo
@@ -263,14 +264,33 @@ class Settings(BaseSettings):
                     "SMTP_PORT 465/2465 usa SSL implícito, não suportado; "
                     "use a porta STARTTLS do provedor (normalmente 587)"
                 )
-            from email_validator import EmailNotValidError, validate_email
-
+            sender = self.EMAIL_FROM.strip()
             try:
-                validate_email(self.EMAIL_FROM, check_deliverability=False)
-            except EmailNotValidError as exc:
+                if "\r" in sender or "\n" in sender:
+                    raise ValueError("quebras de linha não são permitidas")
+
+                header = HeaderRegistry()("From", sender)
+                if header.defects:
+                    raise ValueError(str(header.defects[0]))
+                if len(header.addresses) != 1:
+                    raise ValueError("informe exatamente um remetente")
+                if any(group.display_name is not None for group in header.groups):
+                    raise ValueError("grupos de endereços não são permitidos")
+
+                from email_validator import EmailNotValidError, validate_email
+
+                try:
+                    validate_email(
+                        header.addresses[0].addr_spec,
+                        check_deliverability=False,
+                    )
+                except EmailNotValidError as exc:
+                    raise ValueError(str(exc)) from exc
+            except (TypeError, ValueError) as exc:
                 raise ValueError(
                     f"EMAIL_FROM inválido: {self.EMAIL_FROM!r} ({exc})"
-                )
+                ) from exc
+            self.EMAIL_FROM = sender
         return self
 
     @model_validator(mode="after")
