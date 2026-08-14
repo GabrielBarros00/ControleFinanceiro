@@ -10,7 +10,7 @@ from fastapi.testclient import TestClient
 from app.core.jwt import create_access_token
 from app.main import app
 from app.models.user import PlatformRole, User
-from app.services import app_settings
+from app.services import app_settings, smtp_transport
 
 client = TestClient(app)
 
@@ -521,3 +521,53 @@ def test_auditoria_nao_devolve_conteudo_dos_valores(elenco):
     for linha in linhas:
         assert "old_values" not in linha
         assert "new_values" not in linha
+
+
+# --------------------------------------------------------------------------
+# Teste de e-mail: o botão existe para DIZER o que está errado
+# --------------------------------------------------------------------------
+
+def test_teste_de_email_diz_por_qual_porta_o_envio_saiu(elenco, monkeypatch):
+    """A resposta carrega a rota descoberta, não só "enviado".
+
+    Sem isso, o operador que configurou a porta 587 e recebeu o e-mail por 2587
+    continuaria sem saber que a porta do `.env` está bloqueada na saída — a
+    informação existe no servidor e não chegava a quem opera.
+    """
+    monkeypatch.setattr("app.core.config.settings.SMTP_HOST", "smtp.exemplo.com")
+    monkeypatch.setattr("app.core.config.settings.SMTP_PORT", 587)
+    monkeypatch.setattr(
+        "app.services.email_service.EmailService.send",
+        lambda *a, **kw: smtp_transport.Endpoint("smtp.exemplo.com", 2587),
+    )
+
+    resp = client.post(
+        "/api/v1/admin/settings/test-email",
+        json={"para": "eu@example.com"},
+        headers=_headers(elenco["admin"]),
+    )
+    assert resp.status_code == 200
+    corpo = resp.json()
+    assert corpo["enviado"] is True
+    assert "2587" in corpo["rota"]
+
+
+def test_teste_de_email_devolve_o_diagnostico_da_falha(elenco, monkeypatch):
+    """O erro chega à TELA. Antes, "timed out" só existia no log do container."""
+    monkeypatch.setattr("app.core.config.settings.SMTP_HOST", "smtp.exemplo.com")
+    monkeypatch.setattr("app.services.smtp_transport._resolve", lambda host: True)
+    monkeypatch.setattr(
+        "app.services.smtp_transport._alcancavel", lambda host, porta, timeout: False
+    )
+    smtp_transport.esquece_rota()
+
+    resp = client.post(
+        "/api/v1/admin/settings/test-email",
+        json={"para": "eu@example.com"},
+        headers=_headers(elenco["admin"]),
+    )
+    smtp_transport.esquece_rota()
+
+    corpo = resp.json()
+    assert corpo["enviado"] is False and corpo["configurado"] is True
+    assert "2587" in corpo["detalhe"], corpo["detalhe"]

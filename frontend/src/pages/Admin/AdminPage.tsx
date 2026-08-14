@@ -466,6 +466,8 @@ function Configuracoes() {
   const { data: dados, isLoading, salvar, testarEmail } = useAdminSettings();
   const [rascunho, setRascunho] = React.useState<Record<string, unknown>>({});
   const [emailTeste, setEmailTeste] = React.useState('');
+  const [resultadoDoTeste, setResultadoDoTeste] =
+    React.useState<{ ok: boolean; texto: string } | null>(null);
 
   const valor = (chave: string) => rascunho[chave] ?? dados?.valores[chave];
   const mudar = (chave: string, v: unknown) => setRascunho((r) => ({ ...r, [chave]: v }));
@@ -484,10 +486,20 @@ function Configuracoes() {
   const enviarTeste = async () => {
     try {
       const r = await testarEmail.mutateAsync(emailTeste);
-      if (r.enviado) toast.success('E-mail enviado. Confira a caixa de entrada.');
-      else if (!r.configurado) toast.warning(r.detalhe ?? 'SMTP não configurado.');
-      else toast.error(`Falhou: ${r.detalhe}`);
+      if (r.enviado) {
+        setResultadoDoTeste({ ok: true, texto: `Enviado por ${r.rota ?? 'SMTP'}.` });
+        toast.success('E-mail enviado. Confira a caixa de entrada.');
+      } else if (!r.configurado) {
+        setResultadoDoTeste({ ok: false, texto: r.detalhe ?? 'SMTP não configurado.' });
+        toast.warning('SMTP não configurado.');
+      } else {
+        // O diagnóstico fica na TELA, não só no toast: a mensagem que interessa
+        // ("nenhuma porta respondeu…") tem três linhas e some antes de ser lida.
+        setResultadoDoTeste({ ok: false, texto: r.detalhe ?? 'Falha sem detalhe.' });
+        toast.error('Falhou — o motivo está abaixo do botão.');
+      }
     } catch (err) {
+      setResultadoDoTeste({ ok: false, texto: getApiErrorMessage(err) });
       toast.error(getApiErrorMessage(err));
     }
   };
@@ -645,6 +657,8 @@ function Configuracoes() {
         <p className="text-sm text-muted-foreground">
           As credenciais de SMTP ficam no <code>.env</code> por segurança. Aqui você
           confere se o envio funciona — sem isso, a única pista seria o log do servidor.
+          A porta é detectada automaticamente: se a do <code>.env</code> estiver
+          bloqueada na saída, o teste mostra por qual porta o e-mail realmente saiu.
         </p>
         <div className="flex flex-wrap items-end gap-2">
           <Input
@@ -658,6 +672,14 @@ function Configuracoes() {
             Enviar teste
           </Button>
         </div>
+        {resultadoDoTeste && (
+          <p
+            role="status"
+            className={`text-sm ${resultadoDoTeste.ok ? 'text-muted-foreground' : 'text-destructive'}`}
+          >
+            {resultadoDoTeste.texto}
+          </p>
+        )}
       </Card>
 
       {sujo && (

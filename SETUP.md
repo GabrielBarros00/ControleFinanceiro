@@ -187,9 +187,35 @@ SMTP_TLS=True
 EMAIL_FROM=Controle Financeiro <noreply@seudominio.com>
 ```
 
-Use a porta 587: o backend faz STARTTLS. A porta 465 usa SSL implícito e não é
-suportada por esta implementação. Os registros SPF, DKIM e DMARC ficam no DNS
-do domínio (por exemplo, na Cloudflare); eles não pertencem ao `.env`.
+Os registros SPF, DKIM e DMARC ficam no DNS do domínio (por exemplo, na
+Cloudflare); eles não pertencem ao `.env`.
+
+#### A porta é descoberta sozinha
+
+Se a porta configurada não responder, o backend sonda as portas do mesmo
+servidor (587, 2587, 2525, 465, 2465, 25), envia pela primeira que funcionar e
+memoriza qual foi. STARTTLS e SSL implícito (465/2465) são ambos suportados — o
+modo vem da porta e do que o servidor anuncia, não de adivinhação.
+
+Isso existe por causa do caso mais comum de "o e-mail não chega": **provedores
+de VPS bloqueiam a saída em 25, 465 e 587** como medida antispam. O sintoma é um
+`TimeoutError` depois de ~20s, que não se parece com bloqueio de firewall. Os
+provedores de e-mail publicam portas alternativas exatamente para isso — a
+Resend e a SES atendem em 2587 e 2465; Mailgun, SendGrid, Postmark e Mailtrap,
+em 2525.
+
+Para confirmar por onde o envio saiu: **Administração → Configurações → Testar
+envio de e-mail**. A resposta mostra a porta usada e, quando falha, o motivo —
+"nenhuma porta respondeu" (bloqueio de saída), credencial recusada ou remetente
+não verificado são mensagens diferentes. Para checar do servidor:
+
+```bash
+# aberta = a porta responde; travada = bloqueio de saída do provedor do VPS
+for p in 25 465 587 2465 2525 2587; do
+  timeout 5 bash -c "echo > /dev/tcp/smtp.resend.com/$p" 2>/dev/null \
+    && echo "$p aberta" || echo "$p travada"
+done
+```
 
 Como alternativa, para Gmail:
 
