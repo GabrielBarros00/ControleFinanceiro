@@ -1,6 +1,7 @@
 # Primeiro deploy numa VPS
 
-Guia do **zero até o app no ar**, com HTTPS e backup automático.
+Guia do **zero até o app no ar**, com HTTPS via Caddy ou Cloudflare Tunnel e
+backup automático.
 Para *atualizar* um deploy que já existe, veja [runbook-deploy.md](runbook-deploy.md).
 Para a referência de cada variável, veja [SETUP.md](../SETUP.md).
 
@@ -10,11 +11,12 @@ Para a referência de cada variável, veja [SETUP.md](../SETUP.md).
 |---|---|---|
 | VPS | 2 GB RAM, 1 vCPU, 20 GB disco | Postgres + backend + nginx + cron. Com 1 GB o `docker compose build` do frontend (Vite) costuma morrer por falta de memória — se for o caso, veja a nota no fim |
 | SO | Debian 12 / Ubuntu 22.04+ | Os comandos abaixo assumem `apt` |
-| Domínio | um subdomínio | ex.: `financas.seudominio.com`, com registro **A** apontando para o IP da VPS |
-| Portas | 80 e 443 abertas | O Let's Encrypt valida pela 80 |
+| Domínio | um subdomínio | Com Caddy, crie um registro **A** para a VPS. Com Tunnel, o domínio precisa estar na Cloudflare e a rota cria o DNS |
+| Portas de entrada | depende da opção HTTPS | Caddy usa 80/443; Cloudflare Tunnel não exige porta web aberta na VPS |
 
-O domínio precisa estar resolvendo **antes** do passo 5 — a emissão do
-certificado depende disso.
+Com Caddy, o domínio precisa apontar para a VPS **antes** do passo 5 — a emissão
+do certificado depende disso. Com Tunnel, a rota publicada no painel da
+Cloudflare cuida do DNS e o `cloudflared` inicia conexões somente de saída.
 
 ---
 
@@ -35,15 +37,19 @@ rsync --archive --chown=cf4:cf4 ~/.ssh /home/cf4/
 curl -fsSL https://get.docker.com | sh
 usermod -aG docker cf4
 
-# Firewall: só SSH e web
+# Firewall com Caddy: SSH e web
 ufw allow OpenSSH && ufw allow 80 && ufw allow 443 && ufw --force enable
+
+# OU, com Cloudflare Tunnel: nenhuma porta web de entrada
+# ufw allow OpenSSH && ufw --force enable
 ```
 
 Saia e entre de novo como `cf4` (`ssh cf4@SEU_IP`) — a participação no grupo
 `docker` só vale a partir de uma sessão nova.
 
-A porta do Compose (`HTTP_PORT`) **não** entra no firewall: ela vai ficar
-publicada só em `127.0.0.1`, alcançável apenas pelo proxy local.
+A porta do Compose (`HTTP_PORT`) **não** entra no firewall: ela fica publicada
+só em `127.0.0.1`, alcançável pelo Caddy local ou para diagnóstico. O Tunnel
+usa outra porta exclusivamente dentro da rede Docker.
 
 ---
 
@@ -88,6 +94,18 @@ APP_TIMEZONE=America/Sao_Paulo
 TZ=America/Sao_Paulo
 ```
 
+Os valores acima servem para as duas opções de HTTPS. Se escolher Cloudflare
+Tunnel, acrescente ao mesmo `.env`:
+
+```env
+COMPOSE_PROFILES=cloudflare
+CLOUDFLARE_TUNNEL_TOKEN=<token copiado de Networking > Tunnels>
+```
+
+`COMPOSE_PROFILES=cloudflare` faz os comandos normais de atualização também
+recriarem o conector. Quem usa Caddy, Traefik ou acesso direto deixa essas
+variáveis ausentes e o container `cloudflared` não é iniciado.
+
 `BIND_ADDR=127.0.0.1` é o item que mais passa batido: sem ele o aplicativo
 continua respondendo em `http://SEU_IP:8890`, e o cookie `Secure` acaba viajando
 por uma conexão que não é segura.
@@ -108,10 +126,11 @@ tem de ser exatamente
 
 ```bash
 docker compose up -d --build        # o build do frontend leva alguns minutos
-docker compose ps                   # os quatro serviços: db, backend, cron, frontend
+docker compose ps                   # com Tunnel, aparece também cloudflared
 ```
 
-Todos precisam aparecer `healthy`. Se o `backend` ficar reiniciando, a
+`db`, `backend` e `frontend` precisam aparecer `healthy`; `cron` e, quando
+habilitado, `cloudflared` aparecem `Up`. Se o `backend` ficar reiniciando, a
 configuração foi recusada — `docker compose logs backend` diz qual variável.
 
 Confira que ele responde localmente:
@@ -122,7 +141,42 @@ curl -s localhost:8890/api/v1/health     # {"status":"ok",...,"database":"ok"}
 
 ---
 
-## 5. HTTPS com Caddy
+## 5. Publicar com HTTPS
+
+Escolha **uma** das opções abaixo.
+
+### Opção A — Cloudflare Tunnel no Docker
+
+1. No painel da Cloudflare, abra **Networking → Tunnels**, crie um Tunnel
+   gerenciado e copie o token para `CLOUDFLARE_TUNNEL_TOKEN` no `.env`.
+2. Dentro do Tunnel, adicione uma rota de aplicação publicada (*Public
+   Hostname*) para `financas.seudominio.com`.
+3. Selecione o tipo **HTTP** e informe exatamente
+   `http://frontend:8080` como serviço.
+4. Aplique a configuração e confira o conector:
+
+```bash
+docker compose up -d --build
+docker compose ps cloudflared
+docker compose logs --tail=50 cloudflared
+```
+
+A Cloudflare termina HTTPS na borda; entre ela e o nginx o tráfego usa HTTP na
+rede Docker dedicada. Isso é intencional. O nginx só aceita a porta 8080 quando
+a origem é o IP fixo do container `cloudflared` (`172.31.255.2`) e só nesse caso
+converte `CF-Connecting-IP` no IP usado pelo backend e pelo rate limit. Uma
+conexão de qualquer outra origem nessa porta recebe `403`, mesmo se alguém a
+publicar posteriormente. O acesso direto na porta 80 continua ignorando headers
+Cloudflare fornecidos pelo cliente.
+
+Mantenha `BIND_ADDR=127.0.0.1` se o Tunnel deve ser a única entrada pública.
+Use `0.0.0.0` somente quando quiser oferecer também o acesso HTTP direto.
+
+Se o Docker acusar conflito com `172.31.255.0/29`, escolha outra subnet `/29`
+livre e altere **juntos** o `ipv4_address` de `cloudflared` no
+`docker-compose.yml` e o IP confiável no `frontend/nginx.conf`.
+
+### Opção B — Caddy no host
 
 O `caddy` do apt padrão do Debian/Ubuntu costuma estar velho (ou nem existir,
 dependendo da versão). Use o repositório oficial:
@@ -217,7 +271,12 @@ E, na tela: entre com sua conta, crie uma despesa e confira que ela aparece.
 
 ## Notas que economizam uma tarde
 
-**Rate limit atrás do proxy.** O nginx do container sobrescreve
+**Rate limit atrás do proxy.** Com Cloudflare Tunnel, o nginx aceita
+`CF-Connecting-IP` somente do container isolado e cada visitante mantém seu
+próprio balde por IP. No acesso direto, qualquer header Cloudflare fabricado é
+ignorado.
+
+Com Caddy, o nginx do container sobrescreve
 `X-Forwarded-For` com o endereço de quem o alcançou — que, com o Caddy na
 frente, é sempre o mesmo. Na prática o teto por IP
 (`RATE_LIMIT_AUTH_PER_MINUTE`, 20/min) vira um balde **compartilhado por todo
@@ -249,5 +308,6 @@ indefinidamente. Em `/etc/docker/daemon.json`:
 e `sudo systemctl restart docker`.
 
 **Atualizar depois.** `git pull && docker compose up -d --build` — as migrações
-rodam sozinhas no start. Mas leia o [runbook](runbook-deploy.md) antes: ele
+rodam sozinhas no start. Com `COMPOSE_PROFILES=cloudflare` no `.env`, o mesmo
+comando também atualiza o Tunnel. Leia o [runbook](runbook-deploy.md) antes: ele
 começa pelo backup, e por um bom motivo.

@@ -87,7 +87,7 @@ A referência de cada variável está em **[SETUP.md](SETUP.md)**.
 |---|---|
 | **[docs/SCREENSHOTS.md](docs/SCREENSHOTS.md)** | Catálogo de todas as telas, em tema claro e escuro — inclusive mobile e área administrativa |
 | **[SETUP.md](SETUP.md)** | Configuração e deploy: variáveis de ambiente, produção vs dev, OAuth, SMTP, backup, problemas comuns |
-| **[docs/deploy-vps.md](docs/deploy-vps.md)** | Primeiro deploy numa VPS, do zero ao ar: servidor, HTTPS com Caddy, primeiro acesso, backup automático |
+| **[docs/deploy-vps.md](docs/deploy-vps.md)** | Primeiro deploy numa VPS, do zero ao ar: servidor, HTTPS com Caddy ou Cloudflare Tunnel, primeiro acesso, backup automático |
 | **[docs/runbook-deploy.md](docs/runbook-deploy.md)** | Atualizar um deploy existente: backup, ensaio da migração, rollback |
 | **[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)** | Arquitetura: camadas, modelo de dados, tempo real, autenticação, migrações, topologia de deploy |
 | **[docs/API.md](docs/API.md)** | Referência da API: convenções, autenticação, envelope de erro, endpoints por recurso, WebSocket |

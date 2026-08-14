@@ -17,8 +17,9 @@ Guia de referência para configurar o Controle Financeiro V4 em **produção** e
 ## Produção — passo a passo
 
 > **Primeira vez numa VPS?** Este arquivo é a *referência* de cada variável.
-> Para o roteiro do zero ao ar — servidor, firewall, HTTPS com Caddy, primeiro
-> acesso e backup no cron — siga [docs/deploy-vps.md](docs/deploy-vps.md).
+> Para o roteiro do zero ao ar — servidor, firewall, HTTPS com Caddy ou
+> Cloudflare Tunnel, primeiro acesso e backup no cron — siga
+> [docs/deploy-vps.md](docs/deploy-vps.md).
 
 ```bash
 cp .env.example .env
@@ -46,6 +47,7 @@ que entra sem convite — o cadastro do site já nasce fechado (veja
 | `FRONTEND_URL` | ✅ | URL pública do app | O endereço que as pessoas digitam. Vai nos links de email e no redirect do Google |
 | `HTTP_PORT` | padrão serve | Porta do nginx | `80` (ou outra se a 80 estiver ocupada) |
 | `BIND_ADDR` | ✅ se houver proxy TLS | Interface em que a porta é publicada | `127.0.0.1` quando Caddy/Traefik terminam HTTPS no host — senão o app continua respondendo em `http://` na porta direta e o TLS vira opcional. `0.0.0.0` (padrão) sem proxy |
+| `CLOUDFLARE_TUNNEL_TOKEN` | só com Tunnel | Autoriza o container `cloudflared` | Copie o token exibido em **Networking → Tunnels**. Deixe vazio quando o profile `cloudflare` não for usado |
 | `CORS_ORIGINS` | deixar vazio | Origens extras de CORS | Vazio = same-origin via nginx (correto) |
 | `ALLOWED_HOSTS` | ✅ (em `production`) | Host(s) confiável(is) (anti-Host forjado) | Domínio(s) reais separados por vírgula. Em `APP_ENV=production` o app **recusa subir** com `*`/vazio; `localhost` já é aceito p/ o healthcheck. Em `staging` pode deixar vazio |
 | `GOOGLE_CLIENT_ID` / `SECRET` / `REDIRECT_URI` | opcional | Login com Google | Ver seção [Google OAuth](#google-oauth) |
@@ -58,6 +60,35 @@ que entra sem convite — o cadastro do site já nasce fechado (veja
 
 - **Cenário A — domínio com HTTPS** (recomendado): `APP_ENV=production` + `COOKIE_SECURE=True`. Coloque um proxy TLS na frente (Caddy e Traefik emitem certificado Let's Encrypt sozinhos) apontando para a porta do `HTTP_PORT`.
 - **Cenário B — rede local, sem TLS** (`http://192.168.x.x`): `APP_ENV=staging` + `COOKIE_SECURE=False`. Todo o resto (Postgres, migrações, rate limit) continua em modo produção.
+
+**Cloudflare Tunnel no Docker.** Crie um Tunnel gerenciado no painel da
+Cloudflare e, no *Public Hostname*, selecione o tipo **HTTP** e configure o
+serviço como `http://frontend:8080`. Copie o token do Tunnel para
+`CLOUDFLARE_TUNNEL_TOKEN` no `.env` e suba o profile opcional:
+
+```bash
+docker compose --profile cloudflare up --build -d
+```
+
+O nginx publica apenas a porta 80 no host. A porta 8080 fica na rede Docker
+dedicada. O `cloudflared` recebe nela o IP fixo `172.31.255.2`, e o nginx só
+converte `CF-Connecting-IP` no `X-Forwarded-For` quando **origem e porta** são,
+respectivamente, esse container e `8080`. Qualquer outra origem em `8080`
+recebe `403`; portanto, mesmo que alguém publique essa porta por engano, um
+cliente externo não consegue forjar o IP usado no rate limit. Na porta 80,
+inclusive com `BIND_ADDR=0.0.0.0`, o comportamento anterior permanece: headers
+Cloudflare enviados pelo cliente são ignorados e vale o IP direto da conexão.
+Não é necessária uma Transform Rule nem um segredo adicional de header.
+
+Para não repetir `--profile cloudflare` nas atualizações, acrescente também
+`COMPOSE_PROFILES=cloudflare` ao `.env`. Se a subnet `172.31.255.0/29` já for
+usada pela VPS ou por uma VPN, escolha outra `/29` livre e altere em conjunto o
+`ipv4_address` do `cloudflared` no Compose e o endereço confiável no
+`frontend/nginx.conf`.
+
+Se o site deve ser acessível **somente** pelo Tunnel, use
+`BIND_ADDR=127.0.0.1`. Se também quiser acesso direto pela rede, mantenha
+`BIND_ADDR=0.0.0.0`.
 
 Por quê: cookie com flag `Secure` não é enviado pelo navegador em `http://` (exceto localhost) — com a combinação errada, o login "funciona" mas a sessão nunca persiste.
 

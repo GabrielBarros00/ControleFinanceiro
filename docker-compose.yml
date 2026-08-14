@@ -192,6 +192,26 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
+    networks:
+      default:
+      cloudflare_edge:
+
+  # Opcional: ative com `docker compose --profile cloudflare up --build -d`.
+  # O Tunnel alcança a porta interna 8080 do nginx pela rede dedicada. O nginx
+  # só confia em CF-Connecting-IP quando o peer é o IP fixo deste container.
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    profiles: ["cloudflare"]
+    restart: unless-stopped
+    command: tunnel --no-autoupdate run
+    environment:
+      TUNNEL_TOKEN: ${CLOUDFLARE_TUNNEL_TOKEN:-}
+    depends_on:
+      frontend:
+        condition: service_healthy
+    networks:
+      cloudflare_edge:
+        ipv4_address: 172.31.255.2
 
   # Ferramenta de administração do banco — apenas em desenvolvimento
   # (docker compose --profile dev up)
@@ -210,3 +230,10 @@ services:
 volumes:
   postgres_data:
   attachments_data:
+
+networks:
+  cloudflare_edge:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.31.255.0/29
