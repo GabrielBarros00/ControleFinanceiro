@@ -282,3 +282,35 @@ def test_smtp_resend_starttls_valido_passa():
         EMAIL_FROM="noreply@example.com",
     )
     assert config.SMTP_PORT == 587
+
+
+def test_smtp_aceita_nome_de_exibicao_no_remetente():
+    sender = "Controle Financeiro <noreply@notify.capamericagod.com>"
+    config = _production_settings(
+        SMTP_HOST="smtp.resend.com",
+        SMTP_PORT=587,
+        SMTP_USER="resend",
+        SMTP_PASSWORD="api-key",
+        SMTP_TLS=True,
+        EMAIL_FROM=sender,
+    )
+    assert config.EMAIL_FROM == sender
+
+
+@pytest.mark.parametrize(
+    "sender",
+    [
+        "primeiro@example.com, segundo@example.com",
+        "Equipe: noreply@example.com;",
+        "Controle Financeiro <noreply@example.com>\r\nBcc: atacante@example.com",
+    ],
+)
+def test_smtp_recusa_remetente_ambiguo_ou_injecao_de_header(sender):
+    with pytest.raises(ValueError, match="EMAIL_FROM inválido"):
+        _production_settings(
+            SMTP_HOST="smtp.resend.com",
+            SMTP_PORT=587,
+            SMTP_USER="resend",
+            SMTP_PASSWORD="api-key",
+            EMAIL_FROM=sender,
+        )
