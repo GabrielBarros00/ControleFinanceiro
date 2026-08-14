@@ -160,6 +160,38 @@ test.describe('Stack de produção: tempo real e convite por link', () => {
     await Promise.all([...socketsDeB].map((ws) => ws.close()));
     socketsDeB.clear();
 
+    // Espera a REDE DE B silenciar antes de marcar a linha de base.
+    //
+    // Entrar no workspace pelo switcher dispara resync completo (o `hello` de
+    // uma sala nova não se correlaciona com o cache — ver `use-workspace-events`),
+    // e isso é uma RAJADA de ~10 requisições espalhadas por algumas dezenas de
+    // milissegundos. A linha de base era lida num instante arbitrário dentro
+    // dessa janela: o que ainda estivesse em voo caía do lado de fora da conta e
+    // era denunciado adiante como "B buscou com o socket caído".
+    //
+    // É o que reprovou no CI, e a prova está na própria mensagem: as URLs
+    // acusadas eram `auth/me`, `workspaces/`, `notifications`, `members`,
+    // `categories`… — o resync da ENTRADA no workspace, não uma busca do
+    // lançamento offline, que nem tinha sido criado ainda. Localmente o mesmo
+    // teste reprovou com 4 URLs e com 1, conforme o ponto da rajada em que a
+    // marca caía; instrumentado, o rabo da rajada aparecia 27ms DEPOIS da marca,
+    // com o lote anterior 9ms antes dela (nas execuções verdes, 100–360ms antes).
+    //
+    // Silêncio, e não `waitForTimeout` fixo: um número mágico volta a reprovar no
+    // primeiro runner mais lento. E não enfraquece a asserção — ela continua
+    // sendo "ZERO buscas a partir daqui", só que medida de um ponto quiescente.
+    const esperaSilencioDeRede = async () => {
+      for (let tentativa = 0; tentativa < 20; tentativa += 1) {
+        const marca = buscasDeB;
+        await pageB.waitForTimeout(500);
+        if (buscasDeB === marca) return;
+      }
+      throw new Error(
+        `B não parou de buscar em 10s — as últimas URLs foram: ${urlsDeB.slice(-8).join(', ')}`,
+      );
+    };
+    await esperaSilencioDeRede();
+
     // A linha de base vem ANTES de criar o lançamento.
     //
     // Estava depois da espera por A renderizar, e isso deixava um buraco: entre
