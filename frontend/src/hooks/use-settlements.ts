@@ -21,9 +21,22 @@ export interface SettlementCreate {
   billing_month?: string;
 }
 
-export function useSettlements() {
+/**
+ * `workspaceId` explícito serve à tela GLOBAL de acertos (ADR 0027): lá a casa
+ * não vem da URL, vem da linha em que a pessoa clicou. Sem parâmetro, o
+ * comportamento é o de sempre — a casa aberta.
+ *
+ * A comparação é com `undefined`, não `??`: `useSettlements(null)` significa
+ * "ainda não sei qual casa" e tem de continuar desabilitado, enquanto o `??`
+ * cairia de volta na URL e mandaria o acerto para a casa errada.
+ */
+export function useSettlements(
+  workspaceId?: number | null,
+  { list = true }: { list?: boolean } = {},
+) {
   const queryClient = useQueryClient();
-  const currentWorkspaceId = useWorkspaceId();
+  const daUrl = useWorkspaceId();
+  const currentWorkspaceId = workspaceId !== undefined ? workspaceId : daUrl;
 
   const listQuery = useQuery({
     queryKey: ['settlements', currentWorkspaceId],
@@ -31,16 +44,31 @@ export function useSettlements() {
       const response = await apiClient.get(`/workspaces/${currentWorkspaceId}/settlements`);
       return response.data;
     },
-    enabled: !!currentWorkspaceId,
+    // `list: false` para quem só escreve. O diálogo de acerto é um deles, e na
+    // tela global ele muda de casa a cada linha clicada: sem isto, cada abertura
+    // buscava o histórico de um workspace que aquela tela não desenha.
+    enabled: list && !!currentWorkspaceId,
   });
 
   // Acerto muda o saldo global E o ledger do mês (que é ciente de acertos)
   const invalidate = () =>
     invalidateForEvent(queryClient, 'settlement.created', currentWorkspaceId);
 
+  // Sem casa não há acerto: a URL viraria `/workspaces/null/settlements` e o
+  // servidor responderia 422 falando de `workspace_id`, quando o problema é de
+  // cá. Vale para as duas telas, mas nasceu da global — lá o id vem do draft, e
+  // um draft incompleto tem de falhar rápido e claro.
+  const exigeWorkspace = () => {
+    if (!currentWorkspaceId) {
+      throw new Error('Escolha em qual workspace o acerto será registrado.');
+    }
+    return currentWorkspaceId;
+  };
+
   const createMutation = useMutation({
     mutationFn: async (data: SettlementCreate) => {
-      const response = await apiClient.post(`/workspaces/${currentWorkspaceId}/settlements`, data);
+      const ws = exigeWorkspace();
+      const response = await apiClient.post(`/workspaces/${ws}/settlements`, data);
       return response.data as Settlement;
     },
     onSuccess: invalidate,
@@ -48,7 +76,8 @@ export function useSettlements() {
 
   const deleteMutation = useMutation({
     mutationFn: async (id: number) => {
-      await apiClient.delete(`/workspaces/${currentWorkspaceId}/settlements/${id}`);
+      const ws = exigeWorkspace();
+      await apiClient.delete(`/workspaces/${ws}/settlements/${id}`);
     },
     onSuccess: invalidate,
   });

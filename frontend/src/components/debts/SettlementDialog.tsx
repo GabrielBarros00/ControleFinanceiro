@@ -27,19 +27,30 @@ export interface SettlementDraft {
   amount: number;
   // Quando o acerto vem do ledger mensal, quita a dívida daquele mês (YYYY-MM)
   billing_month?: string;
+  // Preenchidos pela tela GLOBAL (ADR 0027), onde a casa não vem da URL e sim da
+  // linha clicada. Vazios na tela da casa, que continua lendo o workspace da URL.
+  workspace_id?: number;
+  workspace_name?: string;
+  currency?: string;
 }
 
 interface SettlementDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   draft: SettlementDraft | null;
-  members: Member[];
+  /** Só precisa de `user_id` e `user_name`: na tela global as pessoas vêm do
+   *  `people` de cada casa, não de `/{ws}/members`. */
+  members: Pick<Member, 'user_id' | 'user_name'>[];
 }
 
 // Registrar um acerto: from pagou amount para to (desconta do balanço)
 export function SettlementDialog({ open, onOpenChange, draft, members }: SettlementDialogProps) {
-  const { create, isMutating } = useSettlements();
-  const baseCurrency = useBaseCurrency();
+  // A casa do DRAFT vence a da URL: na tela global não há workspace na URL, e o
+  // acerto pertence à casa da linha em que a pessoa clicou. `undefined` (tela da
+  // casa) mantém o comportamento de sempre — ver `useSettlements`.
+  const { create, isMutating } = useSettlements(draft?.workspace_id, { list: false });
+  const workspaceCurrency = useBaseCurrency();
+  const baseCurrency = draft?.currency ?? workspaceCurrency;
   const [fromId, setFromId] = React.useState('');
   const [toId, setToId] = React.useState('');
   const [amount, setAmount] = React.useState(0);
@@ -92,7 +103,11 @@ export function SettlementDialog({ open, onOpenChange, draft, members }: Settlem
             <HandCoins className="h-5 w-5 text-primary" /> Registrar pagamento
           </DialogTitle>
           <DialogDescription>
-            O valor registrado é abatido do balanço de dívidas do workspace.
+            {draft?.workspace_name
+              // Na tela global há várias casas na mesma página: dizer em qual o
+              // acerto vai cair é o que impede o registro na casa errada.
+              ? `O valor é abatido do balanço de ${draft.workspace_name}.`
+              : 'O valor registrado é abatido do balanço de dívidas do workspace.'}
           </DialogDescription>
         </DialogHeader>
 

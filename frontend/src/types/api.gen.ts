@@ -1337,6 +1337,81 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/me/debts": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Personal Debts
+         * @description Com quem eu me acerto, somando todas as casas.
+         *
+         *     Agrupado por workspace e **nunca compensado entre eles**: dever 100 na Casa e
+         *     ter 100 a receber na Viagem não é estar quitado. Cada grupo vem na moeda-base
+         *     da própria casa; só os totais convertem, e o que não converte aparece em
+         *     `excluded_workspaces` com o valor na moeda dele.
+         */
+        get: operations["get_personal_debts_api_v1_me_debts_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/me/debts/monthly": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Personal Monthly Debts
+         * @description O retrato do mês (por `billing_month`), uma seção por casa.
+         *
+         *     Parcelas aparecem só no mês delas. Casa sem movimento no mês não vira seção —
+         *     senão quem tem várias casas recebe uma pilha de cards vazios.
+         *
+         *     Sem `?currency=`: cada seção é uma casa, na moeda-base dela, e não há total
+         *     agregado a converter (ver o serviço).
+         */
+        get: operations["get_personal_monthly_debts_api_v1_me_debts_monthly_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/me/settlements": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Personal Settlements
+         * @description Histórico de acertos da pessoa, em todas as casas.
+         *
+         *     Só os acertos em que ela é uma das pontas. O acerto entre TERCEIROS de uma
+         *     casa em que ela é admin **não** aparece: quem mostra aquilo é a tela do
+         *     workspace, e a camada `/me/*` é a visão da pessoa.
+         */
+        get: operations["list_personal_settlements_api_v1_me_settlements_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/auth/onboarding": {
         parameters: {
             query?: never;
@@ -2318,10 +2393,42 @@ export interface components {
             /** Due Day */
             due_day?: number | null;
         };
+        /**
+         * DebtRow
+         * @description Uma dívida líquida entre duas pessoas, como o `DebtService` a devolve.
+         */
+        DebtRow: {
+            /** Debtor Id */
+            debtor_id: number;
+            /** Creditor Id */
+            creditor_id: number;
+            /** Amount */
+            amount: string;
+        };
         /** EarlySettlementRequest */
         EarlySettlementRequest: {
             /** Settlement Date */
             settlement_date?: string | null;
+        };
+        /**
+         * ExcludedWorkspace
+         * @description Casa fora dos totais por falta de cotação — com o valor na moeda dela.
+         *
+         *     O `/me/overview` devolve só um contador (`excluded_foreign_count`) e some com
+         *     o workspace inteiro. Aqui o usuário vê QUAL casa ficou de fora e QUANTO é,
+         *     porque "você deve R$ 0,00" para quem deve USD 100 é pior que omitir.
+         */
+        ExcludedWorkspace: {
+            /** Workspace Id */
+            workspace_id: number;
+            /** Workspace Name */
+            workspace_name: string;
+            /** Base Currency */
+            base_currency: string;
+            /** To Pay */
+            to_pay: string;
+            /** To Receive */
+            to_receive: string;
         };
         /**
          * FinancialAccess
@@ -2655,6 +2762,55 @@ export interface components {
             reference_id?: number | null;
         };
         /**
+         * LedgerExpense
+         * @description Uma despesa do mês, com quem pagou e como foi dividida.
+         */
+        LedgerExpense: {
+            /** Id */
+            id: number;
+            /** Title */
+            title: string;
+            /** Total Amount */
+            total_amount: string;
+            status: components["schemas"]["TransactionStatus"];
+            /** Is Paid */
+            is_paid: boolean;
+            /**
+             * Transaction Date
+             * Format: date-time
+             */
+            transaction_date: string;
+            /** Installment No */
+            installment_no?: number | null;
+            /** Installments Of */
+            installments_of?: number | null;
+            /** Payers */
+            payers: components["schemas"]["LedgerPayer"][];
+            /** Splits */
+            splits: components["schemas"]["LedgerSplit"][];
+        };
+        /**
+         * LedgerMember
+         * @description Quanto UMA pessoa pagou e deve no mês, nesta casa.
+         */
+        LedgerMember: {
+            /** User Id */
+            user_id: number;
+            /** Paid */
+            paid: string;
+            /** Owed */
+            owed: string;
+            /** Balance */
+            balance: string;
+        };
+        /** LedgerPayer */
+        LedgerPayer: {
+            /** User Id */
+            user_id: number;
+            /** Amount */
+            amount: string;
+        };
+        /**
          * LedgerRead
          * @description Extrato global consolidado, com filtros e paginação.
          */
@@ -2675,6 +2831,40 @@ export interface components {
             net_cash: string;
             /** Excluded Foreign Count */
             excluded_foreign_count: number;
+        };
+        /** LedgerSettlement */
+        LedgerSettlement: {
+            /** Id */
+            id: number;
+            /** From User Id */
+            from_user_id: number;
+            /** To User Id */
+            to_user_id: number;
+            /** Amount */
+            amount: string;
+            /** Note */
+            note?: string | null;
+            /**
+             * Settled At
+             * Format: date-time
+             */
+            settled_at: string;
+        };
+        /** LedgerSplit */
+        LedgerSplit: {
+            /** User Id */
+            user_id: number;
+            /** Computed Amount */
+            computed_amount: string;
+        };
+        /** LedgerTotals */
+        LedgerTotals: {
+            /** Total */
+            total: string;
+            /** Paid */
+            paid: string;
+            /** Open */
+            open: string;
         };
         /** LoginRequest */
         LoginRequest: {
@@ -2902,6 +3092,118 @@ export interface components {
          * @enum {string}
          */
         PaymentMethod: "credit_card" | "debit_card" | "pix" | "cash" | "bank_transfer" | "boleto" | "other";
+        /**
+         * Person
+         * @description `{user_id, user_name}` — o formato que o componente de ledger consome.
+         */
+        Person: {
+            /** User Id */
+            user_id: number;
+            /** User Name */
+            user_name: string;
+        };
+        /**
+         * PersonDebt
+         * @description `DebtRow` com os nomes já resolvidos.
+         *
+         *     O ledger do workspace devolve só ids — a tela da casa cruza com
+         *     `/{ws}/members` para achar o nome. A tela global não tem uma casa só de onde
+         *     buscar membros, então o nome vem junto.
+         */
+        PersonDebt: {
+            /** Debtor Id */
+            debtor_id: number;
+            /** Creditor Id */
+            creditor_id: number;
+            /** Amount */
+            amount: string;
+            /** Debtor Name */
+            debtor_name: string;
+            /** Creditor Name */
+            creditor_name: string;
+        };
+        /**
+         * PersonalDebtsRead
+         * @description Com quem eu me acerto, somando todas as casas.
+         *
+         *     Não existe "líquido": compensar dívida de uma casa com crédito de outra é o
+         *     que o ADR 0020 proíbe — são pessoas e acordos diferentes. `to_pay` e
+         *     `to_receive` andam lado a lado, e cada um é informativo.
+         */
+        PersonalDebtsRead: {
+            /** Currency */
+            currency: string;
+            /** To Pay */
+            to_pay: string;
+            /** To Receive */
+            to_receive: string;
+            /** By Workspace */
+            by_workspace: components["schemas"]["WorkspaceDebtGroup"][];
+            /** Excluded Workspaces */
+            excluded_workspaces: components["schemas"]["ExcludedWorkspace"][];
+        };
+        /**
+         * PersonalMonthlyDebtsRead
+         * @description O mês a acertar, uma seção por casa.
+         *
+         *     Sem campo de moeda: cada seção tem a `base_currency` dela e não há total
+         *     agregado. Um `currency` no topo diria que os números estão numa moeda em que
+         *     eles não estão.
+         */
+        PersonalMonthlyDebtsRead: {
+            /** Month */
+            month: string;
+            /** By Workspace */
+            by_workspace: components["schemas"]["WorkspaceMonthlyLedger"][];
+        };
+        /**
+         * PersonalSettlementEntry
+         * @description Um acerto do histórico global, visto do ponto de vista de quem pediu.
+         */
+        PersonalSettlementEntry: {
+            /** Id */
+            id: number;
+            /** Workspace Id */
+            workspace_id: number;
+            /** Workspace Name */
+            workspace_name: string;
+            /** Currency */
+            currency: string;
+            /** From User Id */
+            from_user_id: number;
+            /** To User Id */
+            to_user_id: number;
+            /** Counterparty Id */
+            counterparty_id: number;
+            /** Counterparty Name */
+            counterparty_name: string;
+            /** Direction */
+            direction: string;
+            /** Amount */
+            amount: string;
+            /** Note */
+            note?: string | null;
+            /** Billing Month */
+            billing_month?: string | null;
+            /**
+             * Settled At
+             * Format: date-time
+             */
+            settled_at: string;
+            /** Created By User Id */
+            created_by_user_id?: number | null;
+        };
+        /** PersonalSettlementsRead */
+        PersonalSettlementsRead: {
+            /** Items */
+            items: components["schemas"]["PersonalSettlementEntry"][];
+            /** Total */
+            total: number;
+            /** Limit */
+            limit: number;
+            /** Offset */
+            offset: number;
+        };
         /**
          * PlatformRole
          * @description Papel do usuário no SITE, ortogonal ao `WorkspaceRole` (ADR 0026).
@@ -3974,6 +4276,64 @@ export interface components {
             description?: string | null;
             /** Base Currency */
             base_currency?: string | null;
+        };
+        /**
+         * WorkspaceDebtGroup
+         * @description O saldo a acertar de UMA casa. Sempre na moeda-base dela.
+         */
+        WorkspaceDebtGroup: {
+            /** Workspace Id */
+            workspace_id: number;
+            /** Workspace Name */
+            workspace_name: string;
+            /** Base Currency */
+            base_currency: string;
+            /** Role */
+            role?: string | null;
+            /** Can Write */
+            can_write: boolean;
+            /** Net Debts */
+            net_debts: components["schemas"]["PersonDebt"][];
+            /** To Pay */
+            to_pay: string;
+            /** To Receive */
+            to_receive: string;
+            /** Converted */
+            converted: boolean;
+        };
+        /**
+         * WorkspaceMonthlyLedger
+         * @description O retrato do mês de UMA casa — o mesmo payload de `/{ws}/debts/monthly`.
+         *
+         *     Campo a campo idêntico de propósito: é o que deixa o componente do frontend
+         *     servir às duas telas sem uma segunda forma de ler o ledger.
+         */
+        WorkspaceMonthlyLedger: {
+            /** Workspace Id */
+            workspace_id: number;
+            /** Workspace Name */
+            workspace_name: string;
+            /** Role */
+            role?: string | null;
+            /** Can Write */
+            can_write: boolean;
+            /** Month */
+            month: string;
+            /** Base Currency */
+            base_currency: string;
+            /** Members */
+            members: components["schemas"]["LedgerMember"][];
+            /** Net Debts */
+            net_debts: components["schemas"]["DebtRow"][];
+            /** Expenses */
+            expenses: components["schemas"]["LedgerExpense"][];
+            /** Settled Total */
+            settled_total: string;
+            /** Settlements */
+            settlements: components["schemas"]["LedgerSettlement"][];
+            totals: components["schemas"]["LedgerTotals"];
+            /** People */
+            people: components["schemas"]["Person"][];
         };
         /** WorkspaceRead */
         WorkspaceRead: {
@@ -7651,6 +8011,106 @@ export interface operations {
                 };
                 content: {
                     "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_personal_debts_api_v1_me_debts_get: {
+        parameters: {
+            query?: {
+                currency?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: {
+                access_token?: string | null;
+            };
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PersonalDebtsRead"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_personal_monthly_debts_api_v1_me_debts_monthly_get: {
+        parameters: {
+            query?: {
+                month?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: {
+                access_token?: string | null;
+            };
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PersonalMonthlyDebtsRead"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_personal_settlements_api_v1_me_settlements_get: {
+        parameters: {
+            query?: {
+                limit?: number;
+                offset?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: {
+                access_token?: string | null;
+            };
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PersonalSettlementsRead"];
                 };
             };
             /** @description Validation Error */

@@ -13,7 +13,7 @@ import { registerAndLogin, defaultWorkspace } from './helpers';
 const ROUTES = [
   // Pessoais
   '/', '/overview', '/me/income', '/me/cards', '/me/financing',
-  '/me/commitments', '/me/reports', '/me/settings',
+  '/me/commitments', '/me/reports', '/me/settings', '/me/settlements',
   // Do workspace (as antigas redirecionam para a última casa aberta)
   '/reports', '/recurring', '/debts', '/import', '/settings',
 ];

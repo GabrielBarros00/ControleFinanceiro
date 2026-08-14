@@ -54,6 +54,11 @@ export const GLOBAL_SECTION: NavSection = {
     // Cartões e financiamentos a vencer. Eixo diferente de "Acertos entre
     // pessoas" — e agora há UM item com este nome, não dois.
     { icon: Scale, label: 'Compromissos', to: '/me/commitments' },
+    // Vizinho de Compromissos porque os dois respondem "o que eu devo": um a
+    // bancos, outro a pessoas. O rótulo é "SEUS acertos" — o item do workspace
+    // continua sendo "Acertos", e dois itens com o mesmo nome foi exatamente o
+    // problema que "Compromissos" resolveu. Mesmo par de "Seus relatórios".
+    { icon: Users, label: 'Seus acertos', to: '/me/settlements' },
     // Renda × consumo do PERÍODO, somando todas as casas. Os Relatórios de
     // `/w/:id/reports` continuam existindo e são outro eixo: quanto ESTA casa
     // gastou. Depois do ADR 0021 eles nem podem mais falar de renda.
@@ -134,6 +139,10 @@ export function navFlat(workspaceId: number | null, isPlatformAdmin = false): Na
  * dois ao mesmo tempo — o usuário via "Painel" e "Relatórios" acesos juntos.
  * Vence o item de caminho mais LONGO que casa, o que dá match exato para o
  * Painel e prefixo para as subrotas de cada seção.
+ *
+ * `/me/settings` e `/me/settlements` só não colidem porque o teste é `=== to` ou
+ * `startsWith(to + '/')`. Um `startsWith` cru acenderia Configurações ao abrir
+ * Seus acertos — não "simplifique" para isso.
  */
 export function activeNavPath(
   pathname: string,

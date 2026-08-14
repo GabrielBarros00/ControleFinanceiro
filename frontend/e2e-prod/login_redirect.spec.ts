@@ -17,6 +17,7 @@ const PAGES: Array<[string, string]> = [
   ['/me/cards', 'Cartões'],
   ['/me/financing', 'Financiamentos'],
   ['/me/commitments', 'Compromissos financeiros'],
+  ['/me/settlements', 'Seus acertos'],
   // Rotas ANTIGAS: redirecionam para os equivalentes pessoais — mantê-las aqui
   // cobre o redirecionamento além do bounce.
   ['/income', 'Rendas'],
@@ -26,7 +27,11 @@ const PAGES: Array<[string, string]> = [
   ['/transactions', 'Lançamentos'],
   ['/reports', 'Relatórios'],
   ['/recurring', 'Recorrência'],
-  ['/debts', 'Acertos entre pessoas'],
+  // Só "Acertos": desde o ADR 0027 o título traz o NOME da casa
+  // (`Acertos · Meu Workspace`), para não ser lido como o total da pessoa. O
+  // `name` do `getByRole` casa por substring, então o prefixo basta — e ele
+  // sobrevive a quem renomear o workspace.
+  ['/debts', 'Acertos'],
   ['/import', 'Importar'],
   ['/settings', 'Configurações'],
 ];

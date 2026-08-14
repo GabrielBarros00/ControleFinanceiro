@@ -108,6 +108,16 @@ export function monthShortLabel(month: string): string {
   return new Date(y, m - 1, 1).toLocaleDateString('pt-BR', { month: 'short' });
 }
 
+/** `2026-08` → `agosto de 2026`. Rótulo por extenso do navegador de mês.
+ *
+ * Mora aqui, e não junto do componente, porque duas telas navegam pelos mesmos
+ * meses: os acertos DESTA casa e os acertos de TODAS (ADR 0027). */
+export function monthLabel(month: string): string {
+  const [y, m] = month.split('-').map(Number);
+  if (!y || !m) return month;
+  return new Date(y, m - 1, 1).toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' });
+}
+
 /** Data da API → YYYY-MM-DD local (para preencher <input type="date">). */
 export function apiDateToInput(value: string | Date): string {
   return toLocalISODate(parseApiDate(value));

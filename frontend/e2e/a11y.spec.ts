@@ -205,6 +205,26 @@ test.describe('Acessibilidade (axe · WCAG 2 A/AA)', () => {
     await context.close();
   });
 
+  test('Seus acertos — tabela densa, badges de status e navegador de mês', async ({ browser }) => {
+    // A superfície nova do ADR 0027, e a mais densa depois de Relatórios: uma
+    // tabela por casa, badges de status, botões só com ícone no navegador de
+    // mês. Toda tela nova deste projeto que não entrou aqui no mesmo commit
+    // acabou entrando meses depois com o título "a página que o scanner nunca
+    // tinha visitado" — três vezes até agora.
+    const context = await contaNova(browser);
+    await context.request.post(`${API}/auth/onboarding`, { data: { salary: 4000 } });
+
+    const page = await context.newPage();
+    const erros = vigiarConsole(page);
+    await page.goto('/me/settlements');
+    await expect(page.getByRole('heading', { name: 'Seus acertos' })).toBeVisible();
+
+    const { violations } = await analisar(page);
+    expect(resumir(violations)).toBe('');
+    expect(erros).toEqual([]);
+    await context.close();
+  });
+
   test('o par de aviso do tema passa o contraste nos DOIS temas', async ({ browser }) => {
     // O axe só vê o que está na tela, e o aviso de "valores sem cotação" só
     // aparece quando há valores sem cotação — um estado que nenhum spec produz.

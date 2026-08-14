@@ -18,6 +18,7 @@ o site ([ADR 0026](adr/0026-papel-de-plataforma-e-cadastro-por-convite.md)).
 | **Cartões** — limite, fatura e ciclo | [![](images/cartoes-light.png)](images/cartoes-light.png) | [![](images/cartoes-dark.png)](images/cartoes-dark.png) |
 | **Financiamentos** — cronograma SAC/PRICE | [![](images/financiamentos-light.png)](images/financiamentos-light.png) | [![](images/financiamentos-dark.png)](images/financiamentos-dark.png) |
 | **Compromissos** — panorama de endividamento | [![](images/compromissos-light.png)](images/compromissos-light.png) | [![](images/compromissos-dark.png)](images/compromissos-dark.png) |
+| **Seus acertos** — com quem me acerto, somando as casas | [![](images/meus-acertos-light.png)](images/meus-acertos-light.png) | [![](images/meus-acertos-dark.png)](images/meus-acertos-dark.png) |
 | **Seus relatórios** | [![](images/meus-relatorios-light.png)](images/meus-relatorios-light.png) | [![](images/meus-relatorios-dark.png)](images/meus-relatorios-dark.png) |
 | **Extrato** — ledger de linhas do caixa | [![](images/extrato-light.png)](images/extrato-light.png) | [![](images/extrato-dark.png)](images/extrato-dark.png) |
 | **Suas configurações** | [![](images/configuracoes-pessoais-light.png)](images/configuracoes-pessoais-light.png) | [![](images/configuracoes-pessoais-dark.png)](images/configuracoes-pessoais-dark.png) |
@@ -30,7 +31,7 @@ o site ([ADR 0026](adr/0026-papel-de-plataforma-e-cadastro-por-convite.md)).
 | **Lançamentos** | [![](images/lancamentos-light.png)](images/lancamentos-light.png) | [![](images/lancamentos-dark.png)](images/lancamentos-dark.png) |
 | **Relatórios** — a tela mais densa em cor | [![](images/relatorios-light.png)](images/relatorios-light.png) | [![](images/relatorios-dark.png)](images/relatorios-dark.png) |
 | **Recorrência** | [![](images/recorrencia-light.png)](images/recorrencia-light.png) | [![](images/recorrencia-dark.png)](images/recorrencia-dark.png) |
-| **Acertos** — quem deve para quem | [![](images/acertos-light.png)](images/acertos-light.png) | [![](images/acertos-dark.png)](images/acertos-dark.png) |
+| **Acertos** — quem deve para quem NESTA casa | [![](images/acertos-light.png)](images/acertos-light.png) | [![](images/acertos-dark.png)](images/acertos-dark.png) |
 | **Importar CSV** | [![](images/importar-light.png)](images/importar-light.png) | [![](images/importar-dark.png)](images/importar-dark.png) |
 | **Configurações do workspace** | [![](images/configuracoes-workspace-light.png)](images/configuracoes-workspace-light.png) | [![](images/configuracoes-workspace-dark.png)](images/configuracoes-workspace-dark.png) |
 
@@ -71,6 +72,7 @@ Largura de 390px, com a barra inferior de navegação.
 | **Lançamentos** | [![](images/mobile-lancamentos-light.png)](images/mobile-lancamentos-light.png) | [![](images/mobile-lancamentos-dark.png)](images/mobile-lancamentos-dark.png) |
 | **Relatórios** | [![](images/mobile-relatorios-light.png)](images/mobile-relatorios-light.png) | [![](images/mobile-relatorios-dark.png)](images/mobile-relatorios-dark.png) |
 | **Cartões** | [![](images/mobile-cartoes-light.png)](images/mobile-cartoes-light.png) | [![](images/mobile-cartoes-dark.png)](images/mobile-cartoes-dark.png) |
+| **Seus acertos** | [![](images/mobile-meus-acertos-light.png)](images/mobile-meus-acertos-light.png) | [![](images/mobile-meus-acertos-dark.png)](images/mobile-meus-acertos-dark.png) |
 
 ---
 
@@ -78,14 +80,28 @@ Largura de 390px, com a barra inferior de navegação.
 
 ```bash
 cd frontend
-npm run shots
+npm run shots                                  # captura em frontend/screenshots/
+python scripts/comprimir-shots.py              # recomprime para docs/images/
 ```
 
 O roteiro (`e2e-shots/screenshots.spec.ts`) sobe um backend próprio contra um
 `shots.db` descartável, semeia dados realistas pela API e percorre todas as
 rotas nos dois temas. A saída vai para `frontend/screenshots/` — que é
 gitignorada; as imagens deste catálogo são as mesmas, recomprimidas para 256
-cores (~67% menores, sem diferença perceptível).
+cores (~70% menores, sem diferença perceptível no tamanho em que são lidas).
+
+**A recompressão é um script, não uma lembrança.** Ela sempre foi feita à mão com
+ImageMagick ou Pillow, e numa regeração feita em máquina sem nenhum dos dois as
+imagens entraram cruas — `docs/images` cresceu 45% de uma vez, e nada acusou.
+`scripts/comprimir-shots.py` faz o mesmo usando só a biblioteca padrão do Python;
+`--check` relata sem escrever.
+
+**As capturas são do VIEWPORT (1440×900), não da página inteira.** Com
+`fullPage: true` a tela de Acertos saía 1440×5118 — uma tira de 3,5:1 que o
+GitHub renderiza como um risco ilegível nas tabelas acima. 1440 e não 1920 porque
+o conteúdo do `AppShell` é limitado a `max-w-[1200px]`: numa janela maior as
+imagens só ganhariam vazio nas laterais. O mobile usa 390×844, o viewport CSS do
+iPhone 12–16 base.
 
 Três detalhes do roteiro que existem por terem falhado antes:
 

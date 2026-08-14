@@ -1,19 +1,16 @@
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Button } from "@/components/ui/button";
-import { ChevronLeft, ChevronRight, HandCoins, Loader2, CalendarDays } from 'lucide-react';
+import { ChevronLeft, ChevronRight, CalendarDays } from 'lucide-react';
 import { useMonthlyDebts } from '@/hooks/use-monthly-debts';
 import { useBaseCurrency } from '@/hooks/use-base-currency';
-import { useTxDetailStore } from '@/stores';
 import type { SettlementDraft } from '@/components/debts/SettlementDialog';
-import { currentMonthLocal, shiftMonth } from '@/lib/date';
+import {
+  MonthlyLedgerBody,
+  MonthlyLedgerTotals,
+  type MemberLike,
+} from '@/components/debts/MonthlyLedgerBody';
+import { currentMonthLocal, monthLabel, shiftMonth } from '@/lib/date';
 import { useMonthParam } from '@/hooks/use-month-param';
-import { formatMoney } from '@/lib/money';
-
-interface MemberLike {
-  user_id: number;
-  user_name?: string;
-}
 
 interface MonthlyDebtsSectionProps {
   members: MemberLike[];
@@ -22,24 +19,17 @@ interface MonthlyDebtsSectionProps {
   onSettle: (draft: SettlementDraft) => void;
 }
 
-
-function monthLabel(month: string) {
-  const [y, m] = month.split('-').map(Number);
-  return new Date(y, m - 1, 1).toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' });
-}
-
+/**
+ * O retrato mensal DESTA casa. A casca (título, navegador de mês, busca) mora
+ * aqui; a tabela em si é `MonthlyLedgerBody`, compartilhada com a tela global de
+ * acertos (ADR 0027), onde ela aparece uma vez por casa.
+ */
 export function MonthlyDebtsSection({ members, currentUserId, canWrite, onSettle }: MonthlyDebtsSectionProps) {
   // Moeda-base do workspace: o backend soma nela e devolve `base_currency` em
   // todo endpoint agregado — a tela formatava com "R$" fixo no código.
   const baseCurrency = useBaseCurrency();
-  const formatBRL = (value: number | string) => formatMoney(value, { currency: baseCurrency });
   const [month, setMonth] = useMonthParam();
   const { ledger, isLoading } = useMonthlyDebts(month);
-  const openDetail = useTxDetailStore((s) => s.open);
-
-  const memberName = (id: number) =>
-    members.find((m) => m.user_id === id)?.user_name ?? `Membro #${id}`;
-  const memberInitials = (id: number) => memberName(id).slice(0, 2).toUpperCase();
 
   const isCurrentMonth = month === currentMonthLocal();
 
@@ -52,7 +42,7 @@ export function MonthlyDebtsSection({ members, currentUserId, canWrite, onSettle
             Acertos do mês
           </CardTitle>
           <CardDescription>
-            Cada parcela aparece só no mês dela — veja o que cada um deve e se já foi pago.
+            Só desta casa. Cada parcela aparece no mês dela — veja o que cada um deve e se já foi pago.
           </CardDescription>
         </div>
 
@@ -78,164 +68,20 @@ export function MonthlyDebtsSection({ members, currentUserId, canWrite, onSettle
           </Button>
         </div>
 
-        {/* Totais do mês */}
-        {ledger && (
-          <div className="grid grid-cols-3 gap-2 text-center">
-            <div className="rounded-lg bg-accent/20 p-2">
-              <p className="text-[10px] font-semibold uppercase text-muted-foreground">Total do mês</p>
-              <p className="text-sm font-semibold text-foreground">{formatBRL(ledger.totals.total)}</p>
-            </div>
-            <div className="rounded-lg bg-emerald-500/10 p-2">
-              <p className="text-[10px] font-semibold uppercase text-muted-foreground">Pago</p>
-              <p className="text-sm font-semibold text-emerald-500">{formatBRL(ledger.totals.paid)}</p>
-            </div>
-            <div className="rounded-lg bg-warning-subtle p-2">
-              <p className="text-[10px] font-semibold uppercase text-muted-foreground">Em aberto</p>
-              <p className="text-sm font-semibold text-warning">{formatBRL(ledger.totals.open)}</p>
-            </div>
-          </div>
-        )}
+        <MonthlyLedgerTotals ledger={ledger} currency={baseCurrency} />
       </CardHeader>
 
       <CardContent className="space-y-6">
-        {isLoading ? (
-          <div className="flex h-32 items-center justify-center">
-            <Loader2 className="h-6 w-6 animate-spin text-primary" />
-          </div>
-        ) : !ledger || ledger.expenses.length === 0 ? (
-          <p className="py-8 text-center text-sm text-muted-foreground">
-            Nenhuma despesa neste mês.
-          </p>
-        ) : (
-          <>
-            {/* Quem deve quem NO MÊS */}
-            <div className="space-y-2">
-              <div className="flex items-center justify-between">
-                <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Acertos do mês</p>
-                {ledger.settled_total > 0 && (
-                  <span className="rounded-full bg-emerald-500/10 px-2 py-0.5 text-[10px] font-semibold uppercase text-emerald-500">
-                    {formatBRL(ledger.settled_total)} pago
-                  </span>
-                )}
-              </div>
-              {ledger.net_debts.length === 0 ? (
-                <p className="text-sm text-muted-foreground">
-                  {ledger.settled_total > 0 ? 'Tudo acertado neste mês. ✅' : 'Ninguém deve nada neste mês. 🎉'}
-                </p>
-              ) : (
-                <div className="space-y-2">
-                  {ledger.net_debts.map((d) => (
-                    <div key={`${d.debtor_id}-${d.creditor_id}`} className="flex items-center justify-between rounded-xl bg-accent/30 border border-border p-3">
-                      <p className="text-sm">
-                        <span className="font-bold">{memberName(d.debtor_id)}</span>
-                        <span className="text-muted-foreground"> deve </span>
-                        <span className="font-semibold text-destructive">{formatBRL(d.amount)}</span>
-                        <span className="text-muted-foreground"> a </span>
-                        <span className="font-bold">{memberName(d.creditor_id)}</span>
-                      </p>
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        disabled={!canWrite}
-                        onClick={() => onSettle({ from_user_id: d.debtor_id, to_user_id: d.creditor_id, amount: Number(d.amount), billing_month: month })}
-                        className="gap-1.5 font-bold"
-                      >
-                        <HandCoins className="h-3.5 w-3.5" /> Registrar
-                      </Button>
-                    </div>
-                  ))}
-                </div>
-              )}
-              {/* Acertos já registrados para este mês — deixa claro quem pagou */}
-              {ledger.settlements.length > 0 && (
-                <div className="space-y-1 pt-1">
-                  {ledger.settlements.map((s) => (
-                    <p key={s.id} className="flex items-center gap-1.5 text-xs text-muted-foreground">
-                      <HandCoins className="h-3 w-3 shrink-0 text-emerald-500" />
-                      <span className="font-bold text-foreground">{memberName(s.from_user_id)}</span> pagou{' '}
-                      <span className="font-semibold text-emerald-500">{formatBRL(s.amount)}</span> a{' '}
-                      <span className="font-bold text-foreground">{memberName(s.to_user_id)}</span>
-                    </p>
-                  ))}
-                </div>
-              )}
-            </div>
-
-            {/* Detalhe das despesas do mês */}
-            <div className="space-y-2">
-              <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Despesas do mês</p>
-              <Table>
-                <TableHeader>
-                  <TableRow className="border-border hover:bg-transparent">
-                    <TableHead className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Despesa</TableHead>
-                    <TableHead className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Quem pagou</TableHead>
-                    <TableHead className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Divisão</TableHead>
-                    <TableHead className="text-center text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Status</TableHead>
-                    <TableHead className="text-right text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Valor</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {ledger.expenses.map((exp) => (
-                    <TableRow
-                      key={exp.id}
-                      onClick={() => openDetail(exp.id)}
-                      title="Ver detalhes do lançamento"
-                      className="cursor-pointer border-border hover:bg-accent/30"
-                    >
-                      <TableCell>
-                        <div className="flex flex-col gap-1">
-                          <span className="text-sm font-bold text-foreground">{exp.title}</span>
-                          {exp.installments_of && exp.installments_of > 1 && (
-                            <span className="w-fit rounded-full bg-primary/10 px-1.5 py-0.5 text-[9px] font-semibold uppercase text-primary">
-                              Parcela {exp.installment_no}/{exp.installments_of}
-                            </span>
-                          )}
-                        </div>
-                      </TableCell>
-                      <TableCell>
-                        <div className="flex flex-col gap-0.5 text-xs text-muted-foreground">
-                          {exp.payers.map((p, i) => (
-                            <span key={i}>
-                              {memberName(p.user_id)} · {formatBRL(p.amount)}
-                            </span>
-                          ))}
-                        </div>
-                      </TableCell>
-                      <TableCell>
-                        <div className="flex flex-wrap gap-1">
-                          {exp.splits.map((s, i) => {
-                            const mine = s.user_id === currentUserId;
-                            return (
-                              <span
-                                key={i}
-                                title={`${memberName(s.user_id)} — ${formatBRL(s.computed_amount)}`}
-                                className={`inline-flex items-center gap-1 rounded-full border px-1.5 py-0.5 text-[10px] font-bold ${
-                                  mine
-                                    ? 'border-primary/40 bg-primary/15 text-primary'
-                                    : 'border-border bg-accent/40 text-muted-foreground'
-                                }`}
-                              >
-                                {mine ? 'Você' : memberInitials(s.user_id)} · {formatBRL(s.computed_amount)}
-                              </span>
-                            );
-                          })}
-                        </div>
-                      </TableCell>
-                      <TableCell className="text-center">
-                        {exp.is_paid ? (
-                          <span className="rounded-full bg-emerald-500/10 px-2 py-0.5 text-[10px] font-semibold uppercase text-emerald-500">Paga</span>
-                        ) : (
-                          <span className="rounded-full bg-warning-subtle px-2 py-0.5 text-[10px] font-semibold uppercase text-warning">Em aberto</span>
-                        )}
-                      </TableCell>
-                      <TableCell className="text-right font-semibold text-foreground">{formatBRL(exp.total_amount)}</TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            </div>
-          </>
-        )}
+        <MonthlyLedgerBody
+          ledger={ledger}
+          members={members}
+          currentUserId={currentUserId}
+          canWrite={canWrite}
+          currency={baseCurrency}
+          month={month}
+          isLoading={isLoading}
+          onSettle={onSettle}
+        />
       </CardContent>
     </Card>
   );

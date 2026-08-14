@@ -67,6 +67,9 @@ const appRoutes = (wsId: number): Array<{ path: string; slug: string }> => [
   { path: '/me/cards', slug: 'cartoes' },
   { path: '/me/financing', slug: 'financiamentos' },
   { path: '/me/commitments', slug: 'compromissos' },
+  // Par global de `/w/:id/debts` (ADR 0027). A semeadura já cria a segunda
+  // pessoa no workspace justamente para os acertos não saírem vazios.
+  { path: '/me/settlements', slug: 'meus-acertos' },
   { path: '/me/reports', slug: 'meus-relatorios' },
   { path: '/me/ledger', slug: 'extrato' },
   { path: '/me/settings', slug: 'configuracoes-pessoais' },
@@ -468,8 +471,21 @@ test('seed data and capture all screens', async ({ page, playwright }) => {
     localStorage.setItem('cf4-ui', JSON.stringify({ state: { currentWorkspaceId: ws }, version: 0 }));
   }, wsId);
 
+  /**
+   * Captura o VIEWPORT, não a página inteira.
+   *
+   * Com `fullPage: true` a tela de Acertos saía 1440×5118 — uma tira de 3,5:1
+   * que o GitHub renderiza como um risco ilegível na tabela do catálogo, e que
+   * ninguém abre para ler. O catálogo existe para dar uma ideia da interface em
+   * um relance; quem quer o resto roda o app.
+   *
+   * O viewport é 1440×900 e não 1920×1080 porque o conteúdo do `AppShell` é
+   * limitado a `max-w-[1200px]`: a 1920 as capturas ganhariam ~250 px de vazio
+   * de cada lado sem mostrar uma linha a mais. 1440 é a largura em que o layout
+   * encosta no próprio limite.
+   */
   const shot = async (slug: string) => {
-    await page.screenshot({ path: path.join(SHOTS, `${slug}.png`), fullPage: true });
+    await page.screenshot({ path: path.join(SHOTS, `${slug}.png`) });
   };
 
   const settle = async () => {
@@ -557,6 +573,12 @@ test('seed data and capture all screens', async ({ page, playwright }) => {
   await captureAll('dark');
 
   // ---- Mobile (bottom-nav + responsivo), nos DOIS temas ----
+  //
+  // 390×844 é o viewport CSS do iPhone 12/13/14 e do 15/16 base — a resolução
+  // mais comum em uso hoje, e a referência que a maioria dos aparelhos Android
+  // de tela grande também aproxima. Não é DPR real (o aparelho é 3x); o que
+  // importa aqui é a largura em CSS px, que é o que decide qual breakpoint do
+  // Tailwind entra.
   await page.setViewportSize({ width: 390, height: 844 });
   const capturarMobile = async (theme: 'light' | 'dark') => {
     await page.goto('/overview');
@@ -568,6 +590,10 @@ test('seed data and capture all screens', async ({ page, playwright }) => {
       { path: `/w/${wsId}/transactions`, slug: 'lancamentos' },
       { path: `/w/${wsId}/reports`, slug: 'relatorios' },
       { path: '/me/cards', slug: 'cartoes' },
+      // A tabela de despesas do acerto é a mais larga do app — é a tela em que
+      // o scroll horizontal do `Table` precisa aparecer, e não aparecia em
+      // captura nenhuma.
+      { path: '/me/settlements', slug: 'meus-acertos' },
     ]) {
       await page.goto(r.path);
       await settle();
