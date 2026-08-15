@@ -50,6 +50,18 @@ anunciado, o TLS sobe mesmo com `SMTP_TLS=False`; sem STARTTLS anunciado, a rota
 portas alternativas de que um servidor com a saída bloqueada precisa, e um `.env`
 correto derrubava o app no start.
 
+**E, entregue, o e-mail caía no spam.** Com a autenticação inteira passando —
+DKIM, SPF do subdomínio de envio e MX de feedback publicados e corretos —, a
+mensagem em si saía malformada: sem `Date` (que a RFC 5322 lista como
+OBRIGATÓRIO), sem `Message-ID`, e com o corpo inteiro em base64, escolha
+automática do `set_content` para texto com acento — e todo corpo deste sistema
+tem acento. `MISSING_DATE`, `MISSING_MID` e `MIME_BASE64_TEXT` são três regras de
+filtro com nome próprio, e a soma decide a pasta mesmo com DMARC alinhado. O
+`Message-ID` usa o domínio do remetente e não o padrão do `make_msgid`, que é o
+hostname da máquina — dentro de um container, o ID aleatório do Docker. Nenhuma
+outra rede pega este defeito: o SMTP aceita, o provedor entrega, a tela responde
+"enviado"; ele só aparece na pasta de spam de quem recebeu.
+
 Na mesma leva, a identidade visual: `CFv4 Pro` vira **Controle Financeiro** na
 barra lateral e nas telas de entrada, com o ícone do produto no lugar do genérico,
 favicon próprio (`.ico` + `.png`), `<title>` de verdade no lugar de "frontend" e
