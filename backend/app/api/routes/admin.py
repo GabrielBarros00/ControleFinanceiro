@@ -31,6 +31,7 @@ from app.models.user import PlatformRole, User, platform_level
 from app.models.workspace import InviteStatus
 from app.services import admin_metrics, app_settings, registration_service
 from app.services.audit_service import AuditService
+from app.services import email_templates
 from app.services.email_service import EmailService
 
 logger = structlog.get_logger("app.admin")
@@ -499,11 +500,13 @@ def test_email(
         # `redescobrir_rota`: quem clica aqui acabou de mexer no firewall, na
         # porta ou no provedor. Reaproveitar a rota memorizada — ou a espera do
         # último fracasso — responderia sobre o mundo de minutos atrás.
+        texto, html = email_templates.teste_de_configuracao()
         rota = EmailService.send(
             dados.para,
             "Teste de configuração — Controle Financeiro",
-            "Se você recebeu este e-mail, o envio está funcionando.",
+            texto,
             raise_on_error=True,
+            html=html,
             redescobrir_rota=True,
         )
         return {

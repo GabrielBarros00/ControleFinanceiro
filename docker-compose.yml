@@ -74,13 +74,17 @@ services:
       GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-}
       GOOGLE_REDIRECT_URI: ${GOOGLE_REDIRECT_URI:-}
       EMAIL_FROM: ${EMAIL_FROM:-}
+      # Para onde vai a resposta de quem aperta "responder". O EMAIL_FROM é um
+      # noreply@ num subdomínio de envio que costuma não ter MX: a resposta
+      # morre no DNS e ninguém fica sabendo que tentaram falar com você.
+      EMAIL_REPLY_TO: ${EMAIL_REPLY_TO:-}
       SMTP_HOST: ${SMTP_HOST:-}
       SMTP_PORT: ${SMTP_PORT:-587}
       SMTP_USER: ${SMTP_USER:-}
       SMTP_PASSWORD: ${SMTP_PASSWORD:-}
       # True usa STARTTLS (normalmente porta 587). False significa SMTP sem
-      # STARTTLS, útil apenas para um relay confiável; o backend não implementa
-      # SSL implícito da porta 465.
+      # STARTTLS, útil apenas para um relay confiável. SSL implícito (465/2465)
+      # também é suportado — o modo vem da porta e do que o servidor anuncia.
       SMTP_TLS: ${SMTP_TLS:-True}
       # Primeiro superadministrador (ADR 0026). Obrigatório em produção: é a
       # única conta que se cadastra sem convite no primeiro acesso, e o backend
