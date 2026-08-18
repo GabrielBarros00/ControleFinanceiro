@@ -96,7 +96,7 @@ test.describe('Troca de workspace: janela do handshake', () => {
     });
 
     await pageB.goto('/');
-    await expect(pageB.getByRole('heading', { name: /Workspace ·|Início|Painel/ })).toBeVisible();
+    await expect(pageB.getByRole('heading', { name: /Seu mês|Painel/ })).toBeVisible();
     // Pré-condição: B está no próprio workspace, com socket aberto
     await pageB.waitForEvent('websocket', {
       predicate: (w) => w.url().includes(`/ws/workspaces/${wsB.id}`),
@@ -104,7 +104,8 @@ test.describe('Troca de workspace: janela do handshake', () => {
     });
 
     // Troca pelo switcher do sidebar
-    await pageB.getByRole('button', { name: /Workspace|Selecione/i }).first().click();
+    // Ver a nota em realtime.spec.ts: o botão traz o nome do espaço.
+    await pageB.getByRole('button', { name: /Meu espaço|Pessoal|Selecione/i }).first().click();
     await pageB.getByRole('button', { name: sharedWsName }).click();
     await expect(pageB.getByRole('button', { name: new RegExp(sharedWsName) })).toBeVisible();
 

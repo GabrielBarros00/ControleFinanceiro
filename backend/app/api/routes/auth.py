@@ -108,8 +108,17 @@ def _setup_default_workspace(db: Session, user: User) -> Workspace:
     categorias falhasse, o usuário ficava criado e sem workspace, e não havia
     rollback capaz de desfazer o cadastro.
     """
+    # "Meu espaço", e não mais "Meu Workspace": a interface passou a chamar o
+    # contêiner de ESPAÇO em todo lugar, e a camada que não pertence a espaço
+    # nenhum (ADR 0021) passou a se chamar "Pessoal". O nome antigo colidia de
+    # frente com a antiga seção "Meu" — a pessoa via "Meu" na barra lateral e
+    # "Meu Workspace" no seletor querendo dizer coisas OPOSTAS: um é o que não
+    # tem espaço, o outro é um espaço.
+    #
+    # Só vale para contas NOVAS. Renomear as existentes seria reescrever um dado
+    # que a pessoa pode ter mudado à mão, e o nome é editável em Configurações.
     workspace = Workspace(
-        name="Meu Workspace",
+        name="Meu espaço",
         description="Espaço pessoal criado automaticamente",
         created_by_user_id=user.id
     )

@@ -19,6 +19,8 @@ import { useWorkspaces } from '@/hooks/use-workspaces';
 import { parseApiDay } from '@/lib/date';
 import { formatMoney } from '@/lib/money';
 import { cn } from '@/lib/utils';
+import { nativeSelectClass } from '@/components/ui/native-select';
+import { FilterBar } from '@/components/layout/FilterBar';
 
 /**
  * Extrato global consolidado.
@@ -176,7 +178,7 @@ export function GlobalLedgerPage() {
       <div className="flex flex-wrap items-start justify-between gap-3">
         <PageHeader
           title="Extrato"
-          subtitle="Cada movimento de caixa do mês, em todos os workspaces."
+          subtitle="Cada movimento de caixa do mês, em todos os seus espaços."
         />
         <PeriodPicker value={month} onChange={trocarMes} />
       </div>
@@ -191,7 +193,7 @@ export function GlobalLedgerPage() {
         />
       ) : (
       <>
-      <div className="grid gap-4 sm:grid-cols-3">
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 sm:gap-4">
         <StatTile label="Entrou" value={n(ledger?.cash_in)} kind="income" icon={ArrowDownLeft} currency={moeda} />
         <StatTile label="Saiu" value={n(ledger?.cash_out)} kind="expense" icon={ArrowUpRight} currency={moeda} />
         <StatTile
@@ -208,7 +210,10 @@ export function GlobalLedgerPage() {
 
       <Card className="bg-card border-border">
         <CardContent className="space-y-4 p-4 sm:p-6">
-          <div className="flex flex-wrap items-center gap-2">
+          <FilterBar
+            ativos={origensAtivas.length + (workspaceFiltro ? 1 : 0) + (cartaoFiltro ? 1 : 0)}
+            onLimpar={temFiltro ? limparFiltros : undefined}
+          >
             <div role="group" aria-label="Filtrar por origem" className="flex flex-wrap gap-2">
               {ORIGENS.map((o) => {
                 const ativo = origensAtivas.includes(o.value);
@@ -232,12 +237,12 @@ export function GlobalLedgerPage() {
             </div>
             {workspaces.length > 1 && (
               <select
-                aria-label="Filtrar por workspace"
+                aria-label="Filtrar por espaço"
                 value={workspaceFiltro ?? ''}
                 onChange={(e) => definirWorkspace(e.target.value)}
-                className="h-10 min-w-40 rounded-md border border-border bg-background px-3 text-sm text-foreground focus:outline-hidden focus:ring-2 focus:ring-ring"
+                className={cn(nativeSelectClass, 'min-w-40 flex-1 sm:flex-none')}
               >
-                <option value="">Todos os workspaces</option>
+                <option value="">Todos os espaços</option>
                 {workspaces.map((w) => (
                   <option key={w.id} value={w.id}>{w.name}</option>
                 ))}
@@ -250,7 +255,7 @@ export function GlobalLedgerPage() {
                 aria-label="Filtrar por cartão"
                 value={cartaoFiltro ?? ''}
                 onChange={(e) => definirCartao(e.target.value)}
-                className="h-10 min-w-40 rounded-md border border-border bg-background px-3 text-sm text-foreground focus:outline-hidden focus:ring-2 focus:ring-ring"
+                className={cn(nativeSelectClass, 'min-w-40 flex-1 sm:flex-none')}
               >
                 <option value="">Todos os cartões</option>
                 {(cards as CreditCardSummary[]).map((c) => (
@@ -259,11 +264,12 @@ export function GlobalLedgerPage() {
               </select>
             )}
             {temFiltro && (
-              <Button type="button" variant="ghost" size="sm" onClick={limparFiltros}>
+              // No celular quem limpa é o botão da própria gaveta.
+              <Button type="button" variant="ghost" size="sm" onClick={limparFiltros} className="hidden sm:inline-flex">
                 Limpar filtros
               </Button>
             )}
-          </div>
+          </FilterBar>
 
           {isLoading ? (
             <div className="space-y-2">

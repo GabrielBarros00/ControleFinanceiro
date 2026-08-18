@@ -127,7 +127,7 @@ describe('Extrato global', () => {
 
   it('filtra por workspace quando há mais de um', () => {
     renderPage();
-    const seletor = screen.getByLabelText('Filtrar por workspace');
+    const seletor = screen.getByLabelText('Filtrar por espaço');
     fireEvent.change(seletor, { target: { value: '2' } });
     expect(mockLedger).toHaveBeenLastCalledWith(
       expect.objectContaining({ workspace_id: 2 }),

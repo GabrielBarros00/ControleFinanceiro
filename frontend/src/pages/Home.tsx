@@ -13,7 +13,6 @@ import { HeroBalance } from '@/components/dashboard/HeroBalance';
 import { ExcludedForeignNotice } from '@/components/money/ExcludedForeignNotice';
 import { useBaseCurrency } from '@/hooks/use-base-currency';
 import { useWorkspaceRole } from '@/hooks/use-workspace-role';
-import { useWorkspaces } from '@/hooks/use-workspaces';
 import { useWorkspaceId } from '@/hooks/use-workspace-id';
 import { TransactionLedger } from '@/components/money/TransactionLedger';
 import { formatMoney, sameMoney } from '@/lib/money';
@@ -48,7 +47,6 @@ export function Home() {
   const { data: reports, isLoading: reportsLoading } = useReports(month);
   const { forecast, isLoading: forecastLoading } = useAnalytics(month);
   const { transactions, isLoading: txLoading } = useTransactions({ page: 1, limit: 6, month });
-  const { currentWorkspace } = useWorkspaces();
   // Links do painel apontam para ESTE workspace, com o id na URL. Eles iam para
   // `/transactions` e `/reports` — as rotas legadas, que redirecionam para a
   // "última casa aberta" e perdiam a query string pelo caminho.
@@ -77,13 +75,19 @@ export function Home() {
   // Meta PESSOAL — o card mostra "sua parte", então o orçamento ao lado tem
   // que ser o seu. Com `total_budget` (a meta da CASA) a barra marcava ~50% num
   // workspace de duas pessoas com rateio igual, enquanto Relatórios, que compara
-  // casa com casa, mostrava 100% para o MESMO orçamento.
+  // espaço com espaço, mostrava 100% para o MESMO orçamento.
   const budget = parseFloat(forecast?.my_budget ?? '0') || 0;
   return (
     <div className="space-y-6">
+      {/* "Painel" + pílula com o nome do espaço, e não o nome como TÍTULO.
+          O título antes era `Workspace · {nome}`, que repetia o jargão; trocá-lo
+          pelo nome puro dava uma página cujo cabeçalho não batia com o item de
+          navegação por onde se chegou ("Painel"). A pílula carrega o nome e
+          ainda diz o que ele é — o escopo — em vez de deixar adivinhar. */}
       <PageHeader
-        title={currentWorkspace ? `Workspace · ${currentWorkspace.name}` : 'Painel'}
-        subtitle="Somente este workspace. Sua renda e seu resultado ficam na Visão global."
+        title="Painel"
+        scope="workspace"
+        subtitle="Somente este espaço. Sua renda e seu resultado ficam em Pessoal › Seu mês."
         action={
           canWrite ? (
             <Button onClick={() => setNewTxOpen(true)} className="gap-2">
@@ -129,7 +133,7 @@ export function Home() {
                   redundância que a auditoria apontou. */}
               {houseExpenses != null && (
                 <StatTile
-                  label="Gasto da casa"
+                  label="Gasto do espaço"
                   value={houseExpenses}
                   kind="expense"
                   icon={TrendingDown}
@@ -152,7 +156,7 @@ export function Home() {
                 kind="neutral"
                 icon={Wallet}
                 currency={baseCurrency}
-                hint="O que você assumiu das despesas desta casa"
+                hint="O que você assumiu das despesas deste espaço"
               />
               <StatTile
                 // Nome pelo que é: a diferença entre o que consumi e o que
@@ -194,7 +198,7 @@ export function Home() {
                 <EmptyState
                   icon={Receipt}
                   title="Nenhum lançamento ainda"
-                  description="Registre o primeiro gasto desta casa para começar a acompanhar o mês."
+                  description="Registre o primeiro gasto deste espaço para começar a acompanhar o mês."
                   action={
                     canWrite ? (
                       <Button onClick={() => setNewTxOpen(true)} className="gap-2">

@@ -9,14 +9,14 @@ interface Props {
 }
 
 /**
- * Casas que ficaram FORA dos totais por falta de cotação — nomeadas, e com o
+ * Espaços que ficaram FORA dos totais por falta de cotação — nomeadas, e com o
  * valor na moeda delas.
  *
  * Par do `ExcludedForeignNotice`, que devolve só uma contagem porque é o que o
  * `/analytics/*` sabe dizer. Aqui a contagem não bastava: a pergunta da tela é
- * "quanto eu devo", e responder "1 casa ficou de fora" a quem deve USD 90 é
+ * "quanto eu devo", e responder "1 espaço ficou de fora" a quem deve USD 90 é
  * quase tão ruim quanto o `R$ 0,00` que a regra do ADR 0006 já proíbe. O grupo
- * daquela casa continua na tela com os valores certos; o que este aviso explica
+ * daquele espaço continua na tela com os valores certos; o que este aviso explica
  * é por que ele não entrou na soma do topo.
  */
 export function ExcludedWorkspacesNotice({ workspaces, currency }: Props) {
@@ -30,9 +30,9 @@ export function ExcludedWorkspacesNotice({ workspaces, currency }: Props) {
       <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
       <div className="space-y-1">
         <p>
-          {plural ? 'Estas casas ficaram' : 'Esta casa ficou'} fora dos totais em{' '}
+          {plural ? 'Estes espaços ficaram' : 'Este espaço ficou'} fora dos totais em{' '}
           <strong>{currency}</strong> — não há cotação para a moeda{plural ? 's' : ''}{' '}
-          {plural ? 'delas' : 'dela'}. {plural ? 'Entram' : 'Entra'} assim que houver.
+          {plural ? 'deles' : 'dele'}. {plural ? 'Entram' : 'Entra'} assim que houver.
         </p>
         <ul className="space-y-0.5">
           {workspaces.map((w) => {

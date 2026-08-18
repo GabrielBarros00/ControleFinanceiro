@@ -44,8 +44,8 @@ import { PageHeader } from '@/components/layout/PageHeader';
 
 // Base UI Select foge do focus-trap do Dialog (Radix) — dentro de modal usamos
 // <select> nativo, mesmo padrão de AmortizationTable/PaymentMethodField.
-const selectClass =
-  'flex h-10 w-full rounded-md border border-border bg-background px-3 py-2 text-sm text-foreground focus:outline-hidden focus:ring-2 focus:ring-ring';
+import { nativeSelectClass as selectClass } from '@/components/ui/native-select';
+import { CardsOrTable, DataCard } from '@/components/ui/data-card';
 
 const recurringSchema = z.object({
   title: z.string().min(1, 'Título é obrigatório'),
@@ -250,7 +250,7 @@ export function RecurringTransactionsPage() {
 
   if (isLoading) {
     return (
-      <div className="flex h-[400px] items-center justify-center">
+      <div className="flex h-[240px] items-center justify-center sm:h-[400px]">
         <Loader2 className="h-8 w-8 animate-spin text-primary" />
       </div>
     );
@@ -261,22 +261,85 @@ export function RecurringTransactionsPage() {
       {/* `h1` num `<header>`, como as demais telas: esta era mais uma sem
           cabeçalho de página — só um `h2` solto, então o documento começava no
           nível 2 e a navegação por títulos não tinha âncora. */}
+      {/* "Seus gastos fixos" dizia o contrário do modelo: uma recorrência com
+          `created_by_user_id` nulo é DO ESPAÇO, e a tela é `/w/:id/recurring`.
+          O `scope` marca isso sem depender de a pessoa ler o subtítulo. */}
       <PageHeader
         title="Recorrência"
-        subtitle="Seus gastos fixos, gerados automaticamente todo mês."
+        subtitle="Gastos fixos deste espaço, gerados automaticamente todo mês."
+        scope="workspace"
       />
-      <div className="flex items-center justify-end">
-        <div className="flex items-center gap-2">
-          <Button variant="outline" onClick={handleGenerate} disabled={isGenerating} className="gap-2 font-bold">
-            {isGenerating ? <Loader2 className="h-4 w-4 animate-spin" /> : <Repeat className="h-4 w-4" />}
-            Lançar pendentes
-          </Button>
-          <Button onClick={openCreate} className="gap-2 font-bold shadow-lg shadow-primary/20">
-            <Plus className="h-4 w-4" /> Nova Despesa
-          </Button>
-        </div>
+      <div className="flex flex-wrap items-center justify-end gap-2">
+        <Button variant="outline" onClick={handleGenerate} disabled={isGenerating} className="gap-2 font-bold">
+          {isGenerating ? <Loader2 className="h-4 w-4 animate-spin" /> : <Repeat className="h-4 w-4" />}
+          Lançar pendentes
+        </Button>
+        <Button onClick={openCreate} className="gap-2 font-bold shadow-lg shadow-primary/20">
+          <Plus className="h-4 w-4" /> Nova Despesa
+        </Button>
       </div>
 
+      <CardsOrTable
+        cards={
+      <div className="space-y-2">
+        {recurring.length === 0 ? (
+          <p className="rounded-xl border border-border bg-card p-6 text-center text-sm text-muted-foreground">
+            Nenhuma despesa recorrente cadastrada.
+          </p>
+        ) : recurring.map((item: RecurringItem) => (
+          <DataCard
+            key={item.id}
+            title={item.title}
+            badge={
+              <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase ${
+                item.is_active
+                  ? 'border border-emerald-500/20 bg-emerald-500/10 text-emerald-500'
+                  : 'border border-border bg-muted text-muted-foreground'
+              }`}>
+                {item.is_active ? 'Ativo' : 'Inativo'}
+              </span>
+            }
+            meta={[
+              paymentMethodLabel(item.payment_method, item.credit_card_id),
+              item.credit_card_id != null
+                ? (cards as { id: number; name: string }[]).find((c) => c.id === item.credit_card_id)?.name
+                : null,
+              item.category_id != null ? categoryName(item.category_id) : null,
+              item.description || null,
+            ].filter(Boolean).join(' · ')}
+            value={
+              <span className="font-semibold whitespace-nowrap text-foreground">
+                {formatCurrency(parseFloat(item.base_amount), item.currency ?? baseCurrency)}
+              </span>
+            }
+            fields={[{ label: 'Recorrência', value: recurrenceLabel(item), full: true }]}
+            actions={
+              <>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  aria-label={`Editar recorrência ${item.title}`}
+                  onClick={() => openEdit(item)}
+                  className="h-10 flex-1 gap-2"
+                >
+                  <Edit2 className="h-4 w-4" /> Editar
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  aria-label={`Excluir recorrência ${item.title}`}
+                  onClick={() => handleDelete(item.id)}
+                  className="h-10 w-10 p-0 text-destructive"
+                >
+                  <Trash2 className="h-4 w-4" />
+                </Button>
+              </>
+            }
+          />
+        ))}
+      </div>
+        }
+        table={
       <Card className="bg-card border-border shadow-xl">
         <CardContent className="p-0">
           <Table>
@@ -367,6 +430,8 @@ export function RecurringTransactionsPage() {
           </Table>
         </CardContent>
       </Card>
+        }
+      />
 
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
         <DialogContent className="bg-card border-border sm:max-w-[425px]">

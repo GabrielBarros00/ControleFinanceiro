@@ -11,9 +11,11 @@ import { SplitSummary } from './SplitSummary';
 import { useFormCurrency } from './use-form-currency';
 import type { Participant } from './SplitEditor';
 import type { TransactionFormValues } from './schema';
-
-const selectClass =
-  'flex h-9 w-full rounded-md border border-border bg-background px-3 py-1 text-sm shadow-sm transition-colors focus-visible:outline-hidden focus-visible:ring-1 focus-visible:ring-primary text-foreground';
+// Era a única cópia divergente do `selectClass` (h-9/py-1, anel de 1px):
+// convergir para o padrão alinha estes selects com os `Input` das MESMAS linhas
+// do formulário de itens, que já são 40px — o desalinhamento que o comentário
+// de `ui/input.tsx` descreve nascia justamente daqui.
+import { nativeSelectClass as selectClass } from '@/components/ui/native-select';
 
 interface ItemsEditorProps {
   participants: Participant[];
@@ -244,7 +246,9 @@ function ItemRow({ index, participants, onRemove }: ItemRowProps) {
             <RadioGroup
               value={field.value}
               onValueChange={(value) => field.onChange(value as string)}
-              className="flex space-x-4"
+              // Mesmo motivo do SplitEditor, agravado: aqui a linha ainda tem o
+              // recuo do item dentro do sheet.
+              className="flex flex-wrap gap-x-4 gap-y-2"
             >
               <div className="flex items-center space-x-1.5">
                 <RadioGroupItem value="equal" id={`item-${index}-equal`} className="border-primary text-primary" />

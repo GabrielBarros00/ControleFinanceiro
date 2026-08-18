@@ -19,12 +19,13 @@ import { currencySymbol, formatMoney } from '@/lib/money';
 import { toast } from '@/stores/toast';
 import { useConfirm } from '@/components/ui/confirm';
 import { parseApiDate, todayLocalISO } from '@/lib/date';
+import { nativeSelectClass } from '@/components/ui/native-select';
+import { CardsOrTable, DataCard } from '@/components/ui/data-card';
 
 // Base UI Select abre num portal fora do focus-trap do Dialog (Radix) e fecha
 // na hora — dentro de diálogos usamos <select> nativo (mesmo padrão de
 // SettlementDialog/RecurringTransactionsPage/PaymentMethodField).
-const selectClass =
-  'flex h-10 w-full rounded-md border border-border bg-background px-3 py-2 text-sm font-semibold text-foreground focus:outline-hidden focus:ring-2 focus:ring-ring';
+const selectClass = `${nativeSelectClass} font-semibold`;
 
 // Um ano por página: o recorte natural de um cronograma de amortização
 const PARCELAS_POR_PAGINA = 12;
@@ -108,8 +109,8 @@ function PagarParcelaDialog({
             ))}
           </select>
           <p className="text-xs text-muted-foreground">
-            Escolhendo um workspace, a parcela vira um lançamento lá — e entra nos
-            relatórios daquela casa. Sem escolher, o pagamento fica só seu.
+            Escolhendo um espaço, a parcela vira um lançamento lá — e entra nos
+            relatórios dele. Sem escolher, o pagamento fica só seu.
           </p>
         </div>
         <DialogFooter>
@@ -327,6 +328,41 @@ function FinancingDetail({ financing }: { financing: Financing }) {
           </CardDescription>
         </CardHeader>
         <CardContent>
+          {/* Sete colunas somam ~900px: no celular a tabela virava uma tira
+              rolável em que "Saldo Devedor" e "Status" — as duas que respondem
+              "quanto falta" e "posso pagar?" — ficavam fora da tela. */}
+          <CardsOrTable
+            cards={
+          <div className="space-y-2">
+            {visiveis.map((row) => (
+              <DataCard
+                key={row.id}
+                title={`Parcela ${row.installment_number}`}
+                meta={`Vence em ${parseApiDate(row.due_date).toLocaleDateString('pt-BR')}`}
+                value={<span className="text-sm font-semibold text-foreground">{fmt(row.total_amount)}</span>}
+                badge={row.is_paid ? <StatusPill tone="success">Paga</StatusPill> : <StatusPill tone="neutral">Pendente</StatusPill>}
+                fields={[
+                  { label: 'Amortização', value: fmt(row.principal_amount) },
+                  { label: 'Juros', value: fmt(row.interest_amount) },
+                  { label: 'Saldo devedor', value: fmt(row.remaining_balance), full: true },
+                ]}
+                actions={
+                  !row.is_paid && row.installment_number === nextInstallment?.installment_number ? (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="h-10 w-full border-primary/40 text-primary hover:bg-primary/10"
+                      onClick={() => setPagando(row.installment_number)}
+                    >
+                      Pagar parcela
+                    </Button>
+                  ) : undefined
+                }
+              />
+            ))}
+          </div>
+            }
+            table={
           <Table>
             <TableHeader>
               <TableRow className="border-border">
@@ -368,9 +404,13 @@ function FinancingDetail({ financing }: { financing: Financing }) {
               ))}
             </TableBody>
           </Table>
+            }
+          />
 
           {totalPages > 1 && (
-            <div className="mt-4 flex items-center justify-between gap-3">
+            // `flex-wrap`: os três grupos (Anteriores / contador + atalho /
+            // Próximas) somam bem mais que 328px e não cabiam numa linha só.
+            <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
               <Button
                 variant="outline"
                 size="sm"

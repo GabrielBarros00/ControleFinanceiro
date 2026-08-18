@@ -1,0 +1,58 @@
+{
+  "name": "Controle Financeiro",
+  "short_name": "Financeiro",
+  "description": "Suas finanças pessoais e os espaços que você divide com outras pessoas.",
+  "lang": "pt-BR",
+  "dir": "ltr",
+  "start_url": "/overview",
+  "scope": "/",
+  "id": "/",
+  "display": "standalone",
+  "orientation": "portrait-primary",
+  "theme_color": "#fcfbf9",
+  "background_color": "#fcfbf9",
+  "categories": ["finance", "productivity"],
+  "icons": [
+    {
+      "src": "/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icon-maskable-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "Seu mês",
+      "short_name": "Seu mês",
+      "description": "Renda, consumo e resultado somando todos os seus espaços.",
+      "url": "/overview",
+      "icons": [{ "src": "/icon-192.png", "sizes": "192x192" }]
+    },
+    {
+      "name": "Extrato",
+      "short_name": "Extrato",
+      "description": "Cada movimento de caixa do mês.",
+      "url": "/me/ledger",
+      "icons": [{ "src": "/icon-192.png", "sizes": "192x192" }]
+    },
+    {
+      "name": "Cartões",
+      "short_name": "Cartões",
+      "description": "Seus cartões e faturas.",
+      "url": "/me/cards",
+      "icons": [{ "src": "/icon-192.png", "sizes": "192x192" }]
+    }
+  ]
+}

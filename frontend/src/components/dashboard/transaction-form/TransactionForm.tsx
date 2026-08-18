@@ -27,9 +27,7 @@ import { PayersEditor } from './PayersEditor';
 import { TagMultiSelect } from './TagMultiSelect';
 import { SimpleSplitChips } from './SimpleSplitChips';
 import { CurrencyCombobox } from './CurrencyCombobox';
-
-const selectClass =
-  'flex h-10 w-full rounded-md border border-border bg-background px-3 py-2 text-sm text-foreground focus:outline-hidden focus:ring-2 focus:ring-ring';
+import { nativeSelectClass as selectClass } from '@/components/ui/native-select';
 
 export type TransactionApiPayload = ReturnType<typeof toApiPayload>;
 
@@ -172,7 +170,7 @@ export function TransactionForm({ initialValues, onSubmit, submitLabel, resetOnS
                 />
               </div>
               {errors.total_amount && <p className="text-xs text-destructive font-medium">{errors.total_amount.message as string}</p>}
-              {/* "Estrangeira" é != da moeda-BASE do workspace, não != 'BRL':
+              {/* "Estrangeira" é != da moeda-BASE do espaço, não != 'BRL':
                   num workspace em USD a dica aparecia para toda despesa em
                   dólar (que é a moeda da casa) e sumia para uma em real. */}
               {currency && currency !== baseCurrency && (
@@ -252,9 +250,12 @@ export function TransactionForm({ initialValues, onSubmit, submitLabel, resetOnS
 
         </div>
 
-        <div className="flex justify-end border-t border-border mt-6 pt-6 gap-4 items-center">
+        {/* `flex-wrap`: a mensagem de erro tem `mr-auto` e nenhum limite de
+            largura; ao lado de um botão de 140px fixos, um erro longo empurrava
+            o rodapé para fora da tela em vez de quebrar linha. */}
+        <div className="mt-6 flex flex-wrap items-center justify-end gap-4 border-t border-border pt-6">
           {apiError && (
-            <div role="alert" className="flex items-center gap-2 text-destructive text-sm font-medium animate-in fade-in mr-auto">
+            <div role="alert" className="flex min-w-0 flex-1 items-center gap-2 text-destructive text-sm font-medium animate-in fade-in sm:mr-auto">
               <AlertCircle className="h-4 w-4 shrink-0" /> {apiError}
             </div>
           )}
@@ -263,7 +264,7 @@ export function TransactionForm({ initialValues, onSubmit, submitLabel, resetOnS
               <CheckCircle2 className="h-4 w-4" /> Salvo com sucesso!
             </div>
           )}
-          <Button type="submit" className="bg-primary hover:bg-primary/90 text-primary-foreground font-bold px-8 shadow-lg shadow-primary/20 min-w-[140px]" disabled={loading}>
+          <Button type="submit" className="h-11 w-full bg-primary px-8 font-bold text-primary-foreground shadow-lg shadow-primary/20 hover:bg-primary/90 sm:h-9 sm:w-auto sm:min-w-[140px]" disabled={loading}>
             {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : submitLabel}
           </Button>
         </div>

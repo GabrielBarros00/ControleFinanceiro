@@ -15,7 +15,19 @@ function TabsList({ className, ...props }: React.ComponentProps<typeof TabsPrimi
   return (
     <TabsPrimitive.List
       className={cn(
-        'inline-flex h-9 w-fit items-center justify-center rounded-lg bg-muted p-1 text-muted-foreground',
+        /*
+         * `max-w-full overflow-x-auto` é o que impede a lista de empurrar a
+         * página. Era `w-fit` sem rolagem, e cada `TabsTrigger` tem
+         * `whitespace-nowrap`: as 4 abas de Relatórios somam ~388px e as 6 de
+         * /admin somam ~540px, então em 390px de tela a última aba ficava
+         * CORTADA e inalcançável (vê-se em screenshots/mobile-relatorios-*.png,
+         * com "Orçamento" partido na borda) e o resto do app ganhava rolagem
+         * horizontal.
+         *
+         * `justify-start` porque com rolagem o `justify-center` faria o
+         * conteúdo começar fora da vista quando ele não coubesse.
+         */
+        'inline-flex h-9 w-fit max-w-full shrink-0 items-center justify-start overflow-x-auto rounded-lg bg-muted p-1 text-muted-foreground scrollbar-none',
         className,
       )}
       {...props}
@@ -32,7 +44,9 @@ function TabsTrigger({ className, ...props }: React.ComponentProps<typeof TabsPr
         // aqui: `text-foreground/80` seria pior que inútil — em Tailwind v3 o
         // modificador de opacidade não compila sobre cor em `var()` e a classe
         // some em silêncio, como as variantes `data-*` bare.
-        'inline-flex items-center justify-center gap-1.5 whitespace-nowrap rounded-md px-3 py-1 text-sm font-medium text-muted-foreground transition-all hover:text-foreground',
+        // `shrink-0`: agora que a lista rola, sem isto o flex espremeria os
+        // triggers até o texto sumir em vez de deixar a faixa rolar.
+        'inline-flex shrink-0 items-center justify-center gap-1.5 whitespace-nowrap rounded-md px-3 py-1 text-sm font-medium text-muted-foreground transition-all hover:text-foreground',
         'focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring',
         'disabled:pointer-events-none disabled:opacity-50',
         'data-[state=active]:bg-card data-[state=active]:text-foreground data-[state=active]:shadow-sm',

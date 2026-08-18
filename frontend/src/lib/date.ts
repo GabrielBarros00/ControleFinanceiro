@@ -115,7 +115,13 @@ export function monthShortLabel(month: string): string {
 export function monthLabel(month: string): string {
   const [y, m] = month.split('-').map(Number);
   if (!y || !m) return month;
-  return new Date(y, m - 1, 1).toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' });
+  const bruto = new Date(y, m - 1, 1).toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' });
+  // Capitaliza AQUI, e só a inicial. O `Intl` devolve "agosto de 2026", e quem
+  // chamava resolvia com a classe `capitalize` do CSS — que capitaliza TODA
+  // palavra e produzia "Agosto **De** 2026" nos navegadores de mês de Acertos e
+  // de Seus acertos. O `PeriodPicker` tinha uma cópia privada desta função só
+  // para escapar disso; agora existe uma só.
+  return bruto.charAt(0).toUpperCase() + bruto.slice(1);
 }
 
 /** Data da API → YYYY-MM-DD local (para preencher <input type="date">). */

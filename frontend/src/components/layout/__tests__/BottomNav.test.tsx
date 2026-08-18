@@ -34,6 +34,23 @@ vi.mock('@/hooks/use-auth', () => ({
   useAuth: () => ({ logout: vi.fn().mockResolvedValue(undefined) }),
 }));
 
+// A gaveta "Mais" passou a montar as SEÇÕES da navegação (era uma grade achatada
+// que não dizia o que era pessoal e o que era do espaço), e para isso lê o papel
+// de plataforma e o nome do espaço atual. Os dois hooks são react-query, que sem
+// `QueryClientProvider` lança — mockar é mais barato que embrulhar o teste, que
+// não tem nada a ver com busca de dados.
+vi.mock('@/hooks/use-admin', () => ({
+  useIsPlatformAdmin: () => false,
+}));
+
+vi.mock('@/hooks/use-workspaces', () => ({
+  useWorkspaces: () => ({
+    workspaces: [{ id: 7, name: 'Casa da Praia', member_count: 3 }],
+    currentWorkspace: null,
+    switchWorkspace: vi.fn(),
+  }),
+}));
+
 function renderEm(rota: string) {
   return render(
     <MemoryRouter initialEntries={[rota]}>

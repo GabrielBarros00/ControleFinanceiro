@@ -10,9 +10,7 @@ import { useBaseCurrency } from '@/hooks/use-base-currency';
 import { ExcludedForeignNotice } from '@/components/money/ExcludedForeignNotice';
 import { getApiErrorMessage } from '@/lib/api-error';
 import { currencySymbol, formatMoney } from '@/lib/money';
-
-const selectClass =
-  'flex h-10 w-full rounded-md border border-border bg-background px-3 py-2 text-sm text-foreground focus:outline-hidden focus:ring-2 focus:ring-ring';
+import { nativeSelectClass as selectClass } from '@/components/ui/native-select';
 
 
 interface BudgetPanelProps {
@@ -131,12 +129,12 @@ export function BudgetPanel({
         </CardTitle>
         <CardDescription>
           {pessoal
-            ? 'Sua meta de gasto: comparada com a SUA parte das despesas (o rateio), não com o total da casa.'
-            : 'Meta da casa: comparada com o gasto total do workspace. A soma vira o orçamento usado na previsão.'}
+            ? 'Sua meta de gasto: comparada com a SUA parte das despesas (o rateio), não com o total do espaço.'
+            : 'Meta do espaço: comparada com o gasto total dele. A soma vira o orçamento usado na previsão.'}
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-6">
-        {/* Duas perguntas diferentes — "quanto a casa pode gastar" e "quanto eu
+        {/* Duas perguntas diferentes — "quanto o espaço pode gastar" e "quanto eu
             posso" — e por isso duas listas de metas. Com acesso restrito só a
             segunda faz sentido, então o seletor nem aparece. */}
         <div
@@ -145,7 +143,7 @@ export function BudgetPanel({
           className={`inline-flex rounded-lg bg-accent p-1 ${semVisaoDaCasa ? 'hidden' : ''}`}
         >
           {([
-            ['workspace', 'Da casa'],
+            ['workspace', 'Do espaço'],
             ['personal', 'Minha'],
           ] as const).map(([valor, rotulo]) => (
             <button
@@ -173,7 +171,7 @@ export function BudgetPanel({
           <p className="text-sm text-muted-foreground text-center py-4">
             {pessoal
               ? 'Você ainda não definiu uma meta pessoal para este mês.'
-              : 'Nenhuma meta da casa definida para este mês.'}
+              : 'Nenhuma meta do espaço definida para este mês.'}
           </p>
         ) : (
           <div className="space-y-4">

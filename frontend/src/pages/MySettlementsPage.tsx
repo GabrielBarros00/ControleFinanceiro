@@ -117,7 +117,7 @@ export function MySettlementsPage() {
     <div className="space-y-6">
       <PageHeader
         title="Seus acertos"
-        subtitle="Com quem você se acerta, somando todas as casas. Os saldos nunca se compensam entre elas."
+        subtitle="Com quem você se acerta, somando todos os espaços. Os saldos nunca se compensam entre eles."
       />
 
       {isError ? (
@@ -127,26 +127,26 @@ export function MySettlementsPage() {
           onRetry={() => refetch()}
         />
       ) : isLoading ? (
-        <div className="grid gap-4 sm:grid-cols-2">
+        <div className="grid grid-cols-2 gap-3 sm:gap-4">
           <Skeleton className="h-24" />
           <Skeleton className="h-24" />
         </div>
       ) : (
         <>
-          <div className="grid gap-4 sm:grid-cols-2">
+          <div className="grid grid-cols-2 gap-3 sm:gap-4">
             <StatTile
               label="Você deve"
               value={debts?.to_pay ?? 0}
               kind={Number(debts?.to_pay ?? 0) > 0 ? 'expense' : 'neutral'}
               currency={moeda}
-              hint="Somando todas as casas"
+              hint="Somando todos os espaços"
             />
             <StatTile
               label="Você tem a receber"
               value={debts?.to_receive ?? 0}
               kind={Number(debts?.to_receive ?? 0) > 0 ? 'income' : 'neutral'}
               currency={moeda}
-              hint="Somando todas as casas"
+              hint="Somando todos os espaços"
             />
           </div>
 
@@ -167,7 +167,7 @@ export function MySettlementsPage() {
                 <CalendarDays className="h-5 w-5 text-primary" /> Acertos do mês
               </h2>
               <p className="text-sm text-muted-foreground">
-                O retrato de cada casa no mês escolhido. Parcelas aparecem só no mês delas.
+                O retrato de cada espaço no mês escolhido. Parcelas aparecem só no mês delas.
               </p>
             </div>
 
@@ -178,7 +178,7 @@ export function MySettlementsPage() {
                 <ChevronLeft className="h-4 w-4" />
               </Button>
               <div className="flex flex-col items-center">
-                <span className="text-sm font-semibold capitalize text-foreground">{monthLabel(month)}</span>
+                <span className="text-sm font-semibold text-foreground">{monthLabel(month)}</span>
                 {!isCurrentMonth && (
                   <button
                     type="button"
@@ -198,7 +198,7 @@ export function MySettlementsPage() {
               <Skeleton className="h-48 w-full" />
             ) : (monthly?.by_workspace.length ?? 0) === 0 ? (
               <p className="rounded-xl border border-border bg-card py-8 text-center text-sm text-muted-foreground">
-                Nenhuma despesa em nenhuma casa neste mês.
+                Nenhuma despesa em nenhum espaço neste mês.
               </p>
             ) : (
               monthly?.by_workspace.map((ws) => (
@@ -244,7 +244,7 @@ export function MySettlementsPage() {
                   <EmptyState
                     icon={Users}
                     title="Nenhum acerto pendente"
-                    description="Quando alguma despesa dividida deixar saldo entre você e outra pessoa, ela aparece aqui — separada por casa."
+                    description="Quando alguma despesa dividida deixar saldo entre você e outra pessoa, ela aparece aqui — separada por espaço."
                   />
                 )}
 
@@ -319,7 +319,7 @@ export function MySettlementsPage() {
                   <TableHeader>
                     <TableRow className="border-border hover:bg-transparent">
                       <TableHead className="text-xs font-semibold text-muted-foreground">Data</TableHead>
-                      <TableHead className="text-xs font-semibold text-muted-foreground">Casa</TableHead>
+                      <TableHead className="text-xs font-semibold text-muted-foreground">Espaço</TableHead>
                       <TableHead className="text-xs font-semibold text-muted-foreground">Com quem</TableHead>
                       <TableHead className="text-xs font-semibold text-muted-foreground">Obs.</TableHead>
                       <TableHead className="text-right text-xs font-semibold text-muted-foreground">Valor</TableHead>
@@ -368,7 +368,7 @@ export function MySettlementsPage() {
               <Landmark className="h-6 w-6 text-primary" />
             </div>
             <div className="space-y-1">
-              <h4 className="font-bold text-foreground">Por que os saldos ficam separados por casa?</h4>
+              <h4 className="font-bold text-foreground">Por que os saldos ficam separados por espaço?</h4>
               <p className="text-sm leading-relaxed text-muted-foreground">
                 Dever R$ 100 numa casa e ter R$ 100 a receber noutra não é estar quitado — são
                 pessoas e acordos diferentes. Por isso não existe um "saldo líquido" aqui: cada

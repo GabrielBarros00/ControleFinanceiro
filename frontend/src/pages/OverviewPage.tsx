@@ -78,19 +78,23 @@ export function OverviewPage() {
 
   return (
     <div className="space-y-6">
+      {/* "Seu mês" e não "Início": o item de navegação tem esse nome, e um
+          título que não bate com o item por onde se chegou faz duvidar de que a
+          página é a certa. Sem `scope`: o título já diz de quem é o mês, e a
+          pílula "Pessoal" ao lado dele seria a mesma informação duas vezes. */}
       <PageHeader
-        title="Início"
+        title="Seu mês"
         subtitle={
           firstName
-            ? `Olá, ${firstName} — seu mês somando todos os workspaces.`
-            : 'Seu mês somando todos os workspaces.'
+            ? `Olá, ${firstName} — seu mês somando todos os seus espaços.`
+            : 'Seu mês somando todos os seus espaços.'
         }
         period={<PeriodPicker value={month} onChange={setMonth} />}
       />
 
       {isLoading ? (
         <div className="space-y-6">
-          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+          <div className="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-4">
             {Array.from({ length: 4 }).map((_, i) => (
               <Skeleton key={i} className="h-24" />
             ))}
@@ -108,17 +112,17 @@ export function OverviewPage() {
         />
       ) : (
         <>
-          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+          <div className="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-4">
             <StatTile
               label="Renda"
               value={n(overview?.income)}
               kind="income"
               icon={TrendingUp}
               currency={moeda}
-              // "em todos os workspaces" era impreciso — renda não pertence a
-              // workspace nenhum (ADR 0021) — e repetia o subtítulo da página,
+              // "em todos os espaços" era impreciso — renda não pertence a
+              // espaço nenhum (ADR 0021) — e repetia o subtítulo da página,
               // 40px acima, fazendo a Renda parecer o único número consolidado.
-              hint="Suas entradas do mês — renda é pessoal, não de um workspace"
+              hint="Suas entradas do mês — renda é pessoal, não pertence a um espaço"
             />
             <StatTile
               label="Consumo"
@@ -231,7 +235,7 @@ export function OverviewPage() {
           </section>
 
           {(aPagar > 0 || aReceber > 0) && (
-            <div className="grid gap-4 sm:grid-cols-2">
+            <div className="grid grid-cols-2 gap-3 sm:gap-4">
               <StatTile
                 label="A pagar"
                 value={aPagar}
@@ -258,9 +262,9 @@ export function OverviewPage() {
               receber noutra envolve pessoas e acordos diferentes. */}
           <section className="rounded-xl border border-border bg-card">
             <div className="border-b border-border px-4 py-3">
-              <h2 className="text-base font-semibold text-foreground">Por workspace</h2>
+              <h2 className="text-base font-semibold text-foreground">Por espaço</h2>
               <p className="text-sm text-muted-foreground">
-                Acertos ficam separados por casa — não se compensam entre elas.
+                Acertos ficam separados por espaço — não se compensam entre eles.
               </p>
             </div>
             <div className="divide-y divide-border">
@@ -269,7 +273,7 @@ export function OverviewPage() {
                   <EmptyState
                     icon={Receipt}
                     title="Nenhum movimento neste mês"
-                    description="Assim que houver lançamentos, cada workspace aparece aqui."
+                    description="Assim que houver lançamentos, cada espaço aparece aqui."
                   />
                 </div>
               ) : (

@@ -6,7 +6,6 @@ import { Button } from "@/components/ui/button";
 import { useDebts } from '@/hooks/use-debts';
 import { useBaseCurrency } from '@/hooks/use-base-currency';
 import { useWorkspaceRole } from '@/hooks/use-workspace-role';
-import { useWorkspaces } from '@/hooks/use-workspaces';
 import { formatMoney } from '@/lib/money';
 import { ArrowRight, Users, Loader2, RefreshCcw, Landmark, HandCoins, History, Trash2, Globe } from 'lucide-react';
 import { useAuth } from '@/hooks/use-auth';
@@ -38,7 +37,6 @@ export function DebtsPage() {
   const { canWrite } = useWorkspaceRole();  // viewer não registra/desfaz acertos (RBAC-FE-001)
   const { members } = useMembers();
   const { settlements, remove } = useSettlements();
-  const { currentWorkspace } = useWorkspaces();
   const confirm = useConfirm();
   const [dialogOpen, setDialogOpen] = React.useState(false);
   const [draft, setDraft] = React.useState<SettlementDraft | null>(null);
@@ -72,7 +70,7 @@ export function DebtsPage() {
 
   if (isLoading) {
     return (
-      <div className="flex h-[400px] items-center justify-center">
+      <div className="flex h-[240px] items-center justify-center sm:h-[400px]">
         <Loader2 className="h-8 w-8 animate-spin text-primary" />
       </div>
     );
@@ -101,17 +99,22 @@ export function DebtsPage() {
 
   return (
     <div className="space-y-6">
-      {/* Título e subtítulo dizem a CASA, no mesmo molde do Painel: sem isso, a
-          pessoa que participa de dois workspaces lia estes números como se
-          fossem o total dela — e eles nunca foram. O total mora em Seus acertos. */}
+      {/* O ESCOPO tem de estar no cabeçalho: sem ele, quem participa de dois
+          espaços lê estes números como se fossem o total dela — e eles nunca
+          foram. O total mora em Seus acertos.
+          Antes isso era feito concatenando o nome no título (`Acertos · Casa`),
+          o que dava um cabeçalho que não batia com o item de navegação
+          ("Acertos") e repetia, em 28px, o nome que a barra do topo já mostra.
+          A pílula diz a mesma coisa e ainda nomeia o que aquilo é. */}
       <PageHeader
-        title={currentWorkspace ? `Acertos · ${currentWorkspace.name}` : 'Acertos entre pessoas'}
-        subtitle="Somente esta casa. Seus acertos de todas as casas ficam em Meu › Seus acertos."
+        title="Acertos"
+        scope="workspace"
+        subtitle="Somente este espaço. Seus acertos de todos os espaços ficam em Pessoal › Seus acertos."
         action={
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             <Link to="/me/settlements">
               <Button variant="outline" className="gap-2">
-                <Globe className="h-4 w-4" /> Ver todas as casas
+                <Globe className="h-4 w-4" /> Ver todos os espaços
               </Button>
             </Link>
             <Button variant="outline" onClick={() => refetch()} className="gap-2">
@@ -121,20 +124,20 @@ export function DebtsPage() {
         }
       />
 
-      <div className="grid gap-4 sm:grid-cols-3">
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 sm:gap-4">
         <StatTile
           label="Você deve"
           value={totalOwed}
           kind={totalOwed > 0 ? 'expense' : 'neutral'}
           currency={baseCurrency}
-          hint="Nesta casa"
+          hint="Neste espaço"
         />
         <StatTile
           label="Você recebe"
           value={totalCredit}
           kind={totalCredit > 0 ? 'income' : 'neutral'}
           currency={baseCurrency}
-          hint="Nesta casa"
+          hint="Neste espaço"
         />
         <StatTile
           label="Saldo líquido"
@@ -144,7 +147,7 @@ export function DebtsPage() {
           // Líquido DENTRO da casa é legítimo: são as mesmas pessoas e o mesmo
           // acordo. Entre casas não é, e por isso a tela global não tem este
           // número (ADR 0020).
-          hint={netBalance === 0 ? 'Tudo certo nesta casa' : netBalance > 0 ? 'a receber nesta casa' : 'a pagar nesta casa'}
+          hint={netBalance === 0 ? 'Tudo certo neste espaço' : netBalance > 0 ? 'a receber neste espaço' : 'a pagar neste espaço'}
         />
       </div>
 
@@ -161,7 +164,7 @@ export function DebtsPage() {
 
       <div className="space-y-1">
         <h3 className="text-lg font-bold tracking-tight text-foreground">Saldo geral a acertar</h3>
-        <p className="text-sm text-muted-foreground">Todos os meses desta casa, já descontando os acertos.</p>
+        <p className="text-sm text-muted-foreground">Todos os meses deste espaço, já descontando os acertos.</p>
       </div>
 
       <BalanceCards
@@ -180,7 +183,7 @@ export function DebtsPage() {
               <Users className="h-5 w-5 text-muted-foreground" />
               Outros Acertos
             </CardTitle>
-            <CardDescription>Dívidas entre outros membros do workspace.</CardDescription>
+            <CardDescription>Dívidas entre outros membros deste espaço.</CardDescription>
           </CardHeader>
           <CardContent className="p-0">
             <Table>

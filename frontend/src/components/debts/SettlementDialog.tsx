@@ -17,9 +17,7 @@ import { useSettlements } from '@/hooks/use-settlements';
 import { useBaseCurrency } from '@/hooks/use-base-currency';
 import { currencySymbol } from '@/lib/money';
 import type { Member } from '@/hooks/use-members';
-
-const selectClass =
-  'flex h-10 w-full rounded-md border border-border bg-background px-3 py-2 text-sm text-foreground focus:outline-hidden focus:ring-2 focus:ring-ring';
+import { nativeSelectClass as selectClass } from '@/components/ui/native-select';
 
 export interface SettlementDraft {
   from_user_id: number;
@@ -107,7 +105,7 @@ export function SettlementDialog({ open, onOpenChange, draft, members }: Settlem
               // Na tela global há várias casas na mesma página: dizer em qual o
               // acerto vai cair é o que impede o registro na casa errada.
               ? `O valor é abatido do balanço de ${draft.workspace_name}.`
-              : 'O valor registrado é abatido do balanço de dívidas do workspace.'}
+              : 'O valor registrado é abatido do balanço de dívidas deste espaço.'}
           </DialogDescription>
         </DialogHeader>
 

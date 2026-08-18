@@ -385,8 +385,11 @@ export function StatementView({ cardId }: { cardId: number | null }) {
             })()}
 
             <div className="mt-8 flex flex-col sm:flex-row justify-between items-stretch sm:items-end gap-4">
-              {/* Ciclo da fatura (ADR 0011): fechar → pagar → reabrir */}
-              <div className="flex items-center gap-2">
+              {/* Ciclo da fatura (ADR 0011): fechar → pagar → reabrir.
+                  `flex-wrap`: "Pagar saldo restante" + "Reabrir (estornar
+                  pagamentos)" somam ~360px e não cabiam nos ~296px úteis do
+                  cartão no celular. */}
+              <div className="flex flex-wrap items-center gap-2">
                 {statement.status === 'open' && (
                   <Button
                     type="button"
@@ -437,8 +440,15 @@ export function StatementView({ cardId }: { cardId: number | null }) {
                 )}
               </div>
 
-              <div className="bg-accent/40 p-6 rounded-xl border border-border min-w-[300px]">
-                <div className="flex justify-between text-lg font-bold">
+              {/*
+                `min-w-[300px]` sem ponto de corte era o defeito mais grave desta
+                tela: a caixa media 348px com o `p-6` dentro de um `CardContent`
+                de ~296px úteis, e o `Card` é `overflow-hidden` — então o "Total
+                da Fatura" saía CORTADO, sem rolagem que o alcançasse. O número
+                mais importante da tela era o único invisível no celular.
+              */}
+              <div className="min-w-0 rounded-xl border border-border bg-accent/40 p-4 sm:min-w-[300px] sm:p-6">
+                <div className="flex flex-wrap justify-between gap-x-3 text-base font-bold sm:text-lg">
                   <span>Total da Fatura</span>
                   <span className="text-primary">{formatCurrency(parseFloat(statement.computed_total), cardCurrency)}</span>
                 </div>

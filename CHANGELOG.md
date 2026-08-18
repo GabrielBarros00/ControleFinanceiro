@@ -11,6 +11,82 @@ segue [SemVer](https://semver.org/lang/pt-BR/).
 
 ## [Não lançado]
 
+### O celular ganha um app — e o app passa a dizer o que é seu e o que é do grupo
+
+No celular faltavam duas coisas que não são detalhe: **saber onde você está** e
+**poder sair de lá**. A separação entre a camada pessoal (`/me/*`, ADR 0021) e a
+de um espaço compartilhado (`/w/:id/*`, ADR 0020) é sólida no servidor, mas vivia
+só na barra lateral — que é `hidden md:flex`. Abaixo de 768px:
+
+- a gaveta "Mais" chamava `navFlat()`, que **descarta os rótulos de seção**, e
+  despejava quinze destinos numa grade sem hierarquia. "Acertos" e "Seus
+  acertos", "Relatórios" e "Seus relatórios" apareciam lado a lado, mesmo ícone,
+  mesma cor, e nada dizia qual era qual;
+- **não havia como trocar de espaço.** O seletor só existia na barra lateral.
+  Quem participa do próprio espaço e de mais um ficava preso naquele em que o
+  app abriu;
+- a barra superior tinha só o sino.
+
+Agora existe um **seletor de escopo** (`ScopeSwitcher`) no topo do celular, que
+sempre anuncia onde você está e abre a lista com "Pessoal" e todos os espaços —
+o mesmo componente que o desktop passou a usar, incluindo a camada pessoal, que
+o seletor antigo nem listava. A gaveta "Mais" voltou a ter seções (e passou a
+mostrar "Administração" a quem tem o papel: a chamada omitia `isPlatformAdmin` e
+o item nunca aparecia no celular).
+
+**O vocabulário parou de falar quatro línguas.** Havia "Meu / Global / Seus /
+pessoal" para uma ideia e "workspace / casa / espaço / o nome dele" para a outra
+— com uma colisão literal no meio: toda conta nascia dona de um espaço chamado
+"Meu Workspace", enquanto a seção chamada "Meu" significava justamente o que
+**não** está em espaço nenhum. Passa a valer um par só, **Pessoal ×
+Compartilhado**, e uma palavra só para o contêiner: **espaço**. "Visão global"
+— que sugere "de todos" e significa "só meu" — virou **"Seu mês"**. Contas novas
+nascem com "Meu espaço"; as existentes ficam como estão (o nome é editável).
+
+**Quatro telas estouravam a largura do celular** e nenhum teste media isso — um
+`grep` por `scrollWidth` no repositório voltava vazio, e o catálogo de capturas
+cobria cinco rotas, nenhuma delas quebrada. O maior culpado era invisível: **todo
+`<select>` do app usava `text-sm`**, e o Safari do iPhone dá zoom ao focar um
+campo com fonte menor que 16px — e não desfaz. A partir do primeiro toque, o app
+inteiro ficava grande e deslocado. Havia treze cópias da mesma constante de
+estilo; agora há um `NativeSelect` só, com `text-base md:text-sm`.
+
+O resto da varredura, tela por tela, nos dois temas, a 360/390/1440px:
+
+- `PageHeader` com bloco de ação `shrink-0` sem `flex-wrap` (Rendas somava 490px
+  numa faixa de 328px), `TabsList` sem rolagem (a aba "Orçamento" ficava
+  literalmente cortada em Relatórios; `/admin` estourava 200px), `min-w-[300px]`
+  do "Total da Fatura" dentro de um `Card` com `overflow-hidden` — o número mais
+  importante da tela era o único inalcançável no celular;
+- as cinco tabelas largas (amortização com 7 colunas, pessoas do `/admin` com 7,
+  despesas do mês, rendas, recorrência) viram **cartões** abaixo de `sm`, por um
+  padrão único (`CardsOrTable`), em vez de uma tira rolável em que a coluna de
+  valor ficava fora da tela;
+- filtros de Lançamentos e do Extrato viram uma **gaveta com contador**: eram
+  210px e 260px de controles antes da primeira linha de dados;
+- **safe-area** em toda parte (`viewport-fit=cover` + `env(safe-area-inset-*)`):
+  a barra inferior e o rodapé dos diálogos ficavam sob o indicador de home do
+  iPhone;
+- "Agosto **De** 2026" — dois navegadores de mês aplicavam `capitalize` do CSS,
+  que capitaliza cada palavra, sobre o rótulo do `Intl`. Quem capitaliza agora é
+  o `monthLabel`, e o `PeriodPicker` deixou de ter uma cópia privada dele;
+- alvos de toque: o "X" dos diálogos tinha **16×16px**, o menor botão do app.
+
+**Dá para instalar como aplicativo.** Manifesto, ícones (192/512/maskable/apple,
+gerados por script versionado a partir do PNG da marca) e um **service worker
+escrito à mão** — sem Workbox, que traria uma árvore de dependências para gerar
+60 linhas e esbarraria na CSP `default-src 'self'`. Ele guarda a casca para o app
+abrir sem rede, e **nunca toca em `/api/`**: num app de dinheiro, saldo cacheado
+é pior que saldo nenhum, porque aparece com cara de atual. Em Configurações →
+Aparência há "Instalar aplicativo"; no iPhone, onde o evento de instalação não
+existe, o cartão ensina o caminho do Safari em vez de oferecer um botão morto.
+
+Os portões que faltavam: `mobile_layout.mobile.spec.ts` mede `scrollWidth` em
+**todas** as rotas a 360px e nomeia o elemento culpado quando falha (conferido
+falhando: `/me/income rola 163px`); `pwa.spec.ts` roda contra o nginx real e
+pega um service worker que cacheie a API (conferido também: três URLs vazam e a
+asserção quebra). O roteiro de capturas passou de 5 para 22 telas no celular.
+
 ### O e-mail descobre por qual porta sai — e a marca vira "Controle Financeiro"
 
 Em produção, "enviar e-mail de teste" respondia `TimeoutError: timed out` vinte

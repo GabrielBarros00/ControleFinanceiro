@@ -2,8 +2,7 @@ import { Label } from '@/components/ui/label';
 import type { MaterializeScope } from '@/lib/recurrence';
 
 // <select> nativo: dentro de Dialog (Radix) o Select do Base UI foge do focus-trap
-const selectClass =
-  'flex h-10 w-full rounded-md border border-border bg-background px-3 py-2 text-sm text-foreground focus:outline-hidden focus:ring-2 focus:ring-ring';
+import { nativeSelectClass as selectClass } from '@/components/ui/native-select';
 
 interface MaterializeScopeFieldProps {
   value: MaterializeScope;

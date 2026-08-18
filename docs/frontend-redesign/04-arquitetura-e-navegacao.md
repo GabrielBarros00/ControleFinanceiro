@@ -3,9 +3,37 @@
 Como o app se organiza e como a pessoa se move nele. Aqui resolvemos H5 (navegação não
 escala / sem mobile) e criamos os **padrões de página** reaproveitados por todas as telas.
 
+> ⚠️ **Este mapa é histórico — a navegação de hoje é outra.** O documento foi escrito
+> ANTES dos ADRs [0020](../adr/0020-visao-global-e-quatro-numeros.md) (camada global e o
+> workspace na URL) e [0021](../adr/0021-recurso-pessoal-sem-workspace.md) (recurso pessoal
+> sem workspace), e a seção "COMPARTILHADO" com Rendas e Dívidas que ele propõe abaixo
+> **diz o oposto do que passou a valer**: renda é o dado mais privado do sistema.
+>
+> A fonte da verdade é `frontend/src/components/layout/nav-items.ts`. Em resumo, hoje são
+> **duas camadas nomeadas pelo escopo** — e a palavra para o contêiner é **espaço**,
+> em toda a interface (2026-08-17):
+>
+> ```
+> [ Seletor de escopo: Pessoal · ou · o nome do espaço ]   ← ScopeSwitcher, topo
+>
+> PESSOAL · Só você vê
+>   Seu mês · Rendas · Cartões · Financiamentos · Compromissos
+>   Seus acertos · Seus relatórios · Extrato · Suas configurações
+>
+> COMPARTILHADO · <nome do espaço> · N pessoas
+>   Painel · Lançamentos · Recorrência · Relatórios · Acertos · Importar · Configurações
+>
+> SITE (só para quem tem o papel — ADR 0026)
+>   Administração
+> ```
+>
+> O que continua valendo deste documento: o `AppShell`, o `PageHeader`, o `PeriodPicker`,
+> os estados padronizados e as regras de responsividade da §6 — essas foram entregues e
+> seguem em uso. O que mudou de vez é o §1 (o mapa) e parte do §2.3 (o mobile).
+
 ---
 
-## 1. Mapa atual → proposto
+## 1. Mapa atual → proposto  *(histórico — ver a nota acima)*
 
 Hoje: 9 itens planos na sidebar, sem hierarquia, switcher de workspace no rodapé.
 
@@ -91,12 +119,23 @@ Fina, opcional por página. Carrega: breadcrumb/título curto à esquerda; à di
 ações globais. Pode ser fundida ao `PageHeader` em páginas simples.
 
 ### 2.3 Mobile
-- Sidebar some; vira **bottom-nav de 5 itens** (Início, Lançamentos, +Novo (FAB central),
-  Cartões, Mais). "Mais" abre um sheet com o resto (Relatórios, Financiamentos, Orçamento,
-  Rendas, Dívidas, Importar, Configurações, trocar workspace).
+- Sidebar some; vira **bottom-nav de 5 itens** (Seu mês, Lançamentos, +Novo (FAB central),
+  Cartões, Mais). "Mais" abre um sheet com o resto.
 - O **FAB central "+ Novo"** abre o modal de Nova Despesa — a ação mais frequente, sempre
-  ao alcance do polegar.
-- Topbar mobile: título da página + ação contextual (ex.: filtro).
+  ao alcance do polegar. **Só dentro de um espaço**: fora de `/w/:id` ele lançava no último
+  espaço visitado sem dizer qual, e a camada global é somente leitura (ADR 0020).
+- Topbar mobile: **seletor de escopo** à esquerda, avisos à direita.
+
+> **Corrigido em 2026-08-17.** Duas coisas previstas aqui não tinham sido feitas, e a falta
+> das duas era a queixa de quem usava:
+>
+> - **"trocar workspace" no sheet "Mais"** nunca existiu. O seletor morava só na sidebar
+>   (`hidden md:flex`), então no celular simplesmente **não havia como trocar de espaço**.
+>   Hoje isso é o `ScopeSwitcher`, e ele fica na topbar — não no sheet: a pergunta "onde eu
+>   estou?" precisa de resposta permanente, não a dois toques;
+> - o sheet chamava `navFlat()`, que **descarta os rótulos de seção**, e virava uma grade
+>   de quinze tiles sem hierarquia. A topbar prevista ("título da página + ação
+>   contextual") também não existia: era uma faixa de 40px com um sino solitário.
 
 ---
 

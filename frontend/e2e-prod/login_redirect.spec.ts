@@ -12,7 +12,7 @@ import { postWithRetry } from './helpers';
 // também cobre esse redirecionamento.
 const PAGES: Array<[string, string]> = [
   // Pessoais (ADR 0021)
-  ['/overview', 'Início'],
+  ['/overview', 'Seu mês'],
   ['/me/income', 'Rendas'],
   ['/me/cards', 'Cartões'],
   ['/me/financing', 'Financiamentos'],
@@ -77,7 +77,7 @@ test.describe('Sessão atrás do nginx (stack de produção)', () => {
     await expect(page).toHaveURL(/\/overview$/, { timeout: 15_000 });
     // O que está na tela do usuário novo é o ONBOARDING, não o painel: ele é um
     // diálogo modal e torna o resto da página inerte, então procurar o heading
-    // "Início" aqui é procurar algo que o leitor de tela também não alcança.
+    // "Seu mês" aqui é procurar algo que o leitor de tela também não alcança.
     // A asserção passava por corrida — o modal abre num efeito, depois que
     // `/auth/me` responde, e antes o login resolvia sem esperar essa resposta.
     await expect(page.getByRole('dialog')).toBeVisible({ timeout: 15_000 });
@@ -90,11 +90,11 @@ test.describe('Sessão atrás do nginx (stack de produção)', () => {
       page.waitForNavigation({ waitUntil: 'load' }),
       page.getByRole('button', { name: 'Pular esta etapa' }).click(),
     ]);
-    await expect(page.getByRole('heading', { name: 'Início' })).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByRole('heading', { name: 'Seu mês' })).toBeVisible({ timeout: 15_000 });
 
     // 3. F5 mantém a sessão (era o sintoma: reload devolvia ao /login)
     await page.reload();
-    await expect(page.getByRole('heading', { name: 'Início' })).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByRole('heading', { name: 'Seu mês' })).toBeVisible({ timeout: 15_000 });
     await expect(page).not.toHaveURL(/\/login/);
 
     // 4. Todas as rotas protegidas abrem sem bounce

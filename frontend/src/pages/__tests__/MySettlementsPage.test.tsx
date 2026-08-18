@@ -181,7 +181,7 @@ describe('Seus acertos', () => {
     // "Você deve" também titula o card de cada casa — o do topo é o total.
     expect(screen.getAllByText('Você deve').length).toBeGreaterThan(0);
     expect(screen.getByText('Você tem a receber')).toBeInTheDocument();
-    expect(screen.getAllByText('Somando todas as casas')).toHaveLength(2);
+    expect(screen.getAllByText('Somando todos os espaços')).toHaveLength(2);
     // Compensar 120 a receber com 100 a pagar entre casas diferentes seria dizer
     // que a dívida com a Ana foi paga pelo que o Bruno deve (ADR 0020).
     expect(screen.queryByText('Saldo líquido')).not.toBeInTheDocument();

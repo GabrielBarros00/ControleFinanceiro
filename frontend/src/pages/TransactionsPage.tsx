@@ -21,6 +21,7 @@ import { useBaseCurrency } from '@/hooks/use-base-currency';
 import { PAYMENT_METHOD_OPTIONS } from '@/lib/payment-methods';
 import { useCategories } from '@/hooks/use-categories';
 import { useTags } from '@/hooks/use-tags';
+import { FilterBar } from '@/components/layout/FilterBar';
 
 
 const SEARCH_DEBOUNCE_MS = 300;
@@ -107,9 +108,13 @@ export function TransactionsPage() {
 
   return (
     <div className="space-y-6">
+      {/* `scope`: "Lançamentos" era o único título do espaço sem nenhuma marca
+          de escopo, e é a tela mais visitada — quem chega por ela não tem como
+          saber que está vendo um espaço e não o próprio total. */}
       <PageHeader
         title="Lançamentos"
         subtitle="Tudo que entrou e saiu."
+        scope="workspace"
         period={
           <PeriodPicker value={month} onChange={setMonth} />
         }
@@ -120,16 +125,26 @@ export function TransactionsPage() {
         }
       />
 
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
-        <div className="relative flex-1">
-          <Search className="pointer-events-none absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" />
-          <Input
-            placeholder="Buscar por descrição..."
-            value={searchInput}
-            onChange={(e) => setSearchInput(e.target.value)}
-            className="pl-9"
-          />
-        </div>
+      <FilterBar
+        ativos={
+          [filters.payment_method, filters.category_id, filters.tag_id].filter(Boolean).length
+        }
+        onLimpar={() => {
+          setSearchInput('');
+          patch({ search: '', payment_method: undefined, category_id: undefined, tag_id: undefined });
+        }}
+        destaque={
+          <div className="relative flex-1">
+            <Search className="pointer-events-none absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
+            <Input
+              placeholder="Buscar por descrição..."
+              value={searchInput}
+              onChange={(e) => setSearchInput(e.target.value)}
+              className="pl-9"
+            />
+          </div>
+        }
+      >
         <Select
           items={[{ value: 'all', label: 'Todo pagamento' }, ...PAYMENT_METHOD_OPTIONS]}
           value={filters.payment_method || 'all'}
@@ -193,6 +208,7 @@ export function TransactionsPage() {
             variant="ghost"
             size="icon"
             aria-label="Limpar filtros"
+            className="hidden sm:inline-flex"
             onClick={() => {
               setSearchInput('');
               patch({
@@ -206,7 +222,7 @@ export function TransactionsPage() {
             <FilterX className="h-4 w-4" />
           </Button>
         )}
-      </div>
+      </FilterBar>
 
       <div className="rounded-xl border border-border bg-card">
         {isLoading ? (

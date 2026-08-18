@@ -4,6 +4,7 @@ import { HandCoins, Loader2 } from 'lucide-react';
 import { useTxDetailStore } from '@/stores';
 import type { SettlementDraft } from '@/components/debts/SettlementDialog';
 import { formatMoney } from '@/lib/money';
+import { CardsOrTable, DataCard } from '@/components/ui/data-card';
 
 /**
  * O CORPO do retrato mensal de uma casa — sem hook nenhum.
@@ -76,18 +77,27 @@ export function MonthlyLedgerTotals({
   if (!ledger) return null;
   const fmt = (v: Money) => formatMoney(v, { currency });
   return (
-    <div className="grid grid-cols-3 gap-2 text-center">
-      <div className="rounded-lg bg-accent/20 p-2">
+    /*
+     * Três colunas mesmo no celular — mas com folga.
+     *
+     * A cada 390px de tela sobram ~110px por célula, e um valor como
+     * "R$ 561.582,54" precisa de ~100px a 14px. Cabia por um fio, e qualquer
+     * saldo na casa dos milhões estourava. `text-xs` no celular e `min-w-0` +
+     * `break-words` dão a margem; a comparação lado a lado (total × pago × em
+     * aberto) é o ponto do bloco e empilhar destruiria isso.
+     */
+    <div className="grid grid-cols-3 gap-1.5 text-center sm:gap-2">
+      <div className="min-w-0 rounded-lg bg-accent/20 p-1.5 sm:p-2">
         <p className="text-[10px] font-semibold uppercase text-muted-foreground">Total do mês</p>
-        <p className="text-sm font-semibold text-foreground">{fmt(ledger.totals.total)}</p>
+        <p className="break-words text-xs font-semibold text-foreground sm:text-sm">{fmt(ledger.totals.total)}</p>
       </div>
-      <div className="rounded-lg bg-emerald-500/10 p-2">
+      <div className="min-w-0 rounded-lg bg-emerald-500/10 p-1.5 sm:p-2">
         <p className="text-[10px] font-semibold uppercase text-muted-foreground">Pago</p>
-        <p className="text-sm font-semibold text-emerald-500">{fmt(ledger.totals.paid)}</p>
+        <p className="break-words text-xs font-semibold text-emerald-500 sm:text-sm">{fmt(ledger.totals.paid)}</p>
       </div>
-      <div className="rounded-lg bg-warning-subtle p-2">
+      <div className="min-w-0 rounded-lg bg-warning-subtle p-1.5 sm:p-2">
         <p className="text-[10px] font-semibold uppercase text-muted-foreground">Em aberto</p>
-        <p className="text-sm font-semibold text-warning">{fmt(ledger.totals.open)}</p>
+        <p className="break-words text-xs font-semibold text-warning sm:text-sm">{fmt(ledger.totals.open)}</p>
       </div>
     </div>
   );
@@ -147,7 +157,7 @@ export function MonthlyLedgerBody({
         ) : (
           <div className="space-y-2">
             {ledger.net_debts.map((d) => (
-              <div key={`${d.debtor_id}-${d.creditor_id}`} className="flex items-center justify-between rounded-xl bg-accent/30 border border-border p-3">
+              <div key={`${d.debtor_id}-${d.creditor_id}`} className="flex flex-wrap items-center justify-between gap-2 rounded-xl bg-accent/30 border border-border p-3">
                 <p className="text-sm">
                   <span className="font-bold">{memberName(d.debtor_id)}</span>
                   <span className="text-muted-foreground"> deve </span>
@@ -186,6 +196,66 @@ export function MonthlyLedgerBody({
       {/* Detalhe das despesas do mês */}
       <div className="space-y-2">
         <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Despesas do mês</p>
+
+        {/* Celular: cartões. Esta é a tabela mais larga do app depois da de
+            amortização, e a coluna "Divisão" é a que menos cabe — no cartão os
+            chips de rateio ganham a linha inteira e passam a mostrar o NOME de
+            quem participou, não as duas primeiras letras dele. As iniciais só
+            eram decifráveis pelo `title`, que no toque não existe. */}
+        <CardsOrTable
+          cards={
+        <div className="space-y-2">
+          {ledger.expenses.map((exp) => (
+            <DataCard
+              key={exp.id}
+              onClick={() => openDetail(exp.id)}
+              title={exp.title}
+              badge={
+                exp.installments_of && exp.installments_of > 1 ? (
+                  <span className="rounded-full bg-primary/10 px-1.5 py-0.5 text-[9px] font-semibold uppercase whitespace-nowrap text-primary">
+                    Parcela {exp.installment_no}/{exp.installments_of}
+                  </span>
+                ) : undefined
+              }
+              meta={exp.payers.map((p) => `${memberName(p.user_id)} pagou ${fmt(p.amount)}`).join(' · ')}
+              value={
+                <>
+                  <span className="block font-semibold whitespace-nowrap text-foreground">{fmt(exp.total_amount)}</span>
+                  <span className={`mt-1 inline-block rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase whitespace-nowrap ${
+                    exp.is_paid ? 'bg-emerald-500/10 text-emerald-500' : 'bg-warning-subtle text-warning'
+                  }`}>
+                    {exp.is_paid ? 'Paga' : 'Em aberto'}
+                  </span>
+                </>
+              }
+              fields={[{
+                label: 'Divisão',
+                full: true,
+                value: (
+                  <span className="flex flex-wrap gap-1">
+                    {exp.splits.map((s, i) => {
+                      const mine = s.user_id === currentUserId;
+                      return (
+                        <span
+                          key={i}
+                          className={`inline-flex items-center gap-1 rounded-full border px-1.5 py-0.5 text-[10px] font-bold ${
+                            mine
+                              ? 'border-primary/40 bg-primary/15 text-primary'
+                              : 'border-border bg-accent/40 text-muted-foreground'
+                          }`}
+                        >
+                          {mine ? 'Você' : memberName(s.user_id)} · {fmt(s.computed_amount)}
+                        </span>
+                      );
+                    })}
+                  </span>
+                ),
+              }]}
+            />
+          ))}
+        </div>
+          }
+          table={
         <Table>
           <TableHeader>
             <TableRow className="border-border hover:bg-transparent">
@@ -263,6 +333,8 @@ export function MonthlyLedgerBody({
             ))}
           </TableBody>
         </Table>
+          }
+        />
       </div>
     </>
   );

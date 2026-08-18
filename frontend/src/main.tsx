@@ -13,3 +13,25 @@ createRoot(document.getElementById('root')!).render(
     <App />
   </StrictMode>,
 )
+
+/*
+ * Service worker — só no build de produção.
+ *
+ * Em desenvolvimento ele seria ativamente nocivo: o Vite serve os módulos sem
+ * hash e recarrega por HMR, e um SW cacheando isso faz a página parar de
+ * refletir o que está no editor — o tipo de defeito em que se perde uma tarde
+ * antes de desconfiar do cache.
+ *
+ * `load` e não imediato: registrar durante o carregamento inicial faz o SW
+ * disputar banda com os bundles da primeira visita, que é justamente a mais
+ * lenta.
+ *
+ * O registro FALHA em silêncio de propósito. Não ter service worker significa
+ * "não dá para instalar como app e não há casca offline" — não afeta nenhuma
+ * função do produto, e um alerta de erro aqui assustaria por nada.
+ */
+if (import.meta.env.PROD && 'serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('/sw.js').catch(() => {});
+  });
+}

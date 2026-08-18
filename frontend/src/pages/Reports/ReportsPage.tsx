@@ -54,7 +54,7 @@ export function ReportsPage() {
         <div className="grid gap-4 md:grid-cols-4">
           {[1, 2, 3, 4].map(i => <Skeleton key={i} className="h-24 bg-card border-border" />)}
         </div>
-        <Skeleton className="h-[400px] w-full bg-card border-border" />
+        <Skeleton className="h-[260px] w-full bg-card border-border sm:h-[400px]" />
       </div>
     );
   }
@@ -87,7 +87,7 @@ export function ReportsPage() {
       (Number(m.expenses) || 0) + (Number(m.my_expenses) || 0) > 0,
   ).length;
   // Números da casa vêm `null` sem acesso financeiro completo (ADR 0018), então
-  // o fallback deles é `null` e não 0 — 0 viraria "Casa R$ 0,00" na dica e um
+  // o fallback deles é `null` e não 0 — 0 viraria "Espaço R$ 0,00" na dica e um
   // gráfico de pizza vazio apresentado como se a casa não tivesse gastado nada.
   const currentSummary = data?.current_summary || {
     total_expenses: null, my_expenses: 0, paid_by_me: 0, my_balance: 0, categories: null,
@@ -135,7 +135,7 @@ export function ReportsPage() {
           value={paidByMe}
           kind="neutral"
           currency={baseCurrency}
-          hint="O que você assumiu das despesas desta casa"
+          hint="O que você assumiu das despesas deste espaço"
         />
         <div className="rounded-xl border border-border bg-card p-4">
           <p className="text-sm text-muted-foreground">Maior categoria</p>
@@ -146,8 +146,8 @@ export function ReportsPage() {
           </p>
         </div>
         <StatTile
-          // "Saldo" ficou reservado a saldo de conta: aqui é o acerto desta casa.
-          label={myBalance >= 0 ? 'A receber nesta casa' : 'A pagar nesta casa'}
+          // "Saldo" ficou reservado a saldo de conta: aqui é o acerto deste espaço.
+          label={myBalance >= 0 ? 'A receber neste espaço' : 'A pagar neste espaço'}
           value={Math.abs(myBalance)}
           kind={myBalance >= 0 ? 'income' : 'expense'}
           currency={baseCurrency}
@@ -185,12 +185,12 @@ export function ReportsPage() {
                 <BarChart3 className="h-5 w-5 text-primary" />
                 Gasto da casa × sua parte
               </CardTitle>
-              {/* Não é "Receitas vs Despesas": renda saiu do workspace no ADR
+              {/* Não é "Receitas vs Despesas": renda saiu do espaço no ADR
                   0021 e o gráfico só desenha despesa. O título prometia uma
                   comparação que os dados não tinham. */}
               <CardDescription>Comparativo mensal dos últimos 6 meses.</CardDescription>
             </CardHeader>
-            <CardContent className="h-[400px]">
+            <CardContent className="h-[260px] sm:h-[400px]">
               {monthsWithData >= 2 ? (
                 <ResponsiveContainer width="100%" height="100%">
                   <BarChart data={monthlyData}>
@@ -201,7 +201,7 @@ export function ReportsPage() {
                       contentStyle={{ backgroundColor: chart.tooltipBg, border: `1px solid ${chart.tooltipBorder}`, borderRadius: '12px', color: chart.tooltipText }}
                       itemStyle={{ color: chart.tooltipText, fontWeight: 'bold' }}
                     />
-                    <Bar dataKey="expenses" fill={chart.series[0]} radius={[4, 4, 0, 0]} name="Despesa (casa)" />
+                    <Bar dataKey="expenses" fill={chart.series[0]} radius={[4, 4, 0, 0]} name="Despesa (espaço)" />
                     <Bar dataKey="my_expenses" fill={chart.series[2]} radius={[4, 4, 0, 0]} name="Minha parte" />
                   </BarChart>
                 </ResponsiveContainer>
@@ -221,7 +221,7 @@ export function ReportsPage() {
                   {temVisaoDaCasa ? 'Distribuição por Categoria' : 'Sua distribuição por categoria'}
                 </CardTitle>
               </CardHeader>
-              <CardContent className="h-[350px]">
+              <CardContent className="h-[240px] sm:h-[350px]">
                 {categoryData.length > 0 ? (
                   <ResponsiveContainer width="100%" height="100%">
                     <PieChart>
@@ -293,7 +293,7 @@ export function ReportsPage() {
                 Evolução das despesas
               </CardTitle>
             </CardHeader>
-            <CardContent className="h-[400px]">
+            <CardContent className="h-[260px] sm:h-[400px]">
                {monthsWithData >= 2 ? (
                 <ResponsiveContainer width="100%" height="100%">
                   <LineChart data={monthlyData}>
@@ -303,12 +303,12 @@ export function ReportsPage() {
                     <Tooltip 
                       contentStyle={{ backgroundColor: chart.tooltipBg, border: `1px solid ${chart.tooltipBorder}`, borderRadius: '12px', color: chart.tooltipText }}
                     />
-                    <Line type="monotone" dataKey="expenses" stroke={chart.series[0]} strokeWidth={3} dot={{ r: 6, strokeWidth: 2, fill: chart.tooltipBg }} name="Despesa (casa)" />
+                    <Line type="monotone" dataKey="expenses" stroke={chart.series[0]} strokeWidth={3} dot={{ r: 6, strokeWidth: 2, fill: chart.tooltipBg }} name="Despesa (espaço)" />
                     <Line type="monotone" dataKey="my_expenses" stroke={chart.series[2]} strokeWidth={2} strokeDasharray="4 4" dot={{ r: 4, strokeWidth: 2, fill: chart.tooltipBg }} name="Minha parte" />
                   </LineChart>
                 </ResponsiveContainer>
               ) : (
-                 <div className="flex items-center justify-center h-full text-muted-foreground italic">Dê o primeiro passo registrando as despesas desta casa.</div>
+                 <div className="flex items-center justify-center h-full text-muted-foreground italic">Dê o primeiro passo registrando as despesas deste espaço.</div>
               )}
             </CardContent>
           </Card>

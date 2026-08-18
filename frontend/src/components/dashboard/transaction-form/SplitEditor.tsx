@@ -8,6 +8,7 @@ import { Trash2 } from 'lucide-react';
 import { SplitSummary } from './SplitSummary';
 import { useFormCurrency } from './use-form-currency';
 import type { TransactionFormValues } from './schema';
+import { nativeSelectClass } from '@/components/ui/native-select';
 
 export interface Participant {
   id: string;
@@ -42,7 +43,10 @@ export function SplitEditor({ participants }: SplitEditorProps) {
             <RadioGroup
               value={field.value}
               onValueChange={(value) => field.onChange(value as string)}
-              className="flex space-x-6"
+              // `flex-wrap` + `gap`: "Igual / Porcentagem / Valor Fixo" somam
+              // ~315px, e o formulário é bottom sheet no celular, com ~280px
+              // úteis — a terceira opção saía da tela.
+              className="flex flex-wrap gap-x-6 gap-y-2"
             >
               <div className="flex items-center space-x-2">
                 <RadioGroupItem value="equal" id="equal" className="border-primary text-primary" />
@@ -74,7 +78,7 @@ export function SplitEditor({ participants }: SplitEditorProps) {
               <div className="flex-1">
                 <select
                   aria-label="Participante"
-                  className="flex h-9 w-full rounded-md border border-border bg-background px-3 py-1 text-sm shadow-sm transition-colors focus-visible:outline-hidden focus-visible:ring-1 focus-visible:ring-primary text-foreground"
+                  className={nativeSelectClass}
                   {...register(`splits.${index}.user_id` as const)}
                 >
                   <option value="" className="bg-card">Usuário...</option>
