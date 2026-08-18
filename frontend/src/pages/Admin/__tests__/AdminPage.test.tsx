@@ -361,7 +361,7 @@ describe('configurações', () => {
   it('converte bytes em MB nos campos de quota', () => {
     renderizar();
     abrirAba('Configurações');
-    expect(screen.getByLabelText(/Anexos por workspace/)).toHaveValue(200);
+    expect(screen.getByLabelText(/Anexos por espaço/)).toHaveValue(200);
   });
 
   it('diz quando o valor ainda acompanha o .env', () => {

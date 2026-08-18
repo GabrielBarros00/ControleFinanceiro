@@ -1,5 +1,6 @@
 import logging
 from email.message import EmailMessage
+from email.utils import formatdate, make_msgid, parseaddr
 from typing import Optional
 
 from app.core.config import settings
@@ -7,6 +8,36 @@ from app.services import smtp_transport
 from app.services.smtp_transport import Endpoint
 
 logger = logging.getLogger("app.email")
+
+
+def _monta(remetente: str, to: str, subject: str, body: str) -> EmailMessage:
+    """Monta a mensagem com o que um e-mail legítimo tem — e o nosso não tinha.
+
+    A mensagem que este serviço entregava saía com SEIS cabeçalhos: From, To,
+    Subject e os três de MIME. Faltavam os dois que a RFC 5322 pede (`Date` é
+    OBRIGATÓRIO, `Message-ID` é SHOULD), e o corpo inteiro ia em base64. Os três
+    são regra conhecida de filtro antispam — `MISSING_DATE`, `MISSING_MID` e
+    `MIME_BASE64_TEXT` no SpamAssassin —, e a soma deles cai na caixa de spam de
+    um destinatário que aplica a régua com rigor, mesmo com SPF, DKIM e DMARC
+    passando. Foi o que aconteceu no `@live.com`.
+
+    O domínio do `Message-ID` é o do REMETENTE, e isso importa: o padrão do
+    `make_msgid` é o hostname da máquina, que dentro de um container é o ID
+    aleatório do Docker — `<...@3f2a9c1b4d5e>`. Um Message-ID que não casa com
+    domínio nenhum é, por si, sinal de robô mal configurado.
+    """
+    msg = EmailMessage()
+    msg["From"] = remetente
+    msg["To"] = to
+    msg["Subject"] = subject
+    msg["Date"] = formatdate(localtime=True)
+    msg["Message-ID"] = make_msgid(domain=parseaddr(remetente)[1].rpartition("@")[2] or None)
+    # `quoted-printable`, e não o base64 que o `set_content` escolhe sozinho para
+    # texto com acento: o corpo continua legível no fonte da mensagem, como o de
+    # qualquer cliente de e-mail de verdade. Base64 num texto curto é exatamente
+    # o formato de quem tem algo a esconder do classificador.
+    msg.set_content(body, cte="quoted-printable")
+    return msg
 
 
 class EmailService:
@@ -48,11 +79,12 @@ class EmailService:
             )
             return None
 
-        msg = EmailMessage()
-        msg["From"] = settings.EMAIL_FROM or settings.SMTP_USER or "noreply@example.com"
-        msg["To"] = to
-        msg["Subject"] = subject
-        msg.set_content(body)
+        msg = _monta(
+            settings.EMAIL_FROM or settings.SMTP_USER or "noreply@example.com",
+            to,
+            subject,
+            body,
+        )
 
         try:
             return smtp_transport.entrega(msg, redescobrir=redescobrir_rota)

@@ -1,5 +1,6 @@
 import { ChevronLeft, ChevronRight } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { monthLabel } from '@/lib/date';
 
 /*
  * PeriodPicker — seletor de mês compacto e consistente entre telas
@@ -9,13 +10,6 @@ function shiftMonth(month: string, delta: number): string {
   const [y, m] = month.split('-').map(Number);
   const d = new Date(y, m - 1 + delta, 1);
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
-}
-
-function monthLabel(month: string): string {
-  const [y, m] = month.split('-').map(Number);
-  const s = new Date(y, m - 1, 1).toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' });
-  // "julho de 2026" -> "Julho de 2026" (só a inicial; evita "De" no capitalize do CSS)
-  return s.charAt(0).toUpperCase() + s.slice(1);
 }
 
 interface PeriodPickerProps {
@@ -41,11 +35,17 @@ export function PeriodPicker({ value, onChange, max, className }: PeriodPickerPr
         type="button"
         onClick={() => onChange(shiftMonth(value, -1))}
         aria-label="Mês anterior"
-        className="rounded-l-lg p-2 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+        // h-10/w-10: as setas eram 32×32 com `p-2` — pequenas para o polegar, e
+        // são o controle mais tocado das telas com mês.
+        className="flex h-10 w-10 shrink-0 items-center justify-center rounded-l-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
       >
         <ChevronLeft className="h-4 w-4" />
       </button>
-      <span className="min-w-[132px] select-none text-center text-sm font-medium text-foreground">
+      {/* `min-w-0` até `sm`: os 132px fixos somavam ~196px de largura
+          intransponível dentro do `PageHeader`, e num cabeçalho com duas ações
+          isso era o bastante para estourar a tela do celular. O rótulo já é
+          curto ("Agosto de 2026" ≈ 105px), então nada trunca na prática. */}
+      <span className="min-w-0 select-none px-1 text-center text-sm font-medium text-foreground sm:min-w-[132px] sm:px-0">
         {monthLabel(value)}
       </span>
       <button
@@ -53,7 +53,7 @@ export function PeriodPicker({ value, onChange, max, className }: PeriodPickerPr
         disabled={!canNext}
         onClick={() => canNext && onChange(shiftMonth(value, 1))}
         aria-label="Próximo mês"
-        className="rounded-r-lg p-2 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:pointer-events-none disabled:opacity-40"
+        className="flex h-10 w-10 shrink-0 items-center justify-center rounded-r-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:pointer-events-none disabled:opacity-40"
       >
         <ChevronRight className="h-4 w-4" />
       </button>

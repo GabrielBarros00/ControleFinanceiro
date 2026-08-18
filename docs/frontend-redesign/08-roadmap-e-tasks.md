@@ -14,6 +14,27 @@ telas podem ser paralelizadas por pessoa, pois todas dependem só de 1 e 2.
 > existe porque o roadmap ficou com 100% desmarcado por semanas depois da entrega, e um
 > documento que não distingue "não feito" de "decidido não fazer" não serve para planejar.
 
+> **Rodada de mobile (2026-08-17).** O critério 4 da [Definição de pronto](#definição-de-pronto-por-tela)
+> — *"funciona em 375px"* — estava marcado como atendido por inspeção, e não era: quatro
+> telas estouravam a largura e **nenhum teste media isso** (um `grep` por `scrollWidth` no
+> repositório voltava vazio). O catálogo de capturas cobria cinco rotas no celular, nenhuma
+> delas entre as quebradas — um catálogo que fotografa só o que já se sabe estar bom não
+> descobre nada.
+>
+> O que essa rodada fechou, e o que ela deixa como regra daqui para frente:
+>
+> - o critério 4 passa a ter **portão**: `frontend/e2e/mobile_layout.mobile.spec.ts` mede
+>   `document.documentElement.scrollWidth` em TODAS as rotas a **360px** (e não 375: 360 é
+>   a largura do Galaxy A e do Moto G, a mais estreita que ainda importa), e nomeia o
+>   elemento culpado quando falha;
+> - `npm run shots` fotografa **22 telas** no celular, não 5, mais a gaveta "Mais", o
+>   seletor de escopo e o formulário de despesa;
+> - o **F1.7** (duas libs de UI) segue aberto, mas encolheu: as treze cópias de
+>   `selectClass` viraram um `ui/native-select.tsx` só. O padrão "`<select>` nativo dentro
+>   de modal" continua vivo, agora num arquivo com o motivo escrito;
+> - a navegação foi reescrita — o mapa do doc [04](04-arquitetura-e-navegacao.md) já não
+>   descreve o que existe. Ver a nota no topo dele.
+
 ---
 
 ## Fase 0 — Correções de leitura (quick wins, sem redesign) 🔴

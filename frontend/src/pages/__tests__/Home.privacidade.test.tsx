@@ -9,7 +9,7 @@ import { Home } from '../Home';
  *
  * O backend devolve `null` nos números da CASA para quem é `involved_only`. O
  * painel lia com `?? 0`, e é aí que estava o defeito de apresentação: mostraria
- * "Gasto da casa R$ 0,00" ao lado da despesa real do membro — um número
+ * "Gasto do espaço R$ 0,00" ao lado da despesa real do membro — um número
  * INVENTADO na tela, mais enganoso do que não mostrar nada.
  *
  * O segundo eixo é o que este painel NÃO pode mais dizer. "Sua receita" e
@@ -59,8 +59,15 @@ vi.mock('@/hooks/use-transactions', () => ({
 vi.mock('@/hooks/use-base-currency', () => ({
   useBaseCurrency: () => 'BRL',
 }));
+// `workspaces` faz parte do contrato do hook (`listQuery.data ?? []`, nunca
+// `undefined`) e o mock o omitia. Passou despercebido enquanto ninguém no
+// Painel o lia; a pílula de escopo do `PageHeader` lê, e o mock incompleto
+// virou `Cannot read properties of undefined (reading 'find')`.
 vi.mock('@/hooks/use-workspaces', () => ({
-  useWorkspaces: () => ({ currentWorkspace: { id: 1, name: 'Casa' } }),
+  useWorkspaces: () => ({
+    workspaces: [{ id: 1, name: 'Casa', member_count: 2 }],
+    currentWorkspace: { id: 1, name: 'Casa' },
+  }),
 }));
 vi.mock('@/hooks/use-workspace-role', () => ({
   useWorkspaceRole: () => ({ canWrite: estado.canWrite, isLoading: false }),
@@ -83,9 +90,9 @@ describe('Painel do workspace — acesso financeiro restrito', () => {
     estado.canWrite = false;
   });
 
-  it('não inventa "Gasto da casa R$ 0,00" quando o total vem nulo', () => {
+  it('não inventa "Gasto do espaço R$ 0,00" quando o total vem nulo', () => {
     renderHome();
-    expect(screen.queryByText('Gasto da casa')).not.toBeInTheDocument();
+    expect(screen.queryByText('Gasto do espaço')).not.toBeInTheDocument();
   });
 
   it('mostra a própria parte mesmo sem os números da casa', () => {
@@ -134,7 +141,7 @@ describe('Painel do workspace — acesso financeiro restrito', () => {
   it('com acesso completo, o gasto da casa aparece com a sua parte na dica', () => {
     estado.resumo = RESUMO_COMPLETO;
     renderHome();
-    expect(screen.getByText('Gasto da casa')).toBeInTheDocument();
+    expect(screen.getByText('Gasto do espaço')).toBeInTheDocument();
     expect(screen.getByText(/^Sua parte: /)).toBeInTheDocument();
   });
 });

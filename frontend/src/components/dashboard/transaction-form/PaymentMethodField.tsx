@@ -8,9 +8,7 @@ import { parseApiDay } from '@/lib/date';
 import { formatCurrency } from '@/lib/money';
 import { PAYMENT_METHOD_OPTIONS } from '@/lib/payment-methods';
 import type { TransactionFormValues } from './schema';
-
-const selectClass =
-  'flex h-10 w-full rounded-md border border-border bg-background px-3 py-2 text-sm text-foreground focus:outline-hidden focus:ring-2 focus:ring-ring';
+import { nativeSelectClass as selectClass } from '@/components/ui/native-select';
 
 interface PaymentMethodFieldProps {
   allowInstallments?: boolean;

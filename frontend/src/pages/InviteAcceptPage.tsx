@@ -61,7 +61,7 @@ export function InviteAcceptPage() {
             <Users className="h-6 w-6" />
           </div>
           <CardTitle className="text-2xl font-bold tracking-tight text-foreground">
-            Convite para Workspace
+            Convite para um espaço
           </CardTitle>
           {info && (
             <CardDescription className="text-muted-foreground">

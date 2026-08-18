@@ -1,11 +1,19 @@
 /* As utilidades de animação (animate-in, fade-in, slide-in-from-*) vêm do
-   plugin `tailwindcss-animate`, declarado em tailwind.config.js.
+   plugin `tailwindcss-animate`, carregado logo abaixo por `@plugin`.
 
-   Aqui havia `@import "tw-animate-css"`, que na v1.4 é escrito INTEIRAMENTE
-   em sintaxe Tailwind v4 (`@utility`, `@theme inline`). Este projeto é TW
-   3.4, que não conhece essas at-rules: elas não viravam CSS nenhum, e todas
-   as animações do app estavam mortas em silêncio — o build passava, só não
-   animava nada. */
+   Histórico: aqui houve um `@import "tw-animate-css"` numa época em que o
+   projeto era Tailwind 3.4 — a lib, na v1.4, é escrita INTEIRAMENTE em sintaxe
+   v4 (`@utility`, `@theme inline`), que a 3.4 não conhecia. As at-rules não
+   viravam CSS nenhum e todas as animações estavam mortas em silêncio: o build
+   passava, só não animava nada.
+
+   O projeto HOJE é Tailwind v4, com config CSS-first (o `@import 'tailwindcss'`
+   e o `@theme` abaixo; não existe `tailwind.config.js`). Este comentário seguiu
+   afirmando "este projeto é TW 3.4" muito depois de deixar de ser verdade — e
+   essa afirmação sustentava duas convenções que já não valem: escrever variante
+   de dado como `data-[checked]:` e evitar o modificador de opacidade sobre cor
+   em `var()`. Em v4 as duas formas funcionam. Nada foi migrado por causa disso;
+   o que saiu foi a afirmação errada. */
 @import 'tailwindcss';
 
 @plugin 'tailwindcss-animate';
@@ -240,6 +248,33 @@
   .tabular {
     font-variant-numeric: tabular-nums;
   }
+}
+
+/*
+ * Rolagem lateral sem barra à vista — para faixas de controles que PRECISAM
+ * rolar no celular (abas, chips de filtro) mas ficariam feias com a barra por
+ * cima do conteúdo. O gesto de arrastar continua funcionando; o teclado também,
+ * porque o foco no item rola o container sozinho.
+ *
+ * `@utility` e não `.classe` num `@layer`: em Tailwind v4 é o que registra uma
+ * utilidade de verdade — a que funciona com variantes (`sm:scrollbar-none`) e é
+ * ordenada corretamente na cascata.
+ */
+@utility scrollbar-none {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+  &::-webkit-scrollbar {
+    display: none;
+  }
+}
+
+/*
+ * Área segura da barra inferior fixa (indicador de home do iPhone, barra de
+ * gestos do Android). Depende de `viewport-fit=cover` no index.html — sem ele
+ * `env()` devolve 0 e esta utilidade não faz nada.
+ */
+@utility pb-safe {
+  padding-bottom: env(safe-area-inset-bottom, 0px);
 }
 
 /* Acessibilidade: respeita quem pede menos movimento (docs/frontend-redesign/03 §4) */

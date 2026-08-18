@@ -19,13 +19,25 @@ import {
  *
  * Duas camadas desde o ADR 0020, e a separação é o ponto:
  *
- * - **Meu** — global e pessoal, sem workspace no caminho. Responde "como está o
- *   MEU mês, somando tudo".
- * - **Workspace** — `/w/:id/...`. Responde "como está ESTA casa".
+ * - **Pessoal** — global e seu, sem espaço no caminho. Responde "como está o MEU
+ *   mês, somando tudo".
+ * - **Compartilhado** — `/w/:id/...`. Responde "como está ESTE espaço".
  *
  * Antes tudo era `/income`, `/reports`, `/debts`, e o significado dependia de um
- * `currentWorkspaceId` invisível no `localStorage`: o mesmo link abria em casas
+ * `currentWorkspaceId` invisível no `localStorage`: o mesmo link abria em espaços
  * diferentes para pessoas diferentes.
+ *
+ * ## Vocabulário (decidido nesta rodada)
+ *
+ * A interface falava QUATRO línguas para duas ideias: "Meu / Global / Seus /
+ * pessoal" de um lado, "workspace / casa / espaço / o nome dele" do outro. Pior,
+ * havia uma colisão literal: toda conta nasce dona de um espaço chamado "Meu
+ * Workspace" (backend/app/api/routes/auth.py), enquanto a seção chamada "Meu"
+ * significava justamente o que NÃO está em espaço nenhum.
+ *
+ * Agora vale um par só: **Pessoal** × **Compartilhado**, e a palavra para o
+ * contêiner é **espaço** — em toda a interface. Código, rotas `/w/:id` e o
+ * contrato da API seguem dizendo `workspace`; só o que a pessoa lê mudou.
  */
 export interface NavItem {
   icon: LucideIcon;
@@ -34,20 +46,32 @@ export interface NavItem {
 }
 
 export interface NavSection {
+  /** A palavra do escopo — "Pessoal", "Compartilhado", "Site". Vai em caixa alta. */
   label: string;
+  /**
+   * O NOME do espaço, separado do rótulo de propósito: junto dele herdava o
+   * `uppercase` do cabeçalho e "Casa da Praia" virava "CASA DA PRAIA", que se
+   * lê como mais uma palavra do rótulo em vez de um nome próprio.
+   */
+  subject?: string;
+  /** Linha de apoio — quem vê o quê ("Só você vê", "4 pessoas"). Opcional. */
+  hint?: string;
   items: NavItem[];
 }
 
-/** Tudo que é da PESSOA — não depende de workspace nenhum (ADR 0021).
+/** Tudo que é da PESSOA — não depende de espaço nenhum (ADR 0021).
  *
  * Cartões, Financiamentos e Rendas mudaram de lado na Onda 5. "Rendas" chegou a
  * viver numa seção chamada "Compartilhado", o que anunciava exatamente o oposto
  * da verdade: salário é o dado mais privado do sistema.
  */
 export const GLOBAL_SECTION: NavSection = {
-  label: 'Meu',
+  label: 'Pessoal',
+  hint: 'Só você vê',
   items: [
-    { icon: LayoutDashboard, label: 'Visão global', to: '/overview' },
+    // "Visão global" era o pior rótulo do app: para quem lê, "global" sugere "de
+    // todos" — e significa o contrário, "só meu, somando meus espaços".
+    { icon: LayoutDashboard, label: 'Seu mês', to: '/overview' },
     { icon: Wallet, label: 'Rendas', to: '/me/income' },
     { icon: CreditCard, label: 'Cartões', to: '/me/cards' },
     { icon: Landmark, label: 'Financiamentos', to: '/me/financing' },
@@ -55,47 +79,54 @@ export const GLOBAL_SECTION: NavSection = {
     // pessoas" — e agora há UM item com este nome, não dois.
     { icon: Scale, label: 'Compromissos', to: '/me/commitments' },
     // Vizinho de Compromissos porque os dois respondem "o que eu devo": um a
-    // bancos, outro a pessoas. O rótulo é "SEUS acertos" — o item do workspace
+    // bancos, outro a pessoas. O rótulo é "SEUS acertos" — o item do espaço
     // continua sendo "Acertos", e dois itens com o mesmo nome foi exatamente o
     // problema que "Compromissos" resolveu. Mesmo par de "Seus relatórios".
     { icon: Users, label: 'Seus acertos', to: '/me/settlements' },
-    // Renda × consumo do PERÍODO, somando todas as casas. Os Relatórios de
-    // `/w/:id/reports` continuam existindo e são outro eixo: quanto ESTA casa
+    // Renda × consumo do PERÍODO, somando todos os espaços. Os Relatórios de
+    // `/w/:id/reports` continuam existindo e são outro eixo: quanto ESTE espaço
     // gastou. Depois do ADR 0021 eles nem podem mais falar de renda.
     { icon: BarChart3, label: 'Seus relatórios', to: '/me/reports' },
-    // As LINHAS por trás dos totais. A Visão global sabia dizer "saiu R$ 4.200"
+    // As LINHAS por trás dos totais. O Seu mês sabia dizer "saiu R$ 4.200"
     // e de que origem, mas não tinha por onde explicar cada número.
     { icon: Receipt, label: 'Extrato', to: '/me/ledger' },
     // Perfil, senha, contas de pagamento, tema e moeda de relatório. Ficavam
     // presos em `/w/:id/settings`, inalcançáveis para quem não tivesse um
-    // workspace válido — e nenhum deles pertence a workspace nenhum.
+    // espaço válido — e nenhum deles pertence a espaço nenhum.
     { icon: Settings, label: 'Suas configurações', to: '/me/settings' },
   ],
 };
 
 /** Administração do SITE (ADR 0026) — só aparece para quem tem o papel.
  *
- * Terceira camada, e a separação segue a mesma lógica das outras duas: "Meu" é
- * a pessoa, o workspace é a casa, e isto é o SERVIDOR. Misturá-la em
+ * Terceira camada, e a separação segue a mesma lógica das outras duas: "Pessoal"
+ * é a pessoa, o espaço é o grupo, e isto é o SERVIDOR. Misturá-la em
  * "Configurações" faria parecer que administrar o site é uma preferência do
- * usuário — e faria o item sumir para quem não tem workspace válido.
+ * usuário — e faria o item sumir para quem não tem espaço válido.
  */
 export const PLATFORM_SECTION: NavSection = {
   label: 'Site',
+  hint: 'Administração da plataforma',
   items: [
     { icon: ShieldCheck, label: 'Administração', to: '/admin' },
   ],
 };
 
-/** Navegação DE UM workspace. Sem id, devolve só a camada pessoal.
+/**
+ * Navegação DE UM espaço. Sem id, devolve só a camada pessoal.
  *
  * `isPlatformAdmin` é opcional para não quebrar os chamadores que só conhecem o
- * workspace — e porque esconder o item é conveniência, não tranca: quem barra é
+ * espaço — e porque esconder o item é conveniência, não tranca: quem barra é
  * `require_platform_role` no servidor.
+ *
+ * `nomeDoEspaco` e `membros` alimentam o rótulo da seção compartilhada. São
+ * opcionais porque nem todo chamador tem a lista de espaços à mão (os testes,
+ * por exemplo); sem eles a seção se chama "Compartilhado" e pronto.
  */
 export function navSections(
   workspaceId: number | null,
   isPlatformAdmin = false,
+  espaco?: { nome?: string | null; membros?: number | null },
 ): NavSection[] {
   const plataforma = isPlatformAdmin ? [PLATFORM_SECTION] : [];
   if (!workspaceId) return [GLOBAL_SECTION, ...plataforma];
@@ -103,7 +134,14 @@ export function navSections(
   return [
     GLOBAL_SECTION,
     {
-      label: 'Dia a dia',
+      label: 'Compartilhado',
+      // O NOME do espaço é o que desfaz a ambiguidade dos pares homônimos:
+      // "Acertos" sob "Compartilhado · Casa da Praia" não se confunde com
+      // "Seus acertos" sob "Pessoal".
+      subject: espaco?.nome ?? undefined,
+      // Um espaço de um membro só não é compartilhado com ninguém, e dizer que é
+      // seria mentira — a mesma que fez "Rendas" morar em "Compartilhado" um dia.
+      hint: rotuloDeMembros(espaco?.membros),
       items: [
         { icon: LayoutDashboard, label: 'Painel', to: w('') },
         { icon: Receipt, label: 'Lançamentos', to: w('/transactions') },
@@ -112,19 +150,23 @@ export function navSections(
         // "Dívidas" era ambíguo com o endividamento bancário: aqui é quem deve a
         // quem ENTRE MEMBROS, que se resolve com um acerto.
         { icon: Users, label: 'Acertos', to: w('/debts') },
-      ],
-    },
-    {
-      label: 'Sistema',
-      items: [
+        // Importar e Configurações moravam numa seção "Sistema" que os fazia
+        // parecer globais. São do espaço: o CSV entra NESTE espaço e as
+        // configurações são as DELE (as suas ficam em Pessoal).
         { icon: FileUp, label: 'Importar', to: w('/import') },
         { icon: Settings, label: 'Configurações', to: w('/settings') },
       ],
     },
     // Por último: administrar o servidor é o que menos se faz no dia a dia, e
-    // vem depois do que pertence à casa.
+    // vem depois do que pertence ao espaço.
     ...plataforma,
   ];
+}
+
+/** "Só você" / "2 pessoas" — a linha de apoio da seção compartilhada. */
+export function rotuloDeMembros(membros?: number | null): string | undefined {
+  if (membros == null) return undefined;
+  return membros <= 1 ? 'Só você' : `${membros} pessoas`;
 }
 
 export function navFlat(workspaceId: number | null, isPlatformAdmin = false): NavItem[] {

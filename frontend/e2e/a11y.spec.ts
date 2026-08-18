@@ -124,13 +124,13 @@ test.describe('Acessibilidade (axe · WCAG 2 A/AA)', () => {
     // Início GLOBAL (ADR 0020): soma todos os workspaces, e é só leitura —
     // lançar despesa é ato de UMA casa, então o botão não mora aqui.
     await page.goto('/overview');
-    await expect(page.getByRole('heading', { name: /Início|Visão global/ })).toBeVisible();
+    await expect(page.getByRole('heading', { name: /Seu mês/ })).toBeVisible();
     const global = await analisar(page);
     expect(resumir(global.violations)).toBe('');
 
     // Painel do workspace: é onde se lança
     await page.goto(`/w/${ws.id}`);
-    await expect(page.getByRole('heading', { name: /Workspace ·|Painel/ })).toBeVisible();
+    await expect(page.getByRole('heading', { name: /Painel/ })).toBeVisible();
     const inicio = await analisar(page);
     expect(resumir(inicio.violations)).toBe('');
 
@@ -179,7 +179,7 @@ test.describe('Acessibilidade (axe · WCAG 2 A/AA)', () => {
     const erros = vigiarConsole(page);
     await page.goto(`/w/${ws.id}/settings`);
     await expect(
-      page.getByRole('heading', { name: /Configurações do workspace/i }),
+      page.getByRole('heading', { name: /Configurações do espaço/i }),
     ).toBeVisible();
     // O que a aba padrão desenha: nome, moeda-base, convite e papéis.
     await expect(page.getByText('Moeda-base')).toBeVisible();

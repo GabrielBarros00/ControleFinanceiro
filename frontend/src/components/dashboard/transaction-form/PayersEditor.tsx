@@ -8,9 +8,7 @@ import { usePaymentAccounts } from '@/hooks/use-payment-accounts';
 import { useFormCurrency } from './use-form-currency';
 import type { Participant } from './SplitEditor';
 import type { TransactionFormValues } from './schema';
-
-const selectClass =
-  'flex h-10 w-full rounded-md border border-border bg-background px-3 py-2 text-sm text-foreground focus:outline-hidden focus:ring-2 focus:ring-ring';
+import { nativeSelectClass as selectClass } from '@/components/ui/native-select';
 
 interface PayersEditorProps {
   participants: Participant[];
@@ -109,7 +107,11 @@ export function PayersEditor({ participants }: PayersEditorProps) {
               <div className="flex items-center gap-3 pl-1">
                 <select
                   aria-label="Método do pagador"
-                  className={`${selectClass} h-8 text-xs flex-1`}
+                  // `text-base md:text-xs`: no celular a fonte NÃO pode descer
+                  // de 16px — o Safari do iPhone dá zoom ao focar e não desfaz.
+                  // A densidade que o `text-xs` buscava fica valendo só no
+                  // desktop, onde a linha de pagador é secundária.
+                  className={`${selectClass} h-9 flex-1 text-base md:text-xs`}
                   {...register(`payers.${index}.payment_method` as const)}
                 >
                   <option value="" className="bg-card">Método da despesa</option>
@@ -128,7 +130,7 @@ export function PayersEditor({ participants }: PayersEditorProps) {
                 {watchedPayers?.[index]?.payment_method !== 'credit_card' && activeAccounts.length > 0 && (
                   <select
                     aria-label="Conta do pagador"
-                    className={`${selectClass} h-8 text-xs flex-1`}
+                    className={`${selectClass} h-9 flex-1 text-base md:text-xs`}
                     {...register(`payers.${index}.account_id` as const)}
                   >
                     <option value="" className="bg-card">Sem conta</option>

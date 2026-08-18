@@ -123,7 +123,11 @@ export function TransactionItem({
               aria-label="Editar transação"
               disabled={!canWrite}
               onClick={(e) => { e.stopPropagation(); onEdit(tx); }}
-              className="rounded-md p-1.5 text-muted-foreground transition-colors hover:bg-brand-subtle hover:text-brand disabled:pointer-events-none disabled:opacity-40"
+              // 40×40 no celular (era 28×28 com `p-1.5`): editar e excluir são
+              // as ações mais tocadas do extrato, ficam coladas uma na outra e
+              // ao lado do valor. No desktop, onde só aparecem no hover e o
+              // ponteiro é preciso, seguem compactas.
+              className="flex h-10 w-10 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-brand-subtle hover:text-brand disabled:pointer-events-none disabled:opacity-40 sm:h-7 sm:w-7"
             >
               <Pencil className="h-4 w-4" />
             </button>
@@ -134,7 +138,7 @@ export function TransactionItem({
               aria-label="Excluir transação"
               disabled={!canWrite}
               onClick={(e) => { e.stopPropagation(); onDelete(tx.id); }}
-              className="rounded-md p-1.5 text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive disabled:pointer-events-none disabled:opacity-40"
+              className="flex h-10 w-10 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive disabled:pointer-events-none disabled:opacity-40 sm:h-7 sm:w-7"
             >
               <Trash2 className="h-4 w-4" />
             </button>

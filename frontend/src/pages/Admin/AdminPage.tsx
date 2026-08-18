@@ -27,6 +27,9 @@ import {
   type AdminUser,
 } from '@/hooks/use-admin';
 import { bytes, data, dia } from './formatters';
+import { cn } from '@/lib/utils';
+import { nativeSelectClass } from '@/components/ui/native-select';
+import { CardsOrTable, DataCard } from '@/components/ui/data-card';
 
 /**
  * Área de administração do SITE (ADR 0026).
@@ -51,13 +54,18 @@ function Metrica({
   icon?: React.ComponentType<{ className?: string }>;
 }) {
   return (
-    <div className="rounded-xl border border-border bg-card p-4">
-      <div className="flex items-center justify-between">
-        <p className="text-sm text-muted-foreground">{label}</p>
-        {Icon && <Icon className="h-4 w-4 text-muted-foreground/70" />}
+    // Mesma densidade do `StatTile`: a grade virou de duas colunas no celular,
+    // e a 24px um valor como "1012 KB" encostava na borda da célula.
+    <div className="min-w-0 rounded-xl border border-border bg-card p-3 sm:p-4">
+      <div className="flex items-start justify-between gap-1">
+        <p className="min-w-0 text-xs text-muted-foreground sm:text-sm">{label}</p>
+        {Icon && <Icon className="h-4 w-4 shrink-0 text-muted-foreground/70" />}
       </div>
-      <p className="mt-1 text-2xl font-semibold tabular-nums text-foreground">{valor}</p>
-      {hint && <p className="mt-1 text-xs text-muted-foreground">{hint}</p>}
+      {/* `break-words` e não `whitespace-nowrap` como no `StatTile`: aqui os
+          valores são contagens e tamanhos ("1012 KB"), curtos por natureza — e
+          quando um cresce, quebrar entre número e unidade é aceitável. */}
+      <p className="mt-1 break-words text-xl font-semibold tabular-nums text-foreground sm:text-2xl">{valor}</p>
+      {hint && <p className="mt-1 text-[11px] text-muted-foreground sm:text-xs">{hint}</p>}
     </div>
   );
 }
@@ -80,7 +88,7 @@ function VisaoGeral() {
 
   if (isLoading) {
     return (
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-4">
         {Array.from({ length: 8 }).map((_, i) => <Skeleton key={i} className="h-24 rounded-xl" />)}
       </div>
     );
@@ -90,12 +98,12 @@ function VisaoGeral() {
   }
 
   return (
-    <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+    <div className="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-4">
       <Metrica
         label="Pessoas" valor={dados.usuarios_total} icon={Users}
         hint={`${dados.usuarios_ativos} ativas · ${dados.usuarios_novos_30d} novas em 30 dias`}
       />
-      <Metrica label="Workspaces" valor={dados.workspaces} />
+      <Metrica label="Espaços" valor={dados.workspaces} />
       <Metrica label="Lançamentos" valor={dados.lancamentos} />
       <Metrica label="Sessões abertas" valor={dados.sessoes_vivas} icon={Activity} />
       <Metrica
@@ -112,13 +120,23 @@ function VisaoGeral() {
 // Usuários
 // --------------------------------------------------------------------------
 
+/**
+ * Uma pessoa da lista — linha de tabela no desktop, cartão no celular.
+ *
+ * `formato` em vez de dois componentes: as sete colunas desta tabela somam
+ * ~900px e no celular viravam uma tira rolável em que o interruptor de ativação
+ * e o "Sair de tudo" ficavam fora da tela. Duplicar o componente duplicaria
+ * também `trocarPapel`, `alternarAtivo` e `derrubarSessoes` — três ações
+ * destrutivas com confirmação, que precisam se comportar igual nos dois.
+ */
 function LinhaDeUsuario({
-  usuario, souSuperadmin, meuId, acoes,
+  usuario, souSuperadmin, meuId, acoes, formato = 'linha',
 }: {
   usuario: AdminUser;
   souSuperadmin: boolean;
   meuId: number | undefined;
   acoes: ReturnType<typeof useAdminUsers>;
+  formato?: 'linha' | 'cartao';
 }) {
   const confirm = useConfirm();
   // Um admin não mexe em superadmin. O servidor recusa de qualquer forma (403);
@@ -189,14 +207,7 @@ function LinhaDeUsuario({
     }
   };
 
-  return (
-    <TableRow className={usuario.is_active ? undefined : 'opacity-60'}>
-      <TableCell>
-        <div className="font-medium text-foreground">{usuario.name}</div>
-        <div className="text-xs text-muted-foreground">{usuario.email}</div>
-      </TableCell>
-      <TableCell>
-        {podeMexer ? (
+  const seletorDePapel = podeMexer ? (
           // `<select>` nativo: o Select do Base UI é usado no resto do app, mas
           // aqui a tabela pode viver dentro de um Dialog e o popup dele escapa do
           // focus-trap do Radix.
@@ -213,7 +224,7 @@ function LinhaDeUsuario({
           // mesma lacuna, na mesma tabela. O que continua fora de alcance é o
           // interruptor de ativação, logo abaixo: aquele não tem volta.
           <select
-            className="h-8 rounded-md border border-input bg-background px-2 text-sm"
+            className={cn(nativeSelectClass, 'w-auto')}
             value={usuario.platform_role}
             disabled={acoes.patch.isPending}
             onChange={(e) => trocarPapel(e.target.value as PlatformRole)}
@@ -223,36 +234,63 @@ function LinhaDeUsuario({
             <option value="admin">Administrador</option>
             {souSuperadmin && <option value="superadmin">Superadministrador</option>}
           </select>
-        ) : (
-          <Badge variant={usuario.platform_role === 'user' ? 'secondary' : 'default'}>
-            {ROTULO_DE_PAPEL[usuario.platform_role]}
-          </Badge>
-        )}
+  ) : (
+    <Badge variant={usuario.platform_role === 'user' ? 'secondary' : 'default'}>
+      {ROTULO_DE_PAPEL[usuario.platform_role]}
+    </Badge>
+  );
+
+  const acoesDaPessoa = (
+    <div className="flex flex-wrap items-center gap-2">
+      {/* `souEu`: desativar a própria conta derruba a sessão e o login
+          seguinte é recusado — a volta dependeria de outro administrador. O
+          servidor recusa com 409; aqui o botão nem se oferece. */}
+      <Switch
+        checked={usuario.is_active}
+        disabled={!podeMexer || souEu || acoes.patch.isPending}
+        onCheckedChange={alternarAtivo}
+        aria-label={`${usuario.is_active ? 'Desativar' : 'Reativar'} ${usuario.name}`}
+      />
+      <Button
+        variant="ghost" size="sm"
+        disabled={!podeMexer || acoes.revogarSessoes.isPending}
+        onClick={derrubarSessoes}
+      >
+        Sair de tudo
+      </Button>
+    </div>
+  );
+
+  if (formato === 'cartao') {
+    return (
+      <DataCard
+        className={usuario.is_active ? undefined : 'opacity-60'}
+        title={usuario.name}
+        meta={usuario.email}
+        fields={[
+          { label: 'Papel no site', value: seletorDePapel, full: true },
+          { label: 'Espaços', value: <span className="tabular-nums">{usuario.workspaces}</span> },
+          { label: 'Lançamentos', value: <span className="tabular-nums">{usuario.lancamentos}</span> },
+          { label: 'Anexos', value: <span className="tabular-nums">{bytes(usuario.anexos_bytes)}</span> },
+          { label: 'Último acesso', value: data(usuario.last_login_at) },
+        ]}
+        actions={acoesDaPessoa}
+      />
+    );
+  }
+
+  return (
+    <TableRow className={usuario.is_active ? undefined : 'opacity-60'}>
+      <TableCell>
+        <div className="font-medium text-foreground">{usuario.name}</div>
+        <div className="text-xs text-muted-foreground">{usuario.email}</div>
       </TableCell>
+      <TableCell>{seletorDePapel}</TableCell>
       <TableCell className="text-sm tabular-nums">{usuario.workspaces}</TableCell>
       <TableCell className="text-sm tabular-nums">{usuario.lancamentos}</TableCell>
       <TableCell className="text-sm tabular-nums">{bytes(usuario.anexos_bytes)}</TableCell>
       <TableCell className="text-sm text-muted-foreground">{data(usuario.last_login_at)}</TableCell>
-      <TableCell>
-        <div className="flex flex-wrap items-center gap-2">
-          {/* `souEu`: desativar a própria conta derruba a sessão e o login
-              seguinte é recusado — a volta dependeria de outro administrador. O
-              servidor recusa com 409; aqui o botão nem se oferece. */}
-          <Switch
-            checked={usuario.is_active}
-            disabled={!podeMexer || souEu || acoes.patch.isPending}
-            onCheckedChange={alternarAtivo}
-            aria-label={`${usuario.is_active ? 'Desativar' : 'Reativar'} ${usuario.name}`}
-          />
-          <Button
-            variant="ghost" size="sm"
-            disabled={!podeMexer || acoes.revogarSessoes.isPending}
-            onClick={derrubarSessoes}
-          >
-            Sair de tudo
-          </Button>
-        </div>
-      </TableCell>
+      <TableCell>{acoesDaPessoa}</TableCell>
     </TableRow>
   );
 }
@@ -292,13 +330,25 @@ function Usuarios() {
         <EmptyState title="Ninguém encontrado" description="Nenhuma pessoa corresponde à busca." />
       )}
       {acoes.data && acoes.data.items.length > 0 && (
+        <CardsOrTable
+          cards={
+        <div className="space-y-2">
+          {acoes.data.items.map((u) => (
+            <LinhaDeUsuario
+              key={u.id} usuario={u} souSuperadmin={souSuperadmin} meuId={meuId} acoes={acoes}
+              formato="cartao"
+            />
+          ))}
+        </div>
+          }
+          table={
         <Card className="overflow-x-auto p-0">
           <Table>
             <TableHeader>
               <TableRow>
                 <TableHead>Pessoa</TableHead>
                 <TableHead>Papel no site</TableHead>
-                <TableHead>Workspaces</TableHead>
+                <TableHead>Espaços</TableHead>
                 <TableHead>Lançamentos</TableHead>
                 <TableHead>Anexos</TableHead>
                 <TableHead>Último acesso</TableHead>
@@ -314,6 +364,8 @@ function Usuarios() {
             </TableBody>
           </Table>
         </Card>
+          }
+        />
       )}
       {acoes.data && (
         <p className="text-xs text-muted-foreground">
@@ -521,7 +573,7 @@ function Configuracoes() {
           <Label htmlFor="cfg-registro">Quem pode criar conta</Label>
           <select
             id="cfg-registro"
-            className="mt-1 h-9 w-full max-w-md rounded-md border border-input bg-background px-2 text-sm"
+            className={cn(nativeSelectClass, 'mt-1 max-w-md')}
             value={String(valor('registration_mode'))}
             onChange={(e) => mudar('registration_mode', e.target.value)}
           >
@@ -535,7 +587,7 @@ function Configuracoes() {
           <Label htmlFor="cfg-quem-convida">Quem pode convidar</Label>
           <select
             id="cfg-quem-convida"
-            className="mt-1 h-9 w-full max-w-md rounded-md border border-input bg-background px-2 text-sm"
+            className={cn(nativeSelectClass, 'mt-1 max-w-md')}
             value={String(valor('who_can_invite'))}
             onChange={(e) => mudar('who_can_invite', e.target.value)}
           >
@@ -544,7 +596,7 @@ function Configuracoes() {
           </select>
         </div>
 
-        <div className="grid gap-4 sm:grid-cols-2">
+        <div className="grid grid-cols-2 gap-3 sm:gap-4">
           <div>
             <Label htmlFor="cfg-expira">Validade do convite (dias)</Label>
             <Input
@@ -569,9 +621,9 @@ function Configuracoes() {
 
       <Card className="space-y-4 p-4">
         <h3 className="font-medium text-foreground">Limites</h3>
-        <div className="grid gap-4 sm:grid-cols-2">
+        <div className="grid grid-cols-2 gap-3 sm:gap-4">
           <div>
-            <Label htmlFor="cfg-quota">Anexos por workspace (MB)</Label>
+            <Label htmlFor="cfg-quota">Anexos por espaço (MB)</Label>
             <Input
               id="cfg-quota" type="number" min={1}
               value={String(Math.round(Number(valor('attachment_quota_bytes') ?? 0) / 1048576))}
@@ -606,7 +658,7 @@ function Configuracoes() {
           </div>
         </div>
 
-        <div className="grid gap-4 sm:grid-cols-2">
+        <div className="grid grid-cols-2 gap-3 sm:gap-4">
           <div>
             <Label htmlFor="cfg-rl-ip">Tentativas de login por minuto (por IP)</Label>
             <Input
@@ -705,7 +757,7 @@ function Saude() {
 
   return (
     <div className="space-y-4">
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-4">
         <Metrica
           label="Última cotação de câmbio" valor={dia(dados.cambio_ultima_data)}
           hint={`${dados.cambio_cotacoes} cotação(ões) guardadas`}

@@ -51,7 +51,7 @@ export function CommitmentsPage() {
 
   return (
     <div className="space-y-6">
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-4">
         {/* Valores POSITIVOS num card já rotulado "Vencido"/"A pagar": o sinal
             de menos ao lado do rótulo era redundante e lia como desconto. */}
         <StatTile

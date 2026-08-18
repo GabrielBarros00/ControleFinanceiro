@@ -70,10 +70,10 @@ test.describe('Tempo real entre dois usuários', () => {
     const pageB = await contextB.newPage();
 
     await pageA.goto('/');
-    await expect(pageA.getByRole('heading', { name: /Workspace ·|Início|Painel/ })).toBeVisible();
+    await expect(pageA.getByRole('heading', { name: /Seu mês|Painel/ })).toBeVisible();
 
     await pageB.goto('/');
-    await expect(pageB.getByRole('heading', { name: /Workspace ·|Início|Painel/ })).toBeVisible();
+    await expect(pageB.getByRole('heading', { name: /Seu mês|Painel/ })).toBeVisible();
 
     // B troca para o workspace compartilhado pelo switcher do sidebar — SEM
     // reload. O `reload()` que ficava aqui era maquiagem: escondia o defeito de
@@ -85,7 +85,10 @@ test.describe('Tempo real entre dois usuários', () => {
       predicate: (w) => w.url().includes(`/ws/workspaces/${wsA.id}`),
       timeout: 20_000,
     });
-    await pageB.getByRole('button', { name: /Workspace/i }).click();
+    // O seletor de escopo (`ScopeSwitcher`) substituiu o antigo
+    // `WorkspaceSwitcher`: ele mostra o NOME do espaço atual, não a palavra
+    // "Workspace" — que saiu da interface junto com o resto do jargão.
+    await pageB.getByRole('button', { name: /Meu espaço|Pessoal/i }).first().click();
     await pageB.getByRole('button', { name: sharedWsName }).click();
     await expect(pageB.getByRole('button', { name: new RegExp(sharedWsName) })).toBeVisible();
 

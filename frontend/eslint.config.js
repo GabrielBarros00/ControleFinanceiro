@@ -48,4 +48,15 @@ export default defineConfig([
       'react-refresh/only-export-components': 'off',
     },
   },
+  {
+    // O service worker (`public/sw.js`) roda num contexto que não é o da página:
+    // `self` é o `ServiceWorkerGlobalScope`, e `clients`/`skipWaiting` não
+    // existem em `globals.browser`. Sem este bloco o `no-undef` acusa cinco
+    // símbolos legítimos — e a saída era o `/* eslint-env */`, que o ESLint 9
+    // não aceita mais.
+    files: ['public/**/*.js'],
+    languageOptions: {
+      globals: globals.serviceworker,
+    },
+  },
 ])

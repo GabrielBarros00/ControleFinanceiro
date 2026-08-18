@@ -4,9 +4,34 @@
     <meta charset="UTF-8" />
     <link rel="icon" href="/favicon.ico" sizes="any" />
     <link rel="icon" type="image/png" href="/favicon.png" sizes="256x256" />
-    <link rel="apple-touch-icon" href="/favicon.png" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <meta name="theme-color" content="#0b1220" />
+    <!-- 180×180 e com fundo chapado: é a medida que o iOS usa na tela de início,
+         e ele compõe sobre PRETO o que vier transparente. Antes apontava para o
+         favicon de 256, que o sistema reamostrava. -->
+    <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon-180.png" />
+    <!-- Instalação como aplicativo. O manifesto é o que faz o Chrome oferecer
+         "Instalar" e o que dá nome, ícone e tela cheia ao atalho. -->
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <!-- O iOS ignora o manifesto para isto: precisa das metas próprias, ou o
+         atalho abre dentro do Safari com barra de endereço. -->
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+    <meta name="apple-mobile-web-app-title" content="Financeiro" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <!-- `viewport-fit=cover` é o que faz `env(safe-area-inset-*)` valer alguma
+         coisa: sem ele o navegador já entrega a viewport recortada, os insets
+         reportam 0 e a barra inferior fica sob o indicador de home do iPhone
+         (e sob a barra de gestos do Android). -->
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <!-- Cor da barra de status/URL. `#fcfbf9` é o `--background` CLARO do app
+         (oklch(0.988 0.003 95)); o valor anterior, `#0b1220`, não era nem o
+         claro nem o escuro — era azul-marinho de um tema que não existe mais.
+
+         Sem `media=`: o tema do app NÃO segue o sistema quando alguém o força
+         em Configurações (`hooks/use-theme.ts` aceita 'light' | 'dark' |
+         'system'), então casar esta meta com `prefers-color-scheme` pintaria a
+         barra de escuro sobre um app claro. Quem mantém o valor em dia é o
+         próprio `useTheme`, que conhece o tema REALMENTE aplicado. -->
+    <meta name="theme-color" content="#fcfbf9" />
     <title>Controle Financeiro</title>
   </head>
   <body>

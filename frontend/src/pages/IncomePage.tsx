@@ -39,6 +39,7 @@ import { PeriodPicker } from '@/components/layout/PeriodPicker';
 import { MoneyText } from '@/components/money/MoneyText';
 import { parseApiDate, todayLocalISO } from '@/lib/date';
 import { useMonthParam } from '@/hooks/use-month-param';
+import { CardsOrTable, DataCard } from '@/components/ui/data-card';
 
 
 export function IncomePage() {
@@ -221,7 +222,7 @@ export function IncomePage() {
 
   if (isLoading) {
     return (
-      <div className="flex h-[400px] items-center justify-center">
+      <div className="flex h-[240px] items-center justify-center sm:h-[400px]">
         <Loader2 className="h-8 w-8 animate-spin text-primary" />
       </div>
     );
@@ -237,7 +238,7 @@ export function IncomePage() {
         subtitle={`Suas entradas do mês, só suas — total ${formatCurrency(total, baseCurrency)}`}
         period={<PeriodPicker value={month} onChange={setMonth} />}
         action={
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             <Button variant="outline" onClick={handleGenerate} disabled={isGenerating} className="gap-2">
               {isGenerating ? <Loader2 className="h-4 w-4 animate-spin" /> : <Repeat className="h-4 w-4" />}
               Lançar pendentes
@@ -249,6 +250,64 @@ export function IncomePage() {
         }
       />
 
+      {/* Celular: um cartão por renda. A tabela tem quatro colunas e a coluna
+          de VALOR — a razão de a pessoa abrir a tela — caía fora da área
+          visível, atrás de um scroll horizontal sem nenhuma pista de que
+          existia (ver screenshots/mobile-rendas-*.png antes desta rodada). */}
+      <CardsOrTable
+        cards={
+      <div className="space-y-2">
+        {incomes.length === 0 ? (
+          <p className="rounded-xl border border-border bg-card p-6 text-center text-sm text-muted-foreground">
+            Nenhuma renda registrada neste mês.
+          </p>
+        ) : incomes.map((income) => (
+          <DataCard
+            key={income.id}
+            title={income.title}
+            badge={income.recurring_income_id != null ? (
+              <span className="inline-flex items-center gap-1 rounded-full bg-primary/10 px-1.5 py-0.5 text-[9px] font-semibold uppercase text-primary">
+                <Repeat className="h-2.5 w-2.5" /> Recorrente
+              </span>
+            ) : undefined}
+            meta={`Recebida em ${parseApiDate(income.received_at).toLocaleDateString('pt-BR')}`}
+            value={
+              <>
+                <MoneyText value={income.amount} kind="income" className="font-semibold" />
+                {income.original_currency && income.original_amount && (
+                  <div className="text-[11px] text-muted-foreground">
+                    {formatCurrency(parseFloat(income.original_amount), income.original_currency)}
+                  </div>
+                )}
+              </>
+            }
+            actions={
+              <>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  aria-label={`Editar renda ${income.title}`}
+                  onClick={() => openEditIncome(income)}
+                  className="h-10 flex-1 gap-2"
+                >
+                  <Edit2 className="h-4 w-4" /> Editar
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  aria-label={`Excluir renda ${income.title}`}
+                  onClick={() => handleDeleteIncome(income.id)}
+                  className="h-10 w-10 p-0 text-destructive"
+                >
+                  <Trash2 className="h-4 w-4" />
+                </Button>
+              </>
+            }
+          />
+        ))}
+      </div>
+        }
+        table={
       <Card className="bg-card border-border shadow-xl">
         <CardContent className="p-0">
           <Table>
@@ -322,6 +381,8 @@ export function IncomePage() {
           </Table>
         </CardContent>
       </Card>
+        }
+      />
 
       {/* Rendas recorrentes: templates que geram entradas mensais automáticas */}
       <div>
@@ -329,6 +390,59 @@ export function IncomePage() {
           <Repeat className="h-4 w-4 text-primary" />
           <h3 className="text-lg font-bold tracking-tight text-foreground">Rendas recorrentes</h3>
         </div>
+        <CardsOrTable
+          cards={
+        <div className="space-y-2">
+          {loadingRecurring ? (
+            <div className="rounded-xl border border-border bg-card p-6 text-center">
+              <Loader2 className="mx-auto h-5 w-5 animate-spin text-primary" />
+            </div>
+          ) : recurringIncomes.length === 0 ? (
+            <p className="rounded-xl border border-border bg-card p-6 text-center text-sm text-muted-foreground">
+              Nenhuma renda recorrente. Crie uma marcando "Recorrente" em Nova Renda.
+            </p>
+          ) : recurringIncomes.map((item) => (
+            <DataCard
+              key={item.id}
+              title={item.title}
+              badge={
+                <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase ${
+                  item.is_active
+                    ? 'border border-emerald-500/20 bg-emerald-500/10 text-emerald-500'
+                    : 'border border-border bg-muted text-muted-foreground'
+                }`}>
+                  {item.is_active ? 'Ativa' : 'Inativa'}
+                </span>
+              }
+              meta={recurrenceLabel(item)}
+              value={<MoneyText value={item.base_amount} kind="income" currency={item.currency} className="font-semibold" />}
+              actions={
+                <>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    aria-label={`Editar renda recorrente ${item.title}`}
+                    onClick={() => openEditRecurring(item)}
+                    className="h-10 flex-1 gap-2"
+                  >
+                    <Edit2 className="h-4 w-4" /> Editar
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    aria-label={`Excluir renda recorrente ${item.title}`}
+                    onClick={() => handleDeleteRecurring(item.id)}
+                    className="h-10 w-10 p-0 text-destructive"
+                  >
+                    <Trash2 className="h-4 w-4" />
+                  </Button>
+                </>
+              }
+            />
+          ))}
+        </div>
+          }
+          table={
         <Card className="bg-card border-border shadow-xl">
           <CardContent className="p-0">
             <Table>
@@ -405,6 +519,8 @@ export function IncomePage() {
             </Table>
           </CardContent>
         </Card>
+          }
+        />
       </div>
 
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>

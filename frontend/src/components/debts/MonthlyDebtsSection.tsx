@@ -42,7 +42,7 @@ export function MonthlyDebtsSection({ members, currentUserId, canWrite, onSettle
             Acertos do mês
           </CardTitle>
           <CardDescription>
-            Só desta casa. Cada parcela aparece no mês dela — veja o que cada um deve e se já foi pago.
+            Só deste espaço. Cada parcela aparece no mês dela — veja o que cada um deve e se já foi pago.
           </CardDescription>
         </div>
 
@@ -52,7 +52,9 @@ export function MonthlyDebtsSection({ members, currentUserId, canWrite, onSettle
             <ChevronLeft className="h-4 w-4" />
           </Button>
           <div className="flex flex-col items-center">
-            <span className="text-sm font-semibold capitalize text-foreground">{monthLabel(month)}</span>
+            {/* Sem `capitalize`: a classe do CSS capitaliza cada palavra e
+                produzia "Agosto De 2026". Quem capitaliza é o `monthLabel`. */}
+            <span className="text-sm font-semibold text-foreground">{monthLabel(month)}</span>
             {!isCurrentMonth && (
               <button
                 type="button"

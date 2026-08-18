@@ -60,7 +60,7 @@ export function useSettlements(
   // um draft incompleto tem de falhar rápido e claro.
   const exigeWorkspace = () => {
     if (!currentWorkspaceId) {
-      throw new Error('Escolha em qual workspace o acerto será registrado.');
+      throw new Error('Escolha em qual espaço o acerto será registrado.');
     }
     return currentWorkspaceId;
   };

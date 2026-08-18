@@ -31,7 +31,7 @@ test.describe('Full User Flow', () => {
       page.waitForNavigation({ waitUntil: 'load' }),
       page.getByRole('button', { name: 'Pular esta etapa' }).click(),
     ]);
-    await expect(page.getByRole('heading', { name: /Workspace ·|Início|Painel/ })).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByRole('heading', { name: /Seu mês|Painel/ })).toBeVisible({ timeout: 15_000 });
 
     // Entra no workspace: o painel da casa é onde se lança despesa.
     await page.getByRole('link', { name: 'Painel' }).click();

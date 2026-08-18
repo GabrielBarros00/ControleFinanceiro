@@ -134,7 +134,7 @@ function CardsPage() {
     <div className="space-y-12">
       <PageHeader
         title="Cartões"
-        subtitle="Seus cartões e faturas. Só você os vê — em qualquer workspace."
+        subtitle="Seus cartões e faturas. Só você os vê — em qualquer espaço."
       />
       <CreditCardList selectedCardId={selectedCardId} onSelectCard={setSelectedCardId} />
       <div className="space-y-6">
@@ -199,13 +199,13 @@ function AppContent() {
           } />
           <Route path="/me/commitments" element={
             <ProtectedRoute>
-              <Layout title="Compromissos financeiros" subtitle="Faturas e financiamentos a vencer — seus, em todos os workspaces.">
+              <Layout title="Compromissos financeiros" subtitle="Faturas e financiamentos a vencer — seus, em todos os seus espaços.">
                 <CommitmentsPage />
               </Layout>
             </ProtectedRoute>
           } />
           {/* Acertos entre pessoas somando as casas (ADR 0027). `/w/:id/debts`
-              continua existindo e é outra pergunta: "como está ESTA casa",
+              continua existindo e é outra pergunta: "como está ESTE espaço",
               inclusive as dívidas entre terceiros, que aqui não aparecem. */}
           <Route path="/me/settlements" element={
             <ProtectedRoute><Layout><MySettlementsPage /></Layout></ProtectedRoute>

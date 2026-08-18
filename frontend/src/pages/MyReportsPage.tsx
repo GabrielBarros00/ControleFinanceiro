@@ -96,7 +96,7 @@ export function MyReportsPage() {
     return (
       <div className="space-y-6">
         <PageHeader title="Seus relatórios" subtitle="Carregando…" />
-        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        <div className="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-4">
           {Array.from({ length: 4 }).map((_, i) => (
             <Skeleton key={i} className="h-24" />
           ))}
@@ -111,7 +111,7 @@ export function MyReportsPage() {
       <div className="flex flex-wrap items-start justify-between gap-3">
         <PageHeader
           title="Seus relatórios"
-          subtitle={`Últimos ${meses} meses, somando todos os workspaces.`}
+          subtitle={`Últimos ${meses} meses, somando todos os seus espaços.`}
         />
         <div
           role="group"
@@ -141,7 +141,7 @@ export function MyReportsPage() {
         </div>
       </div>
 
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-4">
         <StatTile
           label="Renda no período"
           value={n(totais?.income)}
@@ -155,7 +155,7 @@ export function MyReportsPage() {
           kind="expense"
           icon={Receipt}
           currency={moeda}
-          hint="Sua parte, em todas as casas"
+          hint="Sua parte, em todos os espaços"
         />
         <StatTile
           label="Resultado"
@@ -188,7 +188,7 @@ export function MyReportsPage() {
             sua e não mora em casa nenhuma.
           </p>
         </div>
-        <div className="h-[320px] p-4">
+        <div className="h-[240px] p-4 sm:h-[320px]">
           {temComparacao ? (
             <ResponsiveContainer width="100%" height="100%">
               <BarChart data={dados}>
@@ -237,7 +237,7 @@ export function MyReportsPage() {
             moveu, com fatura paga, acerto e parcela de financiamento (ADR 0022).
           </p>
         </div>
-        <div className="h-[320px] p-4">
+        <div className="h-[240px] p-4 sm:h-[320px]">
           {temSerie ? (
             <ResponsiveContainer width="100%" height="100%">
               <LineChart data={dados}>
@@ -292,13 +292,13 @@ export function MyReportsPage() {
       </section>
 
       {/* Participação por casa — e o caminho de volta para ela. Sem o link, o
-          número respondia "a Casa consumiu tanto de mim" e deixava o usuário
+          número respondia "o espaço consumiu tanto de mim" e deixava o usuário
           sem como investigar. */}
       <section className="rounded-xl border border-border bg-card">
         <div className="border-b border-border px-4 py-3">
-          <h2 className="text-base font-semibold text-foreground">Por workspace</h2>
+          <h2 className="text-base font-semibold text-foreground">Por espaço</h2>
           <p className="text-sm text-muted-foreground">
-            Quanto do seu consumo do período foi para cada casa.
+            Quanto do seu consumo do período foi para cada espaço.
           </p>
         </div>
         <div className="divide-y divide-border">
@@ -307,7 +307,7 @@ export function MyReportsPage() {
               <EmptyState
                 icon={Receipt}
                 title="Nenhum consumo no período"
-                description="Assim que houver lançamentos, cada workspace aparece aqui."
+                description="Assim que houver lançamentos, cada espaço aparece aqui."
               />
             </div>
           ) : (

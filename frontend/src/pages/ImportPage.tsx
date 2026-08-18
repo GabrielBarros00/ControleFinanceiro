@@ -115,7 +115,7 @@ export function ImportPage() {
 
   return (
     <div className="space-y-6">
-      <PageHeader title="Importar" subtitle="Traga um extrato em CSV para dentro deste workspace." />
+      <PageHeader title="Importar" subtitle="Traga um extrato em CSV para dentro deste espaço." />
       <div className="grid gap-6 lg:grid-cols-3">
         <Card className="lg:col-span-1 bg-card border-border shadow-xl">
           <CardHeader>
@@ -174,7 +174,10 @@ export function ImportPage() {
         </Card>
 
         <Card className="lg:col-span-2 bg-card border-border shadow-xl">
-          <CardHeader className="flex flex-row items-center justify-between">
+          {/* `flex-row` forçado sem variante: a descrição (que cresce com o
+              aviso de duplicatas) mais o checkbox mais "Confirmar N
+              Transações" — que é `whitespace-nowrap` — na MESMA linha. */}
+          <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <div>
               <CardTitle className="text-lg">Pré-visualização</CardTitle>
               <CardDescription>
@@ -214,7 +217,7 @@ export function ImportPage() {
           </CardHeader>
           <CardContent className="p-0">
             {!preview ? (
-              <div className="h-[400px] flex flex-col items-center justify-center text-muted-foreground gap-4">
+              <div className="flex h-[240px] flex-col items-center justify-center gap-4 text-muted-foreground sm:h-[400px]">
                 <FileUp className="h-12 w-12 opacity-20" />
                 <p>Nenhum arquivo processado.</p>
               </div>

@@ -119,7 +119,7 @@ export function useAttachmentUploader() {
     async (transactionId: number, files: File[]): Promise<AttachmentUploadFailure[]> => {
       const failures: AttachmentUploadFailure[] = [];
       if (!currentWorkspaceId) {
-        return files.map((file) => ({ filename: file.name, message: 'workspace não selecionado' }));
+        return files.map((file) => ({ filename: file.name, message: 'espaço não selecionado' }));
       }
       for (const file of files) {
         try {

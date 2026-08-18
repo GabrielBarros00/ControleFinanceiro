@@ -16,8 +16,7 @@ import { useWorkspaces } from '@/hooks/use-workspaces';
 import { CURRENCIES } from '@/lib/currencies';
 
 // <select> nativo: dentro de Dialog (Radix) o Select do Base UI foge do focus-trap
-const selectClass =
-  'flex h-10 w-full rounded-md border border-border bg-background px-3 py-2 text-sm text-foreground focus:outline-hidden focus:ring-2 focus:ring-ring';
+import { nativeSelectClass as selectClass } from '@/components/ui/native-select';
 
 interface WorkspaceCreateDialogProps {
   open: boolean;
@@ -60,9 +59,9 @@ export function WorkspaceCreateDialog({ open, onOpenChange }: WorkspaceCreateDia
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="bg-card border-border sm:max-w-[425px]">
         <DialogHeader>
-          <DialogTitle>Novo Workspace</DialogTitle>
+          <DialogTitle>Novo espaço</DialogTitle>
           <DialogDescription>
-            Crie um espaço separado para organizar finanças (ex: casa, viagem, família).
+            Um lugar separado para organizar finanças com outras pessoas — ou só suas (ex: casa, viagem, família).
           </DialogDescription>
         </DialogHeader>
         <div className="space-y-4 py-4">
@@ -81,7 +80,7 @@ export function WorkspaceCreateDialog({ open, onOpenChange }: WorkspaceCreateDia
             <Textarea
               id="ws-desc"
               rows={3}
-              placeholder="Para que serve este workspace?"
+              placeholder="Para que serve este espaço?"
               value={description}
               onChange={(e) => setDescription(e.target.value)}
               className="bg-background/50"
@@ -102,9 +101,9 @@ export function WorkspaceCreateDialog({ open, onOpenChange }: WorkspaceCreateDia
               ))}
             </select>
             {/* Trocar depois exige reconverter todo o histórico — escolher aqui
-                é grátis, e o workspace ainda está vazio. */}
+                é grátis, e o espaço ainda está vazio. */}
             <p className="text-xs text-muted-foreground">
-              Todos os totais deste workspace são somados nesta moeda. Dá para mudar
+              Todos os totais deste espaço são somados nesta moeda. Dá para mudar
               depois, mas aí o histórico inteiro é reconvertido.
             </p>
           </div>
@@ -113,7 +112,7 @@ export function WorkspaceCreateDialog({ open, onOpenChange }: WorkspaceCreateDia
         <DialogFooter>
           <Button type="button" variant="ghost" onClick={() => onOpenChange(false)}>Cancelar</Button>
           <Button type="button" onClick={handleCreate} disabled={loading} className="bg-primary font-bold px-8">
-            {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Criar Workspace'}
+            {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Criar espaço'}
           </Button>
         </DialogFooter>
       </DialogContent>

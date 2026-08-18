@@ -30,7 +30,7 @@ def test_register_user_success(db_session: Session, override_get_session):
     # Verify default workspace created
     workspace = db_session.exec(select(Workspace).where(Workspace.created_by_user_id == user.id)).first()
     assert workspace is not None
-    assert workspace.name == "Meu Workspace"
+    assert workspace.name == "Meu espaço"
 
 def test_register_user_duplicate_email(db_session: Session, override_get_session):
     # Setup existing user

@@ -7,9 +7,10 @@ import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { User, Shield, Users, Palette, LogOut, Globe, Moon, Sun, Laptop, Loader2, Trash2, LinkIcon, Copy, Check, Tag, Plus, Wallet, History, Ticket } from 'lucide-react';
+import { User, Shield, Users, Palette, LogOut, Globe, Moon, Sun, Laptop, Loader2, Trash2, LinkIcon, Copy, Check, Tag, Plus, Wallet, History, Ticket, Smartphone, Download } from 'lucide-react';
 import { useAuthStore } from '@/stores';
 import { useTheme } from '@/hooks/use-theme';
+import { useInstallPrompt } from '@/hooks/use-install-prompt';
 import { useAuth } from '@/hooks/use-auth';
 import { useWorkspaces } from '@/hooks/use-workspaces';
 import { workspacePath } from '@/hooks/use-workspace-id';
@@ -61,7 +62,7 @@ const ROLE_LABELS: Record<WorkspaceRole, string> = {
 /** O que o membro VÊ (ADR 0018) — eixo separado do que ele PODE FAZER. */
 const ACCESS_LABELS: Record<FinancialAccess, string> = {
   involved_only: 'Só o que o envolve',
-  full_workspace: 'Todo o workspace',
+  full_workspace: 'Todo o espaço',
 };
 
 function ProfileTab() {
@@ -141,8 +142,8 @@ function ProfileTab() {
 
       <Card className="bg-card border-border shadow-xl">
         <CardHeader>
-          <CardTitle>Workspaces</CardTitle>
-          <CardDescription>Workspaces ativos vinculados a esta conta. Clique para trocar.</CardDescription>
+          <CardTitle>Espaços</CardTitle>
+          <CardDescription>Espaços ativos vinculados a esta conta. Clique para trocar.</CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
           {workspaces.map((ws) => (
@@ -404,7 +405,7 @@ function MembersTab() {
       {isAdmin && (
         <Card className="bg-card border-border shadow-xl">
           <CardHeader>
-            <CardTitle>Workspace</CardTitle>
+            <CardTitle>Espaço</CardTitle>
             <CardDescription>Nome e configurações de "{currentWorkspace?.name}".</CardDescription>
           </CardHeader>
           <CardContent className="space-y-6">
@@ -413,12 +414,12 @@ function MembersTab() {
             <div className="flex items-end gap-3">
               {/* Rótulo visível, não só o título do cartão: o campo de renomear
                   o workspace não tinha nome acessível nenhum — um leitor de tela
-                  anunciava "caixa de texto" com o nome da casa dentro e nada que
+                  anunciava "caixa de texto" com o nome do espaço dentro e nada que
                   dissesse o que ele edita. Era a única violação CRÍTICA de axe da
                   tela, e ninguém a via porque a aba de Membros nunca era
                   renderizada por teste. */}
               <div className="flex-1 space-y-2">
-                <Label htmlFor="workspace-name">Nome do workspace</Label>
+                <Label htmlFor="workspace-name">Nome do espaço</Label>
                 <Input
                   id="workspace-name"
                   value={wsName}
@@ -430,7 +431,7 @@ function MembersTab() {
                 onClick={async () => {
                   try {
                     await updateWorkspace({ id: currentWorkspace!.id, data: { name: wsName } });
-                    setFeedback({ ok: true, text: 'Workspace renomeado!' });
+                    setFeedback({ ok: true, text: 'Espaço renomeado!' });
                   } catch (err) { showError(err, 'Erro ao renomear.'); }
                 }}
                 disabled={!wsName.trim() || wsName === currentWorkspace?.name}
@@ -538,7 +539,7 @@ function MembersTab() {
       <Card className="bg-card border-border shadow-xl">
         <CardHeader>
           <CardTitle>Membros ({members.length})</CardTitle>
-          <CardDescription>Quem tem acesso a este workspace.</CardDescription>
+          <CardDescription>Quem tem acesso a este espaço.</CardDescription>
         </CardHeader>
         <CardContent className="space-y-3">
           {members.map((m) => (
@@ -605,9 +606,9 @@ function MembersTab() {
                       <Badge
                         variant="outline"
                         className="h-9 px-3 border-border text-muted-foreground font-semibold"
-                        title="Admin vê os números da casa pelo cargo. Ao rebaixar, a visibilidade volta a 'Só o que o envolve'."
+                        title="Admin vê os números do espaço pelo cargo. Ao rebaixar, a visibilidade volta a 'Só o que o envolve'."
                       >
-                        Todo o workspace (admin)
+                        Todo o espaço (admin)
                       </Badge>
                     ) : (
                       <Select
@@ -631,7 +632,7 @@ function MembersTab() {
                         </SelectTrigger>
                         <SelectContent>
                           <SelectItem value="involved_only">Só o que o envolve</SelectItem>
-                          <SelectItem value="full_workspace">Todo o workspace</SelectItem>
+                          <SelectItem value="full_workspace">Todo o espaço</SelectItem>
                         </SelectContent>
                       </Select>
                     )}
@@ -710,7 +711,7 @@ function MembersTab() {
                   <SelectTrigger aria-label="Visibilidade financeira do convidado" className="h-10 w-[186px] text-sm font-semibold"><SelectValue /></SelectTrigger>
                   <SelectContent>
                     <SelectItem value="involved_only">Só o que o envolve</SelectItem>
-                    <SelectItem value="full_workspace">Todo o workspace</SelectItem>
+                    <SelectItem value="full_workspace">Todo o espaço</SelectItem>
                   </SelectContent>
                 </Select>
               )}
@@ -773,8 +774,8 @@ function MembersTab() {
               className="border-destructive/40 text-destructive hover:bg-destructive/10"
               onClick={async () => {
                 const ok = await confirm({
-                  title: 'Sair do workspace',
-                  description: 'Sair deste workspace? Você perderá o acesso.',
+                  title: 'Sair do espaço',
+                  description: 'Sair deste espaço? Você perderá o acesso.',
                   confirmLabel: 'Sair',
                   destructive: true,
                 });
@@ -791,8 +792,8 @@ function MembersTab() {
               className="border-destructive/40 text-destructive hover:bg-destructive/10"
               onClick={async () => {
                 const ok = await confirm({
-                  title: 'Excluir workspace',
-                  description: `Excluir o workspace "${currentWorkspace?.name}"? Esta ação não pode ser desfeita.`,
+                  title: 'Excluir espaço',
+                  description: `Excluir o espaço "${currentWorkspace?.name}"? Esta ação não pode ser desfeita.`,
                   confirmLabel: 'Excluir',
                   destructive: true,
                 });
@@ -1062,7 +1063,64 @@ function AppearanceTab() {
           </div>
         </CardContent>
       </Card>
+
+      <InstalarAppCard />
     </div>
+  );
+}
+
+/**
+ * "Instalar aplicativo" — em Aparência porque é disso que se trata: onde e como
+ * o app aparece, ao lado da escolha de tema.
+ *
+ * Os quatro estados vêm de `useInstallPrompt`, e cada um mostra coisa
+ * diferente. O caso que mais importa é o **iOS**: lá não existe evento de
+ * instalação, e um botão que não faz nada seria pior do que nenhum — então o
+ * cartão vira instrução, com o caminho exato do Safari.
+ */
+function InstalarAppCard() {
+  const { estado, instalar } = useInstallPrompt();
+
+  if (estado === 'indisponivel') return null;
+
+  return (
+    <Card className="bg-card border-border shadow-xl">
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2">
+          <Smartphone className="h-5 w-5 text-primary" />
+          Aplicativo no celular
+        </CardTitle>
+        <CardDescription>
+          Instale para abrir em tela cheia, com ícone próprio, sem a barra de endereço.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        {estado === 'instalado' && (
+          <p className="text-sm text-muted-foreground">
+            Você já está usando o aplicativo instalado. ✅
+          </p>
+        )}
+
+        {estado === 'disponivel' && (
+          <Button type="button" onClick={() => void instalar()} className="h-11 w-full gap-2 sm:w-auto">
+            <Download className="h-4 w-4" /> Instalar aplicativo
+          </Button>
+        )}
+
+        {estado === 'manual-ios' && (
+          <div className="space-y-2 text-sm text-muted-foreground">
+            <p>No iPhone e no iPad a instalação é pelo Safari, em dois toques:</p>
+            <ol className="ml-4 list-decimal space-y-1">
+              <li>Toque em <strong className="text-foreground">Compartilhar</strong> (o quadrado com a seta para cima).</li>
+              <li>Escolha <strong className="text-foreground">Adicionar à Tela de Início</strong>.</li>
+            </ol>
+            <p className="text-xs">
+              Só funciona no Safari — em outros navegadores do iPhone a opção não aparece.
+            </p>
+          </div>
+        )}
+      </CardContent>
+    </Card>
   );
 }
 
@@ -1077,7 +1135,7 @@ const AUDIT_ACTION_LABELS: Record<string, string> = {
 const AUDIT_RESOURCE_LABELS: Record<string, string> = {
   Transaction: 'lançamento',
   Income: 'renda',
-  Workspace: 'workspace',
+  Workspace: 'espaço',
   Settlement: 'acerto',
   Category: 'categoria',
   CreditCard: 'cartão',
@@ -1106,7 +1164,7 @@ function AuditTab() {
         <CardTitle className="flex items-center gap-2">
           <History className="h-5 w-5 text-primary" /> Auditoria
         </CardTitle>
-        <CardDescription>Ações recentes no workspace (as 100 últimas). Visível só para admins.</CardDescription>
+        <CardDescription>Ações recentes neste espaço (as 100 últimas). Visível só para admins.</CardDescription>
       </CardHeader>
       <CardContent className="p-0">
         {isLoading ? (
@@ -1171,12 +1229,27 @@ function SettingsShell({
     <div className="space-y-8 animate-in slide-in-from-bottom-4 duration-700 pb-20">
       <PageHeader title={title} subtitle={subtitle} />
       <div className="grid gap-6 md:grid-cols-[240px_1fr]">
-        <aside className="space-y-2">
+        {/*
+          Faixa rolável no celular, coluna no desktop.
+          A pilha de botões de largura total custava ~280px de altura antes do
+          primeiro campo — mais de um terço da tela de um aparelho de 844px, só
+          para escolher uma aba. Na horizontal ela ocupa 44px e continua
+          mostrando que há mais opções à direita (a borda cortada é a pista).
+
+          Aqui houve um `-mx-4 px-4` para sangrar a faixa até a borda da tela.
+          Saiu: ele deixa o elemento com EXATAMENTE a largura da viewport, e aí
+          qualquer discrepância de 1px em qualquer lugar da página vira rolagem
+          horizontal. Foi o que aconteceu — `mobile_layout.mobile.spec.ts`
+          reprovou no CI do Linux com "/w/:id/settings rola 4px", numa
+          combinação que a mesma execução no Windows não produzia. O ganho era
+          estético; o custo era uma tela quebrada em metade dos aparelhos.
+        */}
+        <aside className="flex gap-2 overflow-x-auto pb-1 scrollbar-none md:flex-col md:space-y-2 md:overflow-visible md:pb-0">
           {menuItems.map((item) => (
             <Button
               key={item.id}
               variant="ghost"
-              className={`w-full justify-start gap-3 transition-all ${
+              className={`h-10 shrink-0 justify-start gap-2 transition-all md:w-full md:gap-3 ${
                 activeTab === item.id
                   ? 'bg-primary text-primary-foreground font-bold shadow-lg shadow-primary/20'
                   : 'text-muted-foreground hover:text-foreground hover:bg-accent'
@@ -1187,7 +1260,10 @@ function SettingsShell({
               {item.label}
             </Button>
           ))}
-          <div className="pt-4 border-t border-border mt-4">
+          {/* "Sair da Conta" fica FORA da faixa no celular: a gaveta "Mais" já
+              tem o mesmo botão, e aqui ele viraria uma sexta aba vermelha
+              disputando espaço com as opções que a pessoa veio usar. */}
+          <div className="hidden pt-4 border-t border-border mt-4 md:block">
             <Button variant="ghost" className="w-full justify-start gap-3 text-destructive hover:bg-destructive/10 transition-colors" onClick={() => logout()}>
               <LogOut className="h-4 w-4" /> Sair da Conta
             </Button>
@@ -1331,7 +1407,7 @@ export function PersonalSettingsPage() {
   return (
     <SettingsShell
       title="Suas configurações"
-      subtitle="Perfil, segurança, contas e aparência — seus, em qualquer workspace."
+      subtitle="Perfil, segurança, contas e aparência — seus, em qualquer espaço."
       menuItems={MENU_PESSOAL}
       activeTab={activeTab}
       onSelect={setActiveTab}
@@ -1353,7 +1429,7 @@ export function SettingsPage() {
   const [activeTab, setActiveTab] = React.useState<Tab>('members');
 
   const menuItems: MenuItem[] = [
-    { id: 'members', label: 'Workspace e membros', icon: Users },
+    { id: 'members', label: 'Espaço e membros', icon: Users },
     { id: 'categories', label: 'Categorias', icon: Tag },
     // Auditoria é sensível (AUD-001): só admin/owner
     ...(isAdmin ? [{ id: 'audit' as Tab, label: 'Auditoria', icon: History }] : []),
@@ -1375,8 +1451,8 @@ export function SettingsPage() {
 
   return (
     <SettingsShell
-      title="Configurações do workspace"
-      subtitle="Esta casa, quem participa dela e o que cada um vê."
+      title="Configurações do espaço"
+      subtitle="Este espaço, quem participa dele e o que cada um vê."
       menuItems={menuItems}
       activeTab={activeTab}
       onSelect={setActiveTab}

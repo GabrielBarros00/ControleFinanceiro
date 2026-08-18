@@ -580,24 +580,58 @@ test('seed data and capture all screens', async ({ page, playwright }) => {
   // importa aqui é a largura em CSS px, que é o que decide qual breakpoint do
   // Tailwind entra.
   await page.setViewportSize({ width: 390, height: 844 });
+
+  /*
+   * TODAS as rotas, e não uma amostra de cinco.
+   *
+   * A amostra anterior cobria Início, Lançamentos, Relatórios, Cartões e Meus
+   * acertos — e as telas que mais estouravam no celular (Rendas, com três ações
+   * no cabeçalho; Administração, com seis abas; Importar, em duas colunas;
+   * Financiamentos, com uma tabela de sete colunas) não estavam entre elas.
+   * Um catálogo que fotografa só o que já se sabe estar bom não descobre nada.
+   */
   const capturarMobile = async (theme: 'light' | 'dark') => {
     await page.goto('/overview');
     await page.evaluate((t) => localStorage.setItem('theme', t), theme);
     await page.reload();
     await settle();
-    for (const r of [
-      { path: '/overview', slug: 'inicio' },
-      { path: `/w/${wsId}/transactions`, slug: 'lancamentos' },
-      { path: `/w/${wsId}/reports`, slug: 'relatorios' },
-      { path: '/me/cards', slug: 'cartoes' },
-      // A tabela de despesas do acerto é a mais larga do app — é a tela em que
-      // o scroll horizontal do `Table` precisa aparecer, e não aparecia em
-      // captura nenhuma.
-      { path: '/me/settlements', slug: 'meus-acertos' },
-    ]) {
+    for (const r of appRoutes(wsId)) {
       await page.goto(r.path);
       await settle();
       await shot(`mobile-${r.slug}-${theme}`);
+    }
+
+    // A gaveta "Mais" e o seletor de escopo só existem no celular: são a
+    // navegação inteira abaixo de `md`, e nunca tinham sido fotografados.
+    await page.goto(`/w/${wsId}/transactions`);
+    await settle();
+    const mais = page.locator('nav').last().getByText('Mais', { exact: true });
+    if (await mais.count()) {
+      await mais.click();
+      await page.getByRole('dialog').waitFor({ state: 'visible' }).catch(() => {});
+      await page.waitForTimeout(500);
+      await shot(`mobile-gaveta-mais-${theme}`);
+      await page.keyboard.press('Escape').catch(() => {});
+      await page.waitForTimeout(300);
+    }
+    const escopo = page.getByRole('button', { name: /Casa|Espaço|Pessoal|Meu/ }).first();
+    if (await escopo.count()) {
+      await escopo.click();
+      await page.getByRole('dialog').waitFor({ state: 'visible' }).catch(() => {});
+      await page.waitForTimeout(500);
+      await shot(`mobile-seletor-de-escopo-${theme}`);
+      await page.keyboard.press('Escape').catch(() => {});
+      await page.waitForTimeout(300);
+    }
+
+    // O formulário de despesa é o mais denso do app e vira bottom sheet aqui.
+    const novaBtn = page.getByRole('button', { name: 'Nova despesa' }).first();
+    if (await novaBtn.count()) {
+      await novaBtn.click();
+      await page.getByRole('dialog').waitFor({ state: 'visible' }).catch(() => {});
+      await page.waitForTimeout(600);
+      await shot(`mobile-nova-despesa-${theme}`);
+      await page.keyboard.press('Escape').catch(() => {});
     }
   };
   await capturarMobile('light');
