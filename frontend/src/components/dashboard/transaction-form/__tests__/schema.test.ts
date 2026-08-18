@@ -193,7 +193,10 @@ describe('toApiPayload', () => {
     const payload = toApiPayload({ ...baseValues, category_id: '7' });
     expect(payload.split_mode).toBe('transaction');
     expect(payload.splits).toEqual([{ user_id: 1, split_method: 'equal', input_value: 0 }]);
-    expect(payload.items).toEqual([{ title: 'Mercado', amount: 90, category_id: 7 }]);
+    // `quantity`/`position` explícitos: o backend tem default para os dois, mas
+    // enviá-los mantém este item igual ao do modo `item`, e o payload deixa de
+    // depender de um default do servidor continuar sendo 1 e 0.
+    expect(payload.items).toEqual([{ title: 'Mercado', amount: 90, quantity: 1, position: 0, category_id: 7 }]);
     expect(payload.payment_method).toBeNull();
   });
 

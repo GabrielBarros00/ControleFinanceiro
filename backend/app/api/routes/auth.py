@@ -22,6 +22,7 @@ from app.models.workspace import (
     role_level,
 )
 from app.domain.query_policy import resolve_personal_currency
+from app.schemas.admin import RegistrationPolicyRead
 from app.schemas.user import UserResponse
 from app.core.security import (
     verify_password,
@@ -57,7 +58,7 @@ from app.services import app_settings
 from app.services.registration_service import assert_pode_cadastrar, consome_convite
 from pydantic import BaseModel, Field
 
-from app.schemas.common import NormalizedEmail, NormalizedEmailStr, normalize_email
+from app.schemas.common import MessageRead, NormalizedEmail, NormalizedEmailStr, StatusRead, normalize_email
 
 from app.models.income import Income
 from app.models.credit_card import CreditCard
@@ -317,7 +318,7 @@ def _resolve_onboarding_workspace(db: Session, user: User, requested_id: Optiona
     return proprio.workspace_id
 
 
-@router.post("/onboarding")
+@router.post("/onboarding", response_model=StatusRead)
 async def finish_onboarding(
     data: OnboardingRequest,
     db: Session = Depends(get_session),
@@ -363,7 +364,7 @@ async def finish_onboarding(
     db.commit()
     return {"status": "ok"}
 
-@router.get("/registration-policy")
+@router.get("/registration-policy", response_model=RegistrationPolicyRead)
 def registration_policy(db: Session = Depends(get_session)):
     """Se o site aceita cadastro — PÚBLICO, e de propósito (ADR 0026).
 
@@ -442,7 +443,7 @@ async def register(
     db.refresh(user)
     return user
 
-@router.post("/login", dependencies=[Depends(rate_limit_auth)])
+@router.post("/login", dependencies=[Depends(rate_limit_auth)], response_model=MessageRead)
 async def login(
     response: Response,
     login_data: LoginRequest,
@@ -522,7 +523,7 @@ async def update_me(
     db.refresh(current_user)
     return current_user
 
-@router.post("/logout")
+@router.post("/logout", response_model=MessageRead)
 async def logout(
     response: Response,
     db: Session = Depends(get_session),
@@ -545,7 +546,7 @@ async def logout(
     return {"message": "Logout realizado com sucesso"}
 
 
-@router.post("/refresh")
+@router.post("/refresh", response_model=MessageRead)
 async def refresh_session(
     response: Response,
     refresh_token: Optional[str] = Cookie(None),
@@ -587,7 +588,7 @@ class ChangePasswordRequest(BaseModel):
     new_password: str = Field(..., min_length=6, max_length=72)
 
 
-@router.post("/change-password")
+@router.post("/change-password", response_model=MessageRead)
 async def change_password(
     response: Response,
     data: ChangePasswordRequest,
@@ -628,7 +629,7 @@ class ResetPasswordRequest(BaseModel):
     new_password: str = Field(..., min_length=6, max_length=72)
 
 
-@router.post("/forgot-password", dependencies=[Depends(rate_limit_auth)])
+@router.post("/forgot-password", dependencies=[Depends(rate_limit_auth)], response_model=MessageRead)
 def forgot_password(
     data: ForgotPasswordRequest,
     db: Session = Depends(get_session)
@@ -648,7 +649,7 @@ def forgot_password(
     return {"message": "Se o email estiver cadastrado, enviaremos as instruções de recuperação."}
 
 
-@router.post("/reset-password", dependencies=[Depends(rate_limit_auth)])
+@router.post("/reset-password", dependencies=[Depends(rate_limit_auth)], response_model=MessageRead)
 def reset_password(
     response: Response,
     data: ResetPasswordRequest,

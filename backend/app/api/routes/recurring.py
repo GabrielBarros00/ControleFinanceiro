@@ -21,7 +21,7 @@ from app.services.recurring_service import (
 )
 from pydantic import BaseModel, Field
 
-from app.schemas.common import DESCRIPTION_MAX, MAX_MONEY, OptionalCurrencyCode, TITLE_MAX
+from app.schemas.common import CreatedCountRead, DESCRIPTION_MAX, MAX_MONEY, OptionalCurrencyCode, StatusRead, TITLE_MAX
 from app.domain.dates import today_local
 from decimal import Decimal
 
@@ -201,7 +201,7 @@ def create_recurring(
     return db_recurring
 
 
-@router.post("/generate")
+@router.post("/generate", response_model=CreatedCountRead)
 def generate_recurring_instances(
     workspace_id: int,
     session: Session = Depends(get_session),
@@ -302,7 +302,7 @@ def update_recurring(
     return db_recurring
 
 
-@router.delete("/{recurring_id}")
+@router.delete("/{recurring_id}", response_model=StatusRead)
 def delete_recurring(
     workspace_id: int,
     recurring_id: int,

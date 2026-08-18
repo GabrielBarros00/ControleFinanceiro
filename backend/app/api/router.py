@@ -3,6 +3,7 @@ from fastapi.responses import JSONResponse
 from sqlalchemy import text
 from sqlmodel import Session
 
+from app.schemas.common import HealthRead
 from app.core.config import settings
 from app.db.session import get_session
 from app.api.routes import (
@@ -57,7 +58,7 @@ router.include_router(ws_routes.router)
 router.include_router(admin.router)
 router.include_router(admin.me_invites_router)
 
-@router.get("/health")
+@router.get("/health", response_model=HealthRead)
 def health_check(session: Session = Depends(get_session)):
     """Saúde REAL: inclui um toque no banco.
 

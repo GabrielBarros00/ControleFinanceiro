@@ -7,6 +7,7 @@ import datetime
 import re
 import uuid
 
+from app.schemas.common import StatusRead
 from app.db.session import get_session
 from app.domain.access_policy import (
     assert_can_write,
@@ -26,9 +27,14 @@ from app.models.transaction import (
     PaymentMethod,
 )
 from app.schemas.transaction import (
+    BulkCreateResult,
+    BulkDeleteResult,
+    InstallmentGroupCancelResult,
+    InstallmentGroupRead,
     TransactionCreate,
     TransactionItemCreate,
     TransactionItemShareBase,
+    TransactionPreviewRead,
     TransactionRead,
     TransactionSplitBase,
     TransactionUpdate,
@@ -572,7 +578,7 @@ def _create_installments(
 
     return first_tx
 
-@router.post("/preview")
+@router.post("/preview", response_model=TransactionPreviewRead)
 def preview_transaction(
     workspace_id: int,
     *,
@@ -984,7 +990,7 @@ def _full_edit(
     return db_transaction
 
 
-@router.delete("/{transaction_id}")
+@router.delete("/{transaction_id}", response_model=StatusRead)
 def delete_transaction(
     workspace_id: int,
     transaction_id: int,
@@ -1348,7 +1354,7 @@ def _recompute_open_installments(
     return first_tx or paid[0]
 
 
-@router.post("/{transaction_id}/installment-group/cancel")
+@router.post("/{transaction_id}/installment-group/cancel", response_model=InstallmentGroupCancelResult)
 def cancel_installment_group(
     workspace_id: int,
     transaction_id: int,
@@ -1377,7 +1383,7 @@ def cancel_installment_group(
     return {"status": "ok", "cancelled": cancelled, "skipped_paid": skipped_paid}
 
 
-@router.delete("/{transaction_id}/installment-group")
+@router.delete("/{transaction_id}/installment-group", response_model=BulkDeleteResult)
 def delete_installment_group(
     workspace_id: int,
     transaction_id: int,
@@ -1409,7 +1415,7 @@ def delete_installment_group(
     return {"status": "ok", "deleted": deleted, "skipped_paid": skipped_paid}
 
 
-@router.get("/{transaction_id}/installment-group")
+@router.get("/{transaction_id}/installment-group", response_model=InstallmentGroupRead)
 def get_installment_group(
     workspace_id: int,
     transaction_id: int,
@@ -1543,7 +1549,7 @@ def update_installment_group(
     return first_tx
 
 
-@router.post("/bulk")
+@router.post("/bulk", response_model=BulkCreateResult)
 def bulk_create_transactions(
     workspace_id: int,
     # Mesmo teto do /imports/commit: sem ele um cliente autenticado pedia a

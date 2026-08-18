@@ -106,3 +106,59 @@ class StatementTransactionRead(BaseModel):
 
 class StatementDetailRead(StatementRead):
     transactions: List[StatementTransactionRead] = []
+
+
+class CardNextDueRead(BaseModel):
+    """A fatura que pede ATENÇÃO num cartão: a não paga mais antiga com valor.
+
+    Viaja junto do cartão para a lista poder avisar "fechada", "vence em N dias"
+    ou "vencida" sem carregar as faturas de cada um.
+    """
+    statement_id: int
+    month: str
+    status: StatementStatus
+    closing_date: datetime
+    due_date: datetime
+    amount: Decimal
+    is_overdue: bool
+
+
+class CreditCardRead(BaseModel):
+    """Cartão de UMA pessoa (ADR 0021) com o que a tela precisa saber dele.
+
+    Não tem `workspace_id`, e a ausência é a regra de privacidade: nenhuma
+    consulta escopada por workspace alcança este recurso.
+    """
+    id: int
+    name: str
+    limit: Decimal
+    closing_day: int
+    due_day: int
+    currency: str
+    owner_user_id: int
+    created_at: datetime
+    updated_at: datetime
+    deleted_at: Optional[datetime] = None
+
+    #: Soma do que ainda pesa no limite (faturas em aberto + saldo não pago).
+    committed_amount: Decimal
+    #: `limit − committed_amount`.
+    available_limit: Decimal
+    next_due: Optional[CardNextDueRead] = None
+
+
+class StatementTargetRead(BaseModel):
+    """Em qual fatura cairia uma compra neste dia (ADR 0002) — somente leitura.
+
+    A regra não é óbvia e por isso é anunciada: a partir do dia de fechamento a
+    compra vai para o mês seguinte, e se essa fatura já estiver fechada/paga ela
+    ROLA para frente. `rolled_forward` marca exatamente esse caso, que é o que
+    surpreende quem digita.
+    """
+    month: str
+    closing_date: datetime
+    due_date: datetime
+    #: `False` = a fatura ainda não existe (nasce no primeiro lançamento). Este
+    #: preview NÃO a cria: digitar no formulário criaria faturas vazias.
+    exists: bool
+    rolled_forward: bool

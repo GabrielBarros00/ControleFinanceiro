@@ -8,6 +8,7 @@ from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Respons
 from pydantic import BaseModel
 from sqlmodel import Session, select, func
 
+from app.schemas.common import StatusRead
 from app.db.locks import trava_workspace
 from app.db.session import get_session
 from app.models.attachment import Attachment
@@ -261,7 +262,7 @@ def download_attachment(
     )
 
 
-@router.delete("/attachments/{attachment_id}")
+@router.delete("/attachments/{attachment_id}", response_model=StatusRead)
 def delete_attachment(
     workspace_id: int,
     attachment_id: int,

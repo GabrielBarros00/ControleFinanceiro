@@ -42,7 +42,8 @@ from app.models.transaction import (
 )
 from app.models.user import User
 from app.models.workspace import WorkspaceMembership
-from app.schemas.common import DESCRIPTION_MAX, MAX_MONEY, OptionalCurrencyCode, TITLE_MAX
+from app.schemas.common import DESCRIPTION_MAX, InstallmentPaidRead, MAX_MONEY, OptionalCurrencyCode, StatusRead, TITLE_MAX
+from app.schemas.financing import EarlySettlementRead
 from app.services.base_conversion import compute_base_conversion
 from app.services.event_service import publish_event
 from app.services.financing_service import AmortizationError, FinancingService
@@ -214,7 +215,7 @@ def get_financing_schedule(
     ).all()
 
 
-@router.post("/{financing_id}/early-settlement")
+@router.post("/{financing_id}/early-settlement", response_model=EarlySettlementRead)
 def simulate_early_settlement(
     financing_id: int,
     data: EarlySettlementRequest,
@@ -310,7 +311,7 @@ def update_financing(
     return financing
 
 
-@router.post("/{financing_id}/installments/{installment_number}/pay")
+@router.post("/{financing_id}/installments/{installment_number}/pay", response_model=InstallmentPaidRead)
 def pay_installment(
     financing_id: int,
     installment_number: int,
@@ -459,7 +460,7 @@ def pay_installment(
     return {"status": "ok", "transaction_id": transaction_id}
 
 
-@router.post("/{financing_id}/installments/{installment_number}/unpay")
+@router.post("/{financing_id}/installments/{installment_number}/unpay", response_model=StatusRead)
 def unpay_installment(
     financing_id: int,
     installment_number: int,
@@ -518,7 +519,7 @@ def unpay_installment(
     return {"status": "ok"}
 
 
-@router.delete("/{financing_id}")
+@router.delete("/{financing_id}", response_model=StatusRead)
 def delete_financing(
     financing_id: int,
     # Cancelamento DELIBERADO de um financiamento com parcelas em aberto. Sem

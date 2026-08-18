@@ -1,14 +1,21 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import or_
 from sqlmodel import Session, select
-from typing import List, Any, Dict, Optional
+from typing import List, Optional
 from datetime import date
 
+from app.schemas.common import StatusRead
 from app.db.session import get_session
 from app.domain.access_policy import has_full_access
 from app.domain.dates import InvalidMonth, parse_month, today_local
 from app.models.workspace import WorkspaceMembership, WorkspaceRole
 from app.models.estimate import MonthlyEstimate
+from app.schemas.analytics import (
+    ExchangeRateRead,
+    ForecastRead,
+    ReportsRead,
+    SummaryRead,
+)
 from app.schemas.estimate import MonthlyEstimateCreate, MonthlyEstimateRead
 from app.core.rate_limit import rate_limit_outbound
 from app.domain.query_policy import (
@@ -35,7 +42,7 @@ def _parse_month(month: Optional[str]) -> date:
         raise HTTPException(status_code=400, detail=str(exc))
 
 
-@router.get("/summary", response_model=Dict[str, Any])
+@router.get("/summary", response_model=SummaryRead)
 def get_summary(
     workspace_id: int,
     month: Optional[str] = None,
@@ -58,7 +65,7 @@ def get_summary(
     )
 
 
-@router.get("/reports", response_model=Dict[str, Any])
+@router.get("/reports", response_model=ReportsRead)
 def get_reports(
     workspace_id: int,
     month: Optional[str] = None,  # YYYY-MM
@@ -90,7 +97,7 @@ def get_reports(
     }
 
 
-@router.get("/forecast", response_model=Dict[str, Any])
+@router.get("/forecast", response_model=ForecastRead)
 def get_forecast(
     workspace_id: int,
     month: Optional[str] = None, # YYYY-MM
@@ -111,7 +118,7 @@ def get_forecast(
     return projection
 
 
-@router.get("/exchange-rate", response_model=Dict[str, Any])
+@router.get("/exchange-rate", response_model=ExchangeRateRead)
 def get_exchange_rate(
     workspace_id: int,
     from_currency: str,
@@ -302,7 +309,7 @@ def list_estimates(
     return estimates
 
 
-@router.delete("/estimates/{estimate_id}")
+@router.delete("/estimates/{estimate_id}", response_model=StatusRead)
 def delete_estimate(
     workspace_id: int,
     estimate_id: int,

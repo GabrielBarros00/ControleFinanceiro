@@ -2,7 +2,46 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { apiClient } from '@/api/client';
 import { invalidateForEvent } from '@/lib/ws-events';
 import type { TransactionRead } from '@/types/transaction';
+import type { components } from '@/types/api.gen';
 import { useWorkspaceId } from './use-workspace-id';
+
+/**
+ * O corpo de criação/edição de lançamento, vindo do OpenAPI.
+ *
+ * Era `Record<string, unknown>` nas três mutações de escrita — o NÚCLEO do app
+ * sem checagem nenhuma: um campo renomeado no backend, ou um typo no nome de uma
+ * chave, chegava ao servidor sem que o `tsc` piscasse. O mesmo corpo serve ao
+ * grupo de parcelas: editar uma compra parcelada é editar a definição da COMPRA,
+ * não a da parcela.
+ */
+type ApiTransactionCreate = components['schemas']['TransactionCreate'];
+
+/**
+ * Campos que o OpenAPI marca como `required` de verdade. O resto tem default no
+ * servidor (`status: confirmed`, `split_mode: transaction`, `currency`…).
+ *
+ * A distinção precisa ser feita aqui porque o `openapi-typescript` roda com
+ * `default-non-nullable` (o padrão dele): campo COM default vira obrigatório no
+ * tipo gerado. Isso está certo para uma RESPOSTA — o servidor sempre devolve o
+ * campo — e errado para um CORPO DE REQUISIÇÃO, onde omiti-lo é justamente o que
+ * aciona o default. Sem esta correção, o tipo obrigaria a tela a reenviar o
+ * mundo em cada edição.
+ */
+type ObrigatoriosNaCriacao = 'title' | 'total_amount' | 'transaction_date' | 'payers';
+
+export type TransactionPayload =
+  Pick<ApiTransactionCreate, ObrigatoriosNaCriacao> &
+  Partial<Omit<ApiTransactionCreate, ObrigatoriosNaCriacao>>;
+
+/**
+ * O corpo da EDIÇÃO de um lançamento — parcial, e é outro schema de propósito.
+ *
+ * `PUT /transactions/{id}` aceita `TransactionUpdate` (todo campo opcional):
+ * mudar só o título não obriga a reenviar a divisão inteira. Já o PUT do GRUPO
+ * de parcelas usa `TransactionCreate`, porque ali se envia a definição completa
+ * da compra para ela ser refatiada.
+ */
+export type TransactionUpdatePayload = components['schemas']['TransactionUpdate'];
 
 export interface TransactionFilters {
   page?: number;
@@ -65,7 +104,7 @@ export function useTransactions(
 
   // Create transaction
   const createMutation = useMutation({
-    mutationFn: async (data: Record<string, unknown>) => {
+    mutationFn: async (data: TransactionPayload) => {
       if (!currentWorkspaceId) throw new Error('Workspace not selected');
       const response = await apiClient.post(`/workspaces/${currentWorkspaceId}/transactions/`, data);
       return response.data;
@@ -75,7 +114,7 @@ export function useTransactions(
 
   // Update transaction
   const updateMutation = useMutation({
-    mutationFn: async ({ id, data }: { id: number, data: Record<string, unknown> }) => {
+    mutationFn: async ({ id, data }: { id: number, data: TransactionUpdatePayload }) => {
       if (!currentWorkspaceId) throw new Error('Workspace not selected');
       const response = await apiClient.put(`/workspaces/${currentWorkspaceId}/transactions/${id}`, data);
       return response.data;
@@ -105,7 +144,7 @@ export function useTransactions(
 
   // Editar a COMPRA parcelada inteira (refatia total/nº de parcelas; congela pagas)
   const updateGroupMutation = useMutation({
-    mutationFn: async ({ id, data }: { id: number, data: Record<string, unknown> }) => {
+    mutationFn: async ({ id, data }: { id: number, data: TransactionPayload }) => {
       if (!currentWorkspaceId) throw new Error('Workspace not selected');
       const response = await apiClient.put(`/workspaces/${currentWorkspaceId}/transactions/${id}/installment-group`, data);
       return response.data;

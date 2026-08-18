@@ -416,3 +416,13 @@ class PersonalSettlementsRead(BaseModel):
     total: int
     limit: int
     offset: int
+
+
+class ReportCurrencyRead(BaseModel):
+    """Moeda em que os números PESSOAIS da pessoa são expressos (ADR 0019).
+
+    Existe porque o que é da pessoa não tem workspace de onde herdar a
+    moeda-base, e a visão global soma workspaces que podem ter bases diferentes
+    — somar sem uma moeda de destino declarada é o que o ADR 0006 proíbe.
+    """
+    report_currency: str

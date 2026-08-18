@@ -75,7 +75,16 @@ describe('useTransactions', () => {
 
     const { result } = renderHook(() => useTransactions(), { wrapper });
 
-    await result.current.create({ title: 'New Tx', total_amount: 50.0 });
+    // Payload MÍNIMO válido: `transaction_date` e `payers` são obrigatórios de
+    // verdade no contrato — o resto tem default no servidor. Antes, com o corpo
+    // tipado como `Record<string, unknown>`, este teste passava enviando algo que
+    // a API recusaria com 422.
+    await result.current.create({
+      title: 'New Tx',
+      total_amount: 50.0,
+      transaction_date: '2026-05-10T12:00:00Z',
+      payers: [{ user_id: 1, amount: 50.0 }],
+    });
     
     expect(createCalled).toBe(true);
     

@@ -10,7 +10,7 @@ recorte é o próprio usuário. Cada consulta filtra por `user_id` — nunca por
 workspace — e a agregação varre os workspaces de que ele participa.
 """
 from datetime import date
-from typing import Any, Dict, List, Optional
+from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
@@ -22,6 +22,7 @@ from app.domain.query_policy import InvalidCurrencyCode, normalize_currency_code
 from app.models.user import User
 from app.schemas.common import OptionalCurrencyCode
 from app.schemas.overview import (
+    ReportCurrencyRead,
     ActivityRead,
     CommitmentsRead,
     LedgerRead,
@@ -163,7 +164,7 @@ def get_activity(
     return OverviewService.get_activity(session, current_user.id, limit=limit)
 
 
-@router.patch("/report-currency", response_model=Dict[str, Any])
+@router.patch("/report-currency", response_model=ReportCurrencyRead)
 def set_report_currency(
     data: ReportCurrencyUpdate,
     session: Session = Depends(get_session),

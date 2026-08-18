@@ -98,6 +98,35 @@ export interface paths {
         patch: operations["update_member_role_api_v1_workspaces__workspace_id__members__user_id__patch"];
         trace?: never;
     };
+    "/api/v1/workspaces/{workspace_id}/members/{user_id}/transfer-ownership": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Transfer Ownership
+         * @description Passa a propriedade do espaço a outro membro (ADR 0028).
+         *
+         *     Existe porque a propriedade era um estado TERMINAL: a API recusa promover a
+         *     owner, recusa alterar o papel de quem já é, recusa removê-lo e recusa que ele
+         *     saia. Sem esta rota, desativar o dono deixava um espaço que ninguém podia
+         *     apagar nem herdar — os dados seguiam vivos para os demais membros sem uma
+         *     pessoa responsável por eles.
+         *
+         *     O antigo dono vira `admin`: não perde o espaço, perde o poder terminal sobre
+         *     ele. Quem CRIOU (`created_by_user_id`) não é reescrito.
+         */
+        post: operations["transfer_ownership_api_v1_workspaces__workspace_id__members__user_id__transfer_ownership_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/workspaces/{workspace_id}/leave": {
         parameters: {
             query?: never;
@@ -2022,6 +2051,126 @@ export interface components {
          * @enum {string}
          */
         AdjustmentType: "discount" | "tax" | "tip" | "shipping" | "cashback" | "rounding" | "other";
+        /**
+         * AdminHealthRead
+         * @description Saúde operacional: o que está crescendo e o que ficou para trás.
+         */
+        AdminHealthRead: {
+            /** Cambio Ultima Data */
+            cambio_ultima_data?: unknown | null;
+            /** Cambio Cotacoes */
+            cambio_cotacoes: number;
+            /** Banco Bytes */
+            banco_bytes?: number | null;
+            /** Anexos Bytes */
+            anexos_bytes: number;
+            /** Sessoes Expiradas Pendentes De Expurgo */
+            sessoes_expiradas_pendentes_de_expurgo: number;
+            /** Auditoria Linhas */
+            auditoria_linhas: number;
+            /** Auditoria Mais Antiga */
+            auditoria_mais_antiga?: string | null;
+        };
+        /**
+         * AdminOverviewRead
+         * @description Os números do SITE — quantos, quanto ocupam, quantos entraram.
+         */
+        AdminOverviewRead: {
+            /** Usuarios Total */
+            usuarios_total: number;
+            /** Usuarios Ativos */
+            usuarios_ativos: number;
+            /** Usuarios Novos 30D */
+            usuarios_novos_30d: number;
+            /** Workspaces */
+            workspaces: number;
+            /** Lancamentos */
+            lancamentos: number;
+            /** Anexos Bytes */
+            anexos_bytes: number;
+            /** Anexos Qtd */
+            anexos_qtd: number;
+            /** Convites Pendentes */
+            convites_pendentes: number;
+            /** Sessoes Vivas */
+            sessoes_vivas: number;
+            /** Banco Bytes */
+            banco_bytes?: number | null;
+        };
+        /**
+         * AdminUserDeleteRead
+         * @description Exclusão LÓGICA: a linha continua sendo referência de FK e da trilha.
+         */
+        AdminUserDeleteRead: {
+            /** Status */
+            status: string;
+            /** Id */
+            id: number;
+        };
+        /** AdminUserListRead */
+        AdminUserListRead: {
+            /** Total */
+            total: number;
+            /**
+             * Items
+             * @default []
+             */
+            items: components["schemas"]["AdminUserRead"][];
+            /** Limit */
+            limit: number;
+            /** Offset */
+            offset: number;
+        };
+        /**
+         * AdminUserPatchRead
+         * @description O estado da conta DEPOIS do PATCH — só o que mudou importa aqui.
+         */
+        AdminUserPatchRead: {
+            /** Id */
+            id: number;
+            /** Name */
+            name: string;
+            /** Email */
+            email: string;
+            /** Is Active */
+            is_active: boolean;
+            platform_role: components["schemas"]["PlatformRole"];
+        };
+        /**
+         * AdminUserRead
+         * @description Uma pessoa como o operador do site a enxerga.
+         *
+         *     As três contagens do fim são de VOLUME (quantos workspaces, quantos
+         *     lançamentos, quantos bytes) — nunca de valor.
+         */
+        AdminUserRead: {
+            /** Id */
+            id: number;
+            /** Name */
+            name: string;
+            /** Email */
+            email: string;
+            /** Is Active */
+            is_active: boolean;
+            platform_role: components["schemas"]["PlatformRole"];
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Deleted At */
+            deleted_at?: string | null;
+            /** Needs Onboarding */
+            needs_onboarding: boolean;
+            /** Last Login At */
+            last_login_at?: string | null;
+            /** Workspaces */
+            workspaces: number;
+            /** Lancamentos */
+            lancamentos: number;
+            /** Anexos Bytes */
+            anexos_bytes: number;
+        };
         /** AmortizationInstallment */
         AmortizationInstallment: {
             /** Installment Number */
@@ -2186,6 +2335,128 @@ export interface components {
             /** File */
             file: string;
         };
+        /** BreakdownItem */
+        BreakdownItem: {
+            /** Title */
+            title: string;
+            /** Description */
+            description?: string | null;
+            /** Amount */
+            amount: string;
+            /**
+             * Quantity
+             * @default 1
+             */
+            quantity: string;
+            /** Unit Amount */
+            unit_amount?: string | null;
+            /**
+             * Position
+             * @default 0
+             */
+            position: number;
+            /** Category Id */
+            category_id?: number | null;
+            /**
+             * Shares
+             * @default []
+             */
+            shares: components["schemas"]["BreakdownItemShare"][];
+        };
+        /** BreakdownItemShare */
+        BreakdownItemShare: {
+            /** User Id */
+            user_id: number;
+            split_method: components["schemas"]["SplitMethod"];
+            /**
+             * Input Value
+             * @default 0
+             */
+            input_value: string;
+            /** Computed Amount */
+            computed_amount: string;
+        };
+        /**
+         * BreakdownSplit
+         * @description Uma divisão JÁ CALCULADA: o que a pessoa efetivamente assume.
+         */
+        BreakdownSplit: {
+            /** User Id */
+            user_id: number;
+            split_method: components["schemas"]["SplitMethod"];
+            /** Input Value */
+            input_value: string;
+            /** Computed Amount */
+            computed_amount: string;
+        };
+        /**
+         * BulkCreateResult
+         * @description Criação em lote — nada é descartado em silêncio (ADR 0008).
+         */
+        BulkCreateResult: {
+            /** Status */
+            status: string;
+            /** Created */
+            created: number;
+            /** Skipped */
+            skipped: number;
+            /**
+             * Skipped Details
+             * @default []
+             */
+            skipped_details: components["schemas"]["BulkSkipped"][];
+        };
+        /**
+         * BulkDeleteResult
+         * @description Exclusão em lote. `skipped_paid` existe porque despesa PAGA é imutável
+         *     (ADR 0003): ela é pulada, não recusada — senão um lote inteiro falharia por
+         *     causa de uma linha.
+         */
+        BulkDeleteResult: {
+            /** Status */
+            status: string;
+            /** Deleted */
+            deleted: number;
+            /** Skipped Paid */
+            skipped_paid: number;
+        };
+        /** BulkSkipped */
+        BulkSkipped: {
+            /** Index */
+            index: number;
+            /** Title */
+            title: string;
+            /** Reason */
+            reason: string;
+        };
+        /**
+         * CardNextDueRead
+         * @description A fatura que pede ATENÇÃO num cartão: a não paga mais antiga com valor.
+         *
+         *     Viaja junto do cartão para a lista poder avisar "fechada", "vence em N dias"
+         *     ou "vencida" sem carregar as faturas de cada um.
+         */
+        CardNextDueRead: {
+            /** Statement Id */
+            statement_id: number;
+            /** Month */
+            month: string;
+            status: components["schemas"]["StatementStatus"];
+            /**
+             * Closing Date
+             * Format: date-time
+             */
+            closing_date: string;
+            /**
+             * Due Date
+             * Format: date-time
+             */
+            due_date: string;
+            /** Amount */
+            amount: string;
+            /** Is Overdue */
+            is_overdue: boolean;
+        };
         /** CashInBreakdown */
         CashInBreakdown: {
             /** Income */
@@ -2241,6 +2512,22 @@ export interface components {
             /** Icon */
             icon?: string | null;
         };
+        /**
+         * CategorySlice
+         * @description Uma fatia da pizza de categorias.
+         *
+         *     `category_id` acompanha o nome porque o orçamento casa gasto × meta por id
+         *     (BUD-001): casar por nome quebrava calado ao renomear a categoria. É `None`
+         *     na fatia sintética "Sem categoria".
+         */
+        CategorySlice: {
+            /** Category Id */
+            category_id?: number | null;
+            /** Name */
+            name: string;
+            /** Value */
+            value: string;
+        };
         /** CategoryUpdate */
         CategoryUpdate: {
             /** Name */
@@ -2256,6 +2543,22 @@ export interface components {
             current_password: string;
             /** New Password */
             new_password: string;
+        };
+        /**
+         * CommitImportResult
+         * @description O desfecho de cada linha do lote — a soma tem de bater com o enviado.
+         */
+        CommitImportResult: {
+            /** Batch Id */
+            batch_id: number;
+            /** Imported */
+            imported: number;
+            /** Ignored */
+            ignored: number;
+            /** Duplicate */
+            duplicate: number;
+            /** Skipped */
+            skipped: number;
         };
         /** CommitRequest */
         CommitRequest: {
@@ -2367,6 +2670,14 @@ export interface components {
             excluded_foreign_count: number;
         };
         /**
+         * CreatedCountRead
+         * @description Quantas ocorrências a materialização criou nesta chamada.
+         */
+        CreatedCountRead: {
+            /** Created */
+            created: number;
+        };
+        /**
          * CreditCardCreate
          * @description Schema explícito de criação — evita mass assignment de id/deleted_at.
          */
@@ -2381,6 +2692,46 @@ export interface components {
             due_day: number;
             /** Currency */
             currency?: string | null;
+        };
+        /**
+         * CreditCardRead
+         * @description Cartão de UMA pessoa (ADR 0021) com o que a tela precisa saber dele.
+         *
+         *     Não tem `workspace_id`, e a ausência é a regra de privacidade: nenhuma
+         *     consulta escopada por workspace alcança este recurso.
+         */
+        CreditCardRead: {
+            /** Id */
+            id: number;
+            /** Name */
+            name: string;
+            /** Limit */
+            limit: string;
+            /** Closing Day */
+            closing_day: number;
+            /** Due Day */
+            due_day: number;
+            /** Currency */
+            currency: string;
+            /** Owner User Id */
+            owner_user_id: number;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
+            /** Deleted At */
+            deleted_at?: string | null;
+            /** Committed Amount */
+            committed_amount: string;
+            /** Available Limit */
+            available_limit: string;
+            next_due?: components["schemas"]["CardNextDueRead"] | null;
         };
         /** CreditCardUpdate */
         CreditCardUpdate: {
@@ -2405,10 +2756,42 @@ export interface components {
             /** Amount */
             amount: string;
         };
+        /**
+         * EarlySettlementRead
+         * @description Quitar hoje: quanto sai, quanto valeria e quanto sobra no bolso.
+         */
+        EarlySettlementRead: {
+            /** Total To Pay */
+            total_to_pay: string;
+            /** Original Value */
+            original_value: string;
+            /** Savings */
+            savings: string;
+            /** Installments Settled */
+            installments_settled: number;
+        };
         /** EarlySettlementRequest */
         EarlySettlementRequest: {
             /** Settlement Date */
             settlement_date?: string | null;
+        };
+        /**
+         * ExchangeRateRead
+         * @description Taxa de referência + de onde ela veio.
+         *
+         *     `rate` é string decimal de propósito (o serviço devolve `str(rate)`): é uma
+         *     cotação com muitas casas, e um float aqui volta a arredondar na exibição da
+         *     dica que o formulário mostra antes de gravar o lançamento.
+         */
+        ExchangeRateRead: {
+            /** From Currency */
+            from_currency: string;
+            /** To Currency */
+            to_currency: string;
+            /** Rate */
+            rate: string;
+            /** Source */
+            source: string;
         };
         /**
          * ExcludedWorkspace
@@ -2538,6 +2921,38 @@ export interface components {
             installments_count?: number | null;
             method?: components["schemas"]["AmortizationMethod"] | null;
         };
+        /**
+         * ForecastRead
+         * @description Previsão de fechamento do mês.
+         *
+         *     Todo campo da casa é `Optional` porque a resposta sem acesso completo devolve
+         *     o MESMO conjunto de chaves com `null` — e não um objeto menor. Resposta que
+         *     muda de forma conforme quem pergunta é o que fazia o cliente adivinhar.
+         */
+        ForecastRead: {
+            /** Month */
+            month: string;
+            /** Base Currency */
+            base_currency: string;
+            /** My Budget */
+            my_budget: string;
+            /** Excluded Foreign Count */
+            excluded_foreign_count?: number | null;
+            /** Actual Spent */
+            actual_spent?: string | null;
+            /** Projected Eom */
+            projected_eom?: string | null;
+            /** Daily Average */
+            daily_average?: string | null;
+            /** Remaining Days */
+            remaining_days?: number | null;
+            /** Fixed Costs Pending */
+            fixed_costs_pending?: string | null;
+            /** Total Budget */
+            total_budget?: string | null;
+            /** Is Over Budget */
+            is_over_budget?: boolean | null;
+        };
         /** ForgotPasswordRequest */
         ForgotPasswordRequest: {
             /**
@@ -2550,6 +2965,21 @@ export interface components {
         HTTPValidationError: {
             /** Detail */
             detail?: components["schemas"]["ValidationError"][];
+        };
+        /**
+         * HealthRead
+         * @description Saúde REAL — inclui um toque no banco.
+         *
+         *     Antes respondia `ok` sem consultar nada: com o Postgres fora do ar o
+         *     healthcheck do container seguia verde e o orquestrador nunca reiniciava nada.
+         */
+        HealthRead: {
+            /** Status */
+            status: string;
+            /** Version */
+            version: string;
+            /** Database */
+            database: string;
         };
         /** IncomeCreate */
         IncomeCreate: {
@@ -2632,6 +3062,59 @@ export interface components {
             category?: string | null;
         };
         /**
+         * InstallmentGroupCancelResult
+         * @description Cancelamento das parcelas FUTURAS de uma compra parcelada.
+         *
+         *     `skipped_paid` existe porque despesa paga é imutável (ADR 0003): ela é
+         *     pulada, não recusada — cancelar o resto de um carnê não pode falhar por
+         *     causa das parcelas que já foram quitadas.
+         */
+        InstallmentGroupCancelResult: {
+            /** Status */
+            status: string;
+            /** Cancelled */
+            cancelled: number;
+            /** Skipped Paid */
+            skipped_paid: number;
+        };
+        /**
+         * InstallmentGroupRead
+         * @description A compra parcelada vista como UMA compra (ADR: editar parcelada é editar
+         *     a compra inteira).
+         *
+         *     `group_total` soma as parcelas VIVAS, e é o número que o formulário de edição
+         *     usa — por isso as irmãs não são reescopadas por visibilidade: um total
+         *     parcial aqui é pior do que não mostrar.
+         */
+        InstallmentGroupRead: {
+            /** Installment Group Id */
+            installment_group_id: string;
+            /** Installments Of */
+            installments_of?: number | null;
+            /** Count Live */
+            count_live: number;
+            /** Paid Count */
+            paid_count: number;
+            /** Group Total */
+            group_total: string;
+            /** Title */
+            title: string;
+            whole: components["schemas"]["TransactionRead"];
+        };
+        /**
+         * InstallmentPaidRead
+         * @description Parcela de financiamento quitada.
+         *
+         *     `transaction_id` é a despesa VIVA que representa a parcela (Onda 8): sem ela
+         *     o pagamento não aparecia em lugar nenhum do caixa.
+         */
+        InstallmentPaidRead: {
+            /** Status */
+            status: string;
+            /** Transaction Id */
+            transaction_id?: number | null;
+        };
+        /**
          * InstallmentPayRequest
          * @description Onde e QUANDO registrar a despesa do pagamento.
          *
@@ -2650,6 +3133,16 @@ export interface components {
             workspace_id?: number | null;
             /** Paid At */
             paid_at?: string | null;
+        };
+        /**
+         * InviteAcceptedRead
+         * @description Convite aceito — o `workspace_id` é para onde a tela deve navegar.
+         */
+        InviteAcceptedRead: {
+            /** Status */
+            status: string;
+            /** Workspace Id */
+            workspace_id: number;
         };
         /**
          * InviteInfoRead
@@ -2712,6 +3205,16 @@ export interface components {
             token: string;
             /** Url */
             url: string;
+        };
+        /**
+         * InviteSentRead
+         * @description Convite emitido — devolve o próprio convite para a lista atualizar sem
+         *     um refetch, e `status` distingue o envio por e-mail do link copiável.
+         */
+        InviteSentRead: {
+            /** Status */
+            status: string;
+            invite: components["schemas"]["app__schemas__workspace__InviteRead"];
         };
         /**
          * InviteStatus
@@ -2873,6 +3376,16 @@ export interface components {
             /** Password */
             password: string;
         };
+        /**
+         * MarkAllReadRead
+         * @description Quantas notificações a chamada marcou — `0` é resposta legítima.
+         */
+        MarkAllReadRead: {
+            /** Status */
+            status: string;
+            /** Marked */
+            marked: number;
+        };
         /** MemberRead */
         MemberRead: {
             /** User Id */
@@ -2893,6 +3406,14 @@ export interface components {
         MemberUpdate: {
             role: components["schemas"]["WorkspaceRole"];
             financial_access?: components["schemas"]["FinancialAccess"] | null;
+        };
+        /**
+         * MessageRead
+         * @description Confirmação com texto para a tela — em PT-BR, como todo o app.
+         */
+        MessageRead: {
+            /** Message */
+            message: string;
         };
         /**
          * MonthPoint
@@ -2968,6 +3489,57 @@ export interface components {
              * @enum {string}
              */
             readonly scope: "workspace" | "personal";
+        };
+        /**
+         * MonthlyHistoryPoint
+         * @description Uma barra do histórico de 6 meses.
+         */
+        MonthlyHistoryPoint: {
+            /** Month */
+            month: string;
+            /** Name */
+            name: string;
+            /** Expenses */
+            expenses?: string | null;
+            /** My Expenses */
+            my_expenses: string;
+        };
+        /**
+         * MonthlyLedgerRead
+         * @description O mês fechado da casa: quem pagou, quem deve, o que já foi acertado.
+         *
+         *     Parcelas aparecem só no mês delas (o recorte é por `billing_month`). É o
+         *     payload que `WorkspaceMonthlyLedger` espelha na camada global, mais os
+         *     campos que só a tela global precisa (nome da casa, papel, `people`).
+         */
+        MonthlyLedgerRead: {
+            /** Month */
+            month: string;
+            /** Base Currency */
+            base_currency: string;
+            /**
+             * Members
+             * @default []
+             */
+            members: components["schemas"]["LedgerMember"][];
+            /**
+             * Net Debts
+             * @default []
+             */
+            net_debts: components["schemas"]["DebtRow"][];
+            /**
+             * Expenses
+             * @default []
+             */
+            expenses: components["schemas"]["LedgerExpense"][];
+            /** Settled Total */
+            settled_total: string;
+            /**
+             * Settlements
+             * @default []
+             */
+            settlements: components["schemas"]["LedgerSettlement"][];
+            totals: components["schemas"]["LedgerTotals"];
         };
         /** NotificationList */
         NotificationList: {
@@ -3050,6 +3622,41 @@ export interface components {
             by_workspace: components["schemas"]["WorkspaceSlice"][];
             /** Excluded Foreign Count */
             excluded_foreign_count: number;
+        };
+        /** ParseCsvResult */
+        ParseCsvResult: {
+            /**
+             * Rows
+             * @default []
+             */
+            rows: components["schemas"]["ParsedCsvRow"][];
+            /**
+             * Skipped
+             * @default []
+             */
+            skipped: components["schemas"]["SkippedCsvRow"][];
+        };
+        /**
+         * ParsedCsvRow
+         * @description Uma linha que o parser entendeu, pronta para a decisão do usuário.
+         */
+        ParsedCsvRow: {
+            /** Line */
+            line: number;
+            /** Title */
+            title: string;
+            /** Total Amount */
+            total_amount: string;
+            /**
+             * Transaction Date
+             * Format: date-time
+             */
+            transaction_date: string;
+            /**
+             * Duplicate
+             * @default false
+             */
+            duplicate: boolean;
         };
         /** PaymentAccountCreate */
         PaymentAccountCreate: {
@@ -3511,10 +4118,47 @@ export interface components {
             /** Invite Token */
             invite_token?: string | null;
         };
+        /**
+         * RegistrationPolicyRead
+         * @description A porta da frente — PÚBLICO de propósito (ADR 0026).
+         *
+         *     Existe para a tela dizer "é só por convite" ANTES de a pessoa preencher o
+         *     formulário inteiro. Não vaza nada além do que qualquer um obtém tentando se
+         *     cadastrar uma vez: quem pode convidar e quantos convites existem NÃO saem
+         *     daqui.
+         */
+        RegistrationPolicyRead: {
+            /** Mode */
+            mode: string;
+            /** Aceita Cadastro */
+            aceita_cadastro: boolean;
+            /** Exige Convite */
+            exige_convite: boolean;
+            /** Primeiro Acesso */
+            primeiro_acesso: boolean;
+        };
+        /**
+         * ReportCurrencyRead
+         * @description Moeda em que os números PESSOAIS da pessoa são expressos (ADR 0019).
+         *
+         *     Existe porque o que é da pessoa não tem workspace de onde herdar a
+         *     moeda-base, e a visão global soma workspaces que podem ter bases diferentes
+         *     — somar sem uma moeda de destino declarada é o que o ADR 0006 proíbe.
+         */
+        ReportCurrencyRead: {
+            /** Report Currency */
+            report_currency: string;
+        };
         /** ReportCurrencyUpdate */
         ReportCurrencyUpdate: {
             /** Report Currency */
             report_currency?: string | null;
+        };
+        /** ReportsRead */
+        ReportsRead: {
+            /** Monthly History */
+            monthly_history: components["schemas"]["MonthlyHistoryPoint"][];
+            current_summary: components["schemas"]["SummaryRead"];
         };
         /** ResetPasswordRequest */
         ResetPasswordRequest: {
@@ -3522,6 +4166,11 @@ export interface components {
             token: string;
             /** New Password */
             new_password: string;
+        };
+        /** RevokeSessionsRead */
+        RevokeSessionsRead: {
+            /** Revogadas */
+            revogadas: number;
         };
         /**
          * SeriesRead
@@ -3558,12 +4207,51 @@ export interface components {
             /** Net Cash */
             net_cash: string;
         };
+        /**
+         * SettingKeyRead
+         * @description Uma chave de configuração e DE ONDE o valor vigente vem.
+         *
+         *     `sobrescrito` é o que impede a tela de mentir: sem ele, um número que ainda
+         *     acompanha o `.env` aparece igual a um gravado no banco, e o operador muda a
+         *     variável de ambiente esperando um efeito que não vem.
+         */
+        SettingKeyRead: {
+            /** Nome */
+            nome: string;
+            /** Descricao */
+            descricao: string;
+            /** Origem Ambiente */
+            origem_ambiente?: string | null;
+            /** Sobrescrito */
+            sobrescrito: boolean;
+        };
         /** SettingsPut */
         SettingsPut: {
             /** Valores */
             valores: {
                 [key: string]: unknown;
             };
+        };
+        /** SettingsPutRead */
+        SettingsPutRead: {
+            /** Valores */
+            valores: {
+                [key: string]: unknown;
+            };
+        };
+        /** SettingsRead */
+        SettingsRead: {
+            /** Valores */
+            valores: {
+                [key: string]: unknown;
+            };
+            /**
+             * Chaves
+             * @default []
+             */
+            chaves: components["schemas"]["SettingKeyRead"][];
+            /** Limite Nginx Bytes */
+            limite_nginx_bytes: number;
         };
         /** SettlementCreate */
         SettlementCreate: {
@@ -3601,6 +4289,16 @@ export interface components {
             settled_at: string;
             /** Created By User Id */
             created_by_user_id: number | null;
+        };
+        /**
+         * SkippedCsvRow
+         * @description Linha que o parser recusou — com o porquê, em PT-BR.
+         */
+        SkippedCsvRow: {
+            /** Line */
+            line: number;
+            /** Reason */
+            reason: string;
         };
         /**
          * SplitMethod
@@ -3824,6 +4522,33 @@ export interface components {
          */
         StatementStatus: "open" | "closed" | "paid" | "overdue";
         /**
+         * StatementTargetRead
+         * @description Em qual fatura cairia uma compra neste dia (ADR 0002) — somente leitura.
+         *
+         *     A regra não é óbvia e por isso é anunciada: a partir do dia de fechamento a
+         *     compra vai para o mês seguinte, e se essa fatura já estiver fechada/paga ela
+         *     ROLA para frente. `rolled_forward` marca exatamente esse caso, que é o que
+         *     surpreende quem digita.
+         */
+        StatementTargetRead: {
+            /** Month */
+            month: string;
+            /**
+             * Closing Date
+             * Format: date-time
+             */
+            closing_date: string;
+            /**
+             * Due Date
+             * Format: date-time
+             */
+            due_date: string;
+            /** Exists */
+            exists: boolean;
+            /** Rolled Forward */
+            rolled_forward: boolean;
+        };
+        /**
          * StatementTransactionRead
          * @description A compra como ela aparece DENTRO da fatura.
          *
@@ -3868,6 +4593,42 @@ export interface components {
             /** Rate Source */
             rate_source?: string | null;
         };
+        /**
+         * StatusRead
+         * @description Confirmação simples: `{"status": "ok"}`.
+         */
+        StatusRead: {
+            /** Status */
+            status: string;
+        };
+        /**
+         * SummaryRead
+         * @description O mês de UM workspace, com o recorte de quem perguntou.
+         */
+        SummaryRead: {
+            /** Total Expenses */
+            total_expenses?: string | null;
+            /** Categories */
+            categories?: components["schemas"]["CategorySlice"][] | null;
+            /** My Expenses */
+            my_expenses: string;
+            /** Paid By Me */
+            paid_by_me: string;
+            /** My Balance */
+            my_balance: string;
+            /**
+             * My Categories
+             * @default []
+             */
+            my_categories: components["schemas"]["CategorySlice"][];
+            /** Base Currency */
+            base_currency: string;
+            /**
+             * Excluded Foreign Count
+             * @default 0
+             */
+            excluded_foreign_count: number;
+        };
         /** TagCreate */
         TagCreate: {
             /** Name */
@@ -3898,6 +4659,33 @@ export interface components {
              * Format: email
              */
             para: string;
+        };
+        /**
+         * TestEmailRead
+         * @description Resultado do e-mail de teste, com o erro NA TELA.
+         *
+         *     Antes disto, descobrir SMTP mal configurado exigia provocar um convite de
+         *     verdade e ler o log do container — quem não tem acesso ao host não descobria,
+         *     e o sintoma ("o convite não chegou") é indistinguível de spam.
+         */
+        TestEmailRead: {
+            /** Enviado */
+            enviado: boolean;
+            /** Configurado */
+            configurado: boolean;
+            /** Detalhe */
+            detalhe?: string | null;
+            /** Rota */
+            rota?: string | null;
+        };
+        /** TransactionAdjustmentBase */
+        TransactionAdjustmentBase: {
+            /** @default other */
+            type: components["schemas"]["AdjustmentType"];
+            /** Description */
+            description?: string | null;
+            /** Amount */
+            amount: string;
         };
         /** TransactionAdjustmentCreate */
         TransactionAdjustmentCreate: {
@@ -3944,7 +4732,7 @@ export interface components {
             split_mode: components["schemas"]["SplitMode"];
             payment_method?: components["schemas"]["PaymentMethod"] | null;
             /** Payers */
-            payers: components["schemas"]["TransactionPayerBase"][];
+            payers: components["schemas"]["TransactionPayerBase-Input"][];
             /**
              * Splits
              * @default []
@@ -4059,11 +4847,21 @@ export interface components {
             total_pages: number;
         };
         /** TransactionPayerBase */
-        TransactionPayerBase: {
+        "TransactionPayerBase-Input": {
             /** User Id */
             user_id: number;
             /** Amount */
             amount: number | string;
+            payment_method?: components["schemas"]["PaymentMethod"] | null;
+            /** Account Id */
+            account_id?: number | null;
+        };
+        /** TransactionPayerBase */
+        "TransactionPayerBase-Output": {
+            /** User Id */
+            user_id: number;
+            /** Amount */
+            amount: string;
             payment_method?: components["schemas"]["PaymentMethod"] | null;
             /** Account Id */
             account_id?: number | null;
@@ -4079,6 +4877,37 @@ export interface components {
             account_id?: number | null;
             /** Id */
             id: number;
+        };
+        /**
+         * TransactionPreviewRead
+         * @description Dry-run da criação: a divisão calculada, sem persistir nada.
+         *
+         *     Sai da MESMA função do POST (`compute_transaction_breakdown`), então o que o
+         *     preview mostra é exatamente o que será gravado — a razão de ele existir. No
+         *     modo `item`, `splits` vem DERIVADO das shares (sempre `fixed`), que é como o
+         *     banco também os grava.
+         */
+        TransactionPreviewRead: {
+            /**
+             * Payers
+             * @default []
+             */
+            payers: components["schemas"]["TransactionPayerBase-Output"][];
+            /**
+             * Adjustments
+             * @default []
+             */
+            adjustments: components["schemas"]["TransactionAdjustmentBase"][];
+            /**
+             * Items
+             * @default []
+             */
+            items: components["schemas"]["BreakdownItem"][];
+            /**
+             * Splits
+             * @default []
+             */
+            splits: components["schemas"]["BreakdownSplit"][];
         };
         /** TransactionRead */
         TransactionRead: {
@@ -4219,7 +5048,7 @@ export interface components {
             tag_ids?: number[] | null;
             split_mode?: components["schemas"]["SplitMode"] | null;
             /** Payers */
-            payers?: components["schemas"]["TransactionPayerBase"][] | null;
+            payers?: components["schemas"]["TransactionPayerBase-Input"][] | null;
             /** Splits */
             splits?: components["schemas"]["TransactionSplitBase"][] | null;
             /** Items */
@@ -4658,7 +5487,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["StatusRead"];
                 };
             };
             /** @description Validation Error */
@@ -4760,7 +5589,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["StatusRead"];
                 };
             };
             /** @description Validation Error */
@@ -4812,6 +5641,40 @@ export interface operations {
             };
         };
     };
+    transfer_ownership_api_v1_workspaces__workspace_id__members__user_id__transfer_ownership_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                workspace_id: number;
+                user_id: number;
+            };
+            cookie?: {
+                access_token?: string | null;
+            };
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MemberRead"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     leave_workspace_api_v1_workspaces__workspace_id__leave_post: {
         parameters: {
             query?: never;
@@ -4831,7 +5694,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["StatusRead"];
                 };
             };
             /** @description Validation Error */
@@ -4901,7 +5764,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["InviteSentRead"];
                 };
             };
             /** @description Validation Error */
@@ -4972,7 +5835,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["StatusRead"];
                 };
             };
             /** @description Validation Error */
@@ -5038,7 +5901,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["InviteAcceptedRead"];
                 };
             };
             /** @description Validation Error */
@@ -5071,7 +5934,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["StatusRead"];
                 };
             };
             /** @description Validation Error */
@@ -5186,7 +6049,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["TransactionPreviewRead"];
                 };
             };
             /** @description Validation Error */
@@ -5292,7 +6155,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["StatusRead"];
                 };
             };
             /** @description Validation Error */
@@ -5326,7 +6189,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["InstallmentGroupCancelResult"];
                 };
             };
             /** @description Validation Error */
@@ -5360,7 +6223,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["InstallmentGroupRead"];
                 };
             };
             /** @description Validation Error */
@@ -5432,7 +6295,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["BulkDeleteResult"];
                 };
             };
             /** @description Validation Error */
@@ -5471,7 +6334,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["BulkCreateResult"];
                 };
             };
             /** @description Validation Error */
@@ -5506,9 +6369,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": {
-                        [key: string]: unknown;
-                    };
+                    "application/json": components["schemas"]["SummaryRead"];
                 };
             };
             /** @description Validation Error */
@@ -5543,9 +6404,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": {
-                        [key: string]: unknown;
-                    };
+                    "application/json": components["schemas"]["ReportsRead"];
                 };
             };
             /** @description Validation Error */
@@ -5580,9 +6439,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": {
-                        [key: string]: unknown;
-                    };
+                    "application/json": components["schemas"]["ForecastRead"];
                 };
             };
             /** @description Validation Error */
@@ -5618,9 +6475,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": {
-                        [key: string]: unknown;
-                    };
+                    "application/json": components["schemas"]["ExchangeRateRead"];
                 };
             };
             /** @description Validation Error */
@@ -5764,7 +6619,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["StatusRead"];
                 };
             };
             /** @description Validation Error */
@@ -5870,7 +6725,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["CreatedCountRead"];
                 };
             };
             /** @description Validation Error */
@@ -5981,7 +6836,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["StatusRead"];
                 };
             };
             /** @description Validation Error */
@@ -6014,9 +6869,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": {
-                        [key: string]: unknown;
-                    }[];
+                    "application/json": components["schemas"]["DebtRow"][];
                 };
             };
             /** @description Validation Error */
@@ -6051,9 +6904,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": {
-                        [key: string]: unknown;
-                    };
+                    "application/json": components["schemas"]["MonthlyLedgerRead"];
                 };
             };
             /** @description Validation Error */
@@ -6157,7 +7008,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["StatusRead"];
                 };
             };
             /** @description Validation Error */
@@ -6194,9 +7045,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": {
-                        [key: string]: unknown;
-                    };
+                    "application/json": components["schemas"]["ParseCsvResult"];
                 };
             };
             /** @description Validation Error */
@@ -6233,9 +7082,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": {
-                        [key: string]: unknown;
-                    };
+                    "application/json": components["schemas"]["CommitImportResult"];
                 };
             };
             /** @description Validation Error */
@@ -6377,7 +7224,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["StatusRead"];
                 };
             };
             /** @description Validation Error */
@@ -6519,7 +7366,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["StatusRead"];
                 };
             };
             /** @description Validation Error */
@@ -6659,7 +7506,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["StatusRead"];
                 };
             };
             /** @description Validation Error */
@@ -6904,9 +7751,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": {
-                        [key: string]: unknown;
-                    };
+                    "application/json": components["schemas"]["ReportCurrencyRead"];
                 };
             };
             /** @description Validation Error */
@@ -7044,7 +7889,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["StatusRead"];
                 };
             };
             /** @description Validation Error */
@@ -7144,7 +7989,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["CreatedCountRead"];
                 };
             };
             /** @description Validation Error */
@@ -7217,7 +8062,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["StatusRead"];
                 };
             };
             /** @description Validation Error */
@@ -7248,7 +8093,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["CreditCardRead"][];
                 };
             };
             /** @description Validation Error */
@@ -7283,7 +8128,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["CreditCardRead"];
                 };
             };
             /** @description Validation Error */
@@ -7320,7 +8165,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["CreditCardRead"];
                 };
             };
             /** @description Validation Error */
@@ -7353,7 +8198,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["StatusRead"];
                 };
             };
             /** @description Validation Error */
@@ -7388,7 +8233,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["StatementTargetRead"];
                 };
             };
             /** @description Validation Error */
@@ -7697,7 +8542,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["StatusRead"];
                 };
             };
             /** @description Validation Error */
@@ -7868,7 +8713,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["StatusRead"];
                 };
             };
             /** @description Validation Error */
@@ -7938,7 +8783,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["EarlySettlementRead"];
                 };
             };
             /** @description Validation Error */
@@ -7976,7 +8821,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["InstallmentPaidRead"];
                 };
             };
             /** @description Validation Error */
@@ -8010,7 +8855,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["StatusRead"];
                 };
             };
             /** @description Validation Error */
@@ -8145,7 +8990,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["StatusRead"];
                 };
             };
             /** @description Validation Error */
@@ -8174,7 +9019,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["RegistrationPolicyRead"];
                 };
             };
         };
@@ -8231,7 +9076,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["MessageRead"];
                 };
             };
             /** @description Validation Error */
@@ -8329,7 +9174,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["MessageRead"];
                 };
             };
             /** @description Validation Error */
@@ -8360,7 +9205,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["MessageRead"];
                 };
             };
             /** @description Validation Error */
@@ -8395,7 +9240,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["MessageRead"];
                 };
             };
             /** @description Validation Error */
@@ -8428,7 +9273,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["MessageRead"];
                 };
             };
             /** @description Validation Error */
@@ -8461,7 +9306,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["MessageRead"];
                 };
             };
             /** @description Validation Error */
@@ -8624,7 +9469,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["MarkAllReadRead"];
                 };
             };
             /** @description Validation Error */
@@ -8655,9 +9500,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": {
-                        [key: string]: unknown;
-                    };
+                    "application/json": components["schemas"]["AdminOverviewRead"];
                 };
             };
             /** @description Validation Error */
@@ -8688,9 +9531,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": {
-                        [key: string]: unknown;
-                    };
+                    "application/json": components["schemas"]["AdminHealthRead"];
                 };
             };
             /** @description Validation Error */
@@ -8763,9 +9604,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": {
-                        [key: string]: unknown;
-                    };
+                    "application/json": components["schemas"]["AdminUserListRead"];
                 };
             };
             /** @description Validation Error */
@@ -8798,9 +9637,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": {
-                        [key: string]: unknown;
-                    };
+                    "application/json": components["schemas"]["AdminUserDeleteRead"];
                 };
             };
             /** @description Validation Error */
@@ -8837,9 +9674,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": {
-                        [key: string]: unknown;
-                    };
+                    "application/json": components["schemas"]["AdminUserPatchRead"];
                 };
             };
             /** @description Validation Error */
@@ -8872,9 +9707,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": {
-                        [key: string]: unknown;
-                    };
+                    "application/json": components["schemas"]["RevokeSessionsRead"];
                 };
             };
             /** @description Validation Error */
@@ -8905,9 +9738,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": {
-                        [key: string]: unknown;
-                    };
+                    "application/json": components["schemas"]["SettingsRead"];
                 };
             };
             /** @description Validation Error */
@@ -8942,9 +9773,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": {
-                        [key: string]: unknown;
-                    };
+                    "application/json": components["schemas"]["SettingsPutRead"];
                 };
             };
             /** @description Validation Error */
@@ -8979,9 +9808,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": {
-                        [key: string]: unknown;
-                    };
+                    "application/json": components["schemas"]["TestEmailRead"];
                 };
             };
             /** @description Validation Error */
@@ -9083,9 +9910,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": {
-                        [key: string]: unknown;
-                    };
+                    "application/json": components["schemas"]["AdminUserDeleteRead"];
                 };
             };
             /** @description Validation Error */
@@ -9180,7 +10005,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["HealthRead"];
                 };
             };
         };
@@ -9200,7 +10025,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["MessageRead"];
                 };
             };
         };

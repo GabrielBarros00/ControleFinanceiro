@@ -40,7 +40,7 @@ from app.domain.recurrence_rules import validate_frequency_fields as _validate_f
 from app.models.income import Income
 from app.models.recurring import RecurrenceFrequency, RecurringIncome
 from app.models.user import User
-from app.schemas.common import DESCRIPTION_MAX, MAX_MONEY, NAME_MAX, OptionalCurrencyCode, TITLE_MAX
+from app.schemas.common import CreatedCountRead, DESCRIPTION_MAX, MAX_MONEY, NAME_MAX, OptionalCurrencyCode, StatusRead, TITLE_MAX
 from app.schemas.income import IncomeCreate, IncomeRead, IncomeUpdate
 from app.services.currency_service import ExchangeRateUnavailable
 from app.services.exchange_rate_store import ExchangeRateStore
@@ -227,7 +227,7 @@ def update_income(
     return income
 
 
-@router.delete("/income/{income_id}")
+@router.delete("/income/{income_id}", response_model=StatusRead)
 def delete_income(
     income_id: int,
     session: Session = Depends(get_session),
@@ -330,7 +330,7 @@ def list_recurring_income(
     ).all()
 
 
-@router.post("/recurring-income/generate")
+@router.post("/recurring-income/generate", response_model=CreatedCountRead)
 def generate_recurring_income(
     session: Session = Depends(get_session),
     current_user: User = Depends(get_current_user),
@@ -377,7 +377,7 @@ def update_recurring_income(
     return db_rec
 
 
-@router.delete("/recurring-income/{recurring_id}")
+@router.delete("/recurring-income/{recurring_id}", response_model=StatusRead)
 def delete_recurring_income(
     recurring_id: int,
     session: Session = Depends(get_session),
