@@ -319,7 +319,10 @@ function Usuarios() {
           className="max-w-sm"
           aria-label="Buscar pessoa"
         />
-        <Button type="submit" variant="secondary">Buscar</Button>
+        {/* O submit só grava `buscaAplicada`; quem vai à rede é a query que
+            depende dela. `isFetching` (e não `isLoading`, que é só da primeira
+            carga) é o que fica verdadeiro em toda REbusca. */}
+        <Button type="submit" variant="secondary" pending={acoes.isFetching}>Buscar</Button>
       </form>
 
       {acoes.isLoading && <Skeleton className="h-64 rounded-xl" />}
@@ -438,7 +441,7 @@ function Convites() {
               Sem e-mail, vira um link que qualquer pessoa pode usar uma vez.
             </p>
           </div>
-          <Button type="submit" disabled={criar.isPending}>Gerar convite</Button>
+          <Button type="submit" pending={criar.isPending}>Gerar convite</Button>
         </form>
       </Card>
 

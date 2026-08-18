@@ -121,7 +121,7 @@ export function RecurringTransactionsPage() {
   // Alcance da materialização quando a data de início é retroativa
   const [materialize, setMaterialize] = React.useState<MaterializeScope>('current');
 
-  const { register, handleSubmit, setValue, watch, reset, formState: { errors } } = useForm<RecurringValues>({
+  const { register, handleSubmit, setValue, watch, reset, formState: { errors, isSubmitting } } = useForm<RecurringValues>({
     resolver: zodResolver(recurringSchema),
     defaultValues: DEFAULTS,
   });
@@ -578,8 +578,8 @@ export function RecurringTransactionsPage() {
             </div>
 
             <DialogFooter className="pt-4">
-              <Button type="button" variant="ghost" onClick={() => setDialogOpen(false)}>Cancelar</Button>
-              <Button type="submit" className="bg-primary font-bold px-8">Salvar</Button>
+              <Button type="button" variant="ghost" disabled={isSubmitting} onClick={() => setDialogOpen(false)}>Cancelar</Button>
+              <Button type="submit" className="bg-primary font-bold px-8" pending={isSubmitting}>Salvar</Button>
             </DialogFooter>
           </form>
         </DialogContent>

@@ -1,4 +1,5 @@
-import { AlertTriangle, CreditCard as CardIcon, Clock, Pencil, Trash2 } from 'lucide-react';
+import { AlertTriangle, CreditCard as CardIcon, Clock, Loader2, Pencil, Trash2 } from 'lucide-react';
+import { useAcaoPendente } from '@/hooks/use-acao-pendente';
 import { formatMoney } from '@/lib/money';
 import { cn } from '@/lib/utils';
 import type { StatementAlert } from '@/lib/statement-alert';
@@ -33,7 +34,9 @@ interface CreditCardVisualProps {
   selected?: boolean;
   onClick?: () => void;
   onEdit?: () => void;
-  onDelete?: () => void;
+  // `unknown`: arquivar devolve promessa, e `void` faria o TypeScript aceitar a
+  // promessa em silêncio — o retorno sumia e a trava de duplo clique com ele.
+  onDelete?: () => unknown;
 }
 
 export function CreditCardVisual({
@@ -51,6 +54,8 @@ export function CreditCardVisual({
   onEdit,
   onDelete,
 }: CreditCardVisualProps) {
+  const { disparar: arquivar, pendente: arquivando } = useAcaoPendente(() => onDelete?.());
+
   const usedPct = limit > 0 ? Math.min((committed / limit) * 100, 100) : 0;
 
   // Ação secundária: sempre visível no toque (`sm:` prefixado) e alcançável por
@@ -109,10 +114,12 @@ export function CreditCardVisual({
             <button
               type="button"
               aria-label={`Arquivar cartão ${name}`}
-              onClick={onDelete}
+              onClick={arquivar}
+              disabled={arquivando}
+              aria-busy={arquivando || undefined}
               className={acaoClasse}
             >
-              <Trash2 className="h-4 w-4" />
+              {arquivando ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
             </button>
           )}
         </div>

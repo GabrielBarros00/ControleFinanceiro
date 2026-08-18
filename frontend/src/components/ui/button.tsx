@@ -1,6 +1,9 @@
+import * as React from "react"
 import { Button as ButtonPrimitive } from "@base-ui/react/button"
 import { cva, type VariantProps } from "class-variance-authority"
+import { Loader2 } from "lucide-react"
 
+import { useAcaoPendente } from "@/hooks/use-acao-pendente"
 import { cn } from "@/lib/utils"
 
 const buttonVariants = cva(
@@ -40,19 +43,69 @@ const buttonVariants = cva(
   }
 )
 
+type ButtonProps = Omit<ButtonPrimitive.Props, "onClick"> &
+  VariantProps<typeof buttonVariants> & {
+    /** Pode devolver uma promessa: o botão se tranca até ela assentar. */
+    onClick?: (event: React.MouseEvent<HTMLButtonElement>) => unknown
+    /** Trava explícita, para quando o clique não é quem dispara a ação. */
+    pending?: boolean
+  }
+
+/**
+ * O botão que se tranca sozinho enquanto a ação não termina.
+ *
+ * O sintoma que trouxe isto até aqui foi "Convidar": nada acontecia na tela
+ * entre o clique e a resposta, então parecia que o clique não tinha pego, e a
+ * pessoa clicava de novo — mandando dois convites.
+ *
+ * A causa não era aquele botão. Os 19 hooks devolviam apenas `mutateAsync` e
+ * jogavam fora o `isPending` de cada mutação, então NENHUM botão do app tinha
+ * como saber que havia ação em voo, mesmo que quisesse. Consertar botão por
+ * botão trataria os 149 de hoje e deixaria o próximo nascer com o mesmo
+ * defeito; por isso a trava mora aqui, onde todos passam.
+ *
+ * A regra é uma só: **se o `onClick` devolve uma promessa, o botão se
+ * desabilita e mostra um spinner até ela assentar** — resolvida OU rejeitada.
+ * Não engolimos a rejeição: ela segue para quem chamou, senão o `catch` que
+ * levanta o toast de erro pararia de rodar.
+ *
+ * Duas travas, e não uma: o `disabled` cobre o clique depois do re-render, e a
+ * trava por `ref` cobre a janela ANTES dele — dois cliques rápidos entram no
+ * mesmo ciclo do React, e o estado ainda não mudou quando o segundo chega.
+ *
+ * Quando o clique não é quem dispara a ação — botão `type="submit"`, em que
+ * quem submete é o `<form>` — use a prop `pending`.
+ */
 function Button({
   className,
   variant = "default",
   size = "default",
+  onClick,
+  pending,
+  disabled,
+  children,
   ...props
-}: ButtonPrimitive.Props & VariantProps<typeof buttonVariants>) {
+}: ButtonProps) {
+  const { disparar, pendente } = useAcaoPendente(onClick)
+  const ocupado = pending ?? pendente
+  const soIcone = typeof size === "string" && size.startsWith("icon")
+
   return (
     <ButtonPrimitive
       data-slot="button"
       className={cn(buttonVariants({ variant, size, className }))}
+      disabled={disabled || ocupado}
+      aria-busy={ocupado || undefined}
+      onClick={disparar}
       {...props}
-    />
+    >
+      {ocupado ? <Loader2 className="animate-spin" aria-hidden="true" /> : null}
+      {/* Num botão só-de-ícone, spinner E ícone juntos estouram a caixa de
+          32px — ali o spinner toma o lugar do ícone. */}
+      {ocupado && soIcone ? null : children}
+    </ButtonPrimitive>
   )
 }
 
 export { Button, buttonVariants }
+export type { ButtonProps }

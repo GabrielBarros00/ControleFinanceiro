@@ -6,7 +6,7 @@ import { Input } from '@/components/ui/input';
 import { MoneyInput } from '@/components/ui/MoneyInput';
 import { Label } from '@/components/ui/label';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
-import { Loader2, CheckCircle2, AlertCircle, SlidersHorizontal, ChevronDown } from 'lucide-react';
+import { CheckCircle2, AlertCircle, SlidersHorizontal, ChevronDown } from 'lucide-react';
 import { useMembers } from '@/hooks/use-members';
 import { useCategories } from '@/hooks/use-categories';
 import { useExchangeRate } from '@/hooks/use-exchange-rate';
@@ -264,8 +264,8 @@ export function TransactionForm({ initialValues, onSubmit, submitLabel, resetOnS
               <CheckCircle2 className="h-4 w-4" /> Salvo com sucesso!
             </div>
           )}
-          <Button type="submit" className="h-11 w-full bg-primary px-8 font-bold text-primary-foreground shadow-lg shadow-primary/20 hover:bg-primary/90 sm:h-9 sm:w-auto sm:min-w-[140px]" disabled={loading}>
-            {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : submitLabel}
+          <Button type="submit" className="h-11 w-full bg-primary px-8 font-bold text-primary-foreground shadow-lg shadow-primary/20 hover:bg-primary/90 sm:h-9 sm:w-auto sm:min-w-[140px]" pending={loading}>
+            {submitLabel}
           </Button>
         </div>
       </form>

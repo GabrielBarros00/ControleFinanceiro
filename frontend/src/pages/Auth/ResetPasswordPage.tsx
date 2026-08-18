@@ -123,7 +123,7 @@ export function ResetPasswordPage() {
               </div>
             </CardContent>
             <CardFooter className="flex flex-col space-y-4 pb-8">
-              <Button type="submit" className="w-full h-11 bg-primary hover:bg-primary/90 text-primary-foreground font-bold shadow-lg shadow-primary/20 transition-all" disabled={loading}>
+              <Button type="submit" className="w-full h-11 bg-primary hover:bg-primary/90 text-primary-foreground font-bold shadow-lg shadow-primary/20 transition-all" pending={loading}>
                 {loading ? "Salvando..." : "Redefinir Senha"}
               </Button>
               <Link to="/login" className="flex items-center justify-center gap-2 text-sm font-medium text-muted-foreground hover:text-foreground transition-colors">

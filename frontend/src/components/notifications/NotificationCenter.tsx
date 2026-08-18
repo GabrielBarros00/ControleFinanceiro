@@ -1,5 +1,6 @@
 import * as React from 'react';
 import { Bell, Check, Loader2, X, Mail } from 'lucide-react';
+import { ActionLink } from '@/components/ui/action-link';
 import { Button } from '@/components/ui/button';
 import { useNotifications, type AppNotification } from '@/hooks/use-notifications';
 import { useUIStore } from '@/stores';
@@ -99,13 +100,12 @@ export function NotificationCenter() {
           <div className="flex items-center justify-between border-b border-border px-4 py-3">
             <p className="text-sm font-bold text-foreground">Notificações</p>
             {unread > 0 && (
-              <button
-                type="button"
+              <ActionLink
                 onClick={() => markAllRead()}
                 className="text-xs font-semibold text-brand hover:underline"
               >
                 Marcar todas como lidas
-              </button>
+              </ActionLink>
             )}
           </div>
 
@@ -165,13 +165,12 @@ export function NotificationCenter() {
                           </div>
                         ) : (
                           !n.read_at && (
-                            <button
-                              type="button"
+                            <ActionLink
                               onClick={() => markRead(n.id)}
                               className="mt-1.5 text-xs font-semibold text-brand hover:underline"
                             >
                               Marcar como lida
-                            </button>
+                            </ActionLink>
                           )
                         )}
                       </div>

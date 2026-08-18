@@ -108,7 +108,7 @@ export function OverviewPage() {
         // usuário não teria como saber que ela não foi calculada (regra ERR-001).
         <ErrorState
           message="Não foi possível carregar a sua visão do mês."
-          onRetry={() => void refetch()}
+          onRetry={() => refetch()}
         />
       ) : (
         <>

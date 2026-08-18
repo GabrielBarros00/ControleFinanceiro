@@ -139,7 +139,7 @@ export function LoginPage() {
             </div>
           </CardContent>
           <CardFooter className="flex flex-col space-y-4 pb-8">
-            <Button type="submit" className="w-full h-11 bg-primary hover:bg-primary/90 text-primary-foreground font-bold shadow-lg shadow-primary/20 transition-all active:scale-[0.98]" disabled={loading}>
+            <Button type="submit" className="w-full h-11 bg-primary hover:bg-primary/90 text-primary-foreground font-bold shadow-lg shadow-primary/20 transition-all active:scale-[0.98]" pending={loading}>
               {loading ? "Autenticando..." : (
                 <span className="flex items-center gap-2">
                   Acessar Conta <ArrowRight className="h-4 w-4" />

@@ -189,7 +189,7 @@ export function GlobalLedgerPage() {
       {isError ? (
         <ErrorState
           message="Não foi possível carregar o extrato."
-          onRetry={() => void refetch()}
+          onRetry={() => refetch()}
         />
       ) : (
       <>

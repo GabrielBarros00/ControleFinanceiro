@@ -9,7 +9,9 @@ import { cn } from '@/lib/utils';
 interface ErrorStateProps {
   title?: string;
   message?: string;
-  onRetry?: () => void;
+  // `unknown`: tentar de novo devolve a promessa do refetch, e é ela que faz o
+  // botão se travar enquanto a segunda tentativa corre.
+  onRetry?: () => unknown;
   className?: string;
 }
 

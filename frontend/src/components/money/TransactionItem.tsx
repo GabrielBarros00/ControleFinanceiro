@@ -1,5 +1,7 @@
-import { Pencil, Trash2 } from 'lucide-react';
+import * as React from 'react';
+import { Loader2, Pencil, Trash2 } from 'lucide-react';
 import type { TransactionRead } from '@/types/transaction';
+import { useAcaoPendente } from '@/hooks/use-acao-pendente';
 import { MoneyText } from './MoneyText';
 import { CategoryGlyph, type CategoryLike } from './CategoryGlyph';
 import { paymentMethodLabel } from '@/lib/payment-methods';
@@ -17,8 +19,12 @@ interface TransactionItemProps {
   category?: CategoryLike | null;
   memberName?: (userId: number) => string;
   canWrite?: boolean;
-  onEdit?: (tx: TransactionRead) => void;
-  onDelete?: (id: number) => void;
+  // `unknown` e não `void`: quem exclui devolve uma promessa, e um retorno
+  // tipado como `void` faz o TypeScript ACEITAR a promessa e o chamador
+  // descartá-la sem aviso — foi assim que a trava de duplo clique não chegava
+  // até aqui.
+  onEdit?: (tx: TransactionRead) => unknown;
+  onDelete?: (id: number) => unknown;
   /** Clicar na linha abre o detalhe/preview do lançamento. */
   onSelect?: (tx: TransactionRead) => void;
 }
@@ -35,6 +41,16 @@ export function TransactionItem({
   onDelete,
   onSelect,
 }: TransactionItemProps) {
+  // Por LINHA, e não por lista: excluir uma transação não pode congelar o botão
+  // das outras. `stopPropagation` primeiro — a linha inteira abre o detalhe no
+  // clique, e sem isso excluir abriria o detalhe do que acabou de sumir.
+  const { disparar: excluir, pendente: excluindo } = useAcaoPendente(
+    (evento: React.MouseEvent) => {
+      evento.stopPropagation();
+      return onDelete?.(tx.id);
+    },
+  );
+
   const amount = parseFloat(tx.total_amount);
   const kind = amount < 0 ? 'income' : 'expense';
   const splits = tx.splits ?? [];
@@ -136,11 +152,12 @@ export function TransactionItem({
             <button
               type="button"
               aria-label="Excluir transação"
-              disabled={!canWrite}
-              onClick={(e) => { e.stopPropagation(); onDelete(tx.id); }}
+              disabled={!canWrite || excluindo}
+              aria-busy={excluindo || undefined}
+              onClick={excluir}
               className="flex h-10 w-10 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive disabled:pointer-events-none disabled:opacity-40 sm:h-7 sm:w-7"
             >
-              <Trash2 className="h-4 w-4" />
+              {excluindo ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
             </button>
           )}
         </div>
