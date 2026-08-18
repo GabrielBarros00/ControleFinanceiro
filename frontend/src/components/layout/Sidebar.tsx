@@ -3,10 +3,11 @@ import { LogOut } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useWorkspaces } from '@/hooks/use-workspaces';
 import { useAuth } from '@/hooks/use-auth';
-import { activeNavPath, navSections } from './nav-items';
+import { activeNavPath, navSections, rotuloDeEspaco } from './nav-items';
 import { ScopeSwitcher } from './ScopeSwitcher';
 import { useIsPlatformAdmin } from '@/hooks/use-admin';
 import { useWorkspaceId } from '@/hooks/use-workspace-id';
+import { useAuthStore } from '@/stores';
 
 function UserMenu() {
   const { user, logout } = useAuth();
@@ -49,13 +50,15 @@ export function Sidebar() {
   // Administração do site (ADR 0026): a seção só existe para quem tem o papel.
   const ehAdminDaPlataforma = useIsPlatformAdmin();
   const { workspaces } = useWorkspaces();
+  // Só para dizer "De você" em vez de repetir o próprio nome (`rotuloDeEspaco`).
+  const usuario = useAuthStore((s) => s.user);
   const espaco = workspaces.find((w) => w.id === workspaceIdAtual);
   // Um item ativo por vez: ver `activeNavPath`. O teste de prefixo por item
   // acendia Painel e Relatórios juntos, porque `/w/1/reports` começa com `/w/1`.
   const ativo = activeNavPath(location.pathname, workspaceIdAtual, ehAdminDaPlataforma);
   const secoes = navSections(workspaceIdAtual, ehAdminDaPlataforma, {
     nome: espaco?.name,
-    membros: espaco?.member_count,
+    hint: rotuloDeEspaco(espaco, usuario?.id),
   });
 
   return (

@@ -4,10 +4,11 @@ import { Plus, MoreHorizontal, LogOut } from 'lucide-react';
 import {
   Dialog, DialogContent, DialogDescription, DialogTitle,
 } from '@/components/ui/dialog';
+import { ActionLink } from '@/components/ui/action-link';
 import { cn } from '@/lib/utils';
-import { activeNavPath, navSections, navFlat, mobilePrimaryPaths, type NavItem } from './nav-items';
+import { activeNavPath, navSections, navFlat, mobilePrimaryPaths, rotuloDeEspaco, type NavItem } from './nav-items';
 import { useWorkspaceId, useWorkspaceIdFromUrl } from '@/hooks/use-workspace-id';
-import { useNewTxStore } from '@/stores';
+import { useAuthStore, useNewTxStore } from '@/stores';
 import { useAuth } from '@/hooks/use-auth';
 import { useIsPlatformAdmin } from '@/hooks/use-admin';
 import { useWorkspaces } from '@/hooks/use-workspaces';
@@ -50,10 +51,12 @@ function MoreSheet({ open, onOpenChange }: { open: boolean; onOpenChange: (v: bo
   const workspaceId = useWorkspaceId();
   const ehAdminDaPlataforma = useIsPlatformAdmin();
   const { workspaces } = useWorkspaces();
+  // Só para dizer "De você" em vez de repetir o próprio nome (`rotuloDeEspaco`).
+  const usuario = useAuthStore((s) => s.user);
   const espaco = workspaces.find((w) => w.id === workspaceId);
   const secoes = navSections(workspaceId, ehAdminDaPlataforma, {
     nome: espaco?.name,
-    membros: espaco?.member_count,
+    hint: rotuloDeEspaco(espaco, usuario?.id),
   });
   const ativo = activeNavPath(location.pathname, workspaceId, ehAdminDaPlataforma);
 
@@ -104,13 +107,12 @@ function MoreSheet({ open, onOpenChange }: { open: boolean; onOpenChange: (v: bo
           ))}
         </div>
 
-        <button
-          type="button"
+        <ActionLink
           onClick={() => logout().finally(() => navigate('/login'))}
           className="flex min-h-12 w-full shrink-0 items-center justify-center gap-2 rounded-xl border border-border text-sm font-medium text-destructive"
         >
           <LogOut className="h-4 w-4" /> Sair da conta
-        </button>
+        </ActionLink>
       </DialogContent>
     </Dialog>
   );

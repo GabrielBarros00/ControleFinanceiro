@@ -33,6 +33,7 @@ import { parseApiDate } from '@/lib/date';
 import type { components } from '@/types/api.gen';
 import { CURRENCIES } from '@/lib/currencies';
 import { PageHeader } from '@/components/layout/PageHeader';
+import { rotuloDeEspaco } from '@/components/layout/nav-items';
 
 type Tab = 'profile' | 'security' | 'members' | 'categories' | 'accounts' | 'appearance' | 'audit' | 'convites';
 
@@ -159,6 +160,10 @@ function ProfileTab() {
                 </div>
                 <div>
                   <p className="text-sm font-bold">{ws.name}</p>
+                  {/* De quem é o espaço, no mesmo formato do seletor de escopo.
+                      A descrição continua vindo depois porque é texto livre de
+                      quem criou — o dono é o dado que identifica. */}
+                  <p className="text-xs text-muted-foreground">{rotuloDeEspaco(ws, user?.id)}</p>
                   {ws.description && <p className="text-xs text-muted-foreground">{ws.description}</p>}
                 </div>
               </div>
@@ -1336,7 +1341,7 @@ function ConvitesDeCadastroTab() {
             placeholder="deixe vazio para gerar só o link"
           />
         </div>
-        <Button type="submit" disabled={convidar.isPending}>Gerar convite</Button>
+        <Button type="submit" pending={convidar.isPending}>Gerar convite</Button>
       </form>
 
       {isLoading && <Skeleton className="h-24 rounded-xl" />}
