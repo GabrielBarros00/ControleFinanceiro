@@ -185,10 +185,20 @@ SMTP_USER=resend
 SMTP_PASSWORD=<API key da Resend>
 SMTP_TLS=True
 EMAIL_FROM=Controle Financeiro <noreply@seudominio.com>
+EMAIL_REPLY_TO=suporte@seudominio.com
 ```
 
 Os registros SPF, DKIM e DMARC ficam no DNS do domínio (por exemplo, na
 Cloudflare); eles não pertencem ao `.env`.
+
+#### Por que preencher `EMAIL_REPLY_TO`
+
+`EMAIL_FROM` aponta para o subdomínio de envio que o provedor verificou, e esse
+subdomínio normalmente **não tem MX**: quem responder ao convite recebe um erro
+de DNS, e você nunca fica sabendo que tentaram falar com você. `EMAIL_REPLY_TO`
+é opcional — vazio omite o cabeçalho —, mas um remetente que não aceita resposta
+também pesa contra você no filtro antispam. Um alias no domínio principal
+(`suporte@seudominio.com`) resolve os dois problemas de uma vez.
 
 #### A porta é descoberta sozinha
 

@@ -322,3 +322,39 @@ def test_smtp_recusa_remetente_ambiguo_ou_injecao_de_header(sender):
             SMTP_PASSWORD="api-key",
             EMAIL_FROM=sender,
         )
+
+
+def test_endereco_de_resposta_e_opcional():
+    """Vazio é o padrão e não pode derrubar o boot de quem não o preencheu."""
+    assert _production_settings().EMAIL_REPLY_TO is None
+
+
+def test_endereco_de_resposta_aceita_nome_de_exibicao():
+    endereco = "Suporte Controle Financeiro <suporte@capamericagod.com>"
+    config = _production_settings(EMAIL_REPLY_TO=endereco)
+    assert config.EMAIL_REPLY_TO == endereco
+
+
+def test_endereco_de_resposta_e_validado_sem_smtp_configurado():
+    """A validação NÃO fica pendurada no `SMTP_HOST`.
+
+    Preencher o campo é opt-in: quem o preencheu quer saber do erro no boot, e
+    não no dia em que o SMTP for ligado e o primeiro convite sair com um
+    cabeçalho quebrado.
+    """
+    with pytest.raises(ValueError, match="EMAIL_REPLY_TO inválido"):
+        _production_settings(EMAIL_REPLY_TO="não é um endereço")
+
+
+@pytest.mark.parametrize(
+    "endereco",
+    [
+        "primeiro@example.com, segundo@example.com",
+        "Equipe: suporte@example.com;",
+        "Suporte <suporte@example.com>\r\nBcc: atacante@example.com",
+    ],
+)
+def test_endereco_de_resposta_recusa_ambiguidade_ou_injecao(endereco):
+    """A MESMA peneira do `EMAIL_FROM` — os dois vão para dentro de um cabeçalho."""
+    with pytest.raises(ValueError, match="EMAIL_REPLY_TO inválido"):
+        _production_settings(EMAIL_REPLY_TO=endereco)

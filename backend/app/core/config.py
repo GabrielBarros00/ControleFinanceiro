@@ -8,6 +8,43 @@ from pydantic import model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
+def _endereco_unico(valor: str, *, cabecalho: str, campo: str) -> str:
+    """Valida um endereço destinado a um cabeçalho e o devolve normalizado.
+
+    `EMAIL_FROM` e `EMAIL_REPLY_TO` correm exatamente o mesmo risco e por isso
+    passam pela mesma peneira: os dois vão para dentro de um cabeçalho da
+    mensagem, e um `\\r\\n` no meio de qualquer um deles acrescenta cabeçalhos
+    que ninguém escreveu — um `Bcc:` para o atacante, tipicamente. Dois
+    endereços ou um grupo (`Equipe: a@x, b@y;`) também não servem: o provedor
+    recusa, ou pior, entrega para quem não devia.
+    """
+    endereco = valor.strip()
+    try:
+        if "\r" in endereco or "\n" in endereco:
+            raise ValueError("quebras de linha não são permitidas")
+
+        header = HeaderRegistry()(cabecalho, endereco)
+        if header.defects:
+            raise ValueError(str(header.defects[0]))
+        if len(header.addresses) != 1:
+            raise ValueError("informe exatamente um endereço")
+        if any(group.display_name is not None for group in header.groups):
+            raise ValueError("grupos de endereços não são permitidos")
+
+        from email_validator import EmailNotValidError, validate_email
+
+        try:
+            validate_email(
+                header.addresses[0].addr_spec,
+                check_deliverability=False,
+            )
+        except EmailNotValidError as exc:
+            raise ValueError(str(exc)) from exc
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"{campo} inválido: {valor!r} ({exc})") from exc
+    return endereco
+
+
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
         env_file=".env",
@@ -59,6 +96,10 @@ class Settings(BaseSettings):
     GOOGLE_REDIRECT_URI: Optional[str] = None
 
     EMAIL_FROM: Optional[str] = None
+    # Para onde vai a resposta de quem aperta "responder". O `EMAIL_FROM` é um
+    # `noreply@` num subdomínio de envio que não tem MX: resposta a ele morre no
+    # DNS, e o destinatário nunca fica sabendo. Vazio omite o cabeçalho.
+    EMAIL_REPLY_TO: Optional[str] = None
     SMTP_HOST: Optional[str] = None
     SMTP_PORT: int = 587
     SMTP_USER: Optional[str] = None
@@ -264,33 +305,17 @@ class Settings(BaseSettings):
             # modo pelo que o servidor anuncia. A recusa que existia neste ponto
             # rejeitava justamente as portas alternativas que um VPS com saída
             # bloqueada precisa usar.
-            sender = self.EMAIL_FROM.strip()
-            try:
-                if "\r" in sender or "\n" in sender:
-                    raise ValueError("quebras de linha não são permitidas")
+            self.EMAIL_FROM = _endereco_unico(
+                self.EMAIL_FROM, cabecalho="From", campo="EMAIL_FROM"
+            )
 
-                header = HeaderRegistry()("From", sender)
-                if header.defects:
-                    raise ValueError(str(header.defects[0]))
-                if len(header.addresses) != 1:
-                    raise ValueError("informe exatamente um remetente")
-                if any(group.display_name is not None for group in header.groups):
-                    raise ValueError("grupos de endereços não são permitidos")
-
-                from email_validator import EmailNotValidError, validate_email
-
-                try:
-                    validate_email(
-                        header.addresses[0].addr_spec,
-                        check_deliverability=False,
-                    )
-                except EmailNotValidError as exc:
-                    raise ValueError(str(exc)) from exc
-            except (TypeError, ValueError) as exc:
-                raise ValueError(
-                    f"EMAIL_FROM inválido: {self.EMAIL_FROM!r} ({exc})"
-                ) from exc
-            self.EMAIL_FROM = sender
+        # Fora do `if SMTP_HOST`: preencher o endereço de resposta é opt-in, e
+        # quem o preencheu quer saber do erro no boot — não meses depois, quando
+        # o primeiro convite sair com um cabeçalho quebrado.
+        if self.EMAIL_REPLY_TO:
+            self.EMAIL_REPLY_TO = _endereco_unico(
+                self.EMAIL_REPLY_TO, cabecalho="Reply-To", campo="EMAIL_REPLY_TO"
+            )
         return self
 
     @model_validator(mode="after")

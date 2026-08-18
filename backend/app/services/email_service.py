@@ -4,13 +4,30 @@ from email.utils import formatdate, make_msgid, parseaddr
 from typing import Optional
 
 from app.core.config import settings
-from app.services import smtp_transport
+from app.services import email_templates, smtp_transport
 from app.services.smtp_transport import Endpoint
 
 logger = logging.getLogger("app.email")
 
 
-def _monta(remetente: str, to: str, subject: str, body: str) -> EmailMessage:
+def _uma_linha(valor: str) -> str:
+    """Tira CR e LF de um valor que vai para dentro de um cabeçalho.
+
+    `Subject` recebe nome de workspace e nome de quem convidou — dado que o
+    usuário escolhe. Um `\\r\\n` no meio deles acrescenta cabeçalhos que ninguém
+    escreveu, e o `Bcc:` de um atacante é o exemplo clássico. `EMAIL_FROM` já
+    tinha essa defesa declarada no `config.py`; estes campos não tinham nenhuma.
+    """
+    return valor.replace("\r", " ").replace("\n", " ").strip()
+
+
+def _monta(
+    remetente: str,
+    to: str,
+    subject: str,
+    body: str,
+    html: Optional[str] = None,
+) -> EmailMessage:
     """Monta a mensagem com o que um e-mail legítimo tem — e o nosso não tinha.
 
     A mensagem que este serviço entregava saía com SEIS cabeçalhos: From, To,
@@ -25,18 +42,45 @@ def _monta(remetente: str, to: str, subject: str, body: str) -> EmailMessage:
     `make_msgid` é o hostname da máquina, que dentro de um container é o ID
     aleatório do Docker — `<...@3f2a9c1b4d5e>`. Um Message-ID que não casa com
     domínio nenhum é, por si, sinal de robô mal configurado.
+
+    Faltavam ainda três coisas que só apareceram na segunda rodada:
+
+    - **`Reply-To`.** O `From` é um `noreply@` num subdomínio de envio sem MX;
+      quem responde recebe um erro de DNS, e nós nunca ficamos sabendo que
+      alguém tentou falar conosco.
+    - **`Auto-Submitted` (RFC 3834) e `X-Auto-Response-Suppress`.** Dizem que a
+      mensagem é de sistema. Sem eles, a resposta automática de férias de quem
+      recebeu volta para um endereço que não existe, e cada ciclo desses gasta
+      reputação do domínio. O segundo cabeçalho é lido pelo Outlook.
+    - **Uma parte HTML.** `text/plain` puro com uma URL de token solta no corpo
+      é a forma de um phishing; nenhum produto transacional real manda assim.
+
+    `List-Unsubscribe` ficou DE FORA de propósito: ele é de mala direta, e estas
+    mensagens são transacionais — reset de senha e convite que alguém pediu. As
+    regras de bulk sender do Gmail e do Yahoo as isentam, e oferecer descadastro
+    num "redefinir sua senha" sinaliza marketing ao classificador.
     """
     msg = EmailMessage()
     msg["From"] = remetente
-    msg["To"] = to
-    msg["Subject"] = subject
+    msg["To"] = _uma_linha(to)
+    msg["Subject"] = _uma_linha(subject)
     msg["Date"] = formatdate(localtime=True)
     msg["Message-ID"] = make_msgid(domain=parseaddr(remetente)[1].rpartition("@")[2] or None)
+    if settings.EMAIL_REPLY_TO:
+        msg["Reply-To"] = settings.EMAIL_REPLY_TO
+    msg["Auto-Submitted"] = "auto-generated"
+    msg["X-Auto-Response-Suppress"] = "OOF, AutoReply"
     # `quoted-printable`, e não o base64 que o `set_content` escolhe sozinho para
     # texto com acento: o corpo continua legível no fonte da mensagem, como o de
     # qualquer cliente de e-mail de verdade. Base64 num texto curto é exatamente
     # o formato de quem tem algo a esconder do classificador.
     msg.set_content(body, cte="quoted-printable")
+    if html is not None:
+        # O `cte` vale para as DUAS partes. Sem ele aqui, a parte HTML — que tem
+        # acento como qualquer outra — volta a sair em base64 e reintroduz
+        # exatamente o defeito que a rodada anterior corrigiu, só que na metade
+        # da mensagem que ninguém pensa em conferir.
+        msg.add_alternative(html, subtype="html", cte="quoted-printable")
     return msg
 
 
@@ -58,6 +102,7 @@ class EmailService:
         body: str,
         raise_on_error: bool = False,
         *,
+        html: Optional[str] = None,
         redescobrir_rota: bool = False,
     ) -> Optional[Endpoint]:
         """Envia um e-mail e devolve por qual rota ele saiu (ou `None`).
@@ -84,6 +129,7 @@ class EmailService:
             to,
             subject,
             body,
+            html,
         )
 
         try:
@@ -96,24 +142,26 @@ class EmailService:
 
     @staticmethod
     def send_password_reset(to: str, reset_link: str) -> None:
+        texto, html = email_templates.recuperacao_de_senha(
+            reset_link, settings.RESET_TOKEN_EXPIRES_MINUTES
+        )
         EmailService.send(
             to,
             "Recuperação de senha — Controle Financeiro",
-            "Olá,\n\n"
-            "Recebemos um pedido para redefinir a sua senha.\n"
-            f"Acesse o link abaixo (válido por {settings.RESET_TOKEN_EXPIRES_MINUTES} minutos):\n\n"
-            f"{reset_link}\n\n"
-            "Se você não pediu a redefinição, ignore este email.\n",
+            texto,
+            html=html,
         )
 
     @staticmethod
     def send_workspace_invite(to: str, workspace_name: str, invited_by: str, accept_link: str) -> None:
+        texto, html = email_templates.convite_de_workspace(
+            workspace_name, invited_by, accept_link
+        )
         EmailService.send(
             to,
             f"Convite para o workspace \"{workspace_name}\"",
-            f"Olá,\n\n{invited_by} convidou você para participar do workspace "
-            f"\"{workspace_name}\" no Controle Financeiro.\n\n"
-            f"Acesse: {accept_link}\n",
+            texto,
+            html=html,
         )
 
     @staticmethod
@@ -126,10 +174,10 @@ class EmailService:
         mensagem nos dois faria alguém aceitar esperando ver as finanças da
         família e cair num espaço vazio — ou o contrário.
         """
+        texto, html = email_templates.convite_de_cadastro(invited_by, register_link)
         EmailService.send(
             to,
             "Convite para o Controle Financeiro",
-            f"Olá,\n\n{invited_by} convidou você para usar o Controle Financeiro.\n\n"
-            f"Crie sua conta em: {register_link}\n\n"
-            "O link é pessoal e tem prazo de validade.\n",
+            texto,
+            html=html,
         )

@@ -11,6 +11,74 @@ segue [SemVer](https://semver.org/lang/pt-BR/).
 
 ## [Não lançado]
 
+### O e-mail bem formado continuou no spam — o que sobrou depois da forma
+
+A rodada anterior corrigiu a forma da mensagem (`Date`, `Message-ID`, o corpo em
+base64), foi para produção, e **os convites continuaram caindo no spam**. Vale
+registrar o que a segunda investigação descartou, porque descartar custa tempo:
+
+**O DNS está certo, e estes são os valores** — DKIM em
+`resend._domainkey.notify`, SPF do envelope em `send.notify`
+(`include:amazonses.com`, e não em `notify.`, que é o engano fácil), MX de
+retorno em `feedback-smtp.sa-east-1.amazonses.com`, DMARC alinhando pelo domínio
+organizacional. Autenticação inteira passando, de novo.
+
+Sobraram três coisas, e nenhuma delas é a forma da mensagem:
+
+1. **DMARC em `p=none`.** Nenhuma política aplicada. O filtro da Microsoft dá
+   peso real a um domínio que se compromete com a própria autenticação, e é
+   reputação que se compra de graça.
+2. **O subdomínio de envio não tem MX nem A.** O `noreply@notify.…` é um buraco
+   negro: responder a ele falha no DNS, e vários filtros checam se o domínio do
+   remetente aceita alguma mensagem de volta.
+3. **A forma do CORPO**, que é o que esta entrega resolve, abaixo.
+
+### O e-mail deixa de ter a forma de um phishing
+
+Mesmo bem formada, a mensagem era `text/plain` pura com uma URL de token solta
+no meio do corpo. Essa é, literalmente, a forma de um phishing: texto curto, sem
+identidade visual, e um link opaco pedindo que você clique. Nenhum produto
+transacional real manda assim.
+
+Agora toda mensagem sai como **`multipart/alternative`**, com as duas partes
+geradas da MESMA chamada (`email_templates.corpo()`) — escrever os dois lados à
+mão é como nasce o `MPART_ALT_DIFF`, a regra que pune quem mostra uma coisa a
+quem lê HTML e outra a quem lê texto. O HTML **não pede nada a servidor nenhum**:
+sem logo remoto, sem webfont, sem pixel de rastreio. O Outlook bloqueia imagem
+externa por padrão, e o pedido a um terceiro no momento da leitura é sinal
+negativo por si só. O botão é uma célula de tabela com `bgcolor`, e não um `<a>`
+com `padding`, porque o Outlook para Windows renderiza com o motor do Word e
+ignora `padding` em elemento inline. A URL completa aparece abaixo do botão como
+link cujo texto visível é o próprio endereço — nenhuma âncora exibe um destino
+diferente do que carrega.
+
+Três cabeçalhos entraram junto:
+
+- **`Reply-To`** (`EMAIL_REPLY_TO`, opcional; vazio omite o cabeçalho). Sem ele,
+  quem responde a um convite fala com um endereço que não existe;
+- **`Auto-Submitted: auto-generated`** (RFC 3834) e **`X-Auto-Response-Suppress`**,
+  que impedem a resposta automática de férias de voltar para o `noreply@`. Cada
+  ciclo desses é um bounce, e bounce gasta a reputação que este trabalho todo
+  persegue.
+
+**`List-Unsubscribe` ficou de fora de propósito.** Ele é de mala direta; estas
+mensagens são transacionais, as regras de bulk sender do Gmail e do Yahoo as
+isentam, e oferecer descadastro num "redefinir sua senha" sinaliza marketing ao
+classificador.
+
+`EMAIL_REPLY_TO` passa pela **mesma peneira** do `EMAIL_FROM` — o bloco virou o
+helper `_endereco_unico` —, e `Subject` deixou de receber dado do usuário cru:
+nome de espaço e nome de quem convida são escolhidos por quem usa, e um `\r\n`
+no meio deles acrescentava cabeçalhos que ninguém escreveu. `EMAIL_FROM` era o
+único campo com essa defesa declarada.
+
+Sobre o `cte="quoted-printable"` das duas partes: ele é para o texto que ainda
+vai ser escrito. Sem ele o `set_content` decide por heurística, e a decisão muda
+com a proporção de acentos do corpo — pouco acento vira `quoted-printable`,
+corpo muito acentuado vira `base64`. As mensagens de hoje caem no lado bom por
+sorte, e alguém reescrevendo uma frase amanhã não deveria mudar a pasta em que o
+e-mail cai.
+
 ### O celular ganha um app — e o app passa a dizer o que é seu e o que é do grupo
 
 No celular faltavam duas coisas que não são detalhe: **saber onde você está** e
