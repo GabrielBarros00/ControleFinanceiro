@@ -11,6 +11,152 @@ segue [SemVer](https://semver.org/lang/pt-BR/).
 
 ## [Não lançado]
 
+### O espaço que ninguém podia apagar
+
+Havia duas respostas para "de quem é este espaço", e nada as mantinha juntas: a
+API **exibia** `created_by_user_id` (quem criou) enquanto quem **autoriza** é a
+membership com papel `owner`. Coincidiam por construção no instante da criação e
+por mais nenhum motivo.
+
+Elas não divergiam na prática só porque a propriedade era um estado terminal: a
+API recusa promover a `owner`, recusa alterar o papel de quem já é, recusa
+removê-lo e recusa que ele saia. Somado a um `admin.py` que sequer importava
+`Workspace`, desativar o dono produzia um espaço **permanentemente indelével** —
+a única conta que poderia apagá-lo deixava de autenticar, ninguém podia herdar o
+papel, e os dados seguiam vivos para os demais membros sem uma pessoa
+responsável por eles.
+
+Agora o dono sai da membership, que é a mesma linha que manda. `created_by_user_id`
+fica como registro histórico e não é reescrito nem pela transferência: quem criou
+continua tendo criado. Existe `POST .../members/{id}/transfer-ownership` — o alvo
+vira dono, o antigo vira `admin` (perde o poder terminal, não o espaço) — e o
+administrador de plataforma passa a receber **409** ao tentar desativar ou
+remover quem ainda é dono de algo, com o nome do espaço e o caminho na mensagem.
+
+A troca dos papéis é um `UPDATE ... WHERE role='owner'` com checagem de linhas
+afetadas, não uma atribuição no ORM: duas transferências simultâneas do mesmo
+dono liam ambas "sou owner" e produziriam **dois** donos.
+
+E `member_count` parou de contar fantasmas: conta desativada ou excluída não é
+uma das "3 pessoas" que a tela promete. O dono é a exceção deliberada — ele
+aparece mesmo inativo, porque "de quem é" precisa de resposta, mas não entra na
+contagem. Ver [ADR 0028](docs/adr/0028-propriedade-do-espaco-e-transferencia.md).
+
+### O seletor que não dizia de quem era o espaço
+
+`owner_name` viajava na resposta desde que o seletor existe e **nenhuma tela o
+lia**: a lista dizia só "3 pessoas". Quem participa de dois espaços de nome
+parecido não tinha como saber qual é o da Ana. Agora o rótulo é `De Ana Souza ·
+3 pessoas`, ou `De você · só você` quando o espaço é seu — no seletor, na barra
+lateral, na gaveta do celular e na lista de Configurações. Sem `owner_name`
+(resposta antiga em cache), cai no rótulo de antes; nunca "De undefined".
+
+### Um backend que pisca não expulsa mais ninguém do espaço
+
+`useWorkspaces` devolvia `data ?? []`, e o `WorkspaceGuard` decidia olhando só o
+tamanho da lista. Falha de rede chegava lá **indistinguível** de uma resposta
+legítima vazia: a pessoa era levada para `/overview` com `replace`, sem mensagem
+e sem o botão "voltar" desfazer. O hook passa a expor `isError`/`refetch` e o
+guard mostra o erro com "tentar novamente" — só redireciona depois de uma
+resposta que carregou. O arquivo não tinha teste nenhum; agora tem cinco.
+
+### A importação que sumia quando o WebSocket não conectava
+
+`use-imports.ts` era o **único** dos 19 hooks de mutação sem invalidação local —
+dependia do evento voltar pela rede, contrariando a regra escrita em
+`lib/ws-events.ts` ("sem depender da volta do evento pela rede"). Com o socket
+bloqueado por infra ou ainda em backoff, a pessoa importava o extrato inteiro,
+caía no Início e via os números de antes, sem nenhum sinal de que faltava algo.
+
+### Toda rota passou a dizer o que devolve
+
+Trinta e oito rotas respondiam um objeto sem forma declarada — nove com
+`Dict[str, Any]`, o resto sem `response_model` nenhum, o que é pior: o
+`api.gen.ts` recebia `unknown` puro. O frontend preenchia o vazio com interfaces
+escritas à mão, e elas divergiam em silêncio — `use-monthly-debts.ts` dizia
+`amount: number`, `DebtsPage.tsx` dizia `amount: string`, para o mesmo campo da
+mesma entidade.
+
+Agora todas têm schema, e `tests/api/test_openapi_sem_resposta_crua.py` reprova
+qualquer nova — **sem allowlist**, porque uma exceção "temporária" é exatamente
+como as nove nasceram. Ficam de fora só as três que não devolvem JSON: o
+download de anexo e os dois redirecionamentos de OAuth.
+
+Tipar já cobrou o que devia: as mutações de lançamento — o núcleo do app —
+mandavam `Record<string, unknown>`, sem checagem alguma sobre o corpo; e um teste
+de `/debts` afirmava sobre `{id, title, total_amount}`, a forma de um
+*financiamento*, numa rota que sempre devolveu `{debtor_id, creditor_id, amount}`.
+Passava porque não havia contrato com que divergir.
+
+### Documentação que dizia o contrário do repositório
+
+O README do estudo de redesign afirmava "**Nada aqui foi implementado**" enquanto
+o roadmap ao lado registrava "Fases 0–5 implementadas e em produção", com 29 de
+36 caixas marcadas e os artefatos em disco. Quem lesse o índice primeiro concluía
+que o frontend inteiro estava por fazer — e o risco concreto era reimplementar o
+que já existe. O README agora separa proposto, implementado e pendente, e aponta
+o roadmap como fonte da verdade. Junto, o drift do próprio roadmap: ele falava em
+Tailwind v3 e em estender `tailwind.config.js`, num projeto que está na v4, onde
+esse arquivo não existe.
+
+Também saíram cinco pacotes `@radix-ui/*` sem um único import (`avatar`, `label`,
+`radio-group`, `scroll-area`, `select`) — instalados, auditados e enviados ao
+bundler sem consumidor. Os três em uso ficam; a consolidação Base UI × Radix
+segue diferida, como o roadmap já registrava.
+
+### O botão que não dizia nada — e mandava dois convites
+
+"Convidar" não dava sinal nenhum entre o clique e a resposta. Parecia que o
+clique não tinha pego, a pessoa clicava de novo, e saíam dois convites.
+
+**A causa não era aquele botão.** Os 19 hooks devolviam apenas o `mutateAsync`
+de cada uma das 61 mutações e jogavam fora o `isPending` — a informação não
+cruzava a fronteira do hook. Nenhum dos 149 botões do app tinha como saber que
+havia ação em voo, mesmo que quisesse. Quatorze telas contornavam isso com um
+`useState(false)` chamado `saving` ou `loading`, cada uma à sua maneira; o resto
+não contornava.
+
+Consertar botão a botão trataria os de hoje e deixaria o próximo nascer com o
+mesmo defeito. **A trava passou a morar no `Button`**, por onde todos passam:
+se o `onClick` devolve uma promessa, o botão se desabilita e mostra um spinner
+até ela ASSENTAR — resolvida ou rejeitada. Rejeição que não destravasse deixaria
+o botão morto até a próxima navegação, que é pior que o problema original. A
+promessa segue para quem chamou; se o `Button` a engolisse, o `catch` que
+levanta o toast de erro pararia de rodar.
+
+São **duas** travas, e não uma. O `disabled` só vale depois do re-render; dois
+cliques rápidos caem no mesmo ciclo do React e o segundo chega antes disso. A
+trava por `ref` cobre essa janela.
+
+O spinner é o aviso de "está acontecendo", e não um toast: um toast por ação
+viraria ruído numa tela em que se apaga cinco lançamentos seguidos, e ainda
+apareceria longe do dedo que clicou.
+
+**O que o ponto único não alcança**, e foi tratado à mão:
+
+- **`type="submit"`** — quem submete é o `<form>`, então o clique não roda
+  handler nenhum que devolva promessa. Os nove ganharam `pending` explícito
+  (`isSubmitting` do react-hook-form, ou o `isPending` da mutação). Dois estavam
+  de fato desprotegidos: salvar recorrência e buscar pessoa no Admin.
+- **Gatilhos que não podem virar `Button`** — "Marcar todas como lidas", "Sair
+  da conta", o nome do anexo: `<button>` crus com estilo de link, que viram
+  `<Button variant="link">` ao custo de quebrar a linha. Nasceu o `ActionLink`,
+  que compartilha o COMPORTAMENTO (via `useAcaoPendente`) sem a aparência.
+- **Excluir no extrato** trava a LINHA, não a lista — congelar todas faria uma
+  exclusão lenta parecer a tela travada.
+
+Uma armadilha de tipo, que é como a trava sumia sem ninguém ver: props escritas
+como `onDelete?: () => void`. Um retorno `void` faz o TypeScript **aceitar** uma
+promessa e o chamador descartá-la em silêncio. Onde o callback pode ser
+assíncrono, o tipo virou `() => unknown`. Dois `onRetry={() => void refetch()}`
+perderam o `void` pelo mesmo motivo.
+
+Fecha com um **gate que lê os fontes**: nenhum `<Button type="submit">` pode
+existir sem `pending`. É o único caminho que o ponto único não enxerga, é o
+detalhe que ninguém lembra na próxima tela, e nenhum teste de comportamento o
+pega — o formulário funciona, salva certo, e só falha quando alguém clica duas
+vezes rápido.
+
 ### O e-mail bem formado continuou no spam — o que sobrou depois da forma
 
 A rodada anterior corrigiu a forma da mensagem (`Date`, `Message-ID`, o corpo em
