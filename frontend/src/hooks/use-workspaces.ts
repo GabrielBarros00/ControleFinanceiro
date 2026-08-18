@@ -95,6 +95,13 @@ export function useWorkspaces() {
   return {
     workspaces: listQuery.data ?? [],
     isLoading: listQuery.isLoading,
+    // Falha de rede PRECISA ser distinguível de "não participo de espaço nenhum".
+    // O `?? []` acima transforma erro em lista vazia, e quem só olhasse
+    // `workspaces.length` concluía "sem acesso" — foi assim que o `WorkspaceGuard`
+    // passou a ejetar para /overview quando o backend estava fora do ar.
+    isError: listQuery.isError,
+    error: listQuery.error,
+    refetch: listQuery.refetch,
     currentWorkspaceId,
     currentWorkspace: (listQuery.data ?? []).find((w) => w.id === currentWorkspaceId) ?? null,
     switchWorkspace,
