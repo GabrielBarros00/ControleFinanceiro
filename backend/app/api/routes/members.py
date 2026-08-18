@@ -1,16 +1,18 @@
 from datetime import datetime, timedelta, UTC
 from typing import List
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy import or_, update
 from sqlmodel import Session, select
 
+from app.schemas.common import InviteAcceptedRead, StatusRead
 from app.api.deps import get_workspace_membership, require_role
 from app.api.routes.auth import get_current_user
 from app.core.config import settings
 from app.db.session import get_session
 from app.domain.access_policy import effective_access
 from app.domain.query_policy import workspace_base_currency
+from app.models.audit import ActionType
 from app.models.recurring import RecurringExpense
 from app.models.user import User
 from app.models.workspace import (
@@ -30,7 +32,9 @@ from app.schemas.workspace import (
     InviteRead,
     InviteLinkRead,
     InviteInfoRead,
+    InviteSentRead,
 )
+from app.services.audit_service import AuditService
 from app.services.debt_service import DebtService
 from app.services.email_service import EmailService
 from app.services.event_service import publish_event
@@ -235,7 +239,7 @@ def update_member_role(
     return _member_read(target, user)
 
 
-@router.delete("/members/{user_id}")
+@router.delete("/members/{user_id}", response_model=StatusRead)
 def remove_member(
     workspace_id: int,
     user_id: int,
@@ -266,7 +270,104 @@ def remove_member(
     return {"status": "ok"}
 
 
-@router.post("/leave")
+@router.post("/members/{user_id}/transfer-ownership", response_model=MemberRead)
+def transfer_ownership(
+    workspace_id: int,
+    user_id: int,
+    request: Request,
+    session: Session = Depends(get_session),
+    actor: WorkspaceMembership = Depends(require_role(WorkspaceRole.owner)),
+):
+    """Passa a propriedade do espaço a outro membro (ADR 0028).
+
+    Existe porque a propriedade era um estado TERMINAL: a API recusa promover a
+    owner, recusa alterar o papel de quem já é, recusa removê-lo e recusa que ele
+    saia. Sem esta rota, desativar o dono deixava um espaço que ninguém podia
+    apagar nem herdar — os dados seguiam vivos para os demais membros sem uma
+    pessoa responsável por eles.
+
+    O antigo dono vira `admin`: não perde o espaço, perde o poder terminal sobre
+    ele. Quem CRIOU (`created_by_user_id`) não é reescrito.
+    """
+    if user_id == actor.user_id:
+        raise HTTPException(status_code=400, detail="Você já é o dono deste espaço")
+
+    target = find_membership(session, workspace_id, user_id)
+    if not target:
+        raise HTTPException(status_code=404, detail="Membro não encontrado")
+
+    # Alvo inativo recriaria exatamente o problema que esta rota resolve: um
+    # espaço cujo dono não consegue autenticar. `auth.py` recusa sessão de conta
+    # inativa ou excluída, então a transferência seria para um dono impossível.
+    novo_dono = session.get(User, user_id)
+    if not novo_dono or not novo_dono.is_active or novo_dono.deleted_at is not None:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "Só é possível transferir a propriedade para um membro com conta "
+                "ativa — senão o espaço fica com um dono que não consegue entrar."
+            ),
+        )
+
+    antes = {"dono": actor.user_id, "novo_dono_papel": str(target.role)}
+    agora = datetime.now(UTC)
+
+    # Rebaixar o dono ANTES de promover, por UPDATE condicional: é o que impede
+    # duas transferências simultâneas do MESMO dono (A→B e A→C) de produzirem
+    # dois owners. Sequencialmente as duas estão certas; sob concorrência as duas
+    # leem `actor.role == owner` e as duas passam. O `WHERE role='owner'` só casa
+    # uma vez, e a perdedora vê rowcount 0.
+    #
+    # Via Core de propósito (como `db/locks.py`): não passa pelos mapper events,
+    # então a trilha fica com a linha EXPLÍCITA de transferência lá embaixo em vez
+    # de dois updates soltos de membership.
+    rebaixou = session.execute(
+        update(WorkspaceMembership)
+        .where(
+            WorkspaceMembership.id == actor.id,
+            WorkspaceMembership.role == WorkspaceRole.owner.value,
+        )
+        .values(role=WorkspaceRole.admin.value, updated_at=agora)
+    ).rowcount
+    if rebaixou != 1:
+        raise HTTPException(
+            status_code=409,
+            detail="A propriedade deste espaço acabou de ser transferida por outra ação.",
+        )
+
+    target.role = WorkspaceRole.owner
+    # O owner sempre tem visão completa da casa pelo cargo (ADR 0018); gravar o
+    # valor deixa a linha coerente com o que `effective_access` já devolveria.
+    target.financial_access = FinancialAccess.full_workspace
+    target.updated_at = agora
+    session.add(target)
+
+    # `member.updated` está em FULL_RESYNC_TYPES no cliente: mudar quem manda muda
+    # o que o servidor devolve em TODA consulta, e resincronizar por inteiro é a
+    # resposta certa. Reusar o tipo evita mexer no contrato que o pytest verifica.
+    publish_event(session, workspace_id, "member.updated", "member", user_id, actor.user_id)
+    session.commit()
+    session.refresh(target)
+
+    # Trilha EXPLÍCITA além do listener automático de mapper: os dois updates de
+    # membership entram na trilha como linhas soltas, e reconstruir "houve
+    # transferência" a partir delas depende de ler duas linhas na ordem certa.
+    # Esta é a mudança de poder mais consequente que existe dentro de um espaço.
+    AuditService.log_action(
+        session,
+        action=ActionType.update,
+        user_id=actor.user_id,
+        resource_type="WorkspaceOwnership",
+        resource_id=workspace_id,
+        old_values=antes,
+        new_values={"dono": user_id, "antigo_dono_papel": WorkspaceRole.admin.value},
+        ip_address=request.client.host if request.client else None,
+        user_agent=request.headers.get("user-agent"),
+    )
+    return _member_read(target, novo_dono)
+
+
+@router.post("/leave", response_model=StatusRead)
 def leave_workspace(
     workspace_id: int,
     session: Session = Depends(get_session),
@@ -275,7 +376,10 @@ def leave_workspace(
     if membership.role == WorkspaceRole.owner:
         raise HTTPException(
             status_code=400,
-            detail="O owner não pode sair do próprio workspace. Exclua o workspace."
+            detail=(
+                "O dono não pode sair do próprio espaço. Transfira a propriedade "
+                "para outro membro antes de sair, ou exclua o espaço."
+            ),
         )
     _ensure_no_open_balance(session, workspace_id, membership.user_id)
     _ensure_no_active_recurring(session, workspace_id, membership.user_id)
@@ -287,7 +391,7 @@ def leave_workspace(
 
 # --- Convites ---
 
-@router.post("/invites")
+@router.post("/invites", response_model=InviteSentRead)
 def create_invite(
     workspace_id: int,
     data: InviteCreate,
@@ -436,7 +540,7 @@ def list_invites(
     return invites
 
 
-@router.delete("/invites/{invite_id}")
+@router.delete("/invites/{invite_id}", response_model=StatusRead)
 def revoke_invite(
     workspace_id: int,
     invite_id: int,
@@ -523,7 +627,7 @@ def invite_info(
     )
 
 
-@invites_router.post("/accept/{token}")
+@invites_router.post("/accept/{token}", response_model=InviteAcceptedRead)
 def accept_invite(
     token: str,
     session: Session = Depends(get_session),
@@ -599,7 +703,7 @@ def accept_invite(
     return {"status": "ok", "workspace_id": invite.workspace_id}
 
 
-@invites_router.post("/decline/{token}")
+@invites_router.post("/decline/{token}", response_model=StatusRead)
 def decline_invite(
     token: str,
     session: Session = Depends(get_session),

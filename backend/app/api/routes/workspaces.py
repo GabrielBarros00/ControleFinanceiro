@@ -4,6 +4,7 @@ from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException
 from sqlmodel import Session, select, func
 
+from app.schemas.common import StatusRead
 from app.db.session import get_session
 from app.models.user import User
 from app.models.workspace import (
@@ -50,7 +51,9 @@ def _tambem_sem_barra(metodo: str, **kwargs):
 
 
 def _build_read(
-    workspace: Workspace, owner_name: Optional[str], member_count: int
+    workspace: Workspace,
+    owner: Optional[tuple[int, str]],
+    member_count: int,
 ) -> WorkspaceRead:
     return WorkspaceRead(
         id=workspace.id,
@@ -59,25 +62,58 @@ def _build_read(
         base_currency=workspace.base_currency,
         created_at=workspace.created_at,
         updated_at=workspace.updated_at,
-        owner_user_id=workspace.created_by_user_id,
-        owner_name=owner_name,
+        owner_user_id=owner[0] if owner else None,
+        owner_name=owner[1] if owner else None,
         member_count=member_count,
     )
 
 
-def _to_read(session: Session, workspace: Workspace) -> WorkspaceRead:
-    """Enriquece o workspace com o dono (created_by) e o total de membros, para
-    o switcher mostrar de quem é o workspace quando compartilhado."""
-    owner_name = None
-    if workspace.created_by_user_id:
-        owner = session.get(User, workspace.created_by_user_id)
-        owner_name = owner.name if owner else None
-    member_count = session.exec(
-        select(func.count(WorkspaceMembership.id)).where(
-            WorkspaceMembership.workspace_id == workspace.id
+# O dono sai da MEMBERSHIP `owner`, não de `created_by_user_id` (ADR 0028).
+#
+# Eram duas respostas para "de quem é este espaço": esta rota exibia quem criou,
+# enquanto quem AUTORIZA (excluir o workspace, ser imune a rebaixamento) é o papel
+# na membership. Coincidiam por construção no instante da criação e por mais nada —
+# e desde que a propriedade passou a se transferir, quem criou pode não ser mais
+# dono. `created_by_user_id` continua na tabela como registro histórico.
+#
+# Sem membership `owner` a resposta é `None`, e não o criador: cair no criador
+# seria reintroduzir em silêncio exatamente a divergência que este ADR fecha.
+def _owner_expr():
+    return (
+        select(
+            WorkspaceMembership.workspace_id,
+            User.id,
+            User.name,
         )
-    ).one()
-    return _build_read(workspace, owner_name, member_count)
+        .join(User, User.id == WorkspaceMembership.user_id)
+        .where(WorkspaceMembership.role == WorkspaceRole.owner.value)
+    )
+
+
+# `member_count` conta só quem PODE estar nisto: conta desativada ou soft-deletada
+# não é uma das "3 pessoas" que a interface promete. O dono é exceção deliberada
+# na EXIBIÇÃO (`_owner_expr` não filtra): "de quem é" tem resposta mesmo com o
+# dono inativo — ele só não entra na contagem.
+def _count_expr():
+    return (
+        select(WorkspaceMembership.workspace_id, func.count(WorkspaceMembership.id))
+        .join(User, User.id == WorkspaceMembership.user_id)
+        .where(User.is_active.is_(True), User.deleted_at.is_(None))
+        .group_by(WorkspaceMembership.workspace_id)
+    )
+
+
+def _to_read(session: Session, workspace: Workspace) -> WorkspaceRead:
+    """Enriquece o workspace com o dono e o total de membros ativos, para o
+    switcher mostrar de quem é o workspace quando compartilhado."""
+    linha = session.exec(
+        _owner_expr().where(WorkspaceMembership.workspace_id == workspace.id)
+    ).first()
+    owner = (linha[1], linha[2]) if linha else None
+    member_count = session.exec(
+        _count_expr().where(WorkspaceMembership.workspace_id == workspace.id)
+    ).first()
+    return _build_read(workspace, owner, member_count[1] if member_count else 0)
 
 
 def _to_read_many(session: Session, workspaces: List[Workspace]) -> List[WorkspaceRead]:
@@ -85,22 +121,19 @@ def _to_read_many(session: Session, workspaces: List[Workspace]) -> List[Workspa
     if not workspaces:
         return []
     ws_ids = [w.id for w in workspaces]
-    owner_ids = {w.created_by_user_id for w in workspaces if w.created_by_user_id}
 
-    owner_names = {}
-    if owner_ids:
-        owner_names = {
-            u.id: u.name
-            for u in session.exec(select(User).where(User.id.in_(owner_ids))).all()
-        }
+    owners = {
+        ws_id: (user_id, nome)
+        for ws_id, user_id, nome in session.exec(
+            _owner_expr().where(WorkspaceMembership.workspace_id.in_(ws_ids))
+        ).all()
+    }
     counts = dict(session.exec(
-        select(WorkspaceMembership.workspace_id, func.count(WorkspaceMembership.id))
-        .where(WorkspaceMembership.workspace_id.in_(ws_ids))
-        .group_by(WorkspaceMembership.workspace_id)
+        _count_expr().where(WorkspaceMembership.workspace_id.in_(ws_ids))
     ).all())
 
     return [
-        _build_read(w, owner_names.get(w.created_by_user_id), counts.get(w.id, 0))
+        _build_read(w, owners.get(w.id), counts.get(w.id, 0))
         for w in workspaces
     ]
 
@@ -244,7 +277,7 @@ def preview_base_currency_change(
     return report.as_dict()
 
 
-@router.delete("/{workspace_id}")
+@router.delete("/{workspace_id}", response_model=StatusRead)
 def delete_workspace(
     workspace_id: int,
     session: Session = Depends(get_session),

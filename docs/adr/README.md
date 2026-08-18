@@ -33,6 +33,7 @@ Cada ADR registra **uma decisão** relevante do projeto: o contexto, a decisão 
 | [0025](0025-data-civil-e-instante.md) | Data civil vira instante ancorado ao MEIO-DIA local (`civil_instant`), par de `local_day` | Datas / fuso |
 | [0026](0026-papel-de-plataforma-e-cadastro-por-convite.md) | `platform_role` opera o SITE e não toca `access_policy`; cadastro por convite com janela de bootstrap; configuração em runtime | Plataforma / privacidade |
 | [0027](0027-acertos-na-camada-global.md) | Acertos existem em `/me/*` e no workspace; a global é `involved_only`, agrupa sem compensar, e a escrita continua sendo de UMA casa | Acertos / navegação |
+| [0028](0028-propriedade-do-espaco-e-transferencia.md) | O dono é a membership `owner` (não quem criou); propriedade se transfere; o admin não pode desativar dono e deixar espaço órfão | Propriedade / plataforma |
 
 ## Escrevendo um novo ADR
 

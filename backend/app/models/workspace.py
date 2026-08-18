@@ -45,6 +45,12 @@ class Workspace(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
     name: str = Field(index=True)
     description: Optional[str] = None
+    # Quem CRIOU — registro histórico, não o dono atual (ADR 0028).
+    #
+    # Nunca é reescrito, nem pela transferência de propriedade: quem criou
+    # continua tendo criado. O DONO é a membership com `role=owner`, que é a
+    # mesma linha que autoriza excluir o workspace — usar esta coluna para
+    # exibir "de quem é" foi a divergência que o ADR 0028 fechou.
     created_by_user_id: Optional[int] = Field(default=None, foreign_key="user.id")
     # Moeda-base das agregações (ADR 0006): transações em outra moeda ficam FORA
     # dos totais até existir taxa histórica congelada

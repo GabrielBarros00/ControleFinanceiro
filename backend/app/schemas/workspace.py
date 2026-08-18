@@ -141,3 +141,10 @@ class BaseCurrencyPreviewRead(BaseModel):
     recurring: int
     #: Datas sem cotação. Não vazia = a troca é abortada inteira (ADR 0006).
     missing_rates: List[str]
+
+
+class InviteSentRead(BaseModel):
+    """Convite emitido — devolve o próprio convite para a lista atualizar sem
+    um refetch, e `status` distingue o envio por e-mail do link copiável."""
+    status: str
+    invite: InviteRead
