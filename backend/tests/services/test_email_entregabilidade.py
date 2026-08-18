@@ -15,6 +15,7 @@ import html as html_lib
 import re
 from email import message_from_string
 from email.utils import parsedate_to_datetime
+from urllib.parse import urlparse
 
 import pytest
 
@@ -242,9 +243,14 @@ def test_html_nao_pede_nada_a_servidor_nenhum(nome, montar):
     assert "<img" not in html.lower()
     assert "src=" not in html.lower()
     assert "@import" not in html.lower()
-    # Todo `http` do documento tem de ser o link da ação, nunca um asset.
+    # Todo `http` do documento tem de apontar para o link da ação, nunca para um
+    # asset. A comparação é pelo HOST parseado, e não por `startswith`: o prefixo
+    # `https://x/y` casa também com `https://x/y.dominio-malicioso.com/pixel.gif`,
+    # que é precisamente o que este teste existe para barrar. Foi o CodeQL quem
+    # apontou (`py/incomplete-url-substring-sanitization`), e ele estava certo.
+    host_do_link = urlparse("https://x/y").hostname
     for url in re.findall(r'https?://[^\s"\'<>]+', html):
-        assert url.startswith("https://x/y") or url.startswith("http://www.w3.org"), (
+        assert urlparse(url).hostname == host_do_link, (
             f"{nome}: o HTML carrega {url!r} de fora"
         )
 
