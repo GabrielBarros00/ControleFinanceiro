@@ -67,26 +67,61 @@ async function contaComDados(browser: Parameters<Parameters<typeof test>[1]>[0][
  * nós é o responsável.
  */
 async function semRolagemHorizontal(page: Page, rota: string) {
-  const diagnostico = await page.evaluate((largura) => {
+  const diagnostico = await page.evaluate(() => {
     const doc = document.documentElement;
     const excesso = doc.scrollWidth - doc.clientWidth;
-    if (excesso <= 1) return { excesso, culpados: [] as string[] };
+
+    /*
+     * A régua é o `clientWidth` MEDIDO, não a constante do teste.
+     *
+     * Sob emulação de aparelho (`isMobile: true`) o Chromium mantém um viewport
+     * visual separado do de layout, e um `position: fixed` se dimensiona pelo
+     * visual. Numa falha no CI do Linux, a barra inferior — que é
+     * `fixed inset-x-0` e por definição não estoura nada — apareceu na lista de
+     * culpados com `direita=364` enquanto o teste dizia "a 360px". A constante
+     * era a errada, não o elemento: comparar contra ela produzia acusação falsa
+     * e escondia o culpado real no meio do ruído.
+     */
+    const largura = doc.clientWidth;
+
     const culpados: string[] = [];
-    for (const el of Array.from(document.querySelectorAll<HTMLElement>('body *'))) {
-      const r = el.getBoundingClientRect();
-      if (r.width === 0) continue;
-      if (r.right > largura + 1) {
+    if (excesso > 1) {
+      for (const el of Array.from(document.querySelectorAll<HTMLElement>('body *'))) {
+        const r = el.getBoundingClientRect();
+        if (r.width === 0) continue;
+        if (r.right <= largura + 1) continue;
+
+        /*
+         * Ignora quem está DENTRO de um container de rolagem horizontal.
+         *
+         * Uma aba fora de vista dentro de uma faixa `overflow-x-auto` é o
+         * comportamento pretendido, não um defeito — ela é recortada pelo
+         * container e não empurra a página. Sem este filtro, cada faixa de abas
+         * despejava seus cinco filhos na lista e o culpado real ficava de fora
+         * do limite de seis.
+         */
+        let dentroDeRolagem = false;
+        for (let p = el.parentElement; p && p !== doc; p = p.parentElement) {
+          const overflow = getComputedStyle(p).overflowX;
+          if (overflow === 'auto' || overflow === 'scroll' || overflow === 'hidden') {
+            dentroDeRolagem = true;
+            break;
+          }
+        }
+        if (dentroDeRolagem) continue;
+
         const classe = typeof el.className === 'string' ? el.className.slice(0, 90) : '';
         culpados.push(`<${el.tagName.toLowerCase()} class="${classe}"> direita=${Math.round(r.right)}`);
+        if (culpados.length >= 6) break;
       }
-      if (culpados.length >= 6) break;
     }
-    return { excesso, culpados };
-  }, LARGURA);
+    return { excesso, culpados, largura, innerWidth: window.innerWidth };
+  });
 
   expect(
     diagnostico.excesso,
-    `${rota} rola ${diagnostico.excesso}px na horizontal a ${LARGURA}px.\n`
+    `${rota} rola ${diagnostico.excesso}px na horizontal.\n`
+      + `Viewport de layout: ${diagnostico.largura}px (window.innerWidth: ${diagnostico.innerWidth}px).\n`
       + `Prováveis culpados:\n  ${diagnostico.culpados.join('\n  ')}`,
   ).toBeLessThanOrEqual(1);
 }

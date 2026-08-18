@@ -1236,10 +1236,15 @@ function SettingsShell({
           para escolher uma aba. Na horizontal ela ocupa 44px e continua
           mostrando que há mais opções à direita (a borda cortada é a pista).
 
-          `-mx-4 px-4` sangra a faixa até a borda da tela: sem isso o último
-          item encosta no padding do `AppShell` e parece o fim da lista.
+          Aqui houve um `-mx-4 px-4` para sangrar a faixa até a borda da tela.
+          Saiu: ele deixa o elemento com EXATAMENTE a largura da viewport, e aí
+          qualquer discrepância de 1px em qualquer lugar da página vira rolagem
+          horizontal. Foi o que aconteceu — `mobile_layout.mobile.spec.ts`
+          reprovou no CI do Linux com "/w/:id/settings rola 4px", numa
+          combinação que a mesma execução no Windows não produzia. O ganho era
+          estético; o custo era uma tela quebrada em metade dos aparelhos.
         */}
-        <aside className="-mx-4 flex gap-2 overflow-x-auto px-4 pb-1 scrollbar-none md:mx-0 md:flex-col md:space-y-2 md:overflow-visible md:px-0 md:pb-0">
+        <aside className="flex gap-2 overflow-x-auto pb-1 scrollbar-none md:flex-col md:space-y-2 md:overflow-visible md:pb-0">
           {menuItems.map((item) => (
             <Button
               key={item.id}
