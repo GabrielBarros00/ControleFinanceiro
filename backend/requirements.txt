@@ -61,7 +61,7 @@ bcrypt==5.0.0
 
 # --- Infra ---
 httpx==0.28.1
-structlog==25.5.0
+structlog==26.1.0
 anyio==4.14.2
 python-dotenv==1.2.2
 # Base de fusos para `zoneinfo`. O calendário do app é `APP_TIMEZONE`
