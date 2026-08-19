@@ -10,7 +10,7 @@
 pytest==9.0.3
 pytest-asyncio==1.4.0
 pytest-cov==7.1.0
-ruff==0.15.12
+ruff==0.16.3
 # Gera o `requirements.lock` e é o que o gate "Lock de dependências em dia" do CI
 # executa. FIXADO porque o gate compara a saída dele com o arquivo versionado:
 # instalado sem versão, uma release que mude o cabeçalho gerado ou a estratégia
