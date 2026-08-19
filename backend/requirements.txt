@@ -25,7 +25,7 @@
 
 # --- Web ---
 fastapi==0.136.1
-uvicorn[standard]==0.46.0
+uvicorn[standard]==0.52.3
 starlette==1.6.0
 python-multipart==0.0.31
 
