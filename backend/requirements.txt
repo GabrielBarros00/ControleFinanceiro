@@ -31,7 +31,7 @@ python-multipart==0.0.31
 
 # --- Modelos e validação ---
 pydantic[email]==2.13.3
-pydantic-settings==2.14.2
+pydantic-settings==2.15.0
 sqlmodel==0.0.38
 SQLAlchemy==2.0.49
 alembic==1.18.4
