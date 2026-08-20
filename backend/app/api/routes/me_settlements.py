@@ -22,6 +22,7 @@ from app.domain.dates import InvalidMonth, parse_month
 from app.domain.query_policy import InvalidCurrencyCode, normalize_currency_code
 from app.models.user import User
 from app.schemas.overview import (
+    PersonalDebtsByMonthRead,
     PersonalDebtsRead,
     PersonalMonthlyDebtsRead,
     PersonalSettlementsRead,
@@ -83,6 +84,22 @@ def get_personal_debts(
     return PersonalDebtService.get_personal_debts(
         session, current_user.id, currency=_moeda(currency)
     )
+
+
+@router.get("/debts/by-month", response_model=PersonalDebtsByMonthRead)
+def get_personal_debts_by_month(
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+):
+    """De quais meses vem o saldo, uma seção por casa.
+
+    Sub-rota como `/debts/monthly`, não raiz de coleção — por isso sem o
+    `_colecao` (que existe para a barra final de `/debts` e `/settlements`).
+
+    Sem total agregado: somar a origem de casas diferentes produziria a
+    compensação que o ADR 0020 proíbe, com a agravante de parecer conta fechada.
+    """
+    return PersonalDebtService.get_personal_by_month(session, current_user.id)
 
 
 @router.get("/debts/monthly", response_model=PersonalMonthlyDebtsRead)

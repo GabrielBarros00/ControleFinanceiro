@@ -4,6 +4,7 @@ import {
   CreditCard,
   Landmark,
   BarChart3,
+  ReceiptText,
   Repeat,
   Users,
   FileUp,
@@ -72,6 +73,12 @@ export const GLOBAL_SECTION: NavSection = {
     // "Visão global" era o pior rótulo do app: para quem lê, "global" sugere "de
     // todos" — e significa o contrário, "só meu, somando meus espaços".
     { icon: LayoutDashboard, label: 'Seu mês', to: '/overview' },
+    // Logo abaixo do Seu mês porque é a continuação dele: lá está o que já saiu
+    // do caixa, aqui o que ainda vai sair (ADR 0029). "Contas a pagar" e não "A
+    // pagar": este último já é o rótulo de um número do Seu mês — o saldo com
+    // outras PESSOAS —, e dois nomes iguais para coisas diferentes foi
+    // exatamente o problema que "Compromissos" resolveu.
+    { icon: ReceiptText, label: 'Contas a pagar', to: '/me/payables' },
     { icon: Wallet, label: 'Rendas', to: '/me/income' },
     { icon: CreditCard, label: 'Cartões', to: '/me/cards' },
     { icon: Landmark, label: 'Financiamentos', to: '/me/financing' },
@@ -119,14 +126,18 @@ export const PLATFORM_SECTION: NavSection = {
  * espaço — e porque esconder o item é conveniência, não tranca: quem barra é
  * `require_platform_role` no servidor.
  *
- * `nomeDoEspaco` e `membros` alimentam o rótulo da seção compartilhada. São
- * opcionais porque nem todo chamador tem a lista de espaços à mão (os testes,
- * por exemplo); sem eles a seção se chama "Compartilhado" e pronto.
+ * `nome` e `hint` alimentam o rótulo da seção compartilhada. São opcionais porque
+ * nem todo chamador tem a lista de espaços à mão (os testes, por exemplo); sem
+ * eles a seção se chama "Compartilhado" e pronto.
+ *
+ * O `hint` chega PRONTO em vez de ser montado aqui: desde que ele diz de quem é o
+ * espaço, depende de quem está logado (`De você`), e o mapa de navegação não tem
+ * por que conhecer a sessão. Quem chama usa `rotuloDeEspaco`.
  */
 export function navSections(
   workspaceId: number | null,
   isPlatformAdmin = false,
-  espaco?: { nome?: string | null; membros?: number | null },
+  espaco?: { nome?: string | null; hint?: string },
 ): NavSection[] {
   const plataforma = isPlatformAdmin ? [PLATFORM_SECTION] : [];
   if (!workspaceId) return [GLOBAL_SECTION, ...plataforma];
@@ -141,10 +152,14 @@ export function navSections(
       subject: espaco?.nome ?? undefined,
       // Um espaço de um membro só não é compartilhado com ninguém, e dizer que é
       // seria mentira — a mesma que fez "Rendas" morar em "Compartilhado" um dia.
-      hint: rotuloDeMembros(espaco?.membros),
+      hint: espaco?.hint,
       items: [
         { icon: LayoutDashboard, label: 'Painel', to: w('') },
         { icon: Receipt, label: 'Lançamentos', to: w('/transactions') },
+        // Vizinho de Lançamentos: é o mesmo objeto visto por outro ângulo — o
+        // que ainda não foi pago. O par homônimo em "Pessoal" soma as casas;
+        // este é só desta.
+        { icon: ReceiptText, label: 'Contas a pagar', to: w('/payables') },
         { icon: Repeat, label: 'Recorrência', to: w('/recurring') },
         { icon: BarChart3, label: 'Relatórios', to: w('/reports') },
         // "Dívidas" era ambíguo com o endividamento bancário: aqui é quem deve a
@@ -167,6 +182,48 @@ export function navSections(
 export function rotuloDeMembros(membros?: number | null): string | undefined {
   if (membros == null) return undefined;
   return membros <= 1 ? 'Só você' : `${membros} pessoas`;
+}
+
+/** O mínimo que um espaço precisa expor para ser rotulado. */
+export interface EspacoRotulavel {
+  owner_name?: string | null;
+  owner_user_id?: number | null;
+  member_count?: number | null;
+}
+
+/**
+ * "De Ana Souza · 3 pessoas" — de quem é o espaço, e com quantos.
+ *
+ * A API já devolvia `owner_name`/`owner_user_id` e nenhuma tela lia: a lista só
+ * dizia "3 pessoas", e quem participa de dois espaços com nomes parecidos não
+ * tinha como saber qual é o da Ana e qual é o do trabalho. O dono é a primeira
+ * coisa que identifica um espaço compartilhado.
+ *
+ * Sem `owner_name` (resposta antiga em cache, ou espaço sem membership `owner`)
+ * cai no rótulo de membros de antes — nunca renderiza "De undefined".
+ */
+export function rotuloDeEspaco(
+  espaco?: EspacoRotulavel | null,
+  usuarioId?: number | null,
+): string | undefined {
+  if (!espaco) return undefined;
+
+  const souODono = espaco.owner_user_id != null && espaco.owner_user_id === usuarioId;
+  const dono = souODono
+    ? 'De você'
+    : espaco.owner_name
+      ? `De ${espaco.owner_name}`
+      : undefined;
+  if (!dono) return rotuloDeMembros(espaco.member_count);
+
+  // Minúsculo depois do "·": é continuação da mesma frase, não um segundo rótulo.
+  const membros =
+    espaco.member_count == null
+      ? undefined
+      : espaco.member_count <= 1
+        ? 'só você'
+        : `${espaco.member_count} pessoas`;
+  return membros ? `${dono} · ${membros}` : dono;
 }
 
 export function navFlat(workspaceId: number | null, isPlatformAdmin = false): NavItem[] {

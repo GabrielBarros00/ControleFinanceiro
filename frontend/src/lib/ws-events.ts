@@ -74,10 +74,14 @@ export const GLOBAIS = new Set([
   'credit-cards', 'statements', 'payment-accounts', 'financing', 'income',
   'recurring-income', 'me-overview', 'me-commitments', 'me-activity', 'me-reports',
   'me-ledger', 'statement-target', 'workspaces',
+  // Contas a pagar (ADR 0029). A da PESSOA soma todos os espaços dela e por isso
+  // não leva workspace na chave; a do espaço (`payables`) leva e fica de fora
+  // deste conjunto — mesmo par de `me-debts`/`debts`.
+  'me-payables',
   // Acertos na camada global (ADR 0027). Vêm de `/me/*` e por isso NÃO levam
   // workspace na chave — ao contrário de `debts`/`debts-monthly`/`settlements`,
   // que são as famílias equivalentes do workspace e ficam de fora deste conjunto.
-  'me-debts', 'me-debts-monthly', 'me-settlements',
+  'me-debts', 'me-debts-monthly', 'me-debts-by-month', 'me-settlements',
 ]);
 
 /**
@@ -92,17 +96,23 @@ const BY_PREFIX: Record<string, string[]> = {
   // cartão — e na visão pessoal, que soma todos os workspaces.
   transaction: [
     'transactions', 'transaction', 'installment-group', 'reports', 'analytics-forecast',
-    'debts', 'debts-monthly', 'statements', 'credit-cards', 'attachments',
+    'debts', 'debts-monthly', 'debts-by-month', 'statements', 'credit-cards', 'attachments',
     'me-overview', 'me-ledger', 'me-reports', 'me-activity', 'me-commitments',
-    'me-debts', 'me-debts-monthly',
+    'me-debts', 'me-debts-monthly', 'me-debts-by-month',
+    // Criar, editar, excluir ou LIQUIDAR um lançamento muda a fila do que falta
+    // pagar (ADR 0029) — nas duas camadas.
+    'payables', 'me-payables',
     ...AUDIT,
   ],
   income: ['income', 'reports', 'analytics-forecast', 'me-overview', 'me-ledger', 'me-reports', ...AUDIT],
   // Recorrente materializa lançamentos (possivelmente numa fatura de cartão)
   recurring: [
-    'recurring', 'transactions', 'reports', 'analytics-forecast', 'debts', 'debts-monthly',
+    'recurring', 'transactions', 'reports', 'analytics-forecast', 'debts', 'debts-monthly', 'debts-by-month',
     'statements', 'credit-cards', 'me-overview', 'me-ledger', 'me-reports', 'me-activity', 'me-commitments',
-    'me-debts', 'me-debts-monthly',
+    'me-debts', 'me-debts-monthly', 'me-debts-by-month',
+    // A recorrência materializa lançamentos, e eles nascem A PAGAR quando o
+    // template não tem débito automático — é a origem que mais alimenta a fila.
+    'payables', 'me-payables',
     ...AUDIT,
   ],
   recurring_income: [
@@ -127,11 +137,11 @@ const BY_PREFIX: Record<string, string[]> = {
   attachment: ['attachments', 'transactions', ...AUDIT],
   // O acerto mexe no saldo a pagar/receber E no caixa (é dinheiro que muda de mão)
   settlement: [
-    'settlements', 'debts', 'debts-monthly', 'me-overview', 'me-ledger', 'me-reports', 'reports',
+    'settlements', 'debts', 'debts-monthly', 'debts-by-month', 'me-overview', 'me-ledger', 'me-reports', 'reports',
     // A tela global mostra o MESMO acerto, agrupado por casa: quem registra por
     // lá precisa ver o saldo cair na hora, sem depender do evento voltar pela
     // rede (o WebSocket é por sala de workspace).
-    'me-debts', 'me-debts-monthly', 'me-settlements',
+    'me-debts', 'me-debts-monthly', 'me-debts-by-month', 'me-settlements',
     ...AUDIT,
   ],
   // Entrar/sair muda o RATEIO — e o rateio é a base dos relatórios (totais por
@@ -140,12 +150,15 @@ const BY_PREFIX: Record<string, string[]> = {
   // então outra aba seguia exibindo consolidações calculadas com o quadro de
   // membros antigo.
   member: [
-    'members', 'invites', 'debts', 'debts-monthly', 'settlements', 'transactions',
+    'members', 'invites', 'debts', 'debts-monthly', 'debts-by-month', 'settlements', 'transactions',
     'reports', 'analytics-forecast', 'workspaces',
     'me-overview', 'me-ledger', 'me-reports', 'me-activity',
     // Entrar/sair muda o rateio, e o rateio é a base do pareamento de dívidas —
     // inclusive na tela global, onde a casa vira um grupo.
-    'me-debts', 'me-debts-monthly', 'me-settlements', ...AUDIT,
+    'me-debts', 'me-debts-monthly', 'me-debts-by-month', 'me-settlements',
+    // O acesso financeiro decide QUAIS contas em aberto o membro enxerga
+    // (ADR 0018): rebaixar alguém tem de esvaziar a lista dele na hora.
+    'payables', 'me-payables', ...AUDIT,
   ],
   invite: ['invites', 'members', ...AUDIT],
   // Renomear/excluir workspace: o NOME é renderizado em `me-reports`
@@ -156,7 +169,11 @@ const BY_PREFIX: Record<string, string[]> = {
     'me-overview', 'me-ledger', 'me-reports', 'me-activity', 'me-commitments',
     // O NOME da casa titula cada grupo da tela global de acertos, e excluir uma
     // deixaria um grupo de workspace que não existe mais.
-    'me-debts', 'me-debts-monthly', 'me-settlements', ...AUDIT,
+    'me-debts', 'me-debts-monthly', 'me-debts-by-month', 'me-settlements',
+    // Ligar/desligar o controle de pagamento (ADR 0029) muda o formulário e a
+    // navegação — e o nome da casa é a coluna que distingue as contas na lista
+    // pessoal.
+    'payables', 'me-payables', ...AUDIT,
   ],
 };
 

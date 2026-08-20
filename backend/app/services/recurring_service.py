@@ -1,11 +1,12 @@
 import calendar
 from datetime import date, timedelta
 from decimal import Decimal, ROUND_HALF_UP
+from types import SimpleNamespace
 from typing import List, Optional, Tuple
 
 import structlog
 from sqlalchemy.exc import IntegrityError
-from sqlmodel import Session, select
+from sqlmodel import Session, func, select
 
 from fastapi import HTTPException
 
@@ -44,6 +45,7 @@ from app.services.transaction_service import (
 from app.services.currency_service import ExchangeRateUnavailable
 from app.services.exchange_rate_store import ExchangeRateStore
 from app.domain.dates import civil_instant, local_day, today_local
+from app.domain.settlement import resolve_settled_at
 
 logger = structlog.get_logger("app.recurring")
 
@@ -57,6 +59,23 @@ MATERIALIZE_SCOPES = ("past", "current", "future")
 
 # Teto de meses que um backfill retroativo pode criar de uma vez
 BACKFILL_MAX_MONTHS = 24
+
+
+def _ate_o_fim(template, occs: List[date]) -> List[date]:
+    """Teto da série: nada depois de `end_date` (ADR 0030).
+
+    Espelho exato do piso de `start_date`, e aplicado nos DOIS caminhos de
+    `occurrences_in_month` — o preset e o "a cada N", que retorna antes. Aplicá-lo
+    só num deles daria uma mensalidade que respeita o fim quando é mensal e o
+    ignora quando é "a cada 2 meses".
+
+    `getattr` com default porque a função também serve `RecurringIncome` e
+    objetos de planejamento (`SimpleNamespace`), e um deles pode não ter o campo.
+    """
+    fim = getattr(template, "end_date", None)
+    if fim is None:
+        return occs
+    return [o for o in occs if o <= fim]
 
 
 def _iter_months(start: date, end: date, limit: int = BACKFILL_MAX_MONTHS):
@@ -257,7 +276,12 @@ class RecurringService:
         interval = getattr(template, "interval", 1) or 1
 
         if interval > 1:
-            return RecurringService._interval_occurrences(template, year, month, interval, last_day)
+            return _ate_o_fim(
+                template,
+                RecurringService._interval_occurrences(
+                    template, year, month, interval, last_day
+                ),
+            )
 
         if template.frequency == RecurrenceFrequency.daily:
             occs = [date(year, month, day) for day in range(1, last_day + 1)]
@@ -282,7 +306,7 @@ class RecurringService:
         start = getattr(template, "start_date", None)
         if start is not None:
             occs = [o for o in occs if o >= start]
-        return occs
+        return _ate_o_fim(template, occs)
 
     @staticmethod
     def _interval_occurrences(template, year: int, month: int, interval: int, last_day: int) -> List[date]:
@@ -332,6 +356,66 @@ class RecurringService:
             return [occ] if occ >= anchor else []
 
         return []
+
+    @staticmethod
+    def count_occurrences(template, ate: Optional[date] = None) -> Optional[int]:
+        """Quantas ocorrências a série tem até `ate` (padrão: `end_date`).
+
+        `None` quando não há fim — série infinita não se conta, e devolver zero
+        ali diria "acabou".
+
+        Usada para o "87 de 144" da lista (ADR 0030) e para converter "por N
+        ocorrências" em `end_date` no servidor. **É a mesma
+        `occurrences_in_month` que a materialização usa** — contar com uma
+        aritmética própria faria a promessa da tela ("faltam 87") divergir do que
+        de fato será gerado no mês 88.
+
+        Teto de `BACKFILL_MAX_MONTHS * 12` meses varridos: uma mensalidade de 12
+        anos são 144 meses, e o limite protege contra um `end_date` absurdo
+        (ano 9999) transformando a contagem numa varredura sem fim.
+        """
+        fim = ate or getattr(template, "end_date", None)
+        if fim is None:
+            return None
+        inicio = getattr(template, "start_date", None) or fim
+        teto = BACKFILL_MAX_MONTHS * 12
+        meses = _iter_months(inicio, fim, limit=teto)
+        # Varredura TRUNCADA devolve `None`, não um total parcial: uma série de
+        # setenta anos exibiria "288 de 288" e diria que acabou. `None` já
+        # significa "não sei contar" para quem lê (é a resposta da série sem
+        # fim), e a tela omite o contador em vez de mentir.
+        if len(meses) >= teto:
+            return None
+        return sum(
+            len(RecurringService.occurrences_in_month(template, ano, mes))
+            for ano, mes in meses
+        )
+
+    @staticmethod
+    def end_date_after(template, ocorrencias: int) -> Optional[date]:
+        """A data da N-ésima ocorrência — "por 144 vezes" vira `end_date`.
+
+        A conversão mora no SERVIDOR de propósito: o cliente teria de reimplementar
+        `occurrences_in_month` (com o "a cada N ancorado", o dia limitado ao fim
+        do mês e o piso de `start_date`) para chegar à mesma data, e duas
+        implementações da mesma aritmética divergem — é a lição do dedup por
+        `occurrence_date`.
+
+        `None` se a série acabar antes de `ocorrencias` dentro do horizonte.
+        """
+        if ocorrencias < 1:
+            return None
+        inicio = getattr(template, "start_date", None) or today_local()
+        vistas = 0
+        # Sem `end_date` ainda: varre a partir do início até achar a N-ésima.
+        for ano, mes in _iter_months(
+            inicio, date(inicio.year + 50, 12, 1), limit=BACKFILL_MAX_MONTHS * 25
+        ):
+            for occ in RecurringService.occurrences_in_month(template, ano, mes):
+                vistas += 1
+                if vistas == ocorrencias:
+                    return occ
+        return None
 
     # ---- Materialização COMPLETA (ADR 0012) ---------------------------------
 
@@ -415,6 +499,21 @@ class RecurringService:
             transaction_date=civil_instant(occ),
             billing_month=billing_month,
             occurrence_date=occ,
+            # A recorrência é o caso que o ADR 0029 veio fechar: a conta de luz
+            # do dia 10 nascia e o caixa a debitava no mesmo instante, paga ou
+            # não — ninguém a digitou, então ninguém afirmou que pagou. Ela nasce
+            # A PAGAR, a menos que o template diga que o banco debita sozinho
+            # (`auto_settle`) ou que o espaço não controle pagamento.
+            #
+            # `explicit` é informado SEMPRE, e é o que impede o palpite pela data
+            # de agir aqui: a ocorrência do dia 1º já venceu, e o padrão a daria
+            # por paga — que é exatamente o defeito de origem.
+            settled_at=resolve_settled_at(
+                db, template.workspace_id,
+                transaction_date=civil_instant(occ),
+                credit_card_id=template.credit_card_id,
+                explicit=template.auto_settle,
+            ),
             workspace_id=template.workspace_id,
             created_by_user_id=template.created_by_user_id,
             recurring_expense_id=template.id,
@@ -698,6 +797,11 @@ class RecurringService:
 
         scope: 'none' (nada), 'future' (mês corrente em diante), 'all' (todas
         as não pagas). Pagas/canceladas ficam congeladas.
+
+        Caminho LEGADO, mantido para quem chama a API sem `apply_to` (ADR 0030).
+        A tela hoje monta a lista pelo `plan` e manda os ids escolhidos; aqui o
+        escopo continua sendo por faixa de mês, e **a data não se move** — que é
+        justamente o que a revisão veio resolver.
         """
         if scope == "none":
             return
@@ -721,6 +825,21 @@ class RecurringService:
         if not unpaid_txs:
             return
 
+        RecurringService._reaplica(db, template, unpaid_txs)
+
+    @staticmethod
+    def _reaplica(db: Session, template: RecurringExpense, alvos: List[Transaction]) -> None:
+        """Reaplica o template a um conjunto EXPLÍCITO de instâncias.
+
+        Extraído de `sync_unpaid_instances` quando a revisão (ADR 0030) passou a
+        escolher as instâncias uma a uma: as duas precisam reaplicar do mesmo
+        jeito, senão salvar pela tela nova e pela API antiga produziria estados
+        diferentes a partir do mesmo template.
+
+        Quem escolhe os alvos é o chamador. Este método NÃO filtra status — a
+        trava de "paga não se toca" mora em quem monta a lista (`plan`, e o
+        `WHERE` de `sync_unpaid_instances`).
+        """
         payer_user, splits = RecurringService._participants(template)
         base_currency = workspace_base_currency(db, template.workspace_id)
         # Uma vez só, fora do laço: `credit_card_id` é do TEMPLATE, então é o
@@ -730,7 +849,7 @@ class RecurringService:
             if template.credit_card_id is not None
             else None
         )
-        for tx in unpaid_txs:
+        for tx in alvos:
             # Re-converte cada instância na SUA data (meses diferentes, taxas diferentes)
             # `local_day` pelo mesmo motivo da renda recorrente: a reconversão e
             # a materialização precisam concordar sobre QUE DIA é a ocorrência,
@@ -747,7 +866,26 @@ class RecurringService:
             tx.payment_method = template.payment_method
             # Trocar o cartão do template re-roteia a fatura das instâncias não
             # pagas; tirar o cartão as solta do statement.
+            entrou_no_cartao = (
+                tx.credit_card_id is None and template.credit_card_id is not None
+            )
+            saiu_do_cartao = (
+                tx.credit_card_id is not None and template.credit_card_id is None
+            )
             tx.credit_card_id = template.credit_card_id
+            # A liquidação segue o cartão (ADR 0029), e SÓ na transição: quem
+            # entra na fatura perde a liquidação própria (senão a saída conta duas
+            # vezes); quem sai da fatura volta a tê-la. Fora dessas duas bordas o
+            # campo não é tocado — ele é um fato de PAGAMENTO, e reaplicar o
+            # template não pode desfazer um pagamento que aconteceu.
+            if entrou_no_cartao:
+                tx.settled_at = None
+            elif saiu_do_cartao:
+                tx.settled_at = resolve_settled_at(
+                    db, template.workspace_id,
+                    transaction_date=tx.transaction_date,
+                    explicit=template.auto_settle,
+                )
             # O flag de "nasceu agora" não interessa aqui: este é o caminho de
             # ESCRITA, a instância existe e nada será descartado.
             tx.statement_id, _ = _statement_for(db, template, occ)
@@ -798,6 +936,334 @@ class RecurringService:
                     pass
                 RecurringService._apply_category(db, template, tx, amount=converted)
         db.flush()
+
+    # ---- Planejar, revisar, aplicar (ADR 0030) -------------------------------
+
+    @staticmethod
+    def _template_futuro(template: RecurringExpense, changes: Optional[dict]):
+        """Uma cópia do template com `changes` aplicados, **sem tocar no banco**.
+
+        `SimpleNamespace` e não `RecurringExpense(...)`: instanciar o model dentro
+        de uma sessão aberta o deixa pendurado no `autoflush` do SQLModel, e a
+        próxima consulta do planejador o gravaria — um template fantasma criado
+        por uma operação que se chama *preview*. `occurrences_in_month` já é duck
+        typing (serve despesa e renda), então um objeto com os campos basta.
+        """
+        campos = (
+            "frequency", "interval", "start_date", "end_date", "day_of_month",
+            "day_of_week", "month_of_year", "created_at",
+        )
+        base = {campo: getattr(template, campo, None) for campo in campos}
+        base.update({k: v for k, v in (changes or {}).items() if k in campos})
+        return SimpleNamespace(**base)
+
+    @staticmethod
+    def _meses_do_plano(
+        db: Session, template_id: int, desde: date, hoje: date
+    ) -> List[Tuple[int, int]]:
+        """Os meses que a revisão percorre: de `desde` até o último que importa.
+
+        O fim é o mais distante entre o mês corrente e o do último lançamento
+        VIVO da recorrência — um template com parcelas já materializadas à frente
+        (por backfill, ou por outra pessoa) precisa aparecer inteiro na revisão,
+        senão a tela promete mexer em "deste mês em diante" e deixa o futuro
+        intocado.
+        """
+        ultimo = db.exec(
+            select(func.max(Transaction.billing_month))
+            .where(Transaction.recurring_expense_id == template_id)
+            .where(Transaction.deleted_at.is_(None))
+        ).one()
+        fim = date(hoje.year, hoje.month, 1)
+        if ultimo:
+            ano, mes = int(ultimo[:4]), int(ultimo[5:7])
+            if (ano, mes) > (fim.year, fim.month):
+                fim = date(ano, mes, 1)
+        return _iter_months(date(desde.year, desde.month, 1), fim, limit=BACKFILL_MAX_MONTHS)
+
+    @staticmethod
+    def plan(
+        db: Session,
+        template: RecurringExpense,
+        *,
+        changes: Optional[dict] = None,
+        since: Optional[date] = None,
+        action: str = "update",
+    ) -> List[dict]:
+        """O que vai acontecer com cada lançamento — **sem escrever nada**.
+
+        É a peça central do ADR 0030. A edição de recorrência tinha um `<select>`
+        de escopo no rodapé do formulário que não dizia quantos nem quais
+        lançamentos seriam atingidos, e que **não movia a data**: mudar "todo dia
+        5" para "todo dia 20" deixava os lançamentos já criados no dia 5, para
+        sempre. Excluir ou desativar o template não mexia em nada.
+
+        Agora a tela pergunta, mostra e deixa escolher — e o que ela mostra sai
+        DESTA função, a mesma que `apply` executa. É isso que impede a promessa e
+        a ação de divergirem.
+
+        `action`:
+        - `update`     — o template continua vivo com `changes` aplicados;
+        - `deactivate` — ele para de gerar: nenhuma ocorrência é esperada;
+        - `delete`     — idem, e o template some depois.
+
+        Cada item traz `action` (`update` | `move` | `cancel` | `create` |
+        `none`), o motivo do congelamento quando houver, e o diff campo a campo.
+        Nunca vai à rede: isto roda num POST de preview, e uma busca de cotação
+        bloquearia a resposta (mesma política de `_create_instance`).
+        """
+        hoje = today_local()
+        desde = since or date(hoje.year, hoje.month, 1)
+        futuro = RecurringService._template_futuro(template, changes)
+        para_gerar = action == "update" and (changes or {}).get(
+            "is_active", template.is_active
+        )
+
+        instancias = db.exec(
+            select(Transaction)
+            .where(Transaction.recurring_expense_id == template.id)
+            .where(Transaction.deleted_at.is_(None))
+            .order_by(Transaction.occurrence_date, Transaction.id)
+        ).all()
+        por_mes: dict[str, List[Transaction]] = {}
+        for tx in instancias:
+            por_mes.setdefault(tx.billing_month or "", []).append(tx)
+
+        plano: List[dict] = []
+        for ano, mes in RecurringService._meses_do_plano(db, template.id, desde, hoje):
+            chave = f"{ano:04d}-{mes:02d}"
+            esperadas = (
+                RecurringService.occurrences_in_month(futuro, ano, mes)
+                if para_gerar
+                else []
+            )
+            existentes = por_mes.get(chave, [])
+
+            congeladas = [t for t in existentes if _congelada(t)]
+            vivas = [t for t in existentes if not _congelada(t)]
+            for tx in congeladas:
+                plano.append(_item(tx, "none", motivo=_motivo_congelada(tx)))
+
+            # As ocorrências que as congeladas já ocupam saem do conjunto
+            # esperado: a de 5/8 já foi paga, e "criar a de 5/8" seria um
+            # duplicado que a unique recusaria de qualquer forma.
+            ocupadas = {t.occurrence_date for t in congeladas if t.occurrence_date}
+            livres = [o for o in esperadas if o not in ocupadas]
+
+            # O caso de UMA para UMA é MOVER, não cancelar e recriar: mover
+            # preserva anexos, tags e a identidade do lançamento. Fora dele, o
+            # pareamento não é óbvio (semanal virando diário, por exemplo) e o
+            # diff de conjunto é a leitura honesta.
+            if len(vivas) == 1 and len(livres) == 1:
+                tx = vivas[0]
+                nova = livres[0]
+                if tx.occurrence_date != nova:
+                    plano.append(_item(tx, "move", nova_data=nova))
+                else:
+                    plano.append(_item(tx, "update"))
+                continue
+
+            datas_livres = set(livres)
+            for tx in vivas:
+                if tx.occurrence_date in datas_livres:
+                    datas_livres.discard(tx.occurrence_date)
+                    plano.append(_item(tx, "update"))
+                else:
+                    plano.append(_item(tx, "cancel"))
+            # Criar só do mês corrente em diante: preencher mês fechado é
+            # materialização retroativa, e ela tem pergunta própria no formulário
+            # (`materialize=past`) — fazer as duas coisas na mesma tela deixaria
+            # a pessoa sem saber qual respondeu.
+            if (ano, mes) >= (hoje.year, hoje.month):
+                for occ in sorted(datas_livres):
+                    plano.append({
+                        "transaction_id": None,
+                        "occurrence_date": occ,
+                        "billing_month": chave,
+                        "status": None,
+                        "action": "create",
+                        "frozen_reason": None,
+                        "title": template.title,
+                        "amount": None,
+                        "changes": {},
+                    })
+
+        RecurringService._preenche_diff(db, template, plano, changes)
+        return plano
+
+    @staticmethod
+    def _preenche_diff(
+        db: Session,
+        template: RecurringExpense,
+        plano: List[dict],
+        changes: Optional[dict],
+    ) -> None:
+        """Anexa a cada item o que MUDA nele — título, valor e data.
+
+        Só os três: são os que a pessoa reconhece na linha. Divisão, categoria e
+        forma de pagamento acompanham sempre que a instância é reaplicada, e
+        listá-las campo a campo transformaria a revisão numa tabela de diferenças
+        em vez de uma lista de lançamentos.
+
+        `allow_fetch=False`: preview não sai para a internet. Sem cotação o valor
+        novo vem `None` e a tela mostra um traço — melhor do que inventar número
+        numa tela cuja função é dizer o que vai acontecer.
+        """
+        titulo_novo = (changes or {}).get("title", template.title)
+        for item in plano:
+            if item["action"] in ("none", "cancel"):
+                continue
+            # A data EFETIVA, que num `move` é a de destino: a reaplicação
+            # converte na data em que a ocorrência vai ficar, e prever pela
+            # antiga mostraria na tela um valor que não é o que será gravado —
+            # visível em recorrência estrangeira, onde a cotação muda no mês.
+            occ = item.get("new_occurrence_date") or item["occurrence_date"]
+            try:
+                convertido, *_ = _recurring_conversion(
+                    db, template.workspace_id,
+                    (changes or {}).get("base_amount", template.base_amount),
+                    (changes or {}).get("currency", template.currency),
+                    occ, template.payment_method, allow_fetch=False,
+                )
+            except ExchangeRateUnavailable:
+                convertido = None
+            diff = {}
+            if item["action"] == "create":
+                item["amount"] = convertido
+                item["title"] = titulo_novo
+                continue
+            if convertido is not None and convertido != item["amount"]:
+                diff["amount"] = {"from": item["amount"], "to": convertido}
+            if titulo_novo != item["title"]:
+                diff["title"] = {"from": item["title"], "to": titulo_novo}
+            if item.get("new_occurrence_date") is not None:
+                diff["date"] = {
+                    "from": item["occurrence_date"],
+                    "to": item["new_occurrence_date"],
+                }
+            item["changes"] = diff
+
+    @staticmethod
+    def apply_plan(
+        db: Session,
+        template: RecurringExpense,
+        plano: List[dict],
+        *,
+        apply_to: Optional[List[int]] = None,
+        create_occurrences: Optional[List[date]] = None,
+    ) -> dict:
+        """Executa o plano nos itens ESCOLHIDOS. Não faz commit (ADR 0010).
+
+        `apply_to` é a lista de ids que a pessoa marcou; `create_occurrences`, as
+        datas das linhas que ainda não existem (elas não têm id). Ausentes,
+        nada acontece — a revisão é opt-in por linha, e um default "aplica tudo"
+        traria de volta a ação invisível que o ADR 0030 veio remover.
+
+        Cada instância é tocada num savepoint: mover `occurrence_date` pode
+        colidir com a unique `uq_recurring_occurrence` (uma instância excluída
+        deixa tombstone e ocupa a vaga), e quem colide desiste sozinho em vez de
+        derrubar o lote inteiro. O mesmo desenho de `_create_instance_safe`.
+        """
+        escolhidos = set(apply_to or [])
+        datas = set(create_occurrences or [])
+        resultado = {"updated": 0, "moved": 0, "cancelled": 0, "created": 0, "skipped": 0}
+
+        reaplicar: List[Transaction] = []
+        for item in plano:
+            acao = item["action"]
+            if acao == "create":
+                if item["occurrence_date"] not in datas:
+                    continue
+                criada = RecurringService._create_instance_safe(
+                    db, template, item["occurrence_date"], item["billing_month"],
+                    TransactionStatus.confirmed
+                    if item["occurrence_date"] <= today_local()
+                    else TransactionStatus.pending,
+                )
+                resultado["created" if criada else "skipped"] += 1
+                continue
+
+            if item["transaction_id"] not in escolhidos or acao == "none":
+                continue
+            tx = db.get(Transaction, item["transaction_id"])
+            if tx is None or tx.deleted_at is not None or _congelada(tx):
+                resultado["skipped"] += 1
+                continue
+
+            if acao == "cancel":
+                # Cancelar, não excluir: o status é terminal, mantém o rastro e
+                # — por conservar a linha — segura a vaga na unique, então
+                # reativar o template não recria a ocorrência que a pessoa
+                # acabou de dispensar.
+                tx.status = TransactionStatus.cancelled
+                db.add(tx)
+                resultado["cancelled"] += 1
+                continue
+
+            if acao == "move":
+                nova = item["new_occurrence_date"]
+                try:
+                    with db.begin_nested():
+                        tx.occurrence_date = nova
+                        # `civil_instant`: a ocorrência é um DIA de calendário, e
+                        # meia-noite UTC a joga para o dia anterior em fuso
+                        # negativo (ADR 0025). `billing_month` não muda — a nova
+                        # data vem de `occurrences_in_month` do MESMO mês.
+                        tx.transaction_date = civil_instant(nova)
+                        db.add(tx)
+                        db.flush()
+                except IntegrityError:
+                    # A vaga já é de outra linha (viva ou tombstone).
+                    resultado["skipped"] += 1
+                    continue
+                resultado["moved"] += 1
+
+            reaplicar.append(tx)
+            if acao == "update":
+                resultado["updated"] += 1
+
+        if reaplicar:
+            RecurringService._reaplica(db, template, reaplicar)
+        return resultado
+
+
+def _congelada(tx: Transaction) -> bool:
+    """Lançamento que a revisão não toca: pago ou cancelado.
+
+    Paga é imutável até ser reaberta (ADR 0003) e cancelada é terminal. As duas
+    aparecem na lista, desabilitadas e com o motivo — omiti-las faria a contagem
+    da tela não bater com o que a pessoa vê no extrato.
+    """
+    return tx.status in (TransactionStatus.paid, TransactionStatus.cancelled)
+
+
+def _motivo_congelada(tx: Transaction) -> str:
+    return (
+        "já paga — não será alterada"
+        if tx.status == TransactionStatus.paid
+        else "cancelada"
+    )
+
+
+def _item(
+    tx: Transaction,
+    acao: str,
+    *,
+    motivo: Optional[str] = None,
+    nova_data: Optional[date] = None,
+) -> dict:
+    return {
+        "transaction_id": tx.id,
+        "occurrence_date": tx.occurrence_date or local_day(tx.transaction_date),
+        "new_occurrence_date": nova_data,
+        "billing_month": tx.billing_month,
+        "status": tx.status,
+        "action": acao,
+        "frozen_reason": motivo,
+        "title": tx.title,
+        "amount": tx.total_amount,
+        "changes": {},
+    }
 
 
 class RecurringIncomeService:
@@ -1039,11 +1505,22 @@ class RecurringMaterializationService:
     @staticmethod
     def _tem_template_ativo(db: Session, workspace_id: int) -> bool:
         """Existe alguma recorrência de DESPESA ativa a materializar? Consulta
-        barata (EXISTS por índice) antes de qualquer escrita."""
+        barata (EXISTS por índice) antes de qualquer escrita.
+
+        Série ENCERRADA não conta (ADR 0030): uma mensalidade que terminou em
+        2038 continua com `is_active=True` — ninguém volta para desligá-la —, e
+        sem este filtro ela pagaria as consultas de dedup e um commit por
+        requisição, para sempre, sem nunca gerar nada.
+        """
+        hoje = today_local()
         despesa = db.exec(
             select(RecurringExpense.id)
             .where(RecurringExpense.workspace_id == workspace_id)
             .where(RecurringExpense.is_active.is_(True))
+            .where(
+                (RecurringExpense.end_date.is_(None))
+                | (RecurringExpense.end_date >= hoje)
+            )
             .limit(1)
         ).first()
         return despesa is not None

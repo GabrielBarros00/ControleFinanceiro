@@ -215,6 +215,11 @@ def _financiamento_com_parcela_paga(db_session, alice, com_lancamento_em=None):
             currency="BRL", transaction_date=datetime(2026, 8, 1, tzinfo=UTC),
             billing_month="2026-08", workspace_id=com_lancamento_em,
             created_by_user_id=alice.id, financing_installment_id=parcela.id,
+            # Liquidada, como a rota de pagar parcela a cria (ADR 0029): esta
+            # despesa NASCE de um pagamento. Sem a data, ela fica fora do caixa e
+            # a parcela volta a contar sozinha — que é o comportamento certo para
+            # uma conta a pagar, e o errado para o que este teste descreve.
+            settled_at=datetime(2026, 8, 1, tzinfo=UTC),
         )
         db_session.add(tx)
         db_session.flush()
@@ -372,6 +377,8 @@ def test_duas_parcelas_no_mesmo_mes_so_a_sem_lancamento_conta(db_session, cenari
         transaction_date=datetime(2026, 8, 8, tzinfo=UTC), billing_month="2026-08",
         workspace_id=ws.id, created_by_user_id=alice.id,
         financing_installment_id=parcelas[0].id,
+        # Liquidada, como a rota de pagar parcela a cria (ADR 0029).
+        settled_at=datetime(2026, 8, 8, tzinfo=UTC),
     )
     db_session.add(tx)
     db_session.flush()

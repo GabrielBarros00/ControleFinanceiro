@@ -1,8 +1,27 @@
 # Estudo de Redesign — Frontend do Controle Financeiro V4
 
-> Estudo completo de reestruturação do frontend. **Nada aqui foi implementado** —
-> é um plano de design + engenharia com tarefas detalhadas, especificação de como
-> cada tela deve ficar e a base (design system) sobre a qual construir.
+> Estudo completo de reestruturação do frontend: plano de design + engenharia com
+> tarefas detalhadas, especificação de como cada tela deve ficar e a base (design
+> system) sobre a qual construir.
+
+> **⚠️ Status — leia antes de usar este estudo como plano de trabalho.**
+>
+> Esta linha dizia "**nada aqui foi implementado**" por muito tempo depois de as
+> fases terem sido entregues. Quem lia o índice primeiro concluía que o frontend
+> inteiro estava por fazer, e o risco concreto era reimplementar o que já existe.
+> O estado real, por camada:
+>
+> | Camada | Estado | Onde conferir |
+> |---|---|---|
+> | **Fases 0–5 do roadmap** | **Implementadas e em produção** (29 de 36 caixas) | [`08-roadmap-e-tasks.md`](08-roadmap-e-tasks.md) — é a **fonte da verdade** do que está feito |
+> | **7 caixas vazias** | **Diferidas conscientemente**, não esquecidas | seção "Diferido conscientemente" do doc 08 |
+> | **Docs 02, 03, 05, 06, 07** | Proposta original; a base (tokens, primitivos, telas) foi construída a partir deles, com desvios registrados no doc 08 | — |
+> | **Doc 01 (auditoria)** | **Histórico.** Os bugs de Fase 0 que ele cataloga estão corrigidos | — |
+> | **Doc 04 (arquitetura/navegação)** | **Defasado.** A navegação foi reescrita na rodada de mobile (2026-08-17) e o mapa dele já não descreve o que existe | nota no topo do doc 04 |
+>
+> Regra para as próximas rodadas: uma tarefa entregue vira `[x]` no doc 08 **na
+> mesma mudança** que a entrega. Um documento que não distingue "não feito" de
+> "decidido não fazer" não serve para planejar.
 
 ---
 
@@ -73,18 +92,22 @@ Capturas do estado atual (claro e escuro, 1440×900) em [`telas-atuais/`](telas-
 Para regenerá-las com dados semeados: `cd frontend && npm run shots` (roteiro em
 `frontend/e2e-shots/screenshots.spec.ts`).
 
-## Sumário do roadmap (detalhe em 08)
+## Sumário do roadmap (detalhe e estado caixa a caixa em 08)
 
-- **Fase 0 — Correções de leitura (dias):** bug do verde, formatação de moeda, tooltip/
-  abas do tema claro. Ganhos imediatos, baixo risco, sem redesign ainda.
-- **Fase 1 — Fundação:** tokens e tipografia do design system; primitivos `MoneyText`,
-  `PageHeader`, `StatTile`, estados vazios. Sem mudar telas ainda.
-- **Fase 2 — App shell & navegação:** nova casca, sidebar reagrupada, header padrão,
-  responsivo/mobile.
-- **Fase 3 — Telas core:** Início (dashboard), Lançamentos (extrato) e Nova Despesa.
-- **Fase 4 — Telas restantes:** Cartões/Faturas, Relatórios, Dívidas, Rendas/Recorrência,
-  Financiamentos, Importar, Configurações, Auth/Onboarding.
-- **Fase 5 — Polish:** motion, microinterações, gráficos, acessibilidade, QA de temas.
+Todas as fases abaixo estão **entregues**. O que sobrou de cada uma está no doc 08,
+com o motivo do diferimento.
+
+- **Fase 0 — Correções de leitura** ✅: bug do verde, formatação de moeda, tooltip/
+  abas do tema claro. (5/5)
+- **Fase 1 — Fundação** ✅: tokens e tipografia do design system; primitivos `MoneyText`,
+  `PageHeader`, `StatTile`, estados vazios. (5/7 — falta a página de tokens e a
+  consolidação do UI kit, ambas diferidas)
+- **Fase 2 — App shell & navegação** ✅: nova casca, sidebar reagrupada, header padrão,
+  responsivo/mobile. (6/6, mais a rodada de mobile de 2026-08-17)
+- **Fase 3 — Telas core** ✅: Início (dashboard), Lançamentos (extrato) e Nova Despesa. (6/6)
+- **Fase 4 — Telas restantes** ✅: Cartões/Faturas, Relatórios, Dívidas, Rendas/Recorrência,
+  Financiamentos, Importar, Configurações, Auth/Onboarding. (8/10)
+- **Fase 5 — Polish** ✅: motion, microinterações, gráficos, acessibilidade, QA de temas. (4/6)
 
 ## Princípios que guiam tudo (o "norte")
 

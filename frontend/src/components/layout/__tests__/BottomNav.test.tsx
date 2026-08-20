@@ -28,6 +28,10 @@ vi.mock('@/stores', () => ({
     // O "último workspace visitado" está preenchido de propósito: é ele que
     // fazia o FAB parecer utilizável fora de `/w/:id`.
     seletor({ currentWorkspaceId: 42 }),
+  // Quem está logado, só para o rótulo do espaço dizer "De você" quando for o
+  // caso. Aqui é OUTRA pessoa (id 1 ≠ dono 9), então sai o nome do dono.
+  useAuthStore: (seletor: (s: unknown) => unknown) =>
+    seletor({ user: { id: 1, name: 'Bruno' } }),
 }));
 
 vi.mock('@/hooks/use-auth', () => ({
@@ -45,7 +49,12 @@ vi.mock('@/hooks/use-admin', () => ({
 
 vi.mock('@/hooks/use-workspaces', () => ({
   useWorkspaces: () => ({
-    workspaces: [{ id: 7, name: 'Casa da Praia', member_count: 3 }],
+    workspaces: [
+      // O fixture tinha só id/nome/contagem, e por isso nada aqui pegava o dono
+      // sumido da interface: a API mandava `owner_name` desde sempre e nenhuma
+      // tela lia. Agora ele faz parte do contrato que os testes exercem.
+      { id: 7, name: 'Casa da Praia', member_count: 3, owner_user_id: 9, owner_name: 'Ana Souza' },
+    ],
     currentWorkspace: null,
     switchWorkspace: vi.fn(),
   }),

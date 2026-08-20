@@ -13,6 +13,9 @@ export interface RecurringIncome {
   frequency: 'daily' | 'weekly' | 'monthly' | 'yearly';
   interval: number;
   start_date?: string | null;
+  /** Fim da série (ADR 0030); `null` = sem fim. Bolsa e aluguel recebido por
+   *  prazo determinado acabam, e sem isto projetavam renda para sempre. */
+  end_date?: string | null;
   day_of_month: number;
   day_of_week?: number | null;
   month_of_year?: number | null;

@@ -40,7 +40,7 @@ from app.domain.recurrence_rules import validate_frequency_fields as _validate_f
 from app.models.income import Income
 from app.models.recurring import RecurrenceFrequency, RecurringIncome
 from app.models.user import User
-from app.schemas.common import DESCRIPTION_MAX, MAX_MONEY, NAME_MAX, OptionalCurrencyCode, TITLE_MAX
+from app.schemas.common import CreatedCountRead, DESCRIPTION_MAX, MAX_MONEY, NAME_MAX, OptionalCurrencyCode, StatusRead, TITLE_MAX
 from app.schemas.income import IncomeCreate, IncomeRead, IncomeUpdate
 from app.services.currency_service import ExchangeRateUnavailable
 from app.services.exchange_rate_store import ExchangeRateStore
@@ -227,7 +227,7 @@ def update_income(
     return income
 
 
-@router.delete("/income/{income_id}")
+@router.delete("/income/{income_id}", response_model=StatusRead)
 def delete_income(
     income_id: int,
     session: Session = Depends(get_session),
@@ -254,6 +254,10 @@ class RecurringIncomeCreate(BaseModel):
     frequency: RecurrenceFrequency = RecurrenceFrequency.monthly
     interval: int = Field(default=1, ge=1)
     start_date: Optional[date] = None
+    # Fim da série (ADR 0030) — espelho do que a despesa recorrente ganhou. Uma
+    # bolsa de dois anos e um aluguel recebido por prazo determinado têm fim, e
+    # sem a coluna eles projetavam renda para sempre na previsão.
+    end_date: Optional[date] = None
     day_of_month: int = Field(default=1, ge=1, le=31)
     day_of_week: Optional[int] = Field(default=None, ge=0, le=6)
     month_of_year: Optional[int] = Field(default=None, ge=1, le=12)
@@ -269,6 +273,7 @@ class RecurringIncomeUpdate(BaseModel):
     frequency: Optional[RecurrenceFrequency] = None
     interval: Optional[int] = Field(default=None, ge=1)
     start_date: Optional[date] = None
+    end_date: Optional[date] = None
     day_of_month: Optional[int] = Field(default=None, ge=1, le=31)
     day_of_week: Optional[int] = Field(default=None, ge=0, le=6)
     month_of_year: Optional[int] = Field(default=None, ge=1, le=12)
@@ -303,7 +308,7 @@ def create_recurring_income(
     _check_materialize(materialize)
     _validate_frequency_fields(
         recurring_in.frequency, recurring_in.day_of_week, recurring_in.month_of_year,
-        recurring_in.interval, recurring_in.start_date,
+        recurring_in.interval, recurring_in.start_date, recurring_in.end_date,
     )
     data = recurring_in.model_dump()
     data["currency"] = resolve_personal_currency(session, current_user.id, recurring_in.currency)
@@ -330,7 +335,7 @@ def list_recurring_income(
     ).all()
 
 
-@router.post("/recurring-income/generate")
+@router.post("/recurring-income/generate", response_model=CreatedCountRead)
 def generate_recurring_income(
     session: Session = Depends(get_session),
     current_user: User = Depends(get_current_user),
@@ -361,7 +366,7 @@ def update_recurring_income(
         setattr(db_rec, key, value)
     _validate_frequency_fields(
         db_rec.frequency, db_rec.day_of_week, db_rec.month_of_year,
-        db_rec.interval, db_rec.start_date,
+        db_rec.interval, db_rec.start_date, db_rec.end_date,
     )
     db_rec.updated_at = datetime.now(UTC)
     session.add(db_rec)
@@ -377,7 +382,7 @@ def update_recurring_income(
     return db_rec
 
 
-@router.delete("/recurring-income/{recurring_id}")
+@router.delete("/recurring-income/{recurring_id}", response_model=StatusRead)
 def delete_recurring_income(
     recurring_id: int,
     session: Session = Depends(get_session),

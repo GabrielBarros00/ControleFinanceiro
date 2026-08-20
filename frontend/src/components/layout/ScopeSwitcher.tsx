@@ -8,7 +8,8 @@ import { cn } from '@/lib/utils';
 import { useWorkspaces, type Workspace } from '@/hooks/use-workspaces';
 import { useWorkspaceIdFromUrl, workspacePath } from '@/hooks/use-workspace-id';
 import { WorkspaceCreateDialog } from '@/components/workspace/WorkspaceCreateDialog';
-import { rotuloDeMembros } from './nav-items';
+import { rotuloDeEspaco } from './nav-items';
+import { useAuthStore } from '@/stores';
 
 /*
  * ScopeSwitcher — "onde você está" e como sair daqui.
@@ -41,6 +42,9 @@ interface ScopeSwitcherProps {
 export function ScopeSwitcher({ variant = 'topbar', className }: ScopeSwitcherProps) {
   const { workspaces, currentWorkspace, switchWorkspace } = useWorkspaces();
   const workspaceDaUrl = useWorkspaceIdFromUrl();
+  // O dono é a primeira coisa que distingue dois espaços de nome parecido — e
+  // quando é o próprio usuário, o rótulo diz "De você" em vez do nome dele.
+  const usuario = useAuthStore((s) => s.user);
   const navigate = useNavigate();
   const location = useLocation();
   const [aberto, setAberto] = React.useState(false);
@@ -68,7 +72,7 @@ export function ScopeSwitcher({ variant = 'topbar', className }: ScopeSwitcherPr
   };
 
   const rotulo = noEspaco ? (espacoAtual?.name ?? 'Espaço') : 'Pessoal';
-  const apoio = noEspaco ? rotuloDeMembros(espacoAtual?.member_count) : 'Só você vê';
+  const apoio = noEspaco ? rotuloDeEspaco(espacoAtual, usuario?.id) : 'Só você vê';
   const Icone = noEspaco ? Home : User;
 
   return (
@@ -133,7 +137,7 @@ export function ScopeSwitcher({ variant = 'topbar', className }: ScopeSwitcherPr
                     key={ws.id}
                     icone={Home}
                     titulo={ws.name}
-                    apoio={rotuloDeMembros(ws.member_count) ?? undefined}
+                    apoio={rotuloDeEspaco(ws, usuario?.id)}
                     ativo={noEspaco && ws.id === workspaceDaUrl}
                     onClick={() => irParaEspaco(ws)}
                   />

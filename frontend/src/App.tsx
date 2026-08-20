@@ -36,6 +36,8 @@ const ResetPasswordPage = React.lazy(() => import('./pages/Auth/ResetPasswordPag
 const InviteAcceptPage = React.lazy(() => import('./pages/InviteAcceptPage').then(m => ({ default: m.InviteAcceptPage })));
 const WorkspaceHome = React.lazy(() => import('./pages/Home').then(m => ({ default: m.Home })));
 const CommitmentsPage = React.lazy(() => import('./pages/CommitmentsPage').then(m => ({ default: m.CommitmentsPage })));
+const PayablesPage = React.lazy(() => import('./pages/PayablesPage').then(m => ({ default: m.PayablesPage })));
+const WorkspacePayablesPage = React.lazy(() => import('./pages/WorkspacePayablesPage').then(m => ({ default: m.WorkspacePayablesPage })));
 // Área administrativa: lazy como as demais. É a rota que menos gente visita —
 // não faz sentido pagar o custo dela no bundle inicial de todo mundo.
 const AdminPage = React.lazy(() => import('./pages/Admin/AdminPage').then(m => ({ default: m.AdminPage })));
@@ -93,7 +95,7 @@ const ProtectedRoute = ({ children }: ProtectedRouteProps) => {
 
   if (isLoading) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-background">
+      <div className="min-h-dvh flex items-center justify-center bg-background">
         <div className="flex flex-col items-center gap-4">
           <div className="h-12 w-12 border-4 border-primary/20 border-t-primary rounded-full animate-spin" />
           <p className="text-muted-foreground text-sm font-medium animate-pulse">Carregando sua sessão...</p>
@@ -162,7 +164,7 @@ function AppContent() {
 
   return (
     <BrowserRouter>
-      <div className="min-h-screen bg-background text-foreground font-sans selection:bg-primary/30">
+      <div className="min-h-dvh bg-background text-foreground font-sans selection:bg-primary/30">
         <ConfirmProvider>
         <React.Suspense fallback={<RouteFallback />}>
         <Routes>
@@ -177,6 +179,12 @@ function AppContent() {
               são da PESSOA e a acompanham em todos os workspaces. */}
           <Route path="/overview" element={
             <ProtectedRoute><Layout><OverviewPage /></Layout></ProtectedRoute>
+          } />
+          {/* Contas a pagar (ADR 0029): o que ainda não saiu do caixa. Eixo
+              diferente de `/me/commitments`, que é fatura e financiamento — a
+              instituição, não a conta do mês. */}
+          <Route path="/me/payables" element={
+            <ProtectedRoute><Layout><PayablesPage /></Layout></ProtectedRoute>
           } />
           <Route path="/me/income" element={
             <ProtectedRoute><Layout><IncomePage /></Layout></ProtectedRoute>
@@ -244,6 +252,7 @@ function AppContent() {
           }>
             <Route index element={<WorkspaceHome />} />
             <Route path="transactions" element={<TransactionsPage />} />
+            <Route path="payables" element={<WorkspacePayablesPage />} />
             <Route path="reports" element={<ReportsPage />} />
             <Route path="settings" element={<SettingsPage />} />
             <Route path="recurring" element={<RecurringTransactionsPage />} />
@@ -273,7 +282,7 @@ function AppContent() {
           }).map(([antiga, nova]) => (
             <Route key={antiga} path={`/${antiga}`} element={<Navigate to={nova} replace />} />
           ))}
-          {['transactions', 'reports', 'settings', 'recurring', 'debts', 'import'].map((rota) => (
+          {['transactions', 'payables', 'reports', 'settings', 'recurring', 'debts', 'import'].map((rota) => (
             <Route
               key={rota}
               path={`/${rota}`}

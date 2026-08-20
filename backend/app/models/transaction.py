@@ -64,6 +64,14 @@ _DESPESA_DE_PARCELA_VIVA = text(
     "financing_installment_id IS NOT NULL AND deleted_at IS NULL"
 )
 
+# Predicado do índice de "contas a pagar" (ADR 0029). Fora da classe pelo mesmo
+# motivo do de cima. Os três termos são exatamente o recorte da tela: o que ainda
+# não foi liquidado, está vivo, e não é compra no cartão (essa vira caixa pela
+# fatura, não por liquidação própria).
+_A_LIQUIDAR = text(
+    "settled_at IS NULL AND deleted_at IS NULL AND credit_card_id IS NULL"
+)
+
 
 class Transaction(TransactionBase, table=True):
     # uq(recurring, occurrence_date): uma instância por ocorrência da recorrência.
@@ -89,6 +97,13 @@ class Transaction(TransactionBase, table=True):
             unique=True,
             sqlite_where=_DESPESA_DE_PARCELA_VIVA,
             postgresql_where=_DESPESA_DE_PARCELA_VIVA,
+        ),
+        Index(
+            "ix_transaction_a_liquidar",
+            "workspace_id",
+            "billing_month",
+            sqlite_where=_A_LIQUIDAR,
+            postgresql_where=_A_LIQUIDAR,
         ),
     )
 
@@ -144,6 +159,25 @@ class Transaction(TransactionBase, table=True):
     statement_exchange_rate: Optional[Decimal] = Field(
         default=None, decimal_places=6, max_digits=20
     )
+
+    # QUANDO O DINHEIRO SAIU DE FATO (ADR 0029). `None` = ainda não saiu.
+    #
+    # Ortogonal ao `status`, de propósito. `status` é competência — a despesa
+    # existe, entra em dívidas, relatórios e rateio no instante em que é
+    # confirmada. Isto é caixa: o boleto de julho pago em 14 de agosto é gasto de
+    # julho e dinheiro que saiu em agosto. Antes o caixa lia `transaction_date` e
+    # afirmava que TODA despesa fora do cartão saía do bolso no momento em que era
+    # registrada — a forma de pagamento não entrava na conta em lugar nenhum, e
+    # `pix`, `cash`, `boleto` e `bank_transfer` eram só rótulo.
+    #
+    # Não é o `status = paid`: aquele estado congela a despesa inteira
+    # ("Despesa paga não pode ser alterada: reabra antes"), trava que existe para
+    # proteger o histórico de ACERTOS. Marcar um boleto como pago não pode
+    # bloquear a correção do valor ou da divisão — são fatos diferentes.
+    #
+    # Quem decide o valor inicial é `app.domain.settlement.resolve_settled_at`,
+    # ponto único chamado por todos os caminhos de criação.
+    settled_at: Optional[datetime] = None
 
     confirmed_at: Optional[datetime] = None
     paid_at: Optional[datetime] = None

@@ -4,7 +4,7 @@ from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
-from app.schemas.common import NAME_MAX
+from app.schemas.common import NAME_MAX, StatusRead
 from sqlmodel import Session, select
 
 from app.db.session import get_session
@@ -125,7 +125,7 @@ def update_tag(
     return tag
 
 
-@router.delete("/{tag_id}")
+@router.delete("/{tag_id}", response_model=StatusRead)
 def delete_tag(
     workspace_id: int,
     tag_id: int,

@@ -1,11 +1,14 @@
-import { Pencil, Trash2 } from 'lucide-react';
+import * as React from 'react';
+import { Loader2, Pencil, Trash2 } from 'lucide-react';
 import type { TransactionRead } from '@/types/transaction';
+import { useAcaoPendente } from '@/hooks/use-acao-pendente';
 import { MoneyText } from './MoneyText';
 import { CategoryGlyph, type CategoryLike } from './CategoryGlyph';
 import { paymentMethodLabel } from '@/lib/payment-methods';
-import { StatusPill, txStatusPill } from '@/components/ui/status-pill';
+import { StatusPill, settlementPill, txStatusPill } from '@/components/ui/status-pill';
 import { formatCurrency } from '@/lib/money';
 import { cn } from '@/lib/utils';
+import { Avatar } from '@/components/ui/avatar';
 
 /*
  * TransactionItem — linha do extrato (docs/frontend-redesign/05 §3, 06 §2).
@@ -16,9 +19,16 @@ interface TransactionItemProps {
   tx: TransactionRead;
   category?: CategoryLike | null;
   memberName?: (userId: number) => string;
+  /** Token de cache da foto de cada membro — sem ele, os avatares empilhados
+   *  continuam mostrando a inicial. */
+  memberAvatar?: (userId: number) => string | null | undefined;
   canWrite?: boolean;
-  onEdit?: (tx: TransactionRead) => void;
-  onDelete?: (id: number) => void;
+  // `unknown` e não `void`: quem exclui devolve uma promessa, e um retorno
+  // tipado como `void` faz o TypeScript ACEITAR a promessa e o chamador
+  // descartá-la sem aviso — foi assim que a trava de duplo clique não chegava
+  // até aqui.
+  onEdit?: (tx: TransactionRead) => unknown;
+  onDelete?: (id: number) => unknown;
   /** Clicar na linha abre o detalhe/preview do lançamento. */
   onSelect?: (tx: TransactionRead) => void;
 }
@@ -27,6 +37,7 @@ export function TransactionItem({
   tx,
   category,
   memberName,
+  memberAvatar,
   // Fail-CLOSED: o default era `true`, então qualquer ledger renderizado sem a
   // prop mostrava editar/excluir habilitados para um viewer (era o caso do
   // Início). Esquecer de passar agora desabilita — o erro seguro.
@@ -35,6 +46,16 @@ export function TransactionItem({
   onDelete,
   onSelect,
 }: TransactionItemProps) {
+  // Por LINHA, e não por lista: excluir uma transação não pode congelar o botão
+  // das outras. `stopPropagation` primeiro — a linha inteira abre o detalhe no
+  // clique, e sem isso excluir abriria o detalhe do que acabou de sumir.
+  const { disparar: excluir, pendente: excluindo } = useAcaoPendente(
+    (evento: React.MouseEvent) => {
+      evento.stopPropagation();
+      return onDelete?.(tx.id);
+    },
+  );
+
   const amount = parseFloat(tx.total_amount);
   const kind = amount < 0 ? 'income' : 'expense';
   const splits = tx.splits ?? [];
@@ -44,6 +65,10 @@ export function TransactionItem({
   // do mês nasce `pending` e fica FORA dos totais — sem a pílula o extrato
   // pareceria não bater com o saldo do topo.
   const status = txStatusPill(tx.status);
+  // Eixo do CAIXA, ao lado do de competência (ADR 0029): a conta pode estar
+  // confirmada e dividida e ainda não ter sido paga. Sem a pílula, ela some do
+  // "Saiu" do mês sem nada na linha que explique por quê.
+  const liquidacao = settlementPill(tx.settled_at, tx.credit_card_id);
 
   const meta: string[] = [];
   if (category?.name) meta.push(category.name);
@@ -85,6 +110,7 @@ export function TransactionItem({
         <div className="flex items-center gap-1.5">
           <p className="truncate text-sm font-medium text-foreground">{tx.title}</p>
           {status && <StatusPill tone={status.tone}>{status.label}</StatusPill>}
+          {liquidacao && <StatusPill tone={liquidacao.tone}>{liquidacao.label}</StatusPill>}
         </div>
         <p className="truncate text-xs text-muted-foreground">{meta.join(' · ')}</p>
       </div>
@@ -92,13 +118,15 @@ export function TransactionItem({
       {isSplit && memberName && (
         <div className="hidden items-center -space-x-1.5 sm:flex" aria-hidden>
           {splits.slice(0, 3).map((s) => (
-            <span
+            <Avatar
               key={s.id}
+              name={memberName(s.user_id)}
+              userId={s.user_id}
+              version={memberAvatar?.(s.user_id)}
+              size="xs"
               title={memberName(s.user_id)}
-              className="flex h-6 w-6 items-center justify-center rounded-full border border-card bg-brand-subtle text-[10px] font-semibold uppercase text-brand"
-            >
-              {memberName(s.user_id).slice(0, 1)}
-            </span>
+              className="border border-card"
+            />
           ))}
           {splits.length > 3 && (
             <span className="flex h-6 w-6 items-center justify-center rounded-full border border-card bg-muted text-[10px] font-semibold text-muted-foreground">
@@ -136,11 +164,12 @@ export function TransactionItem({
             <button
               type="button"
               aria-label="Excluir transação"
-              disabled={!canWrite}
-              onClick={(e) => { e.stopPropagation(); onDelete(tx.id); }}
+              disabled={!canWrite || excluindo}
+              aria-busy={excluindo || undefined}
+              onClick={excluir}
               className="flex h-10 w-10 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive disabled:pointer-events-none disabled:opacity-40 sm:h-7 sm:w-7"
             >
-              <Trash2 className="h-4 w-4" />
+              {excluindo ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
             </button>
           )}
         </div>

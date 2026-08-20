@@ -18,6 +18,10 @@ class WorkspaceCreate(WorkspaceBase):
     # histórico (BaseCurrencyService) — uma operação pesada e sujeita a
     # `MissingRates` para um workspace ainda vazio.
     base_currency: OptionalCurrencyCode = None
+    # "Controlar o pagamento das contas" (ADR 0029). Perguntado na criação porque
+    # a resposta muda com o combinado da casa e mudá-la depois não reescreve o que
+    # já foi lançado. `None` = não opinou → o padrão do modelo (ligado).
+    settlement_tracking: Optional[bool] = None
 
 
 class WorkspaceUpdate(BaseModel):
@@ -28,11 +32,19 @@ class WorkspaceUpdate(BaseModel):
     # Mesma validação de todo campo de moeda do app (`isalpha()` sozinho aceitava
     # "ÁÁÁ", que viraria uma moeda-base impossível de casar com qualquer cotação).
     base_currency: OptionalCurrencyCode = None
+    # Ligar/desligar o controle de pagamento (ADR 0029). Vale só para o que for
+    # lançado DAQUI PRA FRENTE: o que já existe mantém a liquidação que tem, e
+    # desligar não sai marcando como pago o que ninguém pagou.
+    settlement_tracking: Optional[bool] = None
 
 
 class WorkspaceRead(WorkspaceBase):
     id: int
     base_currency: str = "BRL"
+    #: Este espaço controla o pagamento das contas? (ADR 0029) A interface lê
+    #: isto para decidir se mostra o "Já foi paga" no formulário e o item
+    #: "Contas a pagar" na navegação.
+    settlement_tracking: bool = True
     created_at: datetime
     updated_at: datetime
     # Quem criou/é dono e quantos membros — para o switcher indicar "de quem é"
@@ -48,6 +60,9 @@ class MemberRead(BaseModel):
     financial_access: FinancialAccess
     user_name: str
     user_email: str
+    # Token de cache da foto de perfil (8 primeiros do SHA-256), ou `None` para
+    # quem não tem. A interface monta a URL a partir do `user_id` + este valor.
+    avatar_version: Optional[str] = None
     joined_at: datetime
 
 
@@ -141,3 +156,10 @@ class BaseCurrencyPreviewRead(BaseModel):
     recurring: int
     #: Datas sem cotação. Não vazia = a troca é abortada inteira (ADR 0006).
     missing_rates: List[str]
+
+
+class InviteSentRead(BaseModel):
+    """Convite emitido — devolve o próprio convite para a lista atualizar sem
+    um refetch, e `status` distingue o envio por e-mail do link copiável."""
+    status: str
+    invite: InviteRead

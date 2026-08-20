@@ -104,7 +104,8 @@ export function TransactionsPage() {
   );
 
   const hasFilters =
-    !!searchInput || !!filters.payment_method || !!filters.category_id || !!filters.tag_id;
+    !!searchInput || !!filters.payment_method || !!filters.category_id ||
+    !!filters.tag_id || filters.settled !== undefined;
 
   return (
     <div className="space-y-6">
@@ -127,11 +128,16 @@ export function TransactionsPage() {
 
       <FilterBar
         ativos={
-          [filters.payment_method, filters.category_id, filters.tag_id].filter(Boolean).length
+          [filters.payment_method, filters.category_id, filters.tag_id, filters.settled]
+            .filter((f) => f !== undefined && f !== null && f !== '')
+            .length
         }
         onLimpar={() => {
           setSearchInput('');
-          patch({ search: '', payment_method: undefined, category_id: undefined, tag_id: undefined });
+          patch({
+            search: '', payment_method: undefined, category_id: undefined,
+            tag_id: undefined, settled: undefined,
+          });
         }}
         destaque={
           <div className="relative flex-1">
@@ -182,6 +188,29 @@ export function TransactionsPage() {
                 {o.label}
               </SelectItem>
             ))}
+          </SelectContent>
+        </Select>
+        {/* Liquidação (ADR 0029) — outro eixo, ao lado de "Todo pagamento".
+            "A pagar" é o mesmo recorte da tela de Contas a pagar, aqui dentro do
+            extrato para quem já está olhando o mês. */}
+        <Select
+          items={[
+            { value: 'all', label: 'Pagas e a pagar' },
+            { value: 'unsettled', label: 'Só a pagar' },
+            { value: 'settled', label: 'Só pagas' },
+          ]}
+          value={filters.settled === undefined ? 'all' : filters.settled ? 'settled' : 'unsettled'}
+          onValueChange={(v: string | null) =>
+            patch({ settled: v === 'settled' ? true : v === 'unsettled' ? false : undefined })
+          }
+        >
+          <SelectTrigger className="w-full sm:w-[176px]">
+            <SelectValue placeholder="Liquidação" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">Pagas e a pagar</SelectItem>
+            <SelectItem value="unsettled">Só a pagar</SelectItem>
+            <SelectItem value="settled">Só pagas</SelectItem>
           </SelectContent>
         </Select>
         <Select

@@ -63,6 +63,7 @@ const AUTH_ROUTES: Array<{ path: string; slug: string }> = [
 const appRoutes = (wsId: number): Array<{ path: string; slug: string }> => [
   // --- Pessoal: o que é da pessoa e a acompanha ---
   { path: '/overview', slug: 'inicio-global' },
+  { path: '/me/payables', slug: 'contas-a-pagar' },
   { path: '/me/income', slug: 'rendas' },
   { path: '/me/cards', slug: 'cartoes' },
   { path: '/me/financing', slug: 'financiamentos' },
@@ -70,15 +71,24 @@ const appRoutes = (wsId: number): Array<{ path: string; slug: string }> => [
   // Par global de `/w/:id/debts` (ADR 0027). A semeadura já cria a segunda
   // pessoa no workspace justamente para os acertos não saírem vazios.
   { path: '/me/settlements', slug: 'meus-acertos' },
+  // As outras duas abas de Acertos (o estado vive em `?tab=`, então cada uma é
+  // uma URL). Sem estas linhas o catálogo mostraria só o Resumo, e o retrato do
+  // mês e o histórico — que é onde mora a tabela mais larga do app — ficariam
+  // de fora de qualquer conferência visual.
+  { path: '/me/settlements?tab=mes', slug: 'meus-acertos-mes' },
+  { path: '/me/settlements?tab=historico', slug: 'meus-acertos-historico' },
   { path: '/me/reports', slug: 'meus-relatorios' },
   { path: '/me/ledger', slug: 'extrato' },
   { path: '/me/settings', slug: 'configuracoes-pessoais' },
   // --- Colaboração: o workspace ---
   { path: `/w/${wsId}`, slug: 'painel-workspace' },
   { path: `/w/${wsId}/transactions`, slug: 'lancamentos' },
+  { path: `/w/${wsId}/payables`, slug: 'contas-a-pagar-espaco' },
   { path: `/w/${wsId}/reports`, slug: 'relatorios' },
   { path: `/w/${wsId}/recurring`, slug: 'recorrencia' },
   { path: `/w/${wsId}/debts`, slug: 'acertos' },
+  { path: `/w/${wsId}/debts?tab=mes`, slug: 'acertos-mes' },
+  { path: `/w/${wsId}/debts?tab=historico`, slug: 'acertos-historico' },
   { path: `/w/${wsId}/import`, slug: 'importar' },
   { path: `/w/${wsId}/settings`, slug: 'configuracoes-workspace' },
   // --- Plataforma: quem opera o site ---

@@ -3,12 +3,13 @@ from fastapi.responses import JSONResponse
 from sqlalchemy import text
 from sqlmodel import Session
 
+from app.schemas.common import HealthRead
 from app.core.config import settings
 from app.db.session import get_session
 from app.api.routes import (
     admin, analytics, attachments, audit, auth, categories, debts, imports, me,
     me_accounts, me_cards, me_financing, me_income, me_settlements, members,
-    notifications, recurring, settlements, tags, transactions, workspaces,
+    notifications, payables, recurring, settlements, tags, transactions, workspaces,
 )
 from app.ws import routes as ws_routes
 
@@ -23,6 +24,7 @@ router.include_router(transactions.router)
 router.include_router(analytics.router)
 router.include_router(recurring.router)
 router.include_router(debts.router)
+router.include_router(payables.router)
 router.include_router(settlements.router)
 router.include_router(imports.router)
 router.include_router(categories.router)
@@ -57,7 +59,7 @@ router.include_router(ws_routes.router)
 router.include_router(admin.router)
 router.include_router(admin.me_invites_router)
 
-@router.get("/health")
+@router.get("/health", response_model=HealthRead)
 def health_check(session: Session = Depends(get_session)):
     """Saúde REAL: inclui um toque no banco.
 

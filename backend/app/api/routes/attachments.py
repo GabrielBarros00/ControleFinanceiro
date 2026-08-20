@@ -8,6 +8,7 @@ from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Respons
 from pydantic import BaseModel
 from sqlmodel import Session, select, func
 
+from app.schemas.common import StatusRead
 from app.db.locks import trava_workspace
 from app.db.session import get_session
 from app.models.attachment import Attachment
@@ -15,7 +16,7 @@ from app.models.transaction import Transaction
 from app.models.workspace import WorkspaceMembership, WorkspaceRole
 from app.api.deps import get_workspace_membership, require_role
 from app.domain.access_policy import assert_can_write, get_visible_transaction
-from app.services import app_settings
+from app.services import app_settings, upload_validation
 from app.services.attachment_storage import (
     AttachmentStorage,
     AttachmentStorageError,
@@ -36,38 +37,11 @@ ALLOWED_CONTENT_TYPES = {
     "application/pdf",
 }
 
-_READ_CHUNK = 64 * 1024
-
-# Assinaturas de conteúdo (magic bytes): o Content-Type declarado pelo cliente
-# não basta — o CONTEÚDO precisa bater com o tipo (SEC-003)
-_MAGIC_PREFIXES = {
-    "image/jpeg": (b"\xff\xd8\xff",),
-    "image/png": (b"\x89PNG\r\n\x1a\n",),
-    "application/pdf": (b"%PDF-",),
-}
-
-
-def _content_matches_type(content_type: str, data: bytes) -> bool:
-    if content_type == "image/webp":
-        return data[:4] == b"RIFF" and data[8:12] == b"WEBP"
-    return any(data.startswith(p) for p in _MAGIC_PREFIXES.get(content_type, ()))
-
-
-async def _read_limited(file: UploadFile, max_bytes: int) -> bytes:
-    """Lê em chunks e interrompe assim que o limite estoura — sem carregar
-    um arquivo arbitrariamente grande na memória antes de validar."""
-    chunks = []
-    size = 0
-    while True:
-        chunk = await file.read(_READ_CHUNK)
-        if not chunk:
-            break
-        size += len(chunk)
-        if size > max_bytes:
-            max_mb = max_bytes // (1024 * 1024)
-            raise HTTPException(status_code=400, detail=f"Arquivo excede o limite de {max_mb} MB")
-        chunks.append(chunk)
-    return b"".join(chunks)
+# Magic bytes e leitura limitada moram em `services/upload_validation` desde que
+# a foto de perfil passou a precisar dos mesmos: duas listas de assinaturas
+# significariam uma delas ficando para trás numa correção.
+_content_matches_type = upload_validation.content_matches_type
+_read_limited = upload_validation.read_limited
 
 
 class AttachmentRead(BaseModel):
@@ -261,7 +235,7 @@ def download_attachment(
     )
 
 
-@router.delete("/attachments/{attachment_id}")
+@router.delete("/attachments/{attachment_id}", response_model=StatusRead)
 def delete_attachment(
     workspace_id: int,
     attachment_id: int,

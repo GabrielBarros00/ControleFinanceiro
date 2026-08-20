@@ -24,6 +24,9 @@ export const PRESET_LABEL: Record<RecurrenceFrequency, string> = {
   yearly: 'Anual',
 };
 
+/** Como a série termina (ADR 0030). */
+export type RecurrenceEndMode = 'never' | 'on' | 'after';
+
 export interface RecurrenceValue {
   custom: boolean;
   frequency: RecurrenceFrequency;
@@ -32,15 +35,22 @@ export interface RecurrenceValue {
   day_of_week: number;
   day_of_month: number;
   month_of_year: number;
+  /** `never` = sem fim, que era a única opção antes. */
+  end_mode: RecurrenceEndMode;
+  end_date: string;         // YYYY-MM-DD, quando end_mode === 'on'
+  end_after: number;        // nº de ocorrências, quando end_mode === 'after'
 }
 
 export interface RecurrenceItemLike {
   frequency: RecurrenceFrequency;
   interval?: number | null;
   start_date?: string | null;
+  end_date?: string | null;
   day_of_week?: number | null;
   day_of_month: number;
   month_of_year?: number | null;
+  occurrences_total?: number | null;
+  occurrences_remaining?: number | null;
 }
 
 // 1º dia do mês corrente (componentes locais, sem armadilha de fuso do toISOString).
@@ -59,6 +69,9 @@ export function defaultRecurrenceValue(): RecurrenceValue {
     day_of_week: 0,
     day_of_month: 1,
     month_of_year: 1,
+    end_mode: 'never',
+    end_date: '',
+    end_after: 12,
   };
 }
 
@@ -86,11 +99,30 @@ export function recurrenceFromItem(item: RecurrenceItemLike): RecurrenceValue {
     day_of_week: item.day_of_week ?? 0,
     day_of_month: item.day_of_month ?? 1,
     month_of_year: item.month_of_year ?? 1,
+    // Volta sempre como `on` quando há fim: o servidor só persiste `end_date`,
+    // e reconstruir "por N vezes" a partir dela seria adivinhar a intenção —
+    // duas séries diferentes podem terminar no mesmo dia.
+    end_mode: item.end_date ? 'on' : 'never',
+    end_date: item.end_date ?? '',
+    end_after: item.occurrences_total ?? 12,
   };
 }
 
 /** Rótulo curto para tabelas ("A cada 2 semanas", "Toda terça", "Dia 5"...). */
 export function recurrenceLabel(item: RecurrenceItemLike): string {
+  const base = recurrenceBaseLabel(item);
+  if (!item.end_date) return base;
+  // "· até 12/2038 · 87 restantes" — sem isso a mensalidade de doze anos era
+  // indistinguível de uma assinatura sem fim (ADR 0030).
+  const fim = `até ${item.end_date.slice(5, 7)}/${item.end_date.slice(0, 4)}`;
+  const restam =
+    item.occurrences_remaining != null && item.occurrences_total != null
+      ? ` · ${item.occurrences_remaining} de ${item.occurrences_total} restantes`
+      : '';
+  return `${base} · ${fim}${restam}`;
+}
+
+function recurrenceBaseLabel(item: RecurrenceItemLike): string {
   const interval = item.interval ?? 1;
   if (interval > 1) {
     return `A cada ${interval} ${UNIT_PLURAL[item.frequency].toLowerCase()}`;
@@ -101,6 +133,26 @@ export function recurrenceLabel(item: RecurrenceItemLike): string {
     return `Todo ano em ${item.day_of_month}/${String(item.month_of_year ?? 1).padStart(2, '0')}`;
   }
   return `Dia ${item.day_of_month}`;
+}
+
+/**
+ * Como a série termina, no formato da API (ADR 0030).
+ *
+ * `end_after_occurrences` é convertido em `end_date` NO SERVIDOR: reproduzir aqui
+ * a aritmética de ocorrências (o "a cada N" ancorado, o dia limitado ao fim do
+ * mês, o piso de `start_date`) daria duas implementações da mesma conta, e duas
+ * implementações divergem.
+ *
+ * `end_date: null` em `never` é explícito, não omitido: no PATCH parcial das
+ * rotas, campo ausente significa "não mexe" — e tirar o fim de uma série é
+ * justamente uma das coisas que se quer poder fazer.
+ */
+function fimDaSerie(v: RecurrenceValue) {
+  if (v.end_mode === 'on') return { end_date: v.end_date || null };
+  if (v.end_mode === 'after') {
+    return { end_after_occurrences: Math.max(1, Math.floor(v.end_after || 1)) };
+  }
+  return { end_date: null as string | null };
 }
 
 /** Campos de recorrência aceitos por ambas as rotas (recurring e recurring-income). */
@@ -114,6 +166,7 @@ export function toRecurrencePayload(v: RecurrenceValue) {
       day_of_month: 1,
       day_of_week: null as number | null,
       month_of_year: null as number | null,
+      ...fimDaSerie(v),
     };
   }
   return {
@@ -125,5 +178,6 @@ export function toRecurrencePayload(v: RecurrenceValue) {
     day_of_month: v.day_of_month,
     day_of_week: v.frequency === 'weekly' ? v.day_of_week : null,
     month_of_year: v.frequency === 'yearly' ? v.month_of_year : null,
+    ...fimDaSerie(v),
   };
 }

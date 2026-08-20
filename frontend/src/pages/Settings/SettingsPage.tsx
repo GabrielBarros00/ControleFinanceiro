@@ -7,10 +7,14 @@ import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { User, Shield, Users, Palette, LogOut, Globe, Moon, Sun, Laptop, Loader2, Trash2, LinkIcon, Copy, Check, Tag, Plus, Wallet, History, Ticket, Smartphone, Download } from 'lucide-react';
+import { CardsOrTable, DataCard } from "@/components/ui/data-card";
+import { Switch } from "@/components/ui/switch";
+import { Avatar } from "@/components/ui/avatar";
+import { AVATAR_ACCEPT, reduzirImagem } from '@/lib/avatar';
+import { User, Shield, Users, Palette, LogOut, Globe, Moon, Sun, Laptop, Loader2, Trash2, LinkIcon, Copy, Check, Tag, Plus, Wallet, History, Ticket, Camera } from 'lucide-react';
 import { useAuthStore } from '@/stores';
 import { useTheme } from '@/hooks/use-theme';
-import { useInstallPrompt } from '@/hooks/use-install-prompt';
+import { InstallAppCard } from '@/components/pwa/InstallApp';
 import { useAuth } from '@/hooks/use-auth';
 import { useWorkspaces } from '@/hooks/use-workspaces';
 import { workspacePath } from '@/hooks/use-workspace-id';
@@ -33,6 +37,7 @@ import { parseApiDate } from '@/lib/date';
 import type { components } from '@/types/api.gen';
 import { CURRENCIES } from '@/lib/currencies';
 import { PageHeader } from '@/components/layout/PageHeader';
+import { rotuloDeEspaco } from '@/components/layout/nav-items';
 
 type Tab = 'profile' | 'security' | 'members' | 'categories' | 'accounts' | 'appearance' | 'audit' | 'convites';
 
@@ -104,6 +109,53 @@ function ProfileTab() {
     }
   };
 
+  const inputFoto = React.useRef<HTMLInputElement>(null);
+  const [enviandoFoto, setEnviandoFoto] = React.useState(false);
+
+  const escolherFoto = async (file: File | undefined) => {
+    if (!file) return;
+    setEnviandoFoto(true);
+    try {
+      // Reduz ANTES de subir: a foto da câmera do celular tem megabytes, e o
+      // servidor recusa acima de 1 MiB. Reduzir aqui também evita mandar a
+      // imagem original pela rede (ver `lib/avatar.ts`).
+      const blob = await reduzirImagem(file);
+      const form = new FormData();
+      // O terceiro argumento é obrigatório: sem ele o backend recebe o arquivo
+      // com o nome "blob" — lição já paga em `use-attachments.ts`.
+      form.append('file', blob, 'avatar.webp');
+      // `Content-Type` explícito, como em `use-attachments.ts`: o `apiClient`
+      // tem `application/json` como padrão, e sem sobrescrever aqui o corpo
+      // multipart chega rotulado como JSON — o backend não acha o campo do
+      // arquivo e a tela fica parada, sem erro visível.
+      const res = await apiClient.put('/auth/me/avatar', form, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+      });
+      setUser(res.data);
+      toast.success('Foto atualizada');
+    } catch (err) {
+      toast.error(getApiErrorMessage(err, 'Não foi possível enviar a foto.'));
+    } finally {
+      setEnviandoFoto(false);
+      // Zera o input: sem isto, escolher o MESMO arquivo de novo (depois de um
+      // erro) não dispara `onChange` e a tela parece travada.
+      if (inputFoto.current) inputFoto.current.value = '';
+    }
+  };
+
+  const removerFoto = async () => {
+    setEnviandoFoto(true);
+    try {
+      const res = await apiClient.delete('/auth/me/avatar');
+      setUser(res.data);
+      toast.info('Foto removida');
+    } catch (err) {
+      toast.error(getApiErrorMessage(err, 'Não foi possível remover a foto.'));
+    } finally {
+      setEnviandoFoto(false);
+    }
+  };
+
   return (
     <div className="space-y-6 animate-in fade-in slide-in-from-right-4 duration-500">
       <Card className="bg-card border-border shadow-xl">
@@ -112,13 +164,53 @@ function ProfileTab() {
           <CardDescription>Gerencie como você é visto no sistema.</CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
-          <div className="flex items-center gap-6 pb-6 border-b border-border">
-            <div className="w-20 h-20 rounded-full bg-primary/10 border-2 border-primary/20 flex items-center justify-center text-3xl font-bold text-primary shadow-inner">
-              {user?.name?.[0] || 'U'}
-            </div>
-            <div>
-              <p className="font-bold">{user?.name}</p>
-              <p className="text-xs text-muted-foreground">{user?.email}</p>
+          {/* `flex-wrap` + `min-w-0`: a 360px o e-mail é a linha mais larga da
+              tela, e sem isto ele empurrava a coluna inteira. */}
+          <div className="flex flex-wrap items-center gap-4 pb-6 border-b border-border sm:gap-6">
+            <Avatar
+              name={user?.name}
+              userId={user?.id}
+              version={user?.avatar_version}
+              size="xl"
+              className="border-2 border-primary/20 shadow-inner"
+            />
+            <div className="min-w-0 flex-1">
+              <p className="truncate font-bold">{user?.name}</p>
+              <p className="truncate text-xs text-muted-foreground">{user?.email}</p>
+              <div className="mt-2 flex flex-wrap gap-2">
+                {/* `<input>` escondido acionado por `ref`, como em
+                    `AttachmentsSection`: o input de arquivo nativo não tem como
+                    ser estilizado, e um `<label>` disfarçado de botão perde o
+                    estado de "enviando". */}
+                <input
+                  ref={inputFoto}
+                  type="file"
+                  accept={AVATAR_ACCEPT}
+                  className="hidden"
+                  onChange={(e) => escolherFoto(e.target.files?.[0])}
+                />
+                <Button
+                  size="sm"
+                  variant="outline"
+                  pending={enviandoFoto}
+                  onClick={() => inputFoto.current?.click()}
+                  className="gap-1.5"
+                >
+                  <Camera className="h-3.5 w-3.5" />
+                  {user?.avatar_version ? 'Trocar foto' : 'Adicionar foto'}
+                </Button>
+                {user?.avatar_version && (
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    pending={enviandoFoto}
+                    onClick={removerFoto}
+                    className="text-muted-foreground"
+                  >
+                    Remover
+                  </Button>
+                )}
+              </div>
             </div>
           </div>
           <div className="grid gap-4 md:grid-cols-2">
@@ -159,6 +251,10 @@ function ProfileTab() {
                 </div>
                 <div>
                   <p className="text-sm font-bold">{ws.name}</p>
+                  {/* De quem é o espaço, no mesmo formato do seletor de escopo.
+                      A descrição continua vindo depois porque é texto livre de
+                      quem criou — o dono é o dado que identifica. */}
+                  <p className="text-xs text-muted-foreground">{rotuloDeEspaco(ws, user?.id)}</p>
                   {ws.description && <p className="text-xs text-muted-foreground">{ws.description}</p>}
                 </div>
               </div>
@@ -532,6 +628,41 @@ function MembersTab() {
                 </Button>
               </div>
             </div>
+
+            {/* Controle de pagamento (ADR 0029).
+                Vale só para o que for lançado DAQUI PRA FRENTE — desligar não sai
+                marcando como pago o que ninguém pagou, e ligar não desfaz nenhum
+                pagamento já registrado. Por isso não há confirmação destrutiva
+                aqui, ao contrário da moeda-base logo acima. */}
+            <div className="flex items-start justify-between gap-4 rounded-xl border border-border bg-accent/20 p-4">
+              <div className="min-w-0 space-y-1">
+                <Label htmlFor="settlement-tracking">Controlar o pagamento das contas</Label>
+                <p className="text-xs text-muted-foreground">
+                  Ligado, o lançamento fora do cartão só sai do caixa quando você
+                  marcar como pago — e até lá aparece em <strong>Contas a pagar</strong>.
+                  Desligado, o dinheiro sai na data do lançamento.
+                  Vale para o que for lançado daqui em diante.
+                </p>
+              </div>
+              <Switch
+                id="settlement-tracking"
+                checked={currentWorkspace?.settlement_tracking ?? true}
+                onCheckedChange={async (valor) => {
+                  try {
+                    await updateWorkspace({
+                      id: currentWorkspace!.id,
+                      data: { settlement_tracking: valor },
+                    });
+                    setFeedback({
+                      ok: true,
+                      text: valor
+                        ? 'Contas passam a esperar a confirmação de pagamento.'
+                        : 'Contas voltam a sair do caixa na data do lançamento.',
+                    });
+                  } catch (err) { showError(err, 'Erro ao salvar a preferência.'); }
+                }}
+              />
+            </div>
           </CardContent>
         </Card>
       )}
@@ -550,9 +681,7 @@ function MembersTab() {
             // cartão, sem rolagem que os alcançasse.
             <div key={m.user_id} className="flex flex-col gap-3 p-3 rounded-xl bg-accent/30 border border-border/50 sm:flex-row sm:items-center sm:justify-between">
               <div className="flex items-center gap-3 min-w-0">
-                <div className="w-9 h-9 rounded-full bg-primary/10 flex items-center justify-center font-bold text-primary shrink-0">
-                  {m.user_name[0]}
-                </div>
+                <Avatar name={m.user_name} userId={m.user_id} version={m.avatar_version} />
                 <div className="min-w-0">
                   <p className="text-sm font-bold truncate">{m.user_name} {m.user_id === user?.id && <span className="text-muted-foreground font-normal">(você)</span>}</p>
                   <p className="text-xs text-muted-foreground truncate">{m.user_email}</p>
@@ -1064,63 +1193,11 @@ function AppearanceTab() {
         </CardContent>
       </Card>
 
-      <InstalarAppCard />
+      {/* Mora em `components/pwa/InstallApp.tsx` junto com o botão da barra
+          superior: os dois compartilham a cópia dos passos do iPhone, que
+          divergiria na primeira correção feita em um só dos lados. */}
+      <InstallAppCard />
     </div>
-  );
-}
-
-/**
- * "Instalar aplicativo" — em Aparência porque é disso que se trata: onde e como
- * o app aparece, ao lado da escolha de tema.
- *
- * Os quatro estados vêm de `useInstallPrompt`, e cada um mostra coisa
- * diferente. O caso que mais importa é o **iOS**: lá não existe evento de
- * instalação, e um botão que não faz nada seria pior do que nenhum — então o
- * cartão vira instrução, com o caminho exato do Safari.
- */
-function InstalarAppCard() {
-  const { estado, instalar } = useInstallPrompt();
-
-  if (estado === 'indisponivel') return null;
-
-  return (
-    <Card className="bg-card border-border shadow-xl">
-      <CardHeader>
-        <CardTitle className="flex items-center gap-2">
-          <Smartphone className="h-5 w-5 text-primary" />
-          Aplicativo no celular
-        </CardTitle>
-        <CardDescription>
-          Instale para abrir em tela cheia, com ícone próprio, sem a barra de endereço.
-        </CardDescription>
-      </CardHeader>
-      <CardContent className="space-y-3">
-        {estado === 'instalado' && (
-          <p className="text-sm text-muted-foreground">
-            Você já está usando o aplicativo instalado. ✅
-          </p>
-        )}
-
-        {estado === 'disponivel' && (
-          <Button type="button" onClick={() => void instalar()} className="h-11 w-full gap-2 sm:w-auto">
-            <Download className="h-4 w-4" /> Instalar aplicativo
-          </Button>
-        )}
-
-        {estado === 'manual-ios' && (
-          <div className="space-y-2 text-sm text-muted-foreground">
-            <p>No iPhone e no iPad a instalação é pelo Safari, em dois toques:</p>
-            <ol className="ml-4 list-decimal space-y-1">
-              <li>Toque em <strong className="text-foreground">Compartilhar</strong> (o quadrado com a seta para cima).</li>
-              <li>Escolha <strong className="text-foreground">Adicionar à Tela de Início</strong>.</li>
-            </ol>
-            <p className="text-xs">
-              Só funciona no Safari — em outros navegadores do iPhone a opção não aparece.
-            </p>
-          </div>
-        )}
-      </CardContent>
-    </Card>
   );
 }
 
@@ -1174,28 +1251,66 @@ function AuditTab() {
         ) : entries.length === 0 ? (
           <p className="py-12 text-center text-sm text-muted-foreground">Nenhuma ação registrada ainda.</p>
         ) : (
-          <Table>
-            <TableHeader>
-              <TableRow className="border-border hover:bg-transparent">
-                <TableHead className="text-xs font-semibold text-muted-foreground">Quando</TableHead>
-                <TableHead className="text-xs font-semibold text-muted-foreground">Quem</TableHead>
-                <TableHead className="text-xs font-semibold text-muted-foreground">Ação</TableHead>
-                <TableHead className="text-xs font-semibold text-muted-foreground">Recurso</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {entries.map((e) => (
-                <TableRow key={e.id} className="border-border hover:bg-accent/30">
-                  <TableCell className="text-sm text-muted-foreground">
-                    {parseApiDate(e.created_at).toLocaleString('pt-BR')}
-                  </TableCell>
-                  <TableCell className="text-sm font-medium text-foreground">{who(e.user_id)}</TableCell>
-                  <TableCell className="text-sm">{AUDIT_ACTION_LABELS[e.action] ?? e.action}</TableCell>
-                  <TableCell className="text-sm text-foreground">{resource(e.resource_type, e.resource_id)}</TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
+          /*
+            No celular a trilha vira cartões.
+
+            Quatro colunas — quando, quem, ação e recurso — dentro do
+            `overflow-auto` do `ui/table.tsx` tecnicamente rolam, e na prática
+            não se lê nada: com a data e hora completas ocupando a primeira
+            coluna, "quem fez o quê" ficava fora da tela, e arrastar na
+            horizontal dentro de um cartão disputa com o gesto de rolar a
+            página. É a mesma razão pela qual `DataCard` foi criado para as
+            outras cinco tabelas do app; a auditoria simplesmente ficou de fora
+            daquela rodada.
+
+            No cartão a data perde o ano e os segundos: é a coluna mais larga da
+            tabela, e numa lista das 100 ações recentes o ano é sempre o mesmo.
+          */
+          <div className="px-4 pb-4 md:px-0 md:pb-0">
+            <CardsOrTable
+              cards={(
+                <div className="space-y-2">
+                  {entries.map((e) => (
+                    <DataCard
+                      key={e.id}
+                      title={AUDIT_ACTION_LABELS[e.action] ?? e.action}
+                      meta={parseApiDate(e.created_at).toLocaleString('pt-BR', {
+                        day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit',
+                      })}
+                      fields={[
+                        { label: 'Quem', value: who(e.user_id) },
+                        { label: 'Recurso', value: resource(e.resource_type, e.resource_id) },
+                      ]}
+                    />
+                  ))}
+                </div>
+              )}
+              table={(
+                <Table>
+                  <TableHeader>
+                    <TableRow className="border-border hover:bg-transparent">
+                      <TableHead className="text-xs font-semibold text-muted-foreground">Quando</TableHead>
+                      <TableHead className="text-xs font-semibold text-muted-foreground">Quem</TableHead>
+                      <TableHead className="text-xs font-semibold text-muted-foreground">Ação</TableHead>
+                      <TableHead className="text-xs font-semibold text-muted-foreground">Recurso</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {entries.map((e) => (
+                      <TableRow key={e.id} className="border-border hover:bg-accent/30">
+                        <TableCell className="text-sm text-muted-foreground">
+                          {parseApiDate(e.created_at).toLocaleString('pt-BR')}
+                        </TableCell>
+                        <TableCell className="text-sm font-medium text-foreground">{who(e.user_id)}</TableCell>
+                        <TableCell className="text-sm">{AUDIT_ACTION_LABELS[e.action] ?? e.action}</TableCell>
+                        <TableCell className="text-sm text-foreground">{resource(e.resource_type, e.resource_id)}</TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              )}
+            />
+          </div>
         )}
       </CardContent>
     </Card>
@@ -1270,7 +1385,24 @@ function SettingsShell({
           </div>
         </aside>
 
-        <main className="min-h-[500px]">{children}</main>
+        {/*
+          `min-w-0` não é enfeite: é o que conserta as duas telas de
+          Configurações no celular.
+
+          Este `<main>` é ITEM DE GRID, e todo item de grid nasce com
+          `min-width: auto` — que resolve para o tamanho MIN-CONTENT do
+          conteúdo, não para zero. Bastava uma linha que não quebra lá dentro
+          (o e-mail de um convite pendente, o nome comprido de uma categoria)
+          para a coluna inteira crescer até caber aquela linha: a trilha medida
+          foi de 328px disponíveis para 685px de coluna, e a página passou a
+          rolar 341px na horizontal — com TODOS os cartões esticados junto, o
+          que é exatamente a queixa de "Configurações estoura lateralmente".
+
+          O `truncate` do e-mail não salvava: ele zera a largura mínima do
+          próprio elemento como item de flex, e não a contribuição do bloco para
+          o min-content de um ancestral de grid.
+        */}
+        <main className="min-h-[500px] min-w-0">{children}</main>
       </div>
     </div>
   );
@@ -1336,7 +1468,7 @@ function ConvitesDeCadastroTab() {
             placeholder="deixe vazio para gerar só o link"
           />
         </div>
-        <Button type="submit" disabled={convidar.isPending}>Gerar convite</Button>
+        <Button type="submit" pending={convidar.isPending}>Gerar convite</Button>
       </form>
 
       {isLoading && <Skeleton className="h-24 rounded-xl" />}

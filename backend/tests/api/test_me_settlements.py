@@ -511,3 +511,108 @@ def test_acerto_registrado_pela_casa_abate_o_saldo_global(cenario, db_session, o
     historico = client.get("/api/v1/me/settlements", headers=cenario["headers"]).json()
     assert len(historico["items"]) == 1
     assert historico["items"][0]["workspace_name"] == "Casa"
+
+
+# --- /me/debts/by-month ------------------------------------------------------
+
+def test_origem_do_saldo_vem_separada_por_casa(cenario, db_session, override_get_session):
+    """Uma seção por casa, cada uma fechando a conta na moeda dela.
+
+    Somar a origem das casas produziria exatamente a compensação que o ADR 0020
+    proíbe — com o agravante de parecer uma conta fechada, que é a leitura mais
+    convincente que existe.
+    """
+    # Um mês a mais na Casa, para a quebra ter mais de uma linha
+    _despesa(
+        db_session, cenario["casa"], pagador=cenario["ana"], valor="60.00",
+        divisao=[(cenario["ana"], "30.00"), (cenario["eu"], "30.00")], mes="2026-07",
+    )
+
+    resp = client.get("/api/v1/me/debts/by-month", headers=cenario["headers"])
+    assert resp.status_code == 200
+    grupos = {g["workspace_name"]: g for g in resp.json()["by_workspace"]}
+
+    # Nada de total agregado no topo: só as casas
+    assert set(resp.json().keys()) == {"by_workspace"}
+    assert set(grupos) == {"Casa", "Viagem"}   # a Alheia não é minha
+
+    casa = grupos["Casa"]
+    assert casa["base_currency"] == "BRL"
+    assert [(m["month"], m["balance"]) for m in casa["months"]] == [
+        ("2026-08", "-100.00"), ("2026-07", "-30.00"),
+    ]
+    assert Decimal(casa["balance"]) == Decimal("-130.00")
+    assert sum(Decimal(m["balance"]) for m in casa["months"]) == Decimal(casa["balance"])
+
+    viagem = grupos["Viagem"]
+    assert Decimal(viagem["balance"]) == Decimal("120.00")   # tenho a receber
+
+    # E cada grupo bate com o `/me/debts` da mesma casa
+    saldos = {g["workspace_name"]: g for g in client.get("/api/v1/me/debts", headers=cenario["headers"]).json()["by_workspace"]}
+    assert Decimal(saldos["Casa"]["to_pay"]) == -Decimal(casa["balance"])
+    assert Decimal(saldos["Viagem"]["to_receive"]) == Decimal(viagem["balance"])
+
+
+def test_origem_do_saldo_nao_mostra_divida_entre_terceiros(cenario, db_session, override_get_session):
+    """Sou OWNER da Viagem e ainda assim a camada `/me/*` é a minha visão.
+
+    Mesma montagem de `test_divida_entre_terceiros_nao_vaza_para_a_visao_global`:
+    a Ana entra na Viagem e o Bruno passa a dever a ela. Sem essa terceira ponta
+    o teste passaria com o recorte desligado — não havia o que recortar.
+    """
+    ana, bruno, eu = cenario["ana"], cenario["bruno"], cenario["eu"]
+    _entra(db_session, cenario["viagem"], ana)
+    _despesa(
+        db_session, cenario["viagem"],
+        pagador=ana, valor="60.00", divisao=[(ana, "0.00"), (bruno, "60.00")],
+    )
+
+    grupos = {
+        g["workspace_name"]: g
+        for g in client.get("/api/v1/me/debts/by-month", headers=cenario["headers"]).json()["by_workspace"]
+    }
+    partes = {
+        (linha["debtor_id"], linha["creditor_id"])
+        for mes in grupos["Viagem"]["months"]
+        for linha in mes["net_debts"]
+    }
+    assert partes, "a Viagem tem de continuar com linha minha"
+    assert all(eu.id in par for par in partes)
+    assert (bruno.id, ana.id) not in partes
+
+    # O SALDO não muda com o recorte: ele é meu por inteiro, e recortá-lo daria
+    # um total diferente do que `/me/debts` mostra na mesma tela.
+    assert Decimal(grupos["Viagem"]["balance"]) == Decimal("120.00")
+
+
+def test_origem_separa_o_acerto_sem_mes(cenario, db_session, override_get_session):
+    """Acerto global entra em `unassigned`, não some nem se finge de mês.
+
+    É o defeito que a tela passou a mostrar: registrar pelo saldo acumulado
+    derruba o total sem fechar mês nenhum, e antes nada dizia isso.
+    """
+    db_session.add(Settlement(
+        workspace_id=cenario["casa"].id,
+        from_user_id=cenario["eu"].id,
+        to_user_id=cenario["ana"].id,
+        amount=Decimal("30.00"),
+        billing_month=None,
+    ))
+    db_session.commit()
+
+    casa = next(
+        g for g in client.get("/api/v1/me/debts/by-month", headers=cenario["headers"]).json()["by_workspace"]
+        if g["workspace_name"] == "Casa"
+    )
+    # O mês continua devendo os 100 — o acerto global não o tocou
+    assert [(m["month"], m["balance"]) for m in casa["months"]] == [("2026-08", "-100.00")]
+    assert casa["unassigned"] == "30.00"
+    assert Decimal(casa["balance"]) == Decimal("-70.00")
+    assert (
+        sum(Decimal(m["balance"]) for m in casa["months"]) + Decimal(casa["unassigned"])
+        == Decimal(casa["balance"])
+    )
+
+
+def test_origem_exige_autenticacao(override_get_session):
+    assert client.get("/api/v1/me/debts/by-month").status_code == 401

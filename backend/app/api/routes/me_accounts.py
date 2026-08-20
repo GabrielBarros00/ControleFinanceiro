@@ -23,7 +23,7 @@ from app.domain.access_policy import assert_owns, personal_scope
 from app.domain.query_policy import resolve_personal_currency
 from app.models.payment_account import PaymentAccount, PaymentAccountType
 from app.models.user import User
-from app.schemas.common import NAME_MAX, OptionalCurrencyCode
+from app.schemas.common import NAME_MAX, OptionalCurrencyCode, StatusRead
 
 router = APIRouter(prefix="/me/payment-accounts", tags=["me-payment-accounts"])
 
@@ -167,7 +167,7 @@ def update_payment_account(
     return account
 
 
-@router.delete("/{account_id}")
+@router.delete("/{account_id}", response_model=StatusRead)
 def delete_payment_account(
     account_id: int,
     session: Session = Depends(get_session),

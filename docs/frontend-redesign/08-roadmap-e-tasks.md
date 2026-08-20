@@ -70,8 +70,12 @@ telas podem ser paralelizadas por pessoa, pois todas dependem só de 1 e 2.
   (neutros quentes, marca índigo, semânticas de dinheiro/feedback, chart-1..6) + mapa de
   compat com os nomes shadcn atuais.
   <br>_Aceite:_ app inteiro continua renderizando; `--primary` aponta para `--brand`.
-- [x] **F1.2 — Tailwind semântico.** Estender `tailwind.config.js` com `surface`, `text`,
-  `text-muted`, `brand`, `income`, `expense`, `warning`, `chart-*`, raios e sombras.
+- [x] **F1.2 — Tailwind semântico.** Estender com `surface`, `text`, `text-muted`,
+  `brand`, `income`, `expense`, `warning`, `chart-*`, raios e sombras.
+  <br>_Entregue diferente do plano:_ o projeto está em **Tailwind v4**, que é
+  CSS-first — **não existe `tailwind.config.js`**. Os nomes semânticos são
+  `@theme` em `src/index.css`. Quem for procurar a config de Tailwind neste repo
+  não vai achar, e não é porque falta: é porque a v4 não tem.
 - [x] **F1.3 — Tipografia.** Classe `.tabular` (tabular-nums); escala de tipos (03 §2.2)
   como utilitários/config; remover `font-black` default (buscar e substituir por 600).
   <br>_Aceite:_ nenhum `font-black`/`uppercase tracking-widest` como rótulo padrão.
@@ -180,7 +184,7 @@ custo de mudar de ideia depois.
 | Item | Por que ficou de fora | O que isso custa hoje |
 |---|---|---|
 | **F1.6** — página de tokens / Storybook | Marcado como opcional já no plano original; o design system cabe nos docs 03/05 e o app é de uma pessoa só | Nenhum enquanto o time for pequeno |
-| **F1.7** — consolidar UI kit (Base UI → Radix) | Rework grande e transversal, com risco de regressão em toda tela, para ganho estético | **É o custo mais real da lista.** Sobrevive o padrão "`<select>` nativo dentro de modal" (o popup do Base UI Select escapa do focus-trap do Radix Dialog), e as variantes `data-*` precisam da forma com colchete no Tailwind v3. Duas convenções a lembrar em cada componente novo |
+| **F1.7** — consolidar UI kit (Base UI → Radix) | Rework grande e transversal, com risco de regressão em toda tela, para ganho estético | **É o custo mais real da lista.** Sobrevive o padrão "`<select>` nativo dentro de modal" (o popup do Base UI Select escapa do focus-trap do Radix Dialog). Duas convenções a lembrar em cada componente novo. <br>_Nota (2026-08-18):_ a menção à "forma com colchete das variantes `data-*`" valia no Tailwind v3 e **não vale mais** — o projeto migrou para a v4. Também nesta revisão: dos 8 pacotes `@radix-ui/*` declarados, só `dialog`, `progress` e `tabs` tinham import; os outros 5 foram removidos |
 | **F4.3** — Orçamento como rota `/budget` | Redundante com a aba de Relatórios, que já mostra meta × gasto por categoria | Um clique a mais para chegar ao orçamento |
 | **F4.7** — wizard de importação em 3 passos | O formulário atual de Importar funciona ponta a ponta (mapeia colunas, marca duplicata, decide por linha) | Primeira importação é mais árida que poderia ser |
 | **F5.4** — densidade compacta | Só compensa em tabelas muito longas (faturas/parcelas), que hoje cabem na tela | Nenhum |

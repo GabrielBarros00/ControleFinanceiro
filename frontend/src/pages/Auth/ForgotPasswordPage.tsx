@@ -73,7 +73,7 @@ export function ForgotPasswordPage() {
               </div>
             </CardContent>
             <CardFooter className="flex flex-col space-y-4 pb-8">
-              <Button type="submit" className="w-full h-11 bg-primary hover:bg-primary/90 text-primary-foreground font-bold shadow-lg shadow-primary/20 transition-all" disabled={loading}>
+              <Button type="submit" className="w-full h-11 bg-primary hover:bg-primary/90 text-primary-foreground font-bold shadow-lg shadow-primary/20 transition-all" pending={loading}>
                 {loading ? "Enviando..." : (
                   <span className="flex items-center gap-2">
                     Enviar Link <Send className="h-4 w-4" />

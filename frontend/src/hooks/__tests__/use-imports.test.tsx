@@ -64,4 +64,42 @@ describe('useImports', () => {
     expect(parsedData.skipped).toHaveLength(1);
     expect(parsedData.skipped[0].reason).toContain('ausente');
   });
+
+  /*
+   * O import era o ÚNICO hook de mutação do app sem invalidação local — 18 dos 19
+   * invalidam no `onSuccess`, e `lib/ws-events.ts` escreve a regra em voz alta:
+   * "sem depender da volta do evento pela rede".
+   *
+   * O defeito não é teórico. Com o WebSocket bloqueado por infra (proxy que não
+   * faz upgrade) ou ainda em backoff, a pessoa importava o extrato inteiro, era
+   * levada de volta ao Início e via os números de antes — sem nenhum sinal de que
+   * faltava algo. As duas rotas de escrita são cobertas porque as duas tinham o
+   * mesmo furo.
+   */
+  it.each([
+    ['commit', (r: ReturnType<typeof useImports>) => r.commit({ filename: 'x.csv', rows: [] })],
+    ['bulk', (r: ReturnType<typeof useImports>) => r.importTransactions([])],
+  ])('invalida o cache local depois do %s, sem depender do WebSocket', async (rota, acao) => {
+    server.use(
+      http.post('http://localhost:8000/api/v1/workspaces/1/imports/commit', () =>
+        HttpResponse.json({ batch_id: 1, imported: 2, ignored: 0, duplicate: 0, skipped: 0 }),
+      ),
+      http.post('http://localhost:8000/api/v1/workspaces/1/transactions/bulk', () =>
+        HttpResponse.json({ status: 'ok', created: 2, skipped: 0, skipped_details: [] }),
+      ),
+    );
+
+    // Cache "quente" com o estado ANTERIOR à importação, em duas famílias que o
+    // ADR 0021 separa: uma do workspace e uma global.
+    queryClient.setQueryData(['transactions', 1], { total: 0 });
+    queryClient.setQueryData(['me-overview'], { total: 0 });
+    expect(queryClient.getQueryState(['transactions', 1])?.isInvalidated).toBe(false);
+
+    const { result } = renderHook(() => useImports(), { wrapper });
+    await acao(result.current);
+
+    expect(queryClient.getQueryState(['transactions', 1])?.isInvalidated).toBe(true);
+    expect(queryClient.getQueryState(['me-overview'])?.isInvalidated).toBe(true);
+    expect(rota).toBeTruthy();
+  });
 });

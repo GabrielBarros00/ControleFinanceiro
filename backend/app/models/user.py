@@ -66,6 +66,38 @@ class User(UserBase, table=True):
         default="BRL",
         sa_column=Column(String(3), nullable=False, server_default="BRL"),
     )
+    # Foto de perfil. Os BYTES ficam no volume, endereçados pelo conteúdo
+    # (`avatars/{sha[:2]}/{sha}`), pelo mesmo motivo dos anexos: o dump do
+    # Postgres não deve crescer com imagem (ADR 0007/0016). Aqui fica só a
+    # chave — e o tipo, porque servir a foto exige devolver o `Content-Type`
+    # certo e não há de onde inferi-lo depois (a chave é um hash, sem extensão).
+    avatar_key: Optional[str] = Field(
+        default=None, sa_column=Column(String(128), nullable=True, index=True)
+    )
+    avatar_content_type: Optional[str] = Field(
+        default=None, sa_column=Column(String(32), nullable=True)
+    )
     created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
     updated_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
     deleted_at: Optional[datetime] = Field(default=None)
+
+    @property
+    def avatar_version(self) -> Optional[str]:
+        """Token de cache da foto, derivado da chave (que é o hash do conteúdo).
+
+        Mora aqui, e não em `services/avatar_storage`, porque `UserResponse` lê
+        por atributo (`from_attributes`) e o serviço já importa este módulo —
+        pôr a derivação lá e chamá-la daqui fecharia um ciclo de import.
+        """
+        return avatar_version_de(self.avatar_key)
+
+
+def avatar_version_de(avatar_key: Optional[str]) -> Optional[str]:
+    """Os 8 primeiros caracteres do SHA-256, que é o fim da chave.
+
+    Função solta porque a listagem de membros monta o schema a partir de uma
+    consulta, sem instanciar `User`.
+    """
+    if not avatar_key:
+        return None
+    return avatar_key.rsplit("/", 1)[-1][:8]

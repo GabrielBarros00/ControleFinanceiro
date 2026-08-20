@@ -1,10 +1,12 @@
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Button } from "@/components/ui/button";
-import { HandCoins, Loader2 } from 'lucide-react';
+import { ChevronRight, HandCoins, Loader2 } from 'lucide-react';
 import { useTxDetailStore } from '@/stores';
 import type { SettlementDraft } from '@/components/debts/SettlementDialog';
 import { formatMoney } from '@/lib/money';
 import { CardsOrTable, DataCard } from '@/components/ui/data-card';
+import { StatusPill } from '@/components/ui/status-pill';
+import { Avatar } from '@/components/ui/avatar';
 
 /**
  * O CORPO do retrato mensal de uma casa — sem hook nenhum.
@@ -22,6 +24,10 @@ import { CardsOrTable, DataCard } from '@/components/ui/data-card';
 export interface MemberLike {
   user_id: number;
   user_name?: string;
+  /** Token de cache da foto. Opcional porque a tela global monta esta lista a
+   *  partir de um payload próprio, e uma casa sem fotos continua desenhando as
+   *  iniciais. */
+  avatar_version?: string | null;
 }
 
 /** `string | number` de propósito: `/{ws}/debts/monthly` é uma rota
@@ -43,6 +49,10 @@ export interface LedgerLike {
     splits: { user_id: number; computed_amount: Money }[];
   }[];
   settled_total: Money;
+  /** Declarado porque é o payload do ledger, mas NÃO desenhado aqui: quem lista
+   *  acerto é `SettlementHistory`, e as duas coisas conviviam na mesma rolagem
+   *  mostrando o mesmo pagamento duas vezes. Aqui sobra só `settled_total`, que
+   *  é o estado do mês. */
   settlements: {
     id: number;
     from_user_id: number;
@@ -63,6 +73,10 @@ interface Props {
   month: string;
   isLoading?: boolean;
   onSettle: (draft: SettlementDraft) => void;
+  /** Leva à aba Histórico. Ausente = sem link (o mês não lista os acertos:
+   *  quem os lista é o histórico, e antes as duas coisas coexistiam na mesma
+   *  rolagem mostrando o mesmo pagamento duas vezes). */
+  onOpenHistory?: () => void;
 }
 
 /** Os três totais do mês. Fica separado do corpo porque a tela da casa os
@@ -112,13 +126,14 @@ export function MonthlyLedgerBody({
   month,
   isLoading = false,
   onSettle,
+  onOpenHistory,
 }: Props) {
   const openDetail = useTxDetailStore((s) => s.open);
   const fmt = (v: Money) => formatMoney(v, { currency });
 
   const memberName = (id: number) =>
     members.find((m) => m.user_id === id)?.user_name ?? `Membro #${id}`;
-  const memberInitials = (id: number) => memberName(id).slice(0, 2).toUpperCase();
+  const memberAvatar = (id: number) => members.find((m) => m.user_id === id)?.avatar_version;
 
   if (isLoading) {
     return (
@@ -137,16 +152,32 @@ export function MonthlyLedgerBody({
   }
 
   const acertado = Number(ledger.settled_total);
+  const emAberto = ledger.expenses.filter((e) => !e.is_paid).length;
 
   return (
     <>
       {/* Quem deve quem NO MÊS */}
       <div className="space-y-2">
-        <div className="flex items-center justify-between">
-          <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Acertos do mês</p>
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+            Quem deve a quem neste mês
+          </p>
           {acertado > 0 && (
-            <span className="shrink-0 rounded-full bg-emerald-500/10 px-2 py-0.5 text-[10px] font-semibold uppercase whitespace-nowrap text-emerald-500">
-              {fmt(ledger.settled_total)} pago
+            /* O ESTADO do mês, não a lista. As linhas "fulano pagou X a
+               beltrano" viviam logo abaixo daqui e repetiam, na mesma rolagem,
+               o que a tabela de histórico já mostrava — a pessoa via o mesmo
+               pagamento duas vezes sem saber se eram um ou dois. */
+            <span className="flex shrink-0 items-center gap-2">
+              <StatusPill tone="success">{fmt(ledger.settled_total)} já acertados</StatusPill>
+              {onOpenHistory && (
+                <button
+                  type="button"
+                  onClick={onOpenHistory}
+                  className="text-[11px] font-medium text-brand hover:underline"
+                >
+                  ver no histórico
+                </button>
+              )}
             </span>
           )}
         </div>
@@ -159,11 +190,15 @@ export function MonthlyLedgerBody({
             {ledger.net_debts.map((d) => (
               <div key={`${d.debtor_id}-${d.creditor_id}`} className="flex flex-wrap items-center justify-between gap-2 rounded-xl bg-accent/30 border border-border p-3">
                 <p className="text-sm">
-                  <span className="font-bold">{memberName(d.debtor_id)}</span>
+                  <span className="font-bold">
+                    {d.debtor_id === currentUserId ? 'Você' : memberName(d.debtor_id)}
+                  </span>
                   <span className="text-muted-foreground"> deve </span>
-                  <span className="font-semibold text-destructive">{fmt(d.amount)}</span>
+                  <span className="font-semibold text-expense">{fmt(d.amount)}</span>
                   <span className="text-muted-foreground"> a </span>
-                  <span className="font-bold">{memberName(d.creditor_id)}</span>
+                  <span className="font-bold">
+                    {d.creditor_id === currentUserId ? 'você' : memberName(d.creditor_id)}
+                  </span>
                 </p>
                 <Button
                   size="sm"
@@ -178,25 +213,26 @@ export function MonthlyLedgerBody({
             ))}
           </div>
         )}
-        {/* Acertos já registrados para este mês — deixa claro quem pagou */}
-        {ledger.settlements.length > 0 && (
-          <div className="space-y-1 pt-1">
-            {ledger.settlements.map((s) => (
-              <p key={s.id} className="flex items-center gap-1.5 text-xs text-muted-foreground">
-                <HandCoins className="h-3 w-3 shrink-0 text-emerald-500" />
-                <span className="font-bold text-foreground">{memberName(s.from_user_id)}</span> pagou{' '}
-                <span className="font-semibold text-emerald-500">{fmt(s.amount)}</span> a{' '}
-                <span className="font-bold text-foreground">{memberName(s.to_user_id)}</span>
-              </p>
-            ))}
-          </div>
-        )}
       </div>
 
-      {/* Detalhe das despesas do mês */}
-      <div className="space-y-2">
-        <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Despesas do mês</p>
+      {/* Detalhe das despesas do mês — RECOLHIDO por padrão.
+          Esta lista é a justificativa da dívida, não a resposta da tela: aberta,
+          ela dominava a rolagem (e, na tela global, uma vez por espaço) enquanto
+          a pergunta "quanto eu devo a quem" ficava acima da dobra por acidente.
+          O resumo na aba mantém o número à vista sem o detalhe. */}
+      <details className="group rounded-xl border border-border">
+        <summary className="flex cursor-pointer list-none items-center gap-2 rounded-xl px-3 py-2.5 text-sm hover:bg-muted/50 [&::-webkit-details-marker]:hidden">
+          <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground transition-transform group-open:rotate-90" />
+          <span className="min-w-0 flex-1 font-medium text-foreground">
+            Despesas do mês
+            <span className="ml-2 font-normal text-muted-foreground">
+              {ledger.expenses.length} · {fmt(ledger.totals.total)}
+              {emAberto > 0 && ` · ${emAberto} em aberto`}
+            </span>
+          </span>
+        </summary>
 
+        <div className="border-t border-border p-3">
         {/* Celular: cartões. Esta é a tabela mais larga do app depois da de
             amortização, e a coluna "Divisão" é a que menos cabe — no cartão os
             chips de rateio ganham a linha inteira e passam a mostrar o NOME de
@@ -312,7 +348,19 @@ export function MonthlyLedgerBody({
                               : 'border-border bg-accent/40 text-muted-foreground'
                           }`}
                         >
-                          {mine ? 'Você' : memberInitials(s.user_id)} · {fmt(s.computed_amount)}
+                          {mine ? (
+                            'Você'
+                          ) : (
+                            <Avatar
+                              name={memberName(s.user_id)}
+                              userId={s.user_id}
+                              version={memberAvatar(s.user_id)}
+                              size="xs"
+                              letras={2}
+                              className="h-4 w-4 text-[8px]"
+                            />
+                          )}{' '}
+                          · {fmt(s.computed_amount)}
                         </span>
                       );
                     })}
@@ -335,7 +383,8 @@ export function MonthlyLedgerBody({
         </Table>
           }
         />
-      </div>
+        </div>
+      </details>
     </>
   );
 }

@@ -4,6 +4,7 @@ import {
   WEEKDAYS,
   MONTHS,
   PRESET_LABEL,
+  type RecurrenceEndMode,
   type RecurrenceFrequency,
   type RecurrenceValue,
 } from '@/lib/recurrence';
@@ -152,6 +153,54 @@ export function RecurrenceEditor({ value, onChange, idPrefix = 'rec' }: Recurren
           </div>
         </div>
       )}
+
+      {/* Fim da série (ADR 0030).
+          Antes só existia "sem fim", e uma mensalidade de faculdade paga por
+          doze anos virava uma recorrência infinita: sem "faltam 87 de 144", com
+          a previsão projetando para sempre e sem parar sozinha no mês em que
+          ela de fato acaba. */}
+      <div className="space-y-2">
+        <Label htmlFor={`${idPrefix}-end-mode`}>Termina</Label>
+        <div className="flex flex-wrap gap-2">
+          <select
+            id={`${idPrefix}-end-mode`}
+            className={`${selectClass} w-auto flex-1`}
+            value={value.end_mode}
+            onChange={(e) => onChange({ end_mode: e.target.value as RecurrenceEndMode })}
+          >
+            <option value="never" className="bg-card">Nunca</option>
+            <option value="on" className="bg-card">Em uma data</option>
+            <option value="after" className="bg-card">Depois de N ocorrências</option>
+          </select>
+          {value.end_mode === 'on' && (
+            <Input
+              aria-label="Data de término"
+              type="date"
+              value={value.end_date}
+              onChange={(e) => onChange({ end_date: e.target.value })}
+              className="w-auto flex-1 bg-background/50"
+            />
+          )}
+          {value.end_mode === 'after' && (
+            <Input
+              aria-label="Número de ocorrências"
+              type="number"
+              min={1}
+              max={600}
+              value={value.end_after}
+              onChange={(e) => onChange({ end_after: Math.max(1, Number(e.target.value) || 1) })}
+              className="w-24 bg-background/50"
+            />
+          )}
+        </div>
+        {value.end_mode === 'after' && (
+          // Quem conta é o SERVIDOR, com a mesma aritmética da materialização —
+          // por isso a data exata só aparece depois de salvar.
+          <p className="text-[11px] text-muted-foreground">
+            A data de término é calculada ao salvar, pela frequência escolhida.
+          </p>
+        )}
+      </div>
     </div>
   );
 }

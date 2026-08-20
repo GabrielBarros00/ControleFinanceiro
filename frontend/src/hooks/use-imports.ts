@@ -1,7 +1,28 @@
-import { useMutation } from '@tanstack/react-query';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { apiClient } from '@/api/client';
+import { invalidateForEvent } from '@/lib/ws-events';
+import type { components } from '@/types/api.gen';
 import { useWorkspaceId } from './use-workspace-id';
 
+/*
+ * Derivados do OpenAPI, não escritos à mão.
+ *
+ * Este arquivo mantinha SETE interfaces manuais, e duas delas já divergiam entre
+ * si sobre o mesmo campo do mesmo fluxo: `ParsedCsvRow.total_amount` era
+ * `string`, `CommitRow.total_amount` era `string | number`. Nada acusava, porque
+ * as rotas devolviam `Dict[str, Any]` e não havia contrato com que divergir.
+ */
+export type ParsedCsvRow = components['schemas']['ParsedCsvRow'];
+export type SkippedCsvRow = components['schemas']['SkippedCsvRow'];
+export type ParseCsvResult = components['schemas']['ParseCsvResult'];
+export type BulkImportResult = components['schemas']['BulkCreateResult'];
+export type CommitImportResult = components['schemas']['CommitImportResult'];
+
+/** O corpo do commit — entrada, não saída (a decisão por linha é do usuário). */
+export type CommitRow = components['schemas']['CommitRow'];
+
+/** Mapeamento de colunas do CSV: é `multipart/form-data`, não JSON, então o
+ *  OpenAPI o descreve como campos de formulário e não como um schema só. */
 export interface CsvMapping {
   date_column: string;
   description_column: string;
@@ -12,49 +33,21 @@ export interface CsvMapping {
   invert_amount: boolean;
 }
 
-export interface ParsedCsvRow {
-  line?: number;
-  title: string;
-  total_amount: string;
-  transaction_date: string;
-  duplicate?: boolean;
-}
-
-export interface SkippedCsvRow {
-  line: number;
-  reason: string;
-}
-
-export interface ParseCsvResult {
-  rows: ParsedCsvRow[];
-  skipped: SkippedCsvRow[];
-}
-
-export interface BulkImportResult {
-  status: string;
-  created: number;
-  skipped: number;
-  skipped_details: { index: number; title: string; reason: string }[];
-}
-
-export interface CommitRow {
-  line?: number;
-  title: string;
-  total_amount: string | number;
-  transaction_date: string;
-  decision?: 'import' | 'ignore';
-}
-
-export interface CommitImportResult {
-  batch_id: number;
-  imported: number;
-  ignored: number;
-  duplicate: number;
-  skipped: number;
-}
-
 export function useImports() {
   const currentWorkspaceId = useWorkspaceId();
+  const queryClient = useQueryClient();
+
+  /**
+   * O import era o ÚNICO hook de mutação do app sem invalidação local: ele
+   * dependia só do `transaction.bulk_created` voltar pelo WebSocket. Com o socket
+   * bloqueado por infra (ou ainda em backoff), a pessoa importava 200 linhas,
+   * caía no Início e via os dados de antes — sem nenhum sinal de que faltava algo.
+   *
+   * Mesmo tipo de evento que o backend publica em `imports.py`, então os dois
+   * caminhos convergem exatamente como `lib/ws-events.ts` descreve.
+   */
+  const invalidarLote = () =>
+    invalidateForEvent(queryClient, 'transaction.bulk_created', currentWorkspaceId);
 
   const parseMutation = useMutation({
     mutationFn: async ({ file, mapping }: { file: File; mapping: CsvMapping }): Promise<ParseCsvResult> => {
@@ -84,6 +77,7 @@ export function useImports() {
       );
       return response.data as BulkImportResult;
     },
+    onSuccess: invalidarLote,
   });
 
   // Commit persistido: lote auditável + fingerprint idempotente (ADR 0008).
@@ -96,6 +90,7 @@ export function useImports() {
       );
       return response.data as CommitImportResult;
     },
+    onSuccess: invalidarLote,
   });
 
   return {

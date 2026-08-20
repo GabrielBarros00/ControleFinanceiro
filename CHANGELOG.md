@@ -11,6 +11,306 @@ segue [SemVer](https://semver.org/lang/pt-BR/).
 
 ## [Não lançado]
 
+### Acertos: o saldo parou de parecer uma cobrança do mês
+
+A tela de Acertos empilhava quatro coisas na mesma rolagem — o acumulado de
+todos os meses, o retrato de um mês, as despesas que originaram a dívida e o
+histórico de pagamentos — sem dizer qual era qual. O pior efeito era o número do
+topo: "Saldo geral a acertar: R$ 320" lê-se como uma conta a pagar **agora**,
+quando pode ser a soma de três meses que ninguém fechou. E o histórico aparecia
+duas vezes, porque o retrato do mês repetia, logo acima da tabela, os mesmos
+pagamentos que ela listava.
+
+Investigando a confusão, apareceu a causa de fundo: **os dois números nunca
+foram calculados do mesmo jeito**. O saldo geral soma todos os meses e desconta
+todos os acertos; o do mês soma um `billing_month` e desconta só os acertos
+marcados com ele. Como todo lançamento recebe `billing_month` automaticamente,
+vale uma identidade exata — `saldo geral = Σ dos saldos mensais + acertos sem
+mês` — que agora a tela mostra aberta, linha a linha, com o total fechando no
+rodapé (`GET /{ws}/debts/by-month` e o par `/me/debts/by-month`). Meses além do
+teto da lista viram uma linha somada em vez de sumirem: uma quebra que não fecha
+é pior do que não existir. A identidade e as duas naturezas do acerto viraram o
+**ADR 0031** — não eram comportamento novo, eram decisões que o modelo já tomava
+e que ninguém havia escrito, e é por não estarem escritas que se perderam.
+
+E apareceu um segundo achado, esse invisível havia tempo: **existem dois tipos de
+acerto e nada os distinguia**. Registrar a partir de um mês grava
+`billing_month` e fecha aquele mês; registrar a partir do saldo acumulado grava
+`NULL` e abate o total sem fechar mês nenhum. O campo sempre veio na resposta —
+faltava na tela, e faltava até no tipo do frontend, escrito à mão sem ele. É a
+explicação do saldo que "caía sozinho". Agora cada acerto do histórico carrega
+uma pílula com o mês que fecha, ou **"sem mês"**.
+
+O resto é reorganização, no desktop e no celular:
+
+- **Três abas** — Resumo, Por mês e Histórico —, com o estado em `?tab=`, então
+  a aba entra no link e no botão voltar. O rótulo da aba passa a ser a resposta
+  de escopo que faltava.
+- **Uma linha por pessoa** no lugar dos dois cards "Você deve"/"Você recebe".
+  Os rótulos repetiam os do topo, e dentro de um espaço um dos dois cards estava
+  sempre vazio por construção — o pareamento põe cada pessoa em um lado só.
+- Pela mesma razão, os três `StatTile` da tela do espaço viraram **um número e
+  uma frase**: dois deles eram sempre zero, e "Saldo líquido" era só o sinal do
+  que sobrava. (Na tela global os dois ficam: lá somam espaços distintos, e o
+  ADR 0020 continua proibindo compensá-los.)
+- **"Despesas do mês" nasce recolhida**, com o resumo na dobra (`56 · R$ …· 56
+  em aberto`). É a justificativa da dívida, não a resposta da tela — e, na tela
+  global, ela se repetia uma vez por espaço.
+- O histórico virou **um lugar só**, com cartões no celular. As duas tabelas
+  viviam no `overflow-auto` do `ui/table.tsx`, com a coluna de valor fora da
+  tela.
+
+O gate de 360px agora abre **todos** os blocos recolhidos antes de medir — e
+falha se não achar nenhum para abrir, porque um portão que mede a tela dobrada
+protege o nada. O scanner de acessibilidade percorre as três abas: o Radix
+desmonta a aba inativa, e varrer só a inicial deixaria dois terços da tela sem
+conferência. E um E2E novo (`e2e/acertos.spec.ts`) monta dois meses, um acerto de
+mês e um de acumulado, e confere que **a soma das linhas exibidas é o total
+exibido** — a identidade cobrada onde ela importa, na tela, atravessando rota,
+serialização e `Intl`.
+
+### Instalar o app deixou de ser um segredo (e o ícone com o Chrome no canto ganhou explicação)
+
+O app é instalável desde sempre — manifesto, service worker, ícones, metas do
+iOS. O que não existia era a **porta**: a oferta morava no fim de Configurações ›
+Aparência, e ninguém chega lá por acaso.
+
+Pior, ela estava morta. `beforeinstallprompt` dispara **uma vez por carregamento
+de página**, cedo, e o Chrome não o repete em navegação de SPA. Como o listener
+vivia dentro do hook — usado só por aquele cartão —, o evento chegava ainda em
+`/login`, sem ninguém escutando, e o login navega client-side, sem reload. O
+botão "Instalar" só aparecia para quem desse F5 **estando** em `/settings`. Nada
+disso dava erro em log nenhum: a funcionalidade simplesmente não acontecia.
+
+Agora a captura mora em escopo de módulo (`lib/install.ts`, chamada em
+`main.tsx` antes do `createRoot`) e o convite fica na **barra superior**, em toda
+tela — só o ícone no celular, ícone e rótulo a partir de 640px, e some sozinho
+quando o app já está aberto em janela própria. No iPhone, onde não existe evento
+de instalação, ele abre o caminho do Safari em vez de fingir que instala.
+
+E o cartão de Configurações passou a **diagnosticar**, porque o mesmo manifesto
+produz dois resultados diferentes no Android: instalar de verdade gera um
+**WebAPK** (ícone limpo, app na lista do aparelho); quando a ponte com o Play
+Services falha, ou quando a instalação partiu de "Adicionar à tela inicial" em
+vez de "Instalar app", o Chrome cria um mero **atalho** — e o marca com o próprio
+logo no canto do ícone. Nenhum código conserta isso: a decisão é do aparelho. O
+que dá para fazer é dizer em qual dos dois estados a pessoa está, e agora o
+cartão diz — se esta janela é o app, e se existe app instalado no aparelho
+(`getInstalledRelatedApps()`, ligado pela entrada auto-referente em
+`related_applications`) — com o passo a passo para refazer a instalação.
+
+> **A palavra que apaga tudo:** `prefer_related_applications: true` no manifesto
+> faz o Chrome parar de oferecer a instalação, em silêncio, e fica a um campo de
+> distância do que foi acrescentado. O portão está no `verify-build-assets.mjs`,
+> que roda a cada `npm run build`, e não só na suíte mobile.
+
+### O dinheiro sai quando sai, não quando você anota
+
+O app dizia que **toda** despesa fora do cartão saía do bolso no instante em que
+era registrada. Pix, dinheiro, boleto, transferência: `payment_method` não entrava
+em consulta nenhuma — era rótulo. O boleto que vence dia 10 debitava o caixa no
+dia 10, pago ou não, e a conta de luz que a recorrência criava sozinha fazia o
+mesmo, sem que ninguém tivesse afirmado nada. "Marcar como pago" não existia:
+`status = paid` está na máquina de estados desde o começo e nenhuma rota nem tela
+o escrevia. A pergunta "quanto ainda vai sair este mês" não tinha resposta.
+
+Agora `Transaction.settled_at` diz quando o dinheiro saiu, e o caixa passa a
+contar por ela. A conta de julho paga em 14 de agosto continua sendo gasto de
+julho (consumo, dívidas, relatórios) e vira dinheiro que saiu em agosto, na
+cotação daquele dia. O que ainda não foi pago vive em **Contas a pagar** — item
+novo na navegação, em Pessoal e no espaço, com o que venceu em destaque e um botão
+para confirmar várias contas de uma vez, informando o dia.
+
+É opção do ESPAÇO ("Controlar o pagamento das contas", ligada por padrão): quem
+lança tudo depois de pagar não quer a etapa a mais. A recorrência ganhou
+"Pagamento automático" para o que o banco debita sozinho. E a migração preenche
+`settled_at` de TODO o histórico — nenhum número de mês fechado muda. (ADR 0029)
+
+> **O que muda para quem já usa.** Nada no passado. Daqui pra frente, a
+> ocorrência que a recorrência criar nasce **a pagar** — é o defeito que o ADR
+> corrige, e é onde ele mais aparece. Se o aluguel ou a internet saem por débito
+> automático, ligue "Pagamento automático" no modelo e eles voltam a ir direto
+> para o caixa. Lançamento digitado à mão continua nascendo pago (a data já
+> chegou), então o dia a dia não ganha etapa nenhuma.
+
+### Alterar a recorrência agora altera alguma coisa
+
+Mudar "todo dia 5" para "todo dia 20" não movia os lançamentos já criados: eles
+ficavam no dia 5, para sempre. Excluir o modelo não apagava nada; desativá-lo
+deixava a conta do mês corrente contando. E a única opção que existia era um
+`<select>` no rodapé de um modal longo, que não dizia quantos nem quais
+lançamentos seriam atingidos. Somado ao "Seu mês" não materializar recorrência
+nenhuma, a conclusão de que "alterar a recorrência não muda nada no Geral" estava
+correta pelo que a tela mostrava.
+
+Salvar agora abre uma **revisão**: a lista dos lançamentos afetados, o que
+acontece com cada um (muda de data, atualiza, cancela, cria, ou "já paga — não
+será alterada"), um filtro "aplicar a partir de", e uma caixa por linha. Nada é
+aplicado sem estar marcado. Excluir e desativar passam pela mesma tela e oferecem
+cancelar os que já existem. A lista sai da MESMA função que executa a escrita, e
+as travas correm de novo no servidor — se alguém pagou a conta enquanto o diálogo
+estava aberto, ela é recusada. (ADR 0030)
+
+### Recorrência com fim, e parcelamento sem juros
+
+Uma mensalidade de faculdade paga por doze anos era uma série infinita. A
+recorrência ganhou "Termina": nunca, numa data, ou depois de N ocorrências — e a
+lista passa a dizer "até 07/2038 · 87 de 144 restantes". Vale também para renda
+(bolsa, aluguel recebido por prazo determinado). Séries encerradas param de gerar
+sozinhas.
+
+Para quem prefere acompanhar parcela a parcela, o formulário de financiamento
+ganhou o modo **Parcelamento sem juros**: some a taxa, some SAC/PRICE, e o
+cronograma vira "12× de R$ 1.200,00". O cálculo já suportava taxa zero; faltava a
+porta de entrada — e o vocabulário certo, porque "Tabela PRICE" numa mensalidade é
+linguagem de empréstimo para o que não é um. (ADR 0030)
+
+### O espaço que ninguém podia apagar
+
+Havia duas respostas para "de quem é este espaço", e nada as mantinha juntas: a
+API **exibia** `created_by_user_id` (quem criou) enquanto quem **autoriza** é a
+membership com papel `owner`. Coincidiam por construção no instante da criação e
+por mais nenhum motivo.
+
+Elas não divergiam na prática só porque a propriedade era um estado terminal: a
+API recusa promover a `owner`, recusa alterar o papel de quem já é, recusa
+removê-lo e recusa que ele saia. Somado a um `admin.py` que sequer importava
+`Workspace`, desativar o dono produzia um espaço **permanentemente indelével** —
+a única conta que poderia apagá-lo deixava de autenticar, ninguém podia herdar o
+papel, e os dados seguiam vivos para os demais membros sem uma pessoa
+responsável por eles.
+
+Agora o dono sai da membership, que é a mesma linha que manda. `created_by_user_id`
+fica como registro histórico e não é reescrito nem pela transferência: quem criou
+continua tendo criado. Existe `POST .../members/{id}/transfer-ownership` — o alvo
+vira dono, o antigo vira `admin` (perde o poder terminal, não o espaço) — e o
+administrador de plataforma passa a receber **409** ao tentar desativar ou
+remover quem ainda é dono de algo, com o nome do espaço e o caminho na mensagem.
+
+A troca dos papéis é um `UPDATE ... WHERE role='owner'` com checagem de linhas
+afetadas, não uma atribuição no ORM: duas transferências simultâneas do mesmo
+dono liam ambas "sou owner" e produziriam **dois** donos.
+
+E `member_count` parou de contar fantasmas: conta desativada ou excluída não é
+uma das "3 pessoas" que a tela promete. O dono é a exceção deliberada — ele
+aparece mesmo inativo, porque "de quem é" precisa de resposta, mas não entra na
+contagem. Ver [ADR 0028](docs/adr/0028-propriedade-do-espaco-e-transferencia.md).
+
+### O seletor que não dizia de quem era o espaço
+
+`owner_name` viajava na resposta desde que o seletor existe e **nenhuma tela o
+lia**: a lista dizia só "3 pessoas". Quem participa de dois espaços de nome
+parecido não tinha como saber qual é o da Ana. Agora o rótulo é `De Ana Souza ·
+3 pessoas`, ou `De você · só você` quando o espaço é seu — no seletor, na barra
+lateral, na gaveta do celular e na lista de Configurações. Sem `owner_name`
+(resposta antiga em cache), cai no rótulo de antes; nunca "De undefined".
+
+### Um backend que pisca não expulsa mais ninguém do espaço
+
+`useWorkspaces` devolvia `data ?? []`, e o `WorkspaceGuard` decidia olhando só o
+tamanho da lista. Falha de rede chegava lá **indistinguível** de uma resposta
+legítima vazia: a pessoa era levada para `/overview` com `replace`, sem mensagem
+e sem o botão "voltar" desfazer. O hook passa a expor `isError`/`refetch` e o
+guard mostra o erro com "tentar novamente" — só redireciona depois de uma
+resposta que carregou. O arquivo não tinha teste nenhum; agora tem cinco.
+
+### A importação que sumia quando o WebSocket não conectava
+
+`use-imports.ts` era o **único** dos 19 hooks de mutação sem invalidação local —
+dependia do evento voltar pela rede, contrariando a regra escrita em
+`lib/ws-events.ts` ("sem depender da volta do evento pela rede"). Com o socket
+bloqueado por infra ou ainda em backoff, a pessoa importava o extrato inteiro,
+caía no Início e via os números de antes, sem nenhum sinal de que faltava algo.
+
+### Toda rota passou a dizer o que devolve
+
+Trinta e oito rotas respondiam um objeto sem forma declarada — nove com
+`Dict[str, Any]`, o resto sem `response_model` nenhum, o que é pior: o
+`api.gen.ts` recebia `unknown` puro. O frontend preenchia o vazio com interfaces
+escritas à mão, e elas divergiam em silêncio — `use-monthly-debts.ts` dizia
+`amount: number`, `DebtsPage.tsx` dizia `amount: string`, para o mesmo campo da
+mesma entidade.
+
+Agora todas têm schema, e `tests/api/test_openapi_sem_resposta_crua.py` reprova
+qualquer nova — **sem allowlist**, porque uma exceção "temporária" é exatamente
+como as nove nasceram. Ficam de fora só as três que não devolvem JSON: o
+download de anexo e os dois redirecionamentos de OAuth.
+
+Tipar já cobrou o que devia: as mutações de lançamento — o núcleo do app —
+mandavam `Record<string, unknown>`, sem checagem alguma sobre o corpo; e um teste
+de `/debts` afirmava sobre `{id, title, total_amount}`, a forma de um
+*financiamento*, numa rota que sempre devolveu `{debtor_id, creditor_id, amount}`.
+Passava porque não havia contrato com que divergir.
+
+### Documentação que dizia o contrário do repositório
+
+O README do estudo de redesign afirmava "**Nada aqui foi implementado**" enquanto
+o roadmap ao lado registrava "Fases 0–5 implementadas e em produção", com 29 de
+36 caixas marcadas e os artefatos em disco. Quem lesse o índice primeiro concluía
+que o frontend inteiro estava por fazer — e o risco concreto era reimplementar o
+que já existe. O README agora separa proposto, implementado e pendente, e aponta
+o roadmap como fonte da verdade. Junto, o drift do próprio roadmap: ele falava em
+Tailwind v3 e em estender `tailwind.config.js`, num projeto que está na v4, onde
+esse arquivo não existe.
+
+Também saíram cinco pacotes `@radix-ui/*` sem um único import (`avatar`, `label`,
+`radio-group`, `scroll-area`, `select`) — instalados, auditados e enviados ao
+bundler sem consumidor. Os três em uso ficam; a consolidação Base UI × Radix
+segue diferida, como o roadmap já registrava.
+
+### O botão que não dizia nada — e mandava dois convites
+
+"Convidar" não dava sinal nenhum entre o clique e a resposta. Parecia que o
+clique não tinha pego, a pessoa clicava de novo, e saíam dois convites.
+
+**A causa não era aquele botão.** Os 19 hooks devolviam apenas o `mutateAsync`
+de cada uma das 61 mutações e jogavam fora o `isPending` — a informação não
+cruzava a fronteira do hook. Nenhum dos 149 botões do app tinha como saber que
+havia ação em voo, mesmo que quisesse. Quatorze telas contornavam isso com um
+`useState(false)` chamado `saving` ou `loading`, cada uma à sua maneira; o resto
+não contornava.
+
+Consertar botão a botão trataria os de hoje e deixaria o próximo nascer com o
+mesmo defeito. **A trava passou a morar no `Button`**, por onde todos passam:
+se o `onClick` devolve uma promessa, o botão se desabilita e mostra um spinner
+até ela ASSENTAR — resolvida ou rejeitada. Rejeição que não destravasse deixaria
+o botão morto até a próxima navegação, que é pior que o problema original. A
+promessa segue para quem chamou; se o `Button` a engolisse, o `catch` que
+levanta o toast de erro pararia de rodar.
+
+São **duas** travas, e não uma. O `disabled` só vale depois do re-render; dois
+cliques rápidos caem no mesmo ciclo do React e o segundo chega antes disso. A
+trava por `ref` cobre essa janela.
+
+O spinner é o aviso de "está acontecendo", e não um toast: um toast por ação
+viraria ruído numa tela em que se apaga cinco lançamentos seguidos, e ainda
+apareceria longe do dedo que clicou.
+
+**O que o ponto único não alcança**, e foi tratado à mão:
+
+- **`type="submit"`** — quem submete é o `<form>`, então o clique não roda
+  handler nenhum que devolva promessa. Os nove ganharam `pending` explícito
+  (`isSubmitting` do react-hook-form, ou o `isPending` da mutação). Dois estavam
+  de fato desprotegidos: salvar recorrência e buscar pessoa no Admin.
+- **Gatilhos que não podem virar `Button`** — "Marcar todas como lidas", "Sair
+  da conta", o nome do anexo: `<button>` crus com estilo de link, que viram
+  `<Button variant="link">` ao custo de quebrar a linha. Nasceu o `ActionLink`,
+  que compartilha o COMPORTAMENTO (via `useAcaoPendente`) sem a aparência.
+- **Excluir no extrato** trava a LINHA, não a lista — congelar todas faria uma
+  exclusão lenta parecer a tela travada.
+
+Uma armadilha de tipo, que é como a trava sumia sem ninguém ver: props escritas
+como `onDelete?: () => void`. Um retorno `void` faz o TypeScript **aceitar** uma
+promessa e o chamador descartá-la em silêncio. Onde o callback pode ser
+assíncrono, o tipo virou `() => unknown`. Dois `onRetry={() => void refetch()}`
+perderam o `void` pelo mesmo motivo.
+
+Fecha com um **gate que lê os fontes**: nenhum `<Button type="submit">` pode
+existir sem `pending`. É o único caminho que o ponto único não enxerga, é o
+detalhe que ninguém lembra na próxima tela, e nenhum teste de comportamento o
+pega — o formulário funciona, salva certo, e só falha quando alguém clica duas
+vezes rápido.
+
 ### O e-mail bem formado continuou no spam — o que sobrou depois da forma
 
 A rodada anterior corrigiu a forma da mensagem (`Date`, `Message-ID`, o corpo em

@@ -349,10 +349,48 @@ def main():
     res = alice.get(f"/workspaces/{ws_id}/debts")
     check("dívidas zeradas após exclusão", res.json() == [])
 
+    # --- Contas a pagar: liquidação (ADR 0029) ---
+    # A coluna `settled_at` e o índice PARCIAL que a sustenta vêm da migração —
+    # e é aqui, contra o Postgres de verdade e atrás do nginx, que isso é
+    # exercitado. Um índice parcial com predicado inválido só falha no banco real.
+    res = alice.post(f"/workspaces/{ws_id}/transactions/", json={
+        "title": "Boleto do futuro", "total_amount": "80.00",
+        "transaction_date": "2099-01-10T12:00:00", "billing_month": "2099-01",
+        "payment_method": "boleto",
+        "payers": [{"user_id": alice_id, "amount": "80.00"}],
+        "splits": [{"user_id": alice_id, "split_method": "equal", "input_value": "0"}],
+    })
+    boleto_id = res.json()["id"]
+    check("boleto futuro nasce A PAGAR", res.status_code == 200 and res.json()["settled_at"] is None)
+
+    res = alice.get("/me/payables?month=2099-01")
+    check("boleto aparece em Contas a pagar",
+          res.status_code == 200
+          and any(e["transaction_id"] == boleto_id for e in res.json()["entries"]))
+
+    res = alice.post(f"/workspaces/{ws_id}/payables/settle", json={
+        "transaction_ids": [boleto_id], "settled": True, "settled_on": "2099-01-15",
+    })
+    check("marcar como paga", res.status_code == 200 and res.json()["updated"] == 1)
+
+    res = alice.get("/me/payables?month=2099-01")
+    check("sai da fila depois de pago",
+          not any(e["transaction_id"] == boleto_id for e in res.json()["entries"]))
+
+    res = alice.delete(f"/workspaces/{ws_id}/transactions/{boleto_id}")
+    check("boleto do smoke removido", res.status_code == 200)
+
     # --- Recorrência / Financiamento / Orçamento / Renda ---
     res = alice.post(f"/workspaces/{ws_id}/recurring", json={"title": "Internet", "base_amount": "99.90", "day_of_month": 10})
     rec_id = res.json()["id"]
     check("recorrência criada", res.status_code == 200)
+
+    # A revisão (ADR 0030) é POST e leva corpo: passa por proxy, CSRF e sessão —
+    # exatamente o que só o stack de produção exercita.
+    res = alice.post(f"/workspaces/{ws_id}/recurring/{rec_id}/preview",
+                     json={"action": "update", "changes": {"day_of_month": 20}})
+    check("revisão da recorrência responde", res.status_code == 200 and "items" in res.json())
+
     res = alice.delete(f"/workspaces/{ws_id}/recurring/{rec_id}")
     check("recorrência excluída", res.status_code == 200)
 
