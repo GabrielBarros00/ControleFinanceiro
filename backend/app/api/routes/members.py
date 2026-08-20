@@ -158,6 +158,12 @@ def _member_read(
         # exposto ao papel de menor privilégio, e é ele quem alcança um
         # workspace compartilhado com menos escrutínio.
         user_email=user.email if reveal_email else _mask_email(user.email),
+        # Sem isto, a foto de perfil só apareceria para o próprio dono: a lista
+        # de membros e os avatares empilhados da divisão de despesa leem daqui.
+        # Não é dado sensível — quem lê já vê nome e papel de quem divide as
+        # finanças —, e a rota que serve os bytes confere se o pedinte
+        # compartilha algum espaço com a pessoa.
+        avatar_version=user.avatar_version,
         joined_at=membership.created_at,
     )
 

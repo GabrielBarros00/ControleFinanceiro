@@ -23,6 +23,8 @@ const baseValues: TransactionFormValues = {
   split_method: 'equal',
   splits: [{ user_id: '1', value: 0 }],
   items: [],
+  // Despesa de hoje nasce liquidada (ADR 0029) — o padrão do formulário.
+  settled: true,
 };
 
 const item = (over: Partial<TransactionFormValues['items'][number]> = {}) => ({

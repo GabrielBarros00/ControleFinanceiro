@@ -60,6 +60,7 @@ def _build_read(
         name=workspace.name,
         description=workspace.description,
         base_currency=workspace.base_currency,
+        settlement_tracking=workspace.settlement_tracking,
         created_at=workspace.created_at,
         updated_at=workspace.updated_at,
         owner_user_id=owner[0] if owner else None,
@@ -153,6 +154,15 @@ def create_workspace(
         # Ausente = o default do model (BRL). O código já vem normalizado e
         # validado como ISO-3 pelo `OptionalCurrencyCode` (422 na borda).
         **({"base_currency": workspace_in.base_currency} if workspace_in.base_currency else {}),
+        # Idem para o controle de pagamento (ADR 0029): `None` cai no default do
+        # model (ligado). `if ... is not None`, e não a forma curta de cima, porque
+        # aqui `False` é uma resposta legítima — com `if valor` ela viraria "não
+        # opinou" e o espaço nasceria com o controle ligado contra a escolha.
+        **(
+            {"settlement_tracking": workspace_in.settlement_tracking}
+            if workspace_in.settlement_tracking is not None
+            else {}
+        ),
     )
     session.add(workspace)
     session.commit()

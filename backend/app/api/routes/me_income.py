@@ -254,6 +254,10 @@ class RecurringIncomeCreate(BaseModel):
     frequency: RecurrenceFrequency = RecurrenceFrequency.monthly
     interval: int = Field(default=1, ge=1)
     start_date: Optional[date] = None
+    # Fim da série (ADR 0030) — espelho do que a despesa recorrente ganhou. Uma
+    # bolsa de dois anos e um aluguel recebido por prazo determinado têm fim, e
+    # sem a coluna eles projetavam renda para sempre na previsão.
+    end_date: Optional[date] = None
     day_of_month: int = Field(default=1, ge=1, le=31)
     day_of_week: Optional[int] = Field(default=None, ge=0, le=6)
     month_of_year: Optional[int] = Field(default=None, ge=1, le=12)
@@ -269,6 +273,7 @@ class RecurringIncomeUpdate(BaseModel):
     frequency: Optional[RecurrenceFrequency] = None
     interval: Optional[int] = Field(default=None, ge=1)
     start_date: Optional[date] = None
+    end_date: Optional[date] = None
     day_of_month: Optional[int] = Field(default=None, ge=1, le=31)
     day_of_week: Optional[int] = Field(default=None, ge=0, le=6)
     month_of_year: Optional[int] = Field(default=None, ge=1, le=12)
@@ -303,7 +308,7 @@ def create_recurring_income(
     _check_materialize(materialize)
     _validate_frequency_fields(
         recurring_in.frequency, recurring_in.day_of_week, recurring_in.month_of_year,
-        recurring_in.interval, recurring_in.start_date,
+        recurring_in.interval, recurring_in.start_date, recurring_in.end_date,
     )
     data = recurring_in.model_dump()
     data["currency"] = resolve_personal_currency(session, current_user.id, recurring_in.currency)
@@ -361,7 +366,7 @@ def update_recurring_income(
         setattr(db_rec, key, value)
     _validate_frequency_fields(
         db_rec.frequency, db_rec.day_of_week, db_rec.month_of_year,
-        db_rec.interval, db_rec.start_date,
+        db_rec.interval, db_rec.start_date, db_rec.end_date,
     )
     db_rec.updated_at = datetime.now(UTC)
     session.add(db_rec)

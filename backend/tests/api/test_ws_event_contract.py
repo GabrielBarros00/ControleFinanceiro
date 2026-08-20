@@ -25,6 +25,7 @@ SEM_EVENTO_ESPERADO = {
     "register", "login", "logout", "refresh_session", "change_password",
     "forgot_password", "reset_password",
     "preview_transaction",        # dry-run: não persiste nada
+    "preview_recurring",          # idem: POST só porque leva corpo (ADR 0030)
     "parse_csv",                  # só interpreta o arquivo
     "simulate_early_settlement",  # simulação de quitação
     "create_workspace",           # ninguém está na sala do ws que acabou de nascer

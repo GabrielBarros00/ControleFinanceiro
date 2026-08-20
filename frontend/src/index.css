@@ -272,9 +272,20 @@
  * Área segura da barra inferior fixa (indicador de home do iPhone, barra de
  * gestos do Android). Depende de `viewport-fit=cover` no index.html — sem ele
  * `env()` devolve 0 e esta utilidade não faz nada.
+ *
+ * O `max()` é um PISO, e existe por causa do Android em modo `standalone`.
+ * Com `viewport-fit=cover` o app instalado desenha de borda a borda, ou seja, a
+ * viewport de layout se estende POR BAIXO da barra de gestos do sistema — mas o
+ * Chrome nem sempre reporta o inset correspondente, e devolve `0` em várias
+ * combinações de aparelho e modo de navegação. Quando isso acontece, os últimos
+ * pixels da barra inferior ficam encobertos pela barra do sistema e o que sobra
+ * na tela é uma tira cortada, que passa por "a barra não está lá".
+ *
+ * 0.375rem não substitui a área segura de verdade (no iPhone o `env()` vale ~34px
+ * e vence o piso); é só a garantia de que nunca se chega a zero.
  */
 @utility pb-safe {
-  padding-bottom: env(safe-area-inset-bottom, 0px);
+  padding-bottom: max(0.375rem, env(safe-area-inset-bottom, 0px));
 }
 
 /* Acessibilidade: respeita quem pede menos movimento (docs/frontend-redesign/03 §4) */

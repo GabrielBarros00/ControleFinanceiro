@@ -27,6 +27,7 @@ from app.api.routes.auth import get_current_user
 from app.db.session import get_session
 from app.domain.access_policy import assert_owns, personal_scope
 from app.domain.query_policy import resolve_personal_currency
+from app.domain.settlement import resolve_settled_at
 from app.models.financing import (
     AmortizationInstallment,
     AmortizationMethod,
@@ -414,6 +415,16 @@ def pay_installment(
             # Identidade da parcela: é por aqui que o estorno reencontra a despesa.
             # Pelo título, renomear o financiamento deixava a despesa órfã.
             financing_installment_id=installment.id,
+            # A rota chama-se "pagar parcela": o dinheiro saiu agora, na data
+            # informada (ADR 0029). Nasce liquidada, e por isso `explicit=True` —
+            # sem ele, pagar uma parcela com data futura (adiantamento) criaria
+            # uma conta a pagar por algo que a pessoa acabou de pagar. É também o
+            # que mantém a dedup do `CashFlowService` honesta: a despesa entra no
+            # caixa e a parcela é ignorada, como sempre foi.
+            settled_at=resolve_settled_at(
+                session, body.workspace_id,
+                transaction_date=pago_em, explicit=True,
+            ),
             **conversao_meta,
         )
         session.add(payment_tx)

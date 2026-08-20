@@ -2,7 +2,7 @@ from datetime import datetime, date, UTC
 from enum import Enum
 from typing import Optional, List, TYPE_CHECKING
 from decimal import Decimal
-from sqlalchemy import JSON, Column
+from sqlalchemy import JSON, Boolean, Column, false
 from sqlmodel import SQLModel, Field, Relationship
 
 from app.models.transaction import PaymentMethod
@@ -25,6 +25,11 @@ class RecurringExpenseBase(SQLModel):
     # interval == 1 = preset (Diário/Semanal/Mensal/Anual), fase por day_of_* (legado).
     interval: int = Field(default=1, ge=1)
     start_date: Optional[date] = Field(default=None)
+    # Fim da série (ADR 0030). `None` = sem fim, que era a ÚNICA opção antes:
+    # uma mensalidade de faculdade paga por doze anos virava recorrência infinita
+    # — sem "faltam 87 de 144", com a previsão projetando para sempre, e sem
+    # parar de gerar sozinha no mês em que ela realmente acaba.
+    end_date: Optional[date] = Field(default=None)
     day_of_month: int = Field(ge=1, le=31)  # monthly/yearly (preset)
     day_of_week: Optional[int] = Field(default=None, ge=0, le=6)  # weekly preset (0=segunda)
     month_of_year: Optional[int] = Field(default=None, ge=1, le=12)  # yearly preset
@@ -41,6 +46,19 @@ class RecurringExpense(RecurringExpenseBase, table=True):
     # transação nua (REC-001).
     currency: str = Field(default="BRL")
     payment_method: Optional[PaymentMethod] = Field(default=None)
+    # "Pagamento automático" (ADR 0029): débito em conta, Pix automático, qualquer
+    # arranjo em que o dinheiro sai sozinho na data. A instância materializada
+    # nasce LIQUIDADA e nunca aparece em Contas a pagar.
+    #
+    # Falso por padrão porque é o caso que o app errava: a materialização
+    # preguiçosa criava a conta de luz no dia 10 e o caixa a debitava no mesmo
+    # instante, tivesse ela sido paga ou não. Sem esta coluna, ligar o controle de
+    # pagamento no espaço obrigaria a pessoa a confirmar todo mês o que o banco já
+    # debita sozinho.
+    auto_settle: bool = Field(
+        default=False,
+        sa_column=Column(Boolean, nullable=False, server_default=false()),
+    )
     # Cartão da despesa fixa: sem ele, "assinatura no cartão" nascia solta e nunca
     # entrava numa fatura — a materialização roteia a instância para o statement
     # do ciclo da ocorrência (CreditCardService.get_or_create_statement).
@@ -65,6 +83,7 @@ class RecurringIncomeBase(SQLModel):
     frequency: RecurrenceFrequency = Field(default=RecurrenceFrequency.monthly)
     interval: int = Field(default=1, ge=1)  # "a cada N" períodos (N>1 = personalizado)
     start_date: Optional[date] = Field(default=None)  # âncora do intervalo (N>1)
+    end_date: Optional[date] = Field(default=None)  # fim da série; None = sem fim
     day_of_month: int = Field(default=1, ge=1, le=31)  # monthly/yearly (preset)
     day_of_week: Optional[int] = Field(default=None, ge=0, le=6)  # weekly preset (0=segunda)
     month_of_year: Optional[int] = Field(default=None, ge=1, le=12)  # yearly preset

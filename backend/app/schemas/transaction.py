@@ -234,6 +234,11 @@ class TransactionCreate(TransactionBase):
     tag_ids: Optional[List[int]] = None
     # Parcelamento no cartão: cria N transações irmãs em meses sucessivos
     installments_count: Optional[int] = Field(default=None, ge=2, le=36)
+    # "Já foi paga" (ADR 0029). `None` = não opinou, e a rota decide pela data
+    # (`resolve_settled_at`): o que já venceu nasce liquidado, o que vence à
+    # frente nasce a pagar. Não é o mesmo que `status`: aqui se fala de CAIXA,
+    # lá de competência.
+    settled: Optional[bool] = None
 
     @model_validator(mode="after")
     def _validate_structure(self):
@@ -278,6 +283,10 @@ class TransactionSplitRead(TransactionSplitBase):
 class TransactionRead(TransactionBase):
     id: int
     workspace_id: int
+    # Quando o dinheiro saiu de fato; `None` = ainda a pagar (ADR 0029). A tela
+    # precisa do INSTANTE, não de um booleano: é ele que explica por que uma
+    # despesa de julho aparece no caixa de agosto.
+    settled_at: Optional[datetime] = None
     # Somente leitura: a fatura é SEMPRE derivada no servidor (ADR 0002)
     statement_id: Optional[int] = None
     created_by_user_id: Optional[int]
@@ -309,6 +318,10 @@ class TransactionUpdate(BaseModel):
     status: Optional[TransactionStatus] = None
     credit_card_id: Optional[int] = None
     payment_method: Optional[PaymentMethod] = None
+    # Marcar/desmarcar como paga (ADR 0029). Ausente = não mexe — é um fato de
+    # caixa, e uma edição de valor ou de divisão não pode ressuscitar nem apagar
+    # um pagamento sem querer.
+    settled: Optional[bool] = None
     # Categoria simplificada: upsert do item único da transação
     category_id: Optional[int] = None
     tag_ids: Optional[List[int]] = None

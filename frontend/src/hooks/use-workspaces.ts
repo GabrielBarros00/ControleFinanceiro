@@ -10,6 +10,14 @@ export interface Workspace {
   description?: string | null;
   /** Moeda em que todas as agregações são somadas (ADR 0006). */
   base_currency?: string;
+  /**
+   * Este espaço controla o pagamento das contas? (ADR 0029)
+   *
+   * Ligado, o lançamento fora do cartão só vira saída de caixa depois de marcado
+   * como pago. Opcional aqui porque uma resposta antiga em cache não o traz —
+   * quem lê deve tratar `undefined` como ligado (`useSettlementTracking`).
+   */
+  settlement_tracking?: boolean;
   owner_user_id?: number | null;
   owner_name?: string | null;
   member_count?: number;
@@ -39,7 +47,12 @@ export function useWorkspaces() {
   }, [currentWorkspaceId, primeiro, setCurrentWorkspaceId]);
 
   const createMutation = useMutation({
-    mutationFn: async (data: { name: string; description?: string; base_currency?: string }) => {
+    mutationFn: async (data: {
+      name: string;
+      description?: string;
+      base_currency?: string;
+      settlement_tracking?: boolean;
+    }) => {
       const response = await apiClient.post('/workspaces/', data);
       return response.data as Workspace;
     },
@@ -52,7 +65,12 @@ export function useWorkspaces() {
   const updateMutation = useMutation({
     mutationFn: async ({ id, data }: {
       id: number;
-      data: { name?: string; description?: string; base_currency?: string };
+      data: {
+        name?: string;
+        description?: string;
+        base_currency?: string;
+        settlement_tracking?: boolean;
+      };
     }) => {
       const response = await apiClient.put(`/workspaces/${id}`, data);
       return response.data as Workspace;

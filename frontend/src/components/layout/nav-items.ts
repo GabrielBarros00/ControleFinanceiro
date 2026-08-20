@@ -4,6 +4,7 @@ import {
   CreditCard,
   Landmark,
   BarChart3,
+  ReceiptText,
   Repeat,
   Users,
   FileUp,
@@ -72,6 +73,12 @@ export const GLOBAL_SECTION: NavSection = {
     // "Visão global" era o pior rótulo do app: para quem lê, "global" sugere "de
     // todos" — e significa o contrário, "só meu, somando meus espaços".
     { icon: LayoutDashboard, label: 'Seu mês', to: '/overview' },
+    // Logo abaixo do Seu mês porque é a continuação dele: lá está o que já saiu
+    // do caixa, aqui o que ainda vai sair (ADR 0029). "Contas a pagar" e não "A
+    // pagar": este último já é o rótulo de um número do Seu mês — o saldo com
+    // outras PESSOAS —, e dois nomes iguais para coisas diferentes foi
+    // exatamente o problema que "Compromissos" resolveu.
+    { icon: ReceiptText, label: 'Contas a pagar', to: '/me/payables' },
     { icon: Wallet, label: 'Rendas', to: '/me/income' },
     { icon: CreditCard, label: 'Cartões', to: '/me/cards' },
     { icon: Landmark, label: 'Financiamentos', to: '/me/financing' },
@@ -149,6 +156,10 @@ export function navSections(
       items: [
         { icon: LayoutDashboard, label: 'Painel', to: w('') },
         { icon: Receipt, label: 'Lançamentos', to: w('/transactions') },
+        // Vizinho de Lançamentos: é o mesmo objeto visto por outro ângulo — o
+        // que ainda não foi pago. O par homônimo em "Pessoal" soma as casas;
+        // este é só desta.
+        { icon: ReceiptText, label: 'Contas a pagar', to: w('/payables') },
         { icon: Repeat, label: 'Recorrência', to: w('/recurring') },
         { icon: BarChart3, label: 'Relatórios', to: w('/reports') },
         // "Dívidas" era ambíguo com o endividamento bancário: aqui é quem deve a

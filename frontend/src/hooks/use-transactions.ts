@@ -51,6 +51,11 @@ export interface TransactionFilters {
   category_id?: number;
   payment_method?: string;
   tag_id?: number;
+  /**
+   * Liquidação (ADR 0029): `false` traz só o que ainda não saiu do caixa.
+   * `undefined` = tudo, que é a leitura padrão do extrato.
+   */
+  settled?: boolean;
 }
 
 export interface TransactionListResponse {
@@ -73,11 +78,22 @@ export function useTransactions(
 ) {
   const queryClient = useQueryClient();
   const currentWorkspaceId = useWorkspaceId();
-  const { page = 1, limit = 10, month, search, category_id, payment_method, tag_id } = filters;
+  const {
+    page = 1, limit = 10, month, search, category_id, payment_method, tag_id, settled,
+  } = filters;
 
   // Fetch transactions
+  //
+  // Filtro NOVO entra em DOIS lugares — a chave e os `params` —, e esquecer um
+  // dos dois falha em silêncio: fora da chave, mudar o filtro não refaz a
+  // consulta e a lista fica congelada; fora dos `params`, o backend devolve tudo
+  // e o controle na tela vira decoração. Os dois casos parecem "o filtro não
+  // funciona" e nenhum quebra teste de tipo.
   const listQuery = useQuery({
-    queryKey: ['transactions', currentWorkspaceId, page, limit, month, search, category_id, payment_method, tag_id],
+    queryKey: [
+      'transactions', currentWorkspaceId, page, limit, month, search,
+      category_id, payment_method, tag_id, settled,
+    ],
     queryFn: async (): Promise<Pick<TransactionListResponse, 'items' | 'total' | 'total_pages'> & Partial<TransactionListResponse>> => {
       if (!currentWorkspaceId) return { items: [], total: 0, total_amount: 0, total_pages: 1 };
       const response = await apiClient.get(`/workspaces/${currentWorkspaceId}/transactions/`, {
@@ -88,7 +104,10 @@ export function useTransactions(
           search,
           category_id,
           payment_method: payment_method || undefined,
-          tag_id: tag_id || undefined
+          tag_id: tag_id || undefined,
+          // `?? undefined`, não `|| undefined`: `false` é uma resposta legítima
+          // ("só a pagar") e o `||` a transformaria em "sem filtro".
+          settled: settled ?? undefined,
         }
       });
       return response.data; // { items, total, page, limit, total_pages }

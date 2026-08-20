@@ -79,3 +79,31 @@ def test_early_settlement_simulation():
     assert simulation["total_to_pay"] < simulation["original_value"]
     assert simulation["savings"] > 0
     print(f"Savings: {simulation['savings']}")
+
+
+def test_parcelamento_sem_juros_divide_em_partes_iguais():
+    """Mensalidade de faculdade, curso, plano anual dividido (ADR 0030).
+
+    O cronograma JÁ sabia lidar com taxa zero — o `else` explícito do PRICE em
+    `calculate_amortization_schedule` —, e o que faltava era a porta de entrada
+    na interface. Este teste fixa o contrato que ela usa: taxa 0 + PRICE é
+    exatamente "total ÷ N", em parcelas iguais que somam o total ao centavo.
+
+    O caso escolhido divide MAL de propósito (1000 / 7 = 142,857…): é aí que uma
+    implementação descuidada perde ou inventa centavos, e é o mesmo defeito que
+    o `min` com o saldo já teve de fechar do outro lado.
+    """
+    total = Decimal("1000.00")
+    schedule = FinancingService.calculate_amortization_schedule(
+        total, Decimal("0"), 7, date(2026, 5, 1), AmortizationMethod.PRICE
+    )
+
+    assert len(schedule) == 7
+    assert all(inst.interest_amount == Decimal("0.00") for inst in schedule), (
+        "sem juros não pode haver linha de juros"
+    )
+    # Parcelas iguais a menos do resto de centavos, que sobra na última.
+    assert {inst.total_amount for inst in schedule[:-1]} == {Decimal("142.86")}
+    assert sum(inst.total_amount for inst in schedule) == total
+    assert sum(inst.principal_amount for inst in schedule) == total
+    assert schedule[-1].remaining_balance == Decimal("0.00")

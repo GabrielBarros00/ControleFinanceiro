@@ -54,6 +54,7 @@ from app.services.cashflow_service import CashFlowService
 from app.services.credit_card_service import CreditCardService
 from app.services.debt_service import DebtService
 from app.services.money_conversion import ZERO, converte
+from app.services.payables_service import PayablesService
 
 
 class OverviewService:
@@ -296,6 +297,17 @@ class OverviewService:
                 "to_receive": recebo_conv,
             })
 
+        # Contas a pagar (ADR 0029): o que ainda NÃO virou caixa. Fica ao lado do
+        # caixa de propósito — "saiu R$ 2.000 e ainda faltam R$ 800" é a leitura
+        # que o mês pede, e o número antigo (só o que saiu) era metade da resposta.
+        # `com_acertos=False` também o pula: `get_series` chama isto uma vez por
+        # mês e não expõe pendência nenhuma.
+        pendencias = (
+            PayablesService.totals(db, user_id, target_month, destino)
+            if com_acertos
+            else {"payables_total": ZERO, "payables_count": 0, "payables_overdue": ZERO}
+        )
+
         return {
             "month": mes,
             "currency": destino,
@@ -323,6 +335,8 @@ class OverviewService:
             # Por workspace, NUNCA compensado entre eles: dever na casa e ter a
             # receber na viagem envolve pessoas e acordos diferentes.
             "by_workspace": por_workspace,
+            # --- Contas a pagar --------------------------------------------------
+            **pendencias,
             "excluded_foreign_count": excluidos,
         }
 

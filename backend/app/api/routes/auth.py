@@ -5,12 +5,15 @@ from typing import List, Optional
 from urllib.parse import urlencode
 
 import httpx
-from fastapi import APIRouter, Depends, HTTPException, status, Request, Response, Cookie
+import structlog
+from fastapi import (
+    APIRouter, Cookie, Depends, File, HTTPException, Request, Response, UploadFile, status,
+)
 from fastapi.responses import RedirectResponse
 from sqlmodel import Session, select
 from app.core.config import settings
 from app.db.session import get_session
-from app.models.user import PlatformRole, User
+from app.models.user import PlatformRole, User, platform_level
 from datetime import datetime, UTC
 from app.models.workspace import (
     FinancialAccess,
@@ -54,7 +57,8 @@ from app.services.event_service import publish_event
 from app.services.membership_service import ensure_membership
 from app.models.notification import NotificationType
 from app.services.notification_service import notify
-from app.services import app_settings
+from app.services import app_settings, avatar_storage, upload_validation
+from app.services.blob_storage import BlobStorageError
 from app.services.registration_service import assert_pode_cadastrar, consome_convite
 from pydantic import BaseModel, Field
 
@@ -64,6 +68,8 @@ from app.models.income import Income
 from app.models.credit_card import CreditCard
 from decimal import Decimal
 
+logger = structlog.get_logger("app.auth")
+
 router = APIRouter(prefix="/auth", tags=["auth"])
 
 # Sentinela para contas criadas via OAuth (sem senha local). Nunca é um hash válido.
@@ -72,6 +78,14 @@ OAUTH_PASSWORD_SENTINEL = "!oauth-google"
 GOOGLE_AUTH_URL = "https://accounts.google.com/o/oauth2/v2/auth"
 GOOGLE_TOKEN_URL = "https://oauth2.googleapis.com/token"
 GOOGLE_USERINFO_URL = "https://openidconnect.googleapis.com/v1/userinfo"
+
+# De onde o Google serve as fotos de perfil. É uma ALLOWLIST, e existe porque
+# `picture` é uma URL que o servidor vai buscar: sem restringir o destino, um
+# userinfo adulterado transformaria esta função num pedido HTTP a um endereço
+# escolhido por terceiros, a partir de dentro da rede do backend (SSRF). O
+# conteúdo vem do Google por TLS, então o risco é baixo — mas a defesa custa uma
+# linha e o dano não seria pequeno.
+GOOGLE_AVATAR_HOST_SUFFIX = ".googleusercontent.com"
 
 
 def _password_fingerprint(password_hash: str) -> str:
@@ -90,6 +104,61 @@ def _ensure_account_enabled(user: User) -> None:
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail=ACCOUNT_DISABLED_DETAIL,
         )
+
+
+def _importar_foto_do_google(db: Session, user: User, picture_url: Optional[str]) -> None:
+    """Copia a foto do perfil do Google para o nosso armazenamento.
+
+    **Copia, não aponta.** A CSP do nginx é `img-src 'self' data: blob:`
+    (`frontend/nginx.conf`), então um `<img src="https://lh3.googleusercontent…">`
+    seria bloqueado pelo navegador — a foto simplesmente não apareceria. Guardar
+    a URL também deixaria cada carregamento de tela avisando o Google de que a
+    pessoa está usando este app, o que não é o combinado.
+
+    **Nada aqui pode derrubar o login.** Uma falha de rede, um timeout, um
+    formato inesperado ou um volume sem permissão significam "entrou sem foto" —
+    e só. Por isso o `except Exception`, que num caminho de autenticação é a
+    escolha certa: a alternativa é a pessoa não conseguir entrar porque uma
+    imagem não baixou.
+
+    Síncrona como `_fetch_google_user`, e pelo mesmo motivo: o callback é uma
+    rota `def`, que o FastAPI roda no threadpool. Torná-la `async` obrigaria a
+    rota inteira a virar `async def` e passaria todo o trabalho de banco daqui
+    para o event loop, bloqueando-o.
+    """
+    if not picture_url:
+        return
+    try:
+        host = httpx.URL(picture_url).host or ""
+        if not host.endswith(GOOGLE_AVATAR_HOST_SUFFIX):
+            logger.warning("avatar_google_host_recusado", host=host)
+            return
+
+        resposta = httpx.get(picture_url, timeout=5.0, follow_redirects=False)
+        if resposta.status_code != 200:
+            return
+
+        dados = resposta.content
+        if not dados or len(dados) > AVATAR_MAX_BYTES:
+            return
+        # O `Content-Type` do Google também não basta — a mesma conferência de
+        # assinatura que o upload manual faz.
+        content_type = (resposta.headers.get("content-type") or "").split(";")[0].strip().lower()
+        if content_type not in AVATAR_CONTENT_TYPES:
+            return
+        if not upload_validation.content_matches_type(content_type, dados):
+            return
+
+        chave, _sha = avatar_storage.salvar(dados)
+        user.avatar_key = chave
+        user.avatar_content_type = content_type
+        user.updated_at = datetime.now(UTC)
+        db.add(user)
+        db.commit()
+        db.refresh(user)
+    except Exception as exc:  # noqa: BLE001 — ver docstring
+        logger.warning("avatar_google_falhou", user_id=user.id, erro=str(exc))
+        db.rollback()
 
 
 def _user_workspace_ids(db: Session, user_id: int) -> List[int]:
@@ -523,6 +592,161 @@ async def update_me(
     db.refresh(current_user)
     return current_user
 
+
+# ---------------------------------------------------------------------------
+# Foto de perfil
+# ---------------------------------------------------------------------------
+#
+# 1 MiB, e não os 5 MB dos anexos: o cliente reduz a imagem para 256×256 antes de
+# subir (ver `lib/avatar.ts`), então o que chega aqui tem dezenas de KB. O teto
+# existe para o caso de alguém falar com a API direto — e é uma constante do
+# módulo, e não uma `Settings` nova, de propósito: cada variável nova precisa
+# aparecer também no `docker-compose.yml` para não quebrar a paridade que
+# `tests/test_compose_env.py` cobra, e não há nada aqui que um operador precise
+# ajustar por ambiente.
+AVATAR_MAX_BYTES = 1024 * 1024
+AVATAR_CONTENT_TYPES = upload_validation.IMAGE_CONTENT_TYPES
+
+
+async def _ler_imagem_valida(file: UploadFile) -> tuple[bytes, str]:
+    """Bytes + content-type conferidos. Levanta 400 com a razão exata."""
+    content_type = (file.content_type or "").split(";")[0].strip().lower()
+    if content_type not in AVATAR_CONTENT_TYPES:
+        raise HTTPException(
+            status_code=400,
+            detail="A foto precisa ser JPEG, PNG ou WebP.",
+        )
+    dados = await upload_validation.read_limited(file, AVATAR_MAX_BYTES)
+    if not dados:
+        raise HTTPException(status_code=400, detail="Arquivo vazio")
+    # O tipo DECLARADO não basta: sem conferir a assinatura, um HTML com script
+    # entra como "image/png" e volta a ser servido pela rota de leitura.
+    if not upload_validation.content_matches_type(content_type, dados):
+        raise HTTPException(
+            status_code=400,
+            detail="Conteúdo do arquivo não corresponde ao tipo declarado",
+        )
+    return dados, content_type
+
+
+@router.put("/me/avatar", response_model=UserResponse)
+async def upload_avatar(
+    file: UploadFile = File(...),
+    db: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+):
+    dados, content_type = await _ler_imagem_valida(file)
+
+    try:
+        chave, _sha = avatar_storage.salvar(dados)
+    except BlobStorageError as exc:
+        logger.error("avatar_falha_ao_gravar", user_id=current_user.id, erro=str(exc))
+        raise HTTPException(
+            status_code=503,
+            detail="Não foi possível armazenar a foto agora. Tente de novo em instantes.",
+        )
+
+    anterior = current_user.avatar_key
+    current_user.avatar_key = chave
+    current_user.avatar_content_type = content_type
+    current_user.updated_at = datetime.now(UTC)
+    db.add(current_user)
+    # A foto aparece na lista de membros e nos avatares de divisão de TODOS os
+    # espaços da pessoa — mesmo motivo pelo qual renomear publica evento.
+    #
+    # Escrito por extenso, e não extraído para um helper, de propósito:
+    # `tests/api/test_ws_event_contract.py` lê a AST do corpo da rota procurando
+    # uma chamada a `publish_event`, e não segue indireção. Um helper aqui faria
+    # o portão acusar "rota que muda estado sem publicar evento" — e a correção
+    # óbvia (isentar a rota na lista) seria a errada.
+    for workspace_id in _user_workspace_ids(db, current_user.id):
+        publish_event(
+            db, workspace_id, "member.updated", "member", current_user.id, current_user.id
+        )
+    db.commit()
+    db.refresh(current_user)
+
+    # DEPOIS do commit, e só se ninguém mais aponta para a chave antiga. Antes do
+    # commit, um rollback deixaria a linha viva apontando para um arquivo que já
+    # não existe — e o objeto é compartilhado por conteúdo, então a conferência
+    # não é opcional.
+    if anterior and anterior != chave:
+        avatar_storage.liberar(db, anterior, current_user.id)
+    return current_user
+
+
+@router.delete("/me/avatar", response_model=UserResponse)
+async def delete_avatar(
+    db: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+):
+    anterior = current_user.avatar_key
+    if anterior:
+        current_user.avatar_key = None
+        current_user.avatar_content_type = None
+        current_user.updated_at = datetime.now(UTC)
+        db.add(current_user)
+        # Inline pelo mesmo motivo do upload: o portão de contrato de eventos lê
+        # a AST do corpo da rota e não enxerga chamada indireta.
+        for workspace_id in _user_workspace_ids(db, current_user.id):
+            publish_event(
+                db, workspace_id, "member.updated", "member", current_user.id, current_user.id
+            )
+        db.commit()
+        db.refresh(current_user)
+        avatar_storage.liberar(db, anterior, current_user.id)
+    return current_user
+
+
+@router.get("/users/{user_id}/avatar")
+async def get_avatar(
+    user_id: int,
+    db: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+):
+    """Os bytes da foto de alguém.
+
+    **A autorização é o ponto desta rota.** Sem ela, `GET /auth/users/1/avatar`
+    respondendo 200 ou 404 diria a qualquer pessoa logada quais ids existem e
+    quais têm foto — um oráculo de enumeração de contas, e de graça. Pode ver
+    quem tem motivo para ver o rosto: a própria pessoa, quem divide um espaço
+    com ela, e o administrador do site (que já lista todas as contas na tela de
+    Pessoas).
+
+    Todo o resto é 404, e não 403: um 403 confirmaria que a conta existe, que é
+    exatamente o que se quer não dizer. Mesmo padrão do DELETE de anexo.
+    """
+    alvo = db.get(User, user_id)
+    if not alvo or alvo.deleted_at is not None or not alvo.avatar_key:
+        raise HTTPException(status_code=404, detail="Foto não encontrada")
+
+    if user_id != current_user.id and platform_level(current_user.platform_role) < platform_level(
+        PlatformRole.admin
+    ):
+        meus = set(_user_workspace_ids(db, current_user.id))
+        dele = set(_user_workspace_ids(db, user_id))
+        if not (meus & dele):
+            raise HTTPException(status_code=404, detail="Foto não encontrada")
+
+    conteudo = avatar_storage.ler(alvo.avatar_key)
+    if conteudo is None:
+        # Volume não montado, restore parcial: 404 explicável em vez de 500.
+        raise HTTPException(status_code=404, detail="Foto indisponível no armazenamento")
+
+    return Response(
+        content=conteudo,
+        media_type=alvo.avatar_content_type or "application/octet-stream",
+        headers={
+            # A URL carrega o hash do conteúdo (`?v=`), então o objeto naquele
+            # endereço nunca muda: cachear para sempre é correto, e trocar a foto
+            # troca a URL. `private` porque a resposta depende de quem pediu —
+            # um cache compartilhado não pode reusá-la para outra pessoa.
+            "Cache-Control": "private, max-age=31536000, immutable",
+            "X-Content-Type-Options": "nosniff",
+        },
+    )
+
+
 @router.post("/logout", response_model=MessageRead)
 async def logout(
     response: Response,
@@ -860,6 +1084,15 @@ def google_callback(
     elif user.deleted_at is not None or not user.is_active:
         # Mesma regra do login local: conta desativada não recebe sessão
         return fail("conta_desativada")
+
+    # A foto do Google, uma vez só. `info["picture"]` chegava em toda resposta do
+    # userinfo desde sempre e era simplesmente descartado — quem entrava com o
+    # Google via a inicial do nome num círculo, como todo mundo.
+    #
+    # Só quando a conta ainda NÃO tem foto: repetir a cada login sobrescreveria a
+    # foto que a pessoa subiu à mão, e ela não teria como fazer a dela ficar.
+    if not user.avatar_key:
+        _importar_foto_do_google(db, user, info.get("picture"))
 
     redirect = RedirectResponse(settings.FRONTEND_URL)
     access_token = create_access_token(data={"sub": str(user.id)})

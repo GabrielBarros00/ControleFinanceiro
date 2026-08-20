@@ -54,7 +54,7 @@ export function InviteAcceptPage() {
   const info = infoQuery.data;
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-background p-4">
+    <div className="min-h-dvh flex items-center justify-center bg-background p-4">
       <Card className="w-full max-w-md bg-card/50 backdrop-blur-xl border-border shadow-2xl animate-in zoom-in-95 duration-500">
         <CardHeader className="space-y-2 text-center pt-8">
           <div className="mx-auto w-12 h-12 bg-primary/10 rounded-xl flex items-center justify-center shadow-lg mb-4 text-primary">

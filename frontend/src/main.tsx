@@ -7,6 +7,23 @@ import { createRoot } from 'react-dom/client'
 import '@fontsource-variable/geist'
 import './index.css'
 import App from './App.tsx'
+import { iniciarCapturaDeInstalacao } from './lib/install'
+
+/*
+ * ANTES do `createRoot`, e é o ponto todo.
+ *
+ * `beforeinstallprompt` dispara uma vez por carregamento e o Chrome não o repete
+ * em navegação de SPA. Enquanto a captura morava dentro do hook — que só é usado
+ * por um cartão no fim de Configurações —, o evento chegava em `/login`, não
+ * havia ninguém escutando, e o botão "Instalar" nunca mais aparecia. Ver o
+ * cabeçalho de `lib/install.ts`.
+ *
+ * Sem o guarda de `import.meta.env.PROD` que envolve o service worker abaixo: em
+ * desenvolvimento o evento simplesmente não dispara (não há SW para satisfazer o
+ * critério do Chrome), então o guarda não protegeria nada — só impediria os
+ * testes de exercitarem este caminho.
+ */
+iniciarCapturaDeInstalacao()
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>

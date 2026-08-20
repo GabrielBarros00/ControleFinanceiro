@@ -51,3 +51,24 @@ export function txStatusPill(status?: string): { label: string; tone: PillTone }
       return null; // confirmada = estado normal, não polui a linha
   }
 }
+
+/**
+ * Pílula de LIQUIDAÇÃO — outro eixo (ADR 0029).
+ *
+ * `status` é competência: a despesa existe, entra em rateio e relatórios.
+ * `settled_at` é caixa: o dinheiro saiu ou não. São perguntas diferentes e por
+ * isso duas pílulas, não uma — juntá-las faria "A pagar" parecer um estado da
+ * despesa, quando ela pode estar confirmada, dividida e cobrada e ainda assim
+ * não ter sido paga.
+ *
+ * `null` quando já foi paga: é o caso normal e não precisa marcar a linha, mesma
+ * regra do `confirmed` acima. Compra no cartão também não marca — ela nunca tem
+ * liquidação própria, e uma pílula "A pagar" ali apontaria para a fatura.
+ */
+export function settlementPill(
+  settledAt?: string | null,
+  creditCardId?: number | null,
+): { label: string; tone: PillTone } | null {
+  if (creditCardId != null || settledAt != null) return null;
+  return { label: 'A pagar', tone: 'warning' };
+}

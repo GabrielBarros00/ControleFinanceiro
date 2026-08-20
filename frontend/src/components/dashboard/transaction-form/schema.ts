@@ -57,6 +57,10 @@ export const transactionFormSchema = z.object({
   split_method: z.enum(['equal', 'percentage', 'fixed']),
   splits: z.array(shareSchema),
   items: z.array(itemSchema),
+  // "Já foi paga" (ADR 0029): CAIXA, não competência. `true` = o dinheiro já
+  // saiu; `false` = a despesa existe e entra no rateio, mas ainda está na fila
+  // de Contas a pagar. Só aparece nos espaços que controlam pagamento.
+  settled: z.boolean(),
 }).superRefine((data, ctx) => {
   if (data.payment_method === 'credit_card' && !data.credit_card_id) {
     ctx.addIssue({
@@ -299,6 +303,10 @@ export function toApiPayload(v: TransactionFormValues) {
     credit_card_id: v.credit_card_id ? Number(v.credit_card_id) : null,
     split_mode: v.split_mode,
     tag_ids: v.tag_ids,
+    // Sempre explícito (ADR 0029): sem o campo, o backend cai no palpite pela
+    // data, e o palpite discordaria da caixa que a pessoa acabou de ver marcada
+    // na tela. Compra no cartão ignora — quem paga é a fatura.
+    settled: v.settled,
     ...(v.installments > 1 ? { installments_count: v.installments } : {}),
     // Pagador único paga o total; com vários, cada um informa a sua parte.
     // `PaymentMethod | null` pelo mesmo motivo do método da transação acima: o
@@ -380,6 +388,10 @@ export function fromApiTransaction(tx: TransactionRead): TransactionFormValues {
     installments: 1, // reparcelar não existe na edição
     tag_ids: (tx.tags ?? []).map((t) => t.id),
     split_mode: tx.split_mode ?? 'transaction',
+    // O estado REAL da liquidação, não um default (ADR 0029): abrir uma conta
+    // ainda não paga com a caixa marcada, e salvar, a daria por paga sem que
+    // ninguém tivesse dito isso.
+    settled: tx.settled_at != null,
   };
 
   if ((tx.split_mode ?? 'transaction') === 'transaction') {

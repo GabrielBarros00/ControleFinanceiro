@@ -16,7 +16,7 @@ chamada "Fluxo de Caixa" desenhava tudo menos fluxo de caixa.
 
 | Direção | Fonte                                          | Data                | Moeda            |
 |---------|------------------------------------------------|---------------------|------------------|
-| saída   | `TransactionPayer` de lançamento **sem cartão** | `transaction_date`  | do lançamento    |
+| saída   | `TransactionPayer` de lançamento **sem cartão** | `settled_at`        | do lançamento    |
 | saída   | `StatementPayment` de fatura de cartão meu      | `paid_at`           | do cartão        |
 | saída   | `Settlement` que eu enviei                      | `settled_at`        | base do workspace|
 | saída   | parcela de financiamento meu, paga              | `paid_at`           | do financiamento |
@@ -26,6 +26,13 @@ chamada "Fluxo de Caixa" desenhava tudo menos fluxo de caixa.
 **Lançamento no cartão não é saída de caixa.** Ele já será contado quando a fatura
 for paga — e é por isso que o filtro é `credit_card_id IS NULL`. Pagamento parcial
 de fatura entra naturalmente: cada `StatementPayment` é uma linha.
+
+**Lançamento não liquidado também não é (ADR 0029).** `settled_at` é a data em que
+o dinheiro saiu de fato; `NULL` significa "ainda não saiu". Antes esta data não
+existia e a fonte 1 usava `transaction_date`, afirmando que toda despesa fora do
+cartão saía do bolso no momento em que era registrada — o boleto que vence dia 10
+debitava o caixa no dia 10, pago ou não. O que está `NULL` fica em Contas a pagar
+(`PayablesService`) até alguém confirmar o pagamento.
 
 **Sem contagem dobrada com o financiamento.** Pagar uma parcela informando um
 workspace cria uma `Transaction` ligada por `Transaction.financing_installment_id`.
@@ -263,12 +270,31 @@ class CashFlowService:
 
         `credit_card_id IS NULL` é o discriminador: a compra no cartão só vira
         caixa quando a fatura é paga (fonte 2).
+
+        **A data é `settled_at`, não `transaction_date` (ADR 0029).** Enquanto
+        era a data do lançamento, esta consulta afirmava que todo boleto, Pix,
+        dinheiro e transferência saía do bolso no instante em que a despesa era
+        registrada — `payment_method` não entrava aqui em lugar nenhum, e a conta
+        de luz materializada pela recorrência no dia 10 debitava o caixa no dia
+        10, paga ou não. Agora o boleto de julho pago em 14 de agosto é gasto de
+        julho (competência, `billing_month`) e dinheiro que saiu em agosto.
+
+        A JANELA também muda junto, e tinha de mudar: filtrar por
+        `transaction_date` e exibir `settled_at` produziria um extrato de agosto
+        com a linha ausente e um de julho com uma linha datada de agosto — a
+        mesma incoerência que `_dia` existe para evitar. Como `occurred_on`
+        alimenta o `ConversorPorData`, a cotação passa a ser a do dia do
+        PAGAMENTO, que é quando o dinheiro de fato virou moeda.
+
+        `settled_at IS NULL` é o que ainda não foi pago: fica fora do caixa e
+        aparece em Contas a pagar (`PayablesService`, que é esta mesma consulta
+        com o filtro invertido — as duas não têm como divergir).
         """
         consulta = (
             select(
                 TransactionPayer.amount,
                 Transaction.currency,
-                Transaction.transaction_date,
+                Transaction.settled_at,
                 Transaction.id,
                 Transaction.title,
                 Transaction.workspace_id,
@@ -276,8 +302,9 @@ class CashFlowService:
             .join(Transaction, Transaction.id == TransactionPayer.transaction_id)
             .where(TransactionPayer.user_id == user_id)
             .where(Transaction.credit_card_id.is_(None))
-            .where(Transaction.transaction_date >= inicio)
-            .where(Transaction.transaction_date <= fim)
+            .where(Transaction.settled_at.is_not(None))
+            .where(Transaction.settled_at >= inicio)
+            .where(Transaction.settled_at <= fim)
             .where(Transaction.deleted_at.is_(None))
             .where(Transaction.status.in_(REALIZED_STATUSES))
         )
@@ -400,9 +427,13 @@ class CashFlowService:
     ) -> List[CashMovement]:
         """Saída 4: parcela de financiamento paga SEM despesa que já a conte.
 
-        A deduplicação exige que a transação vinculada esteja viva **e
-        realizada**. Antes bastava existir: cancelar a despesa a tirava do caixa
-        pelo status e ainda assim suprimia a parcela, e a saída sumia inteira.
+        A deduplicação exige que a transação vinculada esteja viva, **realizada
+        e liquidada** — exatamente as três condições da fonte 1. Antes bastava
+        existir: cancelar a despesa a tirava do caixa pelo status e ainda assim
+        suprimia a parcela, e a saída sumia inteira. `settled_at` (ADR 0029) é a
+        terceira condição pelo mesmo motivo: desmarcar o pagamento da despesa
+        vinculada a tira da fonte 1, e sem este termo ela continuaria suprimindo
+        a parcela — a saída sumiria dos dois lados de novo.
 
         Sem filtro de `Financing.deleted_at` — ver o cabeçalho do módulo.
         """
@@ -411,6 +442,7 @@ class CashFlowService:
             .where(Transaction.financing_installment_id == AmortizationInstallment.id)
             .where(Transaction.deleted_at.is_(None))
             .where(Transaction.status.in_(REALIZED_STATUSES))
+            .where(Transaction.settled_at.is_not(None))
             .exists()
         )
         linhas = db.exec(

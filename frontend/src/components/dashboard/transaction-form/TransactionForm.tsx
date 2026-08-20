@@ -18,8 +18,10 @@ import { getApiErrorMessage } from '@/lib/api-error';
 import {
   transactionFormSchema,
   toApiPayload,
+  todayLocalISO,
   type TransactionFormValues,
 } from './schema';
+import { useSettlementTracking } from '@/hooks/use-settlement-tracking';
 import { SplitEditor } from './SplitEditor';
 import { ItemsEditor } from './ItemsEditor';
 import { PaymentMethodField } from './PaymentMethodField';
@@ -75,7 +77,26 @@ export function TransactionForm({ initialValues, onSubmit, submitLabel, resetOnS
   const splitMode = watch('split_mode');
   const currency = watch('currency');
   const baseCurrency = useBaseCurrency();
+  const controlaPagamento = useSettlementTracking();
+  const paymentMethod = watch('payment_method');
+  const settled = watch('settled');
+  const transactionDate = watch('transaction_date');
   const defaultUserId = user ? String(user.id) : '';
+
+  // "Já foi paga" acompanha a DATA quando ela muda: ninguém pagou o boleto que
+  // vence semana que vem (ADR 0029). A comparação é de strings `YYYY-MM-DD`, que
+  // ordenam lexicograficamente e não passam por fuso nenhum.
+  //
+  // Só no CHANGE, nunca na montagem — daí o `ref`. Ao abrir uma despesa para
+  // editar, o formulário carrega o estado real da liquidação; recalcular pela
+  // data ali marcaria como paga toda conta em aberto com vencimento passado,
+  // que é exatamente a fila de Contas a pagar.
+  const dataAnterior = React.useRef(transactionDate);
+  React.useEffect(() => {
+    if (dataAnterior.current === transactionDate) return;
+    dataAnterior.current = transactionDate;
+    setValue('settled', transactionDate <= todayLocalISO(), { shouldValidate: false });
+  }, [transactionDate, setValue]);
 
   const handleSplitModeChange = (mode: 'transaction' | 'item') => {
     setValue('split_mode', mode, { shouldValidate: true });
@@ -189,6 +210,32 @@ export function TransactionForm({ initialValues, onSubmit, submitLabel, resetOnS
           </div>
 
           <PaymentMethodField allowInstallments={allowInstallments} />
+
+          {/* "Já foi paga" (ADR 0029) — CAIXA, não competência.
+              Some no cartão: quem paga a compra é a FATURA, e marcá-la como
+              paga aqui somaria a mesma saída duas vezes. Some também nos espaços
+              sem controle de pagamento, onde a resposta é sempre "sim". */}
+          {controlaPagamento && paymentMethod !== 'credit_card' && (
+            <label
+              htmlFor="settled"
+              className="flex cursor-pointer items-start gap-3 rounded-lg border border-border bg-accent/20 p-3"
+            >
+              <input
+                id="settled"
+                type="checkbox"
+                {...register('settled')}
+                className="mt-0.5 h-5 w-5 shrink-0 rounded border-border accent-primary"
+              />
+              <span className="min-w-0">
+                <span className="block text-sm font-medium text-foreground">Já foi paga</span>
+                <span className="block text-xs text-muted-foreground">
+                  {settled
+                    ? 'O valor sai do seu caixa na data acima.'
+                    : 'Fica em Contas a pagar até você confirmar o pagamento.'}
+                </span>
+              </span>
+            </label>
+          )}
 
           <TagMultiSelect />
 

@@ -80,6 +80,14 @@ export interface TransactionRead {
   transaction_date: string;
   billing_month?: string | null;
   status: TransactionStatus;
+  /**
+   * Quando o dinheiro saiu de fato; `null` = ainda a pagar (ADR 0029).
+   *
+   * Eixo separado do `status`: aquele é competência (a despesa existe, entra em
+   * rateio e relatórios), este é caixa. O boleto de julho pago em 14 de agosto é
+   * gasto de julho e dinheiro que saiu em agosto.
+   */
+  settled_at?: string | null;
   credit_card_id?: number | null;
   statement_id?: number | null;
   split_mode: SplitMode;

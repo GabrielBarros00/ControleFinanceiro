@@ -20,12 +20,17 @@ import pytest
 
 from app.main import app
 
-#: As TRÊS rotas que não devolvem JSON. Não é uma allowlist de dívida: é a lista
-#: fechada do que responde outra coisa — bytes de arquivo e redirecionamentos de
-#: OAuth. Uma rota nova aqui é uma decisão, não um esquecimento.
+#: As QUATRO rotas que não devolvem JSON. Não é uma allowlist de dívida: é a
+#: lista fechada do que responde outra coisa — bytes de arquivo e
+#: redirecionamentos de OAuth. Uma rota nova aqui é uma decisão, não um
+#: esquecimento.
 ROTAS_SEM_CORPO_JSON = {
     # Devolve o ANEXO (`FileResponse`), não metadados.
     ("/api/v1/workspaces/{workspace_id}/attachments/{attachment_id}", "get"),
+    # Devolve os BYTES da foto de perfil, com o `Content-Type` gravado na conta.
+    # Só a leitura: o upload e a remoção respondem `UserResponse`, porque quem
+    # troca a foto precisa do `avatar_version` novo para trocar a URL na tela.
+    ("/api/v1/auth/users/{user_id}/avatar", "get"),
     # Redirecionam para o provedor e de volta (`RedirectResponse`).
     ("/api/v1/auth/google/login", "get"),
     ("/api/v1/auth/google/callback", "get"),

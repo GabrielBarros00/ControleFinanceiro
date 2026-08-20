@@ -13,11 +13,14 @@ apontando para a mesma chave (`storage_key_em_uso`).
 
 O prefixo por workspace mantém o isolamento visível no disco (facilita export e
 exclusão de um workspace inteiro) e evita um diretório com milhões de entradas.
+
+As primitivas de arquivo (raiz, escrita atômica, leitura tolerante, remoção
+best-effort) moram em `blob_storage` desde que o avatar passou a precisar das
+mesmas garantias — o que fica aqui é o que é DO ANEXO: a forma da chave, o
+escopo por workspace e a contabilidade de referências da deduplicação.
 """
 from __future__ import annotations
 
-import os
-import shutil
 from pathlib import Path
 from typing import TYPE_CHECKING, List, Optional, Sequence
 
@@ -25,7 +28,8 @@ import structlog
 from sqlalchemy import true as sa_true
 from sqlmodel import select
 
-from app.core.config import settings
+from app.services import blob_storage
+from app.services.blob_storage import BlobStorageError
 
 if TYPE_CHECKING:
     from app.models.attachment import Attachment
@@ -33,16 +37,16 @@ if TYPE_CHECKING:
 logger = structlog.get_logger("app.attachments")
 
 
-class AttachmentStorageError(Exception):
-    """Falha de I/O no armazenamento (o chamador traduz para 5xx/404)."""
+# O nome antigo continua sendo o que as rotas capturam. É um ALIAS, e não uma
+# subclasse: `except AttachmentStorageError` precisa pegar o que `blob_storage`
+# levanta, e uma subclasse deixaria passar exatamente esses casos.
+AttachmentStorageError = BlobStorageError
 
 
 class AttachmentStorage:
     @staticmethod
     def root() -> Path:
-        """Raiz do armazenamento. Lida a cada chamada (e não no import) para o
-        teste poder apontá-la a um diretório temporário."""
-        return Path(settings.ATTACHMENT_STORAGE_DIR).expanduser().resolve()
+        return blob_storage.raiz()
 
     @staticmethod
     def build_key(workspace_id: int, sha256: str) -> str:
@@ -52,86 +56,17 @@ class AttachmentStorage:
         return f"{int(workspace_id)}/{sha[:2]}/{sha}"
 
     @classmethod
-    def _path(cls, storage_key: str) -> Path:
-        raiz = cls.root()
-        caminho = (raiz / storage_key).resolve()
-        # Defesa em profundidade: a chave é gerada aqui a partir de um int e de
-        # um hex, mas nada impede alguém de passar uma chave lida do banco.
-        if not caminho.is_relative_to(raiz):
-            raise AttachmentStorageError("Chave de anexo fora do diretório de armazenamento")
-        return caminho
-
-    @classmethod
     def save(cls, workspace_id: int, sha256: str, data: bytes) -> str:
-        """Grava os bytes e devolve a `storage_key`. Idempotente: se o objeto já
-        existe (mesmo conteúdo), não reescreve.
-
-        A escrita é ATÔMICA (arquivo temporário + rename no mesmo diretório):
-        uma queda no meio do upload deixaria um arquivo truncado que passaria
-        pela validação de tamanho e corromperia o recibo em silêncio.
-
-        O `mkdir` está DENTRO do try: o modo mais provável de falha em produção é
-        o diretório raiz não ser gravável pelo usuário do processo (volume novo
-        nasce root, container roda como `appuser`), e isso acontece no mkdir, não
-        no open. Fora do try virava `OSError` cru → 500, em vez do 503 com
-        mensagem que a rota já sabe emitir.
-        """
-        key = cls.build_key(workspace_id, sha256)
-        destino = cls._path(key)
-        if destino.exists():
-            return key
-
-        temporario = destino.with_name(f".{destino.name}.{os.getpid()}.tmp")
-        try:
-            destino.parent.mkdir(parents=True, exist_ok=True)
-            with open(temporario, "wb") as arquivo:
-                arquivo.write(data)
-                arquivo.flush()
-                os.fsync(arquivo.fileno())
-            os.replace(temporario, destino)
-        except OSError as exc:
-            temporario.unlink(missing_ok=True)
-            raise AttachmentStorageError(f"Falha ao gravar o anexo: {exc}") from exc
-        return key
+        """Grava os bytes e devolve a `storage_key`."""
+        return blob_storage.gravar(cls.build_key(workspace_id, sha256), data)
 
     @classmethod
     def read(cls, storage_key: str) -> Optional[bytes]:
-        """Bytes do objeto, ou `None` se o arquivo não está lá.
-
-        `None` em vez de exceção porque o chamador precisa distinguir "sumiu do
-        disco" (problema de operação: volume não montado, restore parcial) de
-        "não existe no banco" — e responder de forma inteligível em vez de 500.
-        """
-        try:
-            caminho = cls._path(storage_key)
-        except AttachmentStorageError:
-            logger.error("anexo_chave_invalida", storage_key=storage_key)
-            return None
-        try:
-            return caminho.read_bytes()
-        except FileNotFoundError:
-            logger.error("anexo_ausente_no_disco", storage_key=storage_key, caminho=str(caminho))
-            return None
-        except OSError as exc:
-            logger.error("anexo_falha_de_leitura", storage_key=storage_key, erro=str(exc))
-            return None
+        return blob_storage.ler(storage_key)
 
     @classmethod
     def delete(cls, storage_key: str) -> bool:
-        """Apaga o objeto. Best-effort: arquivo já ausente não é erro (a linha do
-        banco é a fonte de verdade do que existe)."""
-        try:
-            caminho = cls._path(storage_key)
-        except AttachmentStorageError:
-            return False
-        try:
-            caminho.unlink(missing_ok=True)
-        except OSError as exc:
-            # Não propaga: falhar o DELETE por causa do arquivo deixaria a linha
-            # viva e o usuário sem saída. O órfão é recuperável; a linha presa não.
-            logger.error("anexo_falha_ao_remover", storage_key=storage_key, erro=str(exc))
-            return False
-        return True
+        return blob_storage.apagar(storage_key)
 
     @classmethod
     def delete_workspace(cls, workspace_id: int) -> None:
@@ -143,11 +78,7 @@ class AttachmentStorage:
         contra uma exclusão reversível. Use isto ao purgar um workspace em
         definitivo, depois de decidir que não há volta.
         """
-        try:
-            alvo = cls._path(str(int(workspace_id)))
-        except AttachmentStorageError:
-            return
-        shutil.rmtree(alvo, ignore_errors=True)
+        blob_storage.apagar_arvore(str(int(workspace_id)))
 
 
 def keys_to_free(db, attachments: Sequence["Attachment"]) -> List[str]:

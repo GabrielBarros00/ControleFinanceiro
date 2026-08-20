@@ -48,6 +48,10 @@ export function NewTransactionDialog({ open, onOpenChange }: NewTransactionDialo
     split_method: 'equal',
     splits: user ? [{ user_id: String(user.id), value: 0 }] : [],
     items: [],
+    // Nova despesa nasce com a data de HOJE, e quem registra o que já aconteceu
+    // é a esmagadora maioria: a caixa vem marcada (ADR 0029). Ela se desmarca
+    // sozinha ao escolher uma data futura — ver `TransactionForm`.
+    settled: true,
   };
 
   const handleSubmit = async (payload: TransactionApiPayload) => {
