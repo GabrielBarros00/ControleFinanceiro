@@ -558,8 +558,50 @@ export interface paths {
         /** Update Recurring */
         put: operations["update_recurring_api_v1_workspaces__workspace_id__recurring__recurring_id__put"];
         post?: never;
-        /** Delete Recurring */
+        /**
+         * Delete Recurring
+         * @description Exclui o template. Os lançamentos já gerados sobrevivem, salvo escolha.
+         *
+         *     Excluir a recorrência nunca apagou lançamento nenhum, e a confirmação dizia
+         *     isso numa linha em cinza — sem oferecer alternativa. Era a razão de "excluí a
+         *     recorrência e nada mudou no Geral": de fato nada mudava, porque a despesa do
+         *     mês corrente continuava lá, confirmada e contando.
+         *
+         *     Agora a revisão lista o que existe e a pessoa escolhe. O que ela marcar é
+         *     CANCELADO (status terminal, fora de toda agregação), não excluído: cancelar
+         *     mantém o rastro do que já esteve no mês, e é a mesma decisão do cancelamento
+         *     de parcelas futuras de uma compra parcelada.
+         */
         delete: operations["delete_recurring_api_v1_workspaces__workspace_id__recurring__recurring_id__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/workspaces/{workspace_id}/recurring/{recurring_id}/preview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Preview Recurring
+         * @description O que acontece com cada lançamento se eu salvar isto (ADR 0030).
+         *
+         *     **Não escreve nada.** É `POST` porque leva um corpo — a edição que está na
+         *     tela —, não porque muda estado: a rota planeja a partir de `changes` e do
+         *     template atual, e devolve a lista que a revisão desenha.
+         *
+         *     A mesma função (`RecurringService.plan`) alimenta a escrita, e é isso que
+         *     impede a tela de prometer uma coisa e o servidor fazer outra. O gate é o de
+         *     ESCRITA (`require_role(member)` + `_check_ownership`): quem não pode editar o
+         *     template também não tem por que saber quantos lançamentos ele gerou.
+         */
+        post: operations["preview_recurring_api_v1_workspaces__workspace_id__recurring__recurring_id__preview_post"];
+        delete?: never;
         options?: never;
         head?: never;
         patch?: never;
@@ -574,6 +616,33 @@ export interface paths {
         };
         /** Get Debts */
         get: operations["get_debts_api_v1_workspaces__workspace_id__debts_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/workspaces/{workspace_id}/debts/by-month": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Debts By Month
+         * @description De quais meses vem o saldo acumulado de quem pediu.
+         *
+         *     O saldo de `/debts` é cumulativo: R$ 320 pode ser a soma de três meses que
+         *     ninguém fechou, e a tela mostrava só o total — que se lê como uma cobrança do
+         *     mês corrente. Aqui a soma aparece aberta, e ela fecha (ver o serviço).
+         *
+         *     `user_id` é sempre o de quem pediu (o saldo é dele); `viewer_user_id` é o
+         *     recorte do ADR 0018 sobre as linhas de cada mês.
+         */
+        get: operations["get_debts_by_month_api_v1_workspaces__workspace_id__debts_by_month_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -597,6 +666,60 @@ export interface paths {
         get: operations["get_monthly_debts_api_v1_workspaces__workspace_id__debts_monthly_get"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/workspaces/{workspace_id}/payables": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Workspace Payables
+         * @description As contas em aberto DESTE espaço, de quem quer que vá pagá-las.
+         *
+         *     A moeda de destino é a **base do espaço** (não a de relatório da pessoa): é a
+         *     moeda em que todo número desta casa é expresso, e misturá-la com a preferência
+         *     de quem está olhando faria a mesma conta valer números diferentes para dois
+         *     membros da mesma casa.
+         */
+        get: operations["list_workspace_payables_api_v1_workspaces__workspace_id__payables_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/workspaces/{workspace_id}/payables/settle": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Settle Payables
+         * @description Marca as contas como pagas (ou desfaz), gravando `settled_at`.
+         *
+         *     É a única porta que move dinheiro para o caixa sem editar o lançamento — e
+         *     por isso ela **não** mexe em `status`: competência e caixa são eixos
+         *     separados (ADR 0022/0029), e marcar um boleto como pago não pode congelar a
+         *     despesa como o status `paid` congela.
+         *
+         *     Linha que não pode ser liquidada (cancelada, no cartão, de outra pessoa) é
+         *     PULADA e contada, nunca recusada: quem confirma cinco contas não pode ver a
+         *     operação inteira falhar por causa de uma.
+         */
+        post: operations["settle_payables_api_v1_workspaces__workspace_id__payables_settle_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -868,6 +991,33 @@ export interface paths {
          *     tinha como explicar de onde.
          */
         get: operations["get_ledger_api_v1_me_ledger_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/me/payables": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Payables
+         * @description O que EU ainda tenho a pagar, somando todos os meus espaços (ADR 0029).
+         *
+         *     Complemento exato do `cash_out` de lançamentos em `/me/overview`: aquele soma
+         *     o que já saiu, este lista o que ainda vai sair. Sai da mesma consulta com o
+         *     filtro de `settled_at` invertido, então os dois não têm como divergir.
+         *
+         *     Fatura de cartão e parcela de financiamento **não** entram: são outro prazo e
+         *     têm botão próprio em `/me/commitments`.
+         */
+        get: operations["get_payables_api_v1_me_payables_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -1391,6 +1541,32 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/me/debts/by-month": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Personal Debts By Month
+         * @description De quais meses vem o saldo, uma seção por casa.
+         *
+         *     Sub-rota como `/debts/monthly`, não raiz de coleção — por isso sem o
+         *     `_colecao` (que existe para a barra final de `/debts` e `/settlements`).
+         *
+         *     Sem total agregado: somar a origem de casas diferentes produziria a
+         *     compensação que o ADR 0020 proíbe, com a agravante de parecer conta fechada.
+         */
+        get: operations["get_personal_debts_by_month_api_v1_me_debts_by_month_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/me/debts/monthly": {
         parameters: {
             query?: never;
@@ -1546,6 +1722,54 @@ export interface paths {
         head?: never;
         /** Update Me */
         patch: operations["update_me_api_v1_auth_me_patch"];
+        trace?: never;
+    };
+    "/api/v1/auth/me/avatar": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Upload Avatar */
+        put: operations["upload_avatar_api_v1_auth_me_avatar_put"];
+        post?: never;
+        /** Delete Avatar */
+        delete: operations["delete_avatar_api_v1_auth_me_avatar_delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/auth/users/{user_id}/avatar": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Avatar
+         * @description Os bytes da foto de alguém.
+         *
+         *     **A autorização é o ponto desta rota.** Sem ela, `GET /auth/users/1/avatar`
+         *     respondendo 200 ou 404 diria a qualquer pessoa logada quais ids existem e
+         *     quais têm foto — um oráculo de enumeração de contas, e de graça. Pode ver
+         *     quem tem motivo para ver o rosto: a própria pessoa, quem divide um espaço
+         *     com ela, e o administrador do site (que já lista todas as contas na tela de
+         *     Pessoas).
+         *
+         *     Todo o resto é 404, e não 403: um 403 confirmaria que a conta existe, que é
+         *     exatamente o que se quer não dizer. Mesmo padrão do DELETE de anexo.
+         */
+        get: operations["get_avatar_api_v1_auth_users__user_id__avatar_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
         trace?: never;
     };
     "/api/v1/auth/logout": {
@@ -2335,6 +2559,11 @@ export interface components {
             /** File */
             file: string;
         };
+        /** Body_upload_avatar_api_v1_auth_me_avatar_put */
+        Body_upload_avatar_api_v1_auth_me_avatar_put: {
+            /** File */
+            file: string;
+        };
         /** BreakdownItem */
         BreakdownItem: {
             /** Title */
@@ -2755,6 +2984,27 @@ export interface components {
             creditor_id: number;
             /** Amount */
             amount: string;
+        };
+        /**
+         * DebtsByMonthRead
+         * @description De quais meses vem o saldo acumulado de quem pediu, nesta casa.
+         *
+         *     A ponte entre `/debts` ("quanto") e `/debts/monthly` ("como foi agosto"), e a
+         *     resposta para quem lê o saldo acumulado achando que precisa quitá-lo dentro
+         *     do mês corrente. A conta fecha, e é isso que a tela mostra:
+         *
+         *         balance == Σ months[].balance + older.balance + unassigned
+         */
+        DebtsByMonthRead: {
+            /** Base Currency */
+            base_currency: string;
+            /** Balance */
+            balance: string;
+            /** Months */
+            months: components["schemas"]["MonthBalance"][];
+            older: components["schemas"]["OlderMonths"];
+            /** Unassigned */
+            unassigned: string;
         };
         /**
          * EarlySettlementRead
@@ -3396,6 +3646,8 @@ export interface components {
             user_name: string;
             /** User Email */
             user_email: string;
+            /** Avatar Version */
+            avatar_version?: string | null;
             /**
              * Joined At
              * Format: date-time
@@ -3414,6 +3666,20 @@ export interface components {
         MessageRead: {
             /** Message */
             message: string;
+        };
+        /**
+         * MonthBalance
+         * @description O quanto UM mês contribui para o saldo acumulado de quem pediu.
+         */
+        MonthBalance: {
+            /** Month */
+            month: string;
+            /** Balance */
+            balance: string;
+            /** Net Debts */
+            net_debts: components["schemas"]["DebtRow"][];
+            /** Settled */
+            settled: string;
         };
         /**
          * MonthPoint
@@ -3576,6 +3842,19 @@ export interface components {
          * @enum {string}
          */
         NotificationType: "workspace_invite" | "member_added" | "invite_revoked";
+        /**
+         * OlderMonths
+         * @description Os meses além do teto da lista, somados em vez de descartados.
+         *
+         *     Existe para a conta continuar fechando quando o histórico é longo: truncar em
+         *     silêncio devolveria um total que não bate com as linhas exibidas.
+         */
+        OlderMonths: {
+            /** Count */
+            count: number;
+            /** Balance */
+            balance: string;
+        };
         /** OnboardingRequest */
         OnboardingRequest: {
             /** Workspace Id */
@@ -3620,6 +3899,21 @@ export interface components {
             to_receive: string;
             /** By Workspace */
             by_workspace: components["schemas"]["WorkspaceSlice"][];
+            /**
+             * Payables Total
+             * @default 0
+             */
+            payables_total: string;
+            /**
+             * Payables Count
+             * @default 0
+             */
+            payables_count: number;
+            /**
+             * Payables Overdue
+             * @default 0
+             */
+            payables_overdue: string;
             /** Excluded Foreign Count */
             excluded_foreign_count: number;
         };
@@ -3657,6 +3951,75 @@ export interface components {
              * @default false
              */
             duplicate: boolean;
+        };
+        /**
+         * PayableEntry
+         * @description Uma conta a pagar: o lançamento que ainda não saiu do caixa.
+         *
+         *     `amount` é o que EU assumi na despesa (`TransactionPayer`), não o total dela:
+         *     num jantar rateado que eu paguei, a conta a pagar é minha e inteira, e a parte
+         *     do outro vira acerto — outro eixo, outra tela.
+         */
+        PayableEntry: {
+            /** Transaction Id */
+            transaction_id: number;
+            /** Workspace Id */
+            workspace_id: number;
+            /** Workspace Name */
+            workspace_name: string;
+            /** Title */
+            title: string;
+            /**
+             * Due Date
+             * Format: date
+             */
+            due_date: string;
+            /** Billing Month */
+            billing_month?: string | null;
+            /** Amount */
+            amount: string;
+            /** Currency */
+            currency: string;
+            /** Converted Amount */
+            converted_amount?: string | null;
+            /** Payment Method */
+            payment_method?: string | null;
+            /** Is Overdue */
+            is_overdue: boolean;
+            /** Recurring Expense Id */
+            recurring_expense_id?: number | null;
+            /** Installment No */
+            installment_no?: number | null;
+            /** Installments Of */
+            installments_of?: number | null;
+            /**
+             * From Past Month
+             * @default false
+             */
+            from_past_month: boolean;
+        };
+        /**
+         * PayablesRead
+         * @description Contas a pagar do mês (ADR 0029).
+         *
+         *     Os totais são a partição complementar do `cash_out` de lançamentos: o que
+         *     está aqui é exatamente o que sairá do caixa quando for pago.
+         */
+        PayablesRead: {
+            /** Currency */
+            currency: string;
+            /** Month */
+            month: string;
+            /** Total */
+            total: string;
+            /** Overdue Total */
+            overdue_total: string;
+            /** Due This Month Total */
+            due_this_month_total: string;
+            /** Entries */
+            entries: components["schemas"]["PayableEntry"][];
+            /** Excluded Foreign Count */
+            excluded_foreign_count: number;
         };
         /** PaymentAccountCreate */
         PaymentAccountCreate: {
@@ -3728,6 +4091,19 @@ export interface components {
             debtor_name: string;
             /** Creditor Name */
             creditor_name: string;
+        };
+        /**
+         * PersonalDebtsByMonthRead
+         * @description A origem do saldo, uma seção por casa.
+         *
+         *     Sem total agregado, pelo mesmo motivo de `PersonalMonthlyDebtsRead`: cada
+         *     casa vive na moeda-base dela e somar sem destino declarado é o que o ADR 0006
+         *     proíbe. Nem haveria o que somar — o ADR 0020 já impede compensar saldo de uma
+         *     casa com o de outra.
+         */
+        PersonalDebtsByMonthRead: {
+            /** By Workspace */
+            by_workspace: components["schemas"]["WorkspaceMonthsGroup"][];
         };
         /**
          * PersonalDebtsRead
@@ -3859,6 +4235,10 @@ export interface components {
             interval: number;
             /** Start Date */
             start_date?: string | null;
+            /** End Date */
+            end_date?: string | null;
+            /** End After Occurrences */
+            end_after_occurrences?: number | null;
             /**
              * Day Of Month
              * @default 1
@@ -3871,6 +4251,11 @@ export interface components {
             /** Currency */
             currency?: string | null;
             payment_method?: components["schemas"]["PaymentMethod"] | null;
+            /**
+             * Auto Settle
+             * @default false
+             */
+            auto_settle: boolean;
             /** Credit Card Id */
             credit_card_id?: number | null;
             /** Category Id */
@@ -3879,65 +4264,6 @@ export interface components {
             payer_user_id?: number | null;
             /** Split Snapshot */
             split_snapshot?: components["schemas"]["RecurringSplitEntry"][] | null;
-        };
-        /** RecurringExpense */
-        RecurringExpense: {
-            /** Title */
-            title: string;
-            /** Description */
-            description?: string | null;
-            /** Base Amount */
-            base_amount: string;
-            /** @default monthly */
-            frequency: components["schemas"]["RecurrenceFrequency"];
-            /**
-             * Interval
-             * @default 1
-             */
-            interval: number;
-            /** Start Date */
-            start_date?: string | null;
-            /** Day Of Month */
-            day_of_month: number;
-            /** Day Of Week */
-            day_of_week?: number | null;
-            /** Month Of Year */
-            month_of_year?: number | null;
-            /**
-             * Is Active
-             * @default true
-             */
-            is_active: boolean;
-            /** Id */
-            id?: number | null;
-            /** Workspace Id */
-            workspace_id: number;
-            /** Created By User Id */
-            created_by_user_id?: number | null;
-            /**
-             * Currency
-             * @default BRL
-             */
-            currency: string;
-            payment_method?: components["schemas"]["PaymentMethod"] | null;
-            /** Credit Card Id */
-            credit_card_id?: number | null;
-            /** Category Id */
-            category_id?: number | null;
-            /** Payer User Id */
-            payer_user_id?: number | null;
-            /** Split Snapshot */
-            split_snapshot?: unknown[] | null;
-            /**
-             * Created At
-             * Format: date-time
-             */
-            created_at?: string;
-            /**
-             * Updated At
-             * Format: date-time
-             */
-            updated_at?: string;
         };
         /**
          * RecurringIncome
@@ -3968,6 +4294,8 @@ export interface components {
             interval: number;
             /** Start Date */
             start_date?: string | null;
+            /** End Date */
+            end_date?: string | null;
             /**
              * Day Of Month
              * @default 1
@@ -4018,6 +4346,8 @@ export interface components {
             interval: number;
             /** Start Date */
             start_date?: string | null;
+            /** End Date */
+            end_date?: string | null;
             /**
              * Day Of Month
              * @default 1
@@ -4050,6 +4380,8 @@ export interface components {
             interval?: number | null;
             /** Start Date */
             start_date?: string | null;
+            /** End Date */
+            end_date?: string | null;
             /** Day Of Month */
             day_of_month?: number | null;
             /** Day Of Week */
@@ -4058,6 +4390,144 @@ export interface components {
             month_of_year?: number | null;
             /** Is Active */
             is_active?: boolean | null;
+        };
+        /**
+         * RecurringPlanItem
+         * @description Uma linha da revisão: o lançamento e o que vai acontecer com ele.
+         */
+        RecurringPlanItem: {
+            /** Transaction Id */
+            transaction_id?: number | null;
+            /**
+             * Occurrence Date
+             * Format: date
+             */
+            occurrence_date: string;
+            /** New Occurrence Date */
+            new_occurrence_date?: string | null;
+            /** Billing Month */
+            billing_month?: string | null;
+            /** Status */
+            status?: string | null;
+            /** Action */
+            action: string;
+            /** Frozen Reason */
+            frozen_reason?: string | null;
+            /** Title */
+            title: string;
+            /** Amount */
+            amount?: string | null;
+            /** Changes */
+            changes?: {
+                [key: string]: unknown;
+            };
+        };
+        /** RecurringPlanRead */
+        RecurringPlanRead: {
+            /** Items */
+            items: components["schemas"]["RecurringPlanItem"][];
+        };
+        /**
+         * RecurringPreviewRequest
+         * @description "O que acontece se eu salvar isto?" — sem salvar nada (ADR 0030).
+         *
+         *     Depois de `RecurringUpdate` por necessidade: `changes` é o MESMO corpo do
+         *     PUT — a revisão tem de planejar a partir da edição que está na tela, não do
+         *     que já está no banco.
+         */
+        RecurringPreviewRequest: {
+            /**
+             * Action
+             * @default update
+             */
+            action: string;
+            changes?: components["schemas"]["RecurringUpdate"] | null;
+            /** Since */
+            since?: string | null;
+        };
+        /**
+         * RecurringRead
+         * @description O template como a interface o lê — com o que a lista precisa mostrar.
+         *
+         *     Herda de `RecurringExpenseBase` e **não** de `RecurringExpense`: o model de
+         *     tabela carrega o `Relationship` `transactions`, e o Pydantic não sabe gerar
+         *     schema para um `Mapped[List[Transaction]]` — o app nem sobe. A base traz os
+         *     campos de calendário e valor; o resto é declarado abaixo.
+         *
+         *     Os dois últimos são DERIVADOS (ADR 0030), não colunas: a contagem depende da
+         *     frequência e do intervalo, então armazená-la exigiria recalcular a cada
+         *     edição, e a cópia ficaria errada na primeira que alguém esquecesse.
+         */
+        RecurringRead: {
+            /** Title */
+            title: string;
+            /** Description */
+            description?: string | null;
+            /** Base Amount */
+            base_amount: string;
+            /** @default monthly */
+            frequency: components["schemas"]["RecurrenceFrequency"];
+            /**
+             * Interval
+             * @default 1
+             */
+            interval: number;
+            /** Start Date */
+            start_date?: string | null;
+            /** End Date */
+            end_date?: string | null;
+            /** Day Of Month */
+            day_of_month: number;
+            /** Day Of Week */
+            day_of_week?: number | null;
+            /** Month Of Year */
+            month_of_year?: number | null;
+            /**
+             * Is Active
+             * @default true
+             */
+            is_active: boolean;
+            /** Id */
+            id: number;
+            /** Workspace Id */
+            workspace_id: number;
+            /** Created By User Id */
+            created_by_user_id?: number | null;
+            /**
+             * Currency
+             * @default BRL
+             */
+            currency: string;
+            payment_method?: components["schemas"]["PaymentMethod"] | null;
+            /**
+             * Auto Settle
+             * @default false
+             */
+            auto_settle: boolean;
+            /** Credit Card Id */
+            credit_card_id?: number | null;
+            /** Category Id */
+            category_id?: number | null;
+            /** Payer User Id */
+            payer_user_id?: number | null;
+            /** Split Snapshot */
+            split_snapshot?: {
+                [key: string]: unknown;
+            }[] | null;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
+            /** Occurrences Total */
+            occurrences_total?: number | null;
+            /** Occurrences Remaining */
+            occurrences_remaining?: number | null;
         };
         /** RecurringSplitEntry */
         RecurringSplitEntry: {
@@ -4084,6 +4554,10 @@ export interface components {
             interval?: number | null;
             /** Start Date */
             start_date?: string | null;
+            /** End Date */
+            end_date?: string | null;
+            /** End After Occurrences */
+            end_after_occurrences?: number | null;
             /** Day Of Month */
             day_of_month?: number | null;
             /** Day Of Week */
@@ -4095,6 +4569,8 @@ export interface components {
             /** Currency */
             currency?: string | null;
             payment_method?: components["schemas"]["PaymentMethod"] | null;
+            /** Auto Settle */
+            auto_settle?: boolean | null;
             /** Credit Card Id */
             credit_card_id?: number | null;
             /** Category Id */
@@ -4252,6 +4728,41 @@ export interface components {
             chaves: components["schemas"]["SettingKeyRead"][];
             /** Limite Nginx Bytes */
             limite_nginx_bytes: number;
+        };
+        /**
+         * SettleRequest
+         * @description Confirmar (ou desfazer) o pagamento de várias contas de uma vez.
+         *
+         *     `settled_on` é o dia em que o dinheiro saiu — não "agora". É ele que decide em
+         *     que mês a saída aparece no caixa, e pagar no dia 2 uma conta confirmada no
+         *     app no dia 5 tem de mover o caixa do dia 2.
+         */
+        SettleRequest: {
+            /** Transaction Ids */
+            transaction_ids: number[];
+            /**
+             * Settled
+             * @default true
+             */
+            settled: boolean;
+            /** Settled On */
+            settled_on?: string | null;
+        };
+        /**
+         * SettleResult
+         * @description Marcação de pagamento em lote.
+         *
+         *     `skipped` existe pela mesma razão de `BulkDeleteResult`: quem confirma cinco
+         *     contas não pode ver a operação inteira falhar porque uma delas foi cancelada
+         *     por outra pessoa entre a leitura da tela e o clique.
+         */
+        SettleResult: {
+            /** Status */
+            status: string;
+            /** Updated */
+            updated: number;
+            /** Skipped */
+            skipped: number;
         };
         /** SettlementCreate */
         SettlementCreate: {
@@ -4746,6 +5257,8 @@ export interface components {
             tag_ids?: number[] | null;
             /** Installments Count */
             installments_count?: number | null;
+            /** Settled */
+            settled?: boolean | null;
         };
         /** TransactionItemCreate */
         TransactionItemCreate: {
@@ -4940,6 +5453,8 @@ export interface components {
             id: number;
             /** Workspace Id */
             workspace_id: number;
+            /** Settled At */
+            settled_at?: string | null;
             /** Statement Id */
             statement_id?: number | null;
             /** Created By User Id */
@@ -5042,6 +5557,8 @@ export interface components {
             /** Credit Card Id */
             credit_card_id?: number | null;
             payment_method?: components["schemas"]["PaymentMethod"] | null;
+            /** Settled */
+            settled?: boolean | null;
             /** Category Id */
             category_id?: number | null;
             /** Tag Ids */
@@ -5078,6 +5595,8 @@ export interface components {
             /** Needs Onboarding */
             needs_onboarding: boolean;
             platform_role: components["schemas"]["PlatformRole"];
+            /** Avatar Version */
+            avatar_version?: string | null;
             /**
              * Created At
              * Format: date-time
@@ -5105,6 +5624,8 @@ export interface components {
             description?: string | null;
             /** Base Currency */
             base_currency?: string | null;
+            /** Settlement Tracking */
+            settlement_tracking?: boolean | null;
         };
         /**
          * WorkspaceDebtGroup
@@ -5164,6 +5685,25 @@ export interface components {
             /** People */
             people: components["schemas"]["Person"][];
         };
+        /**
+         * WorkspaceMonthsGroup
+         * @description A origem do saldo de UMA casa, na camada global.
+         */
+        WorkspaceMonthsGroup: {
+            /** Base Currency */
+            base_currency: string;
+            /** Balance */
+            balance: string;
+            /** Months */
+            months: components["schemas"]["MonthBalance"][];
+            older: components["schemas"]["OlderMonths"];
+            /** Unassigned */
+            unassigned: string;
+            /** Workspace Id */
+            workspace_id: number;
+            /** Workspace Name */
+            workspace_name: string;
+        };
         /** WorkspaceRead */
         WorkspaceRead: {
             /** Name */
@@ -5177,6 +5717,11 @@ export interface components {
              * @default BRL
              */
             base_currency: string;
+            /**
+             * Settlement Tracking
+             * @default true
+             */
+            settlement_tracking: boolean;
             /**
              * Created At
              * Format: date-time
@@ -5242,6 +5787,8 @@ export interface components {
             description?: string | null;
             /** Base Currency */
             base_currency?: string | null;
+            /** Settlement Tracking */
+            settlement_tracking?: boolean | null;
         };
         /** InviteCreate */
         app__api__routes__admin__InviteCreate: {
@@ -5958,6 +6505,7 @@ export interface operations {
                 category_id?: number | null;
                 payment_method?: components["schemas"]["PaymentMethod"] | null;
                 tag_id?: number | null;
+                settled?: boolean | null;
             };
             header?: never;
             path: {
@@ -6652,7 +7200,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["RecurringExpense"][];
+                    "application/json": components["schemas"]["RecurringRead"][];
                 };
             };
             /** @description Validation Error */
@@ -6692,7 +7240,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["RecurringExpense"];
+                    "application/json": components["schemas"]["RecurringRead"];
                 };
             };
             /** @description Validation Error */
@@ -6759,7 +7307,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["RecurringExpense"];
+                    "application/json": components["schemas"]["RecurringRead"];
                 };
             };
             /** @description Validation Error */
@@ -6780,6 +7328,12 @@ export interface operations {
                 scope?: string;
                 /** @description Escopo da materialização com start_date retroativa: past | current | future */
                 materialize?: string;
+                /** @description Ids dos lançamentos escolhidos na revisão (ADR 0030). Informado, substitui `scope`: só estes são ajustados, e a data acompanha. */
+                apply_to?: number[] | null;
+                /** @description Datas das ocorrências a criar, escolhidas na revisão. */
+                create_occurrence?: string[] | null;
+                /** @description 'Aplicar a partir de' — recorta o plano da revisão. */
+                since?: string | null;
             };
             header?: never;
             path: {
@@ -6802,7 +7356,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["RecurringExpense"];
+                    "application/json": components["schemas"]["RecurringRead"];
                 };
             };
             /** @description Validation Error */
@@ -6818,7 +7372,10 @@ export interface operations {
     };
     delete_recurring_api_v1_workspaces__workspace_id__recurring__recurring_id__delete: {
         parameters: {
-            query?: never;
+            query?: {
+                /** @description Ids dos lançamentos JÁ GERADOS a cancelar junto (ADR 0030). Ausente, nenhum é tocado — o comportamento de sempre. */
+                cancel_instance?: number[] | null;
+            };
             header?: never;
             path: {
                 workspace_id: number;
@@ -6837,6 +7394,44 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["StatusRead"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    preview_recurring_api_v1_workspaces__workspace_id__recurring__recurring_id__preview_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                workspace_id: number;
+                recurring_id: number;
+            };
+            cookie?: {
+                access_token?: string | null;
+            };
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RecurringPreviewRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RecurringPlanRead"];
                 };
             };
             /** @description Validation Error */
@@ -6883,6 +7478,39 @@ export interface operations {
             };
         };
     };
+    get_debts_by_month_api_v1_workspaces__workspace_id__debts_by_month_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                workspace_id: number;
+            };
+            cookie?: {
+                access_token?: string | null;
+            };
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DebtsByMonthRead"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     get_monthly_debts_api_v1_workspaces__workspace_id__debts_monthly_get: {
         parameters: {
             query?: {
@@ -6905,6 +7533,80 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["MonthlyLedgerRead"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_workspace_payables_api_v1_workspaces__workspace_id__payables_get: {
+        parameters: {
+            query?: {
+                month?: string | null;
+                currency?: string | null;
+                include_overdue?: boolean;
+            };
+            header?: never;
+            path: {
+                workspace_id: number;
+            };
+            cookie?: {
+                access_token?: string | null;
+            };
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PayablesRead"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    settle_payables_api_v1_workspaces__workspace_id__payables_settle_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                workspace_id: number;
+            };
+            cookie?: {
+                access_token?: string | null;
+            };
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SettleRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SettleResult"];
                 };
             };
             /** @description Validation Error */
@@ -7651,6 +8353,42 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["LedgerRead"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_payables_api_v1_me_payables_get: {
+        parameters: {
+            query?: {
+                month?: string | null;
+                workspace_id?: number | null;
+                currency?: string | null;
+                include_overdue?: boolean;
+            };
+            header?: never;
+            path?: never;
+            cookie?: {
+                access_token?: string | null;
+            };
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PayablesRead"];
                 };
             };
             /** @description Validation Error */
@@ -8902,6 +9640,37 @@ export interface operations {
             };
         };
     };
+    get_personal_debts_by_month_api_v1_me_debts_by_month_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: {
+                access_token?: string | null;
+            };
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PersonalDebtsByMonthRead"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     get_personal_monthly_debts_api_v1_me_debts_monthly_get: {
         parameters: {
             query?: {
@@ -9143,6 +9912,105 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["UserResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    upload_avatar_api_v1_auth_me_avatar_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: {
+                access_token?: string | null;
+            };
+        };
+        requestBody: {
+            content: {
+                "multipart/form-data": components["schemas"]["Body_upload_avatar_api_v1_auth_me_avatar_put"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UserResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_avatar_api_v1_auth_me_avatar_delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: {
+                access_token?: string | null;
+            };
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UserResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_avatar_api_v1_auth_users__user_id__avatar_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                user_id: number;
+            };
+            cookie?: {
+                access_token?: string | null;
+            };
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
                 };
             };
             /** @description Validation Error */

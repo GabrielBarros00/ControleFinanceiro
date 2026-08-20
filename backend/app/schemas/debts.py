@@ -31,10 +31,13 @@ from pydantic import BaseModel
 
 from app.schemas.overview import (
     DebtRow,
+    DebtsByMonthRead,
     LedgerExpense,
     LedgerMember,
     LedgerSettlement,
     LedgerTotals,
+    MonthBalance,
+    OlderMonths,
 )
 
 #: Uma dívida já simplificada: A paga B, um valor só. Mesma linha que o
@@ -43,11 +46,14 @@ DebtRead = DebtRow
 
 __all__ = [
     "DebtRead",
+    "DebtsByMonthRead",
     "LedgerExpense",
     "LedgerMember",
     "LedgerSettlement",
     "LedgerTotals",
+    "MonthBalance",
     "MonthlyLedgerRead",
+    "OlderMonths",
 ]
 
 

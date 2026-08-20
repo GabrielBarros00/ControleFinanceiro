@@ -6,7 +6,7 @@ from app.db.session import get_session
 from app.domain.access_policy import has_full_access
 from app.domain.dates import InvalidMonth, parse_month
 from app.models.workspace import WorkspaceMembership
-from app.schemas.debts import DebtRead, MonthlyLedgerRead
+from app.schemas.debts import DebtRead, DebtsByMonthRead, MonthlyLedgerRead
 from app.services.debt_service import DebtService
 from app.api.deps import get_workspace_membership
 
@@ -25,6 +25,29 @@ def get_debts(
     return DebtService.get_workspace_debts(
         session,
         workspace_id,
+        viewer_user_id=None if has_full_access(membership) else membership.user_id,
+    )
+
+
+@router.get("/by-month", response_model=DebtsByMonthRead)
+def get_debts_by_month(
+    workspace_id: int,
+    session: Session = Depends(get_session),
+    membership: WorkspaceMembership = Depends(get_workspace_membership)
+):
+    """De quais meses vem o saldo acumulado de quem pediu.
+
+    O saldo de `/debts` é cumulativo: R$ 320 pode ser a soma de três meses que
+    ninguém fechou, e a tela mostrava só o total — que se lê como uma cobrança do
+    mês corrente. Aqui a soma aparece aberta, e ela fecha (ver o serviço).
+
+    `user_id` é sempre o de quem pediu (o saldo é dele); `viewer_user_id` é o
+    recorte do ADR 0018 sobre as linhas de cada mês.
+    """
+    return DebtService.get_balance_by_month(
+        session,
+        workspace_id,
+        membership.user_id,
         viewer_user_id=None if has_full_access(membership) else membership.user_id,
     )
 

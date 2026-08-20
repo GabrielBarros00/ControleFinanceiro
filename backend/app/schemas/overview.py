@@ -76,9 +76,76 @@ class OverviewRead(BaseModel):
     to_receive: Decimal
     by_workspace: List[WorkspaceSlice]
 
+    # --- Contas a pagar (ADR 0029) ---------------------------------------------
+    #: O que ainda não virou saída de caixa: lançamento fora do cartão sem
+    #: `settled_at`. Vem do MESMO `PayablesService` que desenha a tela de Contas a
+    #: pagar, para o número do topo e a lista que ele abre não divergirem.
+    payables_total: Decimal = Decimal("0")
+    payables_count: int = 0
+    #: A parte disso que já venceu — é o que a tela realça.
+    payables_overdue: Decimal = Decimal("0")
+
     #: Quantos valores ficaram de fora por falta de cotação (ADR 0006). Nunca é
     #: silencioso: o que não converte não vira zero.
     excluded_foreign_count: int
+
+
+class PayableEntry(BaseModel):
+    """Uma conta a pagar: o lançamento que ainda não saiu do caixa.
+
+    `amount` é o que EU assumi na despesa (`TransactionPayer`), não o total dela:
+    num jantar rateado que eu paguei, a conta a pagar é minha e inteira, e a parte
+    do outro vira acerto — outro eixo, outra tela.
+    """
+    transaction_id: int
+    workspace_id: int
+    workspace_name: str
+    title: str
+    #: Dia de calendário em que vence (a data do lançamento, no fuso do app).
+    due_date: date
+    billing_month: Optional[str] = None
+    amount: Decimal
+    currency: str
+    #: `None` = sem cotação para a data (ADR 0006). A linha aparece assim mesmo:
+    #: numa tela de obrigação, esconder o que não converteu é pior — o valor
+    #: continua sendo devido.
+    converted_amount: Optional[Decimal] = None
+    payment_method: Optional[str] = None
+    is_overdue: bool
+    #: De onde a conta veio. Saber que a linha é automática muda o que se faz com
+    #: ela: confirmar o pagamento, ou ir atrás de quem deveria ter pago.
+    recurring_expense_id: Optional[int] = None
+    installment_no: Optional[int] = None
+    installments_of: Optional[int] = None
+    #: Competência anterior ao mês pedido — conta arrastada de um mês fechado.
+    from_past_month: bool = False
+
+
+class PayablesRead(BaseModel):
+    """Contas a pagar do mês (ADR 0029).
+
+    Os totais são a partição complementar do `cash_out` de lançamentos: o que
+    está aqui é exatamente o que sairá do caixa quando for pago.
+    """
+    currency: str
+    month: str
+    total: Decimal
+    overdue_total: Decimal
+    due_this_month_total: Decimal
+    entries: List[PayableEntry]
+    excluded_foreign_count: int
+
+
+class SettleResult(BaseModel):
+    """Marcação de pagamento em lote.
+
+    `skipped` existe pela mesma razão de `BulkDeleteResult`: quem confirma cinco
+    contas não pode ver a operação inteira falhar porque uma delas foi cancelada
+    por outra pessoa entre a leitura da tela e o clique.
+    """
+    status: str
+    updated: int
+    skipped: int
 
 
 class CommitmentStatement(BaseModel):
@@ -387,6 +454,66 @@ class PersonalMonthlyDebtsRead(BaseModel):
     """
     month: str
     by_workspace: List[WorkspaceMonthlyLedger]
+
+
+class MonthBalance(BaseModel):
+    """O quanto UM mês contribui para o saldo acumulado de quem pediu."""
+    month: str
+    #: Com sinal, do ponto de vista de quem pediu: negativo = devo. Já inclui os
+    #: acertos marcados com este `billing_month`, por isso o mês quitado some da
+    #: lista em vez de aparecer zerado.
+    balance: Decimal
+    #: O pareamento DAQUELE mês (recortado pelo ADR 0018), para a linha poder
+    #: dizer "a quem" sem uma segunda chamada.
+    net_debts: List[DebtRow]
+    #: Quanto já foi acertado neste mês contando só o que me envolve.
+    settled: Decimal
+
+
+class OlderMonths(BaseModel):
+    """Os meses além do teto da lista, somados em vez de descartados.
+
+    Existe para a conta continuar fechando quando o histórico é longo: truncar em
+    silêncio devolveria um total que não bate com as linhas exibidas.
+    """
+    count: int
+    balance: Decimal
+
+
+class DebtsByMonthRead(BaseModel):
+    """De quais meses vem o saldo acumulado de quem pediu, nesta casa.
+
+    A ponte entre `/debts` ("quanto") e `/debts/monthly` ("como foi agosto"), e a
+    resposta para quem lê o saldo acumulado achando que precisa quitá-lo dentro
+    do mês corrente. A conta fecha, e é isso que a tela mostra:
+
+        balance == Σ months[].balance + older.balance + unassigned
+    """
+    base_currency: str
+    #: O mesmo saldo que `/debts` implica para quem pediu — negativo = devo.
+    balance: Decimal
+    months: List[MonthBalance]
+    older: OlderMonths
+    #: O que não tem mês: acerto global (registrado a partir do acumulado, sem
+    #: `billing_month`) e linha legada anterior ao preenchimento automático.
+    unassigned: Decimal
+
+
+class WorkspaceMonthsGroup(DebtsByMonthRead):
+    """A origem do saldo de UMA casa, na camada global."""
+    workspace_id: int
+    workspace_name: str
+
+
+class PersonalDebtsByMonthRead(BaseModel):
+    """A origem do saldo, uma seção por casa.
+
+    Sem total agregado, pelo mesmo motivo de `PersonalMonthlyDebtsRead`: cada
+    casa vive na moeda-base dela e somar sem destino declarado é o que o ADR 0006
+    proíbe. Nem haveria o que somar — o ADR 0020 já impede compensar saldo de uma
+    casa com o de outra.
+    """
+    by_workspace: List[WorkspaceMonthsGroup]
 
 
 class PersonalSettlementEntry(BaseModel):

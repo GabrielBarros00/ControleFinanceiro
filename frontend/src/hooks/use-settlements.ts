@@ -1,17 +1,19 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { apiClient } from '@/api/client';
+import type { components } from '@/types/api.gen';
 import { invalidateForEvent } from '@/lib/ws-events';
 import { useWorkspaceId } from './use-workspace-id';
 
-export interface Settlement {
-  id: number;
-  from_user_id: number;
-  to_user_id: number;
-  amount: string;
-  note?: string | null;
-  settled_at: string;
-  created_by_user_id?: number | null;
-}
+/**
+ * Derivado do OpenAPI, não escrito à mão.
+ *
+ * A declaração manual anterior omitia `billing_month` — o campo que distingue um
+ * acerto que fecha UM mês de um que abate o acumulado sem fechar mês nenhum. A
+ * rota sempre o devolveu; como o tipo não o tinha, a tela não podia exibi-lo, e
+ * os dois tipos de acerto ficaram indistinguíveis por todo esse tempo sem que
+ * nada acusasse.
+ */
+export type Settlement = components['schemas']['SettlementRead'];
 
 export interface SettlementCreate {
   from_user_id: number;

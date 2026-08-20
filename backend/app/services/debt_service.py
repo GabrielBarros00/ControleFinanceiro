@@ -1,6 +1,6 @@
 from decimal import Decimal
 from typing import List, Dict, Any, Optional
-from sqlmodel import Session, select, func
+from sqlmodel import Session, or_, select, func
 from app.domain.query_policy import REALIZED_STATUSES, workspace_base_currency
 from app.models.settlement import Settlement
 from app.models.transaction import (
@@ -9,6 +9,14 @@ from app.models.transaction import (
     TransactionSplit,
     TransactionStatus,
 )
+
+ZERO = Decimal("0.00")
+
+#: Quantos meses a origem do saldo detalha antes de agrupar o resto em `older`.
+#: Três anos de dívida em aberto já é patológico; o que não pode é a lista
+#: truncar em silêncio e a conta parar de fechar (ver `get_balance_by_month`).
+MESES_NA_ORIGEM = 36
+
 
 def _only_involving(rows: List[Dict[str, Any]], user_id: Optional[int]) -> List[Dict[str, Any]]:
     """Recorta o pareamento de dívidas nas linhas em que `user_id` é uma das pontas.
@@ -139,6 +147,167 @@ class DebtService:
                 j += 1
 
         return final_debts
+
+    @staticmethod
+    def get_balance_by_month(
+        db: Session,
+        workspace_id: int,
+        user_id: int,
+        viewer_user_id: Optional[int] = None,
+        limite: int = MESES_NA_ORIGEM,
+    ) -> Dict[str, Any]:
+        """De quais MESES vem o saldo acumulado de `user_id` nesta casa.
+
+        `get_workspace_debts` responde "quanto" e `get_monthly_ledger` responde
+        "como foi agosto"; faltava a ponte entre os dois. Sem ela, quem abre
+        Acertos vê um "saldo geral a acertar" de R$ 320 e conclui que precisa
+        pagar isso no mês corrente — quando o valor pode ser a soma de três meses
+        que ninguém fechou.
+
+        A conta FECHA, e é essa a razão de o método existir:
+
+            balance == Σ months[].balance + older.balance + unassigned
+
+        Ela vale porque o listener de `models/transaction.py` preenche
+        `billing_month` a partir de `transaction_date`, então `billing_month`
+        particiona todo lançamento e todo acerto do workspace. O que não tem mês
+        — acerto global (o registrado a partir do saldo acumulado, sem
+        `billing_month`) e eventual linha legada anterior ao listener — cai em
+        `unassigned` em vez de sumir. Meses além de `limite` viram `older` pelo
+        mesmo motivo: truncar em silêncio devolveria um número plausível e
+        errado.
+
+        **Duas pessoas diferentes nos dois parâmetros, de propósito.** `user_id`
+        é de quem é o saldo (sempre quem pediu — a pergunta é "de onde vem o
+        MEU"); `viewer_user_id` é o recorte do ADR 0018 aplicado a `net_debts`,
+        e continua sendo `None` para quem tem acesso completo.
+
+        Não é `get_monthly_ledger` num laço: são cinco consultas agrupadas para o
+        histórico inteiro, contra 3+N por mês visitado.
+        """
+        base_currency = workspace_base_currency(db, workspace_id)
+
+        # Os MESMOS filtros de `get_workspace_debts`. Qualquer divergência aqui
+        # (um status a mais, a moeda de fora) quebra a identidade acima — e ela
+        # quebraria em silêncio, porque os dois números são plausíveis.
+        # `select_from` explícito: a primeira coluna do SELECT é
+        # `Transaction.billing_month`, então sem ele o SQLAlchemy inferiria
+        # `Transaction` como origem e o `.join(Transaction)` viraria auto-join.
+        def _do_workspace(stmt, origem):
+            return (
+                stmt.select_from(origem)
+                .join(Transaction)
+                .where(Transaction.workspace_id == workspace_id)
+                .where(Transaction.deleted_at.is_(None))
+                .where(Transaction.status.in_(REALIZED_STATUSES))
+                .where(Transaction.currency == base_currency)
+            )
+
+        # saldos[mês][pessoa] — a chave `None` é o balde "sem mês".
+        saldos: Dict[Optional[str], Dict[int, Decimal]] = {}
+
+        def _acumula(mes: Optional[str], uid: int, valor: Decimal) -> None:
+            pessoas = saldos.setdefault(mes, {})
+            pessoas[uid] = pessoas.get(uid, ZERO) + valor
+
+        pagos = db.exec(
+            _do_workspace(
+                select(
+                    Transaction.billing_month,
+                    TransactionPayer.user_id,
+                    func.sum(TransactionPayer.amount),
+                ),
+                TransactionPayer,
+            ).group_by(Transaction.billing_month, TransactionPayer.user_id)
+        ).all()
+        for mes, uid, total in pagos:
+            _acumula(mes, uid, total)
+
+        devidos = db.exec(
+            _do_workspace(
+                select(
+                    Transaction.billing_month,
+                    TransactionSplit.user_id,
+                    func.sum(TransactionSplit.computed_amount),
+                ),
+                TransactionSplit,
+            ).group_by(Transaction.billing_month, TransactionSplit.user_id)
+        ).all()
+        for mes, uid, total in devidos:
+            _acumula(mes, uid, -total)
+
+        # Acerto: quem pagou reduz a dívida (saldo sobe), quem recebeu reduz o
+        # crédito (saldo desce) — mesmo ajuste de `get_workspace_debts`.
+        for coluna, sinal in ((Settlement.from_user_id, 1), (Settlement.to_user_id, -1)):
+            linhas = db.exec(
+                select(Settlement.billing_month, coluna, func.sum(Settlement.amount))
+                .where(Settlement.workspace_id == workspace_id)
+                .where(Settlement.deleted_at.is_(None))
+                .group_by(Settlement.billing_month, coluna)
+            ).all()
+            for mes, uid, total in linhas:
+                _acumula(mes, uid, sinal * total)
+
+        # Quanto JÁ foi acertado em cada mês, contando só o que me envolve — é o
+        # "R$ 40,00 já acertados" que a linha do mês mostra. Sem o recorte, um
+        # acerto entre terceiros apareceria como se fosse abatimento meu.
+        acertado_por_mes: Dict[Optional[str], Decimal] = {
+            mes: total
+            for mes, total in db.exec(
+                select(Settlement.billing_month, func.sum(Settlement.amount))
+                .where(Settlement.workspace_id == workspace_id)
+                .where(Settlement.deleted_at.is_(None))
+                .where(
+                    or_(
+                        Settlement.from_user_id == user_id,
+                        Settlement.to_user_id == user_id,
+                    )
+                )
+                .group_by(Settlement.billing_month)
+            ).all()
+        }
+
+        # O total vem da MESMA fonte que a quebra, somando inclusive os meses
+        # que não entram na lista (saldo zero) e o balde sem mês. É por
+        # construção o saldo de `get_workspace_debts`, e o teste confere isso.
+        saldo_total = sum(
+            (pessoas.get(user_id, ZERO) for pessoas in saldos.values()), ZERO
+        )
+
+        meses: List[Dict[str, Any]] = []
+        for mes in sorted((m for m in saldos if m is not None), reverse=True):
+            pessoas = saldos[mes]
+            meu = pessoas.get(user_id, ZERO)
+            if meu == 0:
+                # Mês quitado (ou em que não entrei) não é origem de saldo
+                # nenhum. Contribui zero, então some da lista sem afetar a conta.
+                continue
+            meses.append({
+                "month": mes,
+                "balance": meu,
+                # O pareamento é do mês, calculado sobre TODOS os saldos e
+                # recortado depois (ver `_only_involving`).
+                "net_debts": _only_involving(
+                    DebtService._settle_balances(pessoas), viewer_user_id
+                ),
+                "settled": acertado_por_mes.get(mes, ZERO),
+            })
+
+        antigos = meses[limite:]
+        meses = meses[:limite]
+
+        return {
+            "base_currency": base_currency,
+            "balance": saldo_total,
+            "months": meses,
+            "older": {
+                "count": len(antigos),
+                "balance": sum((m["balance"] for m in antigos), ZERO),
+            },
+            # Com sinal: acerto global em que EU paguei sobe meu saldo, em que eu
+            # recebi desce. É a linha "sem mês" da tela.
+            "unassigned": saldos.get(None, {}).get(user_id, ZERO),
+        }
 
     @staticmethod
     def get_monthly_ledger(

@@ -208,3 +208,305 @@ def test_monthly_ledger_ignores_settlement_of_other_scope(db_session: Session):
     assert jun["settled_total"] == Decimal("0.00")
     assert len(jun["net_debts"]) == 1
     assert jun["net_debts"][0]["amount"] == Decimal("50.00")
+
+
+# --- A origem do saldo: de quais meses vem o acumulado -----------------------
+#
+# O que estes testes travam é UMA propriedade, e ela é a razão de a tela existir:
+# a soma das linhas exibidas tem de dar o total exibido. Um "de onde vem esse
+# saldo" que não fecha é pior do que não ter — a pessoa deixa de confiar nos dois
+# números em vez de só continuar sem o segundo.
+
+
+def _despesa(db, ws_id, mes, pagadores, rateio, dia=10):
+    """Uma despesa no mês `mes`. `pagadores`/`rateio` são `{user_id: valor}`."""
+    total = sum(pagadores.values())
+    ano, num = (int(p) for p in mes.split("-"))
+    tx = Transaction(
+        title=f"Despesa {mes}", total_amount=total, workspace_id=ws_id,
+        billing_month=mes, status=TransactionStatus.confirmed,
+        transaction_date=datetime(ano, num, dia),
+    )
+    db.add(tx)
+    db.flush()
+    for uid, valor in pagadores.items():
+        db.add(TransactionPayer(transaction_id=tx.id, user_id=uid, amount=valor))
+    for uid, valor in rateio.items():
+        db.add(TransactionSplit(
+            transaction_id=tx.id, user_id=uid, split_method=SplitMethod.fixed,
+            input_value=valor, computed_amount=valor,
+        ))
+    return tx
+
+
+def _saldo_segundo_debts(db, ws_id, user_id) -> Decimal:
+    """O saldo que `GET /debts` implica para `user_id`, a partir das linhas dele.
+
+    A segunda testemunha da identidade: não basta a quebra fechar consigo mesma
+    (isso ela faz por construção, já que sai da mesma soma) — ela tem de bater
+    com o número que a OUTRA rota mostra na mesma tela.
+    """
+    linhas = DebtService.get_workspace_debts(db, ws_id)
+    recebe = sum(
+        (linha["amount"] for linha in linhas if linha["creditor_id"] == user_id),
+        Decimal("0.00"),
+    )
+    paga = sum(
+        (linha["amount"] for linha in linhas if linha["debtor_id"] == user_id),
+        Decimal("0.00"),
+    )
+    return recebe - paga
+
+
+def _trio(db, sufixo):
+    u1 = User(name="Eu", email=f"eu{sufixo}@test.com", password_hash="h")
+    u2 = User(name="Ana", email=f"ana{sufixo}@test.com", password_hash="h")
+    u3 = User(name="Bruno", email=f"bruno{sufixo}@test.com", password_hash="h")
+    ws = Workspace(name=f"Casa {sufixo}")
+    db.add_all([u1, u2, u3, ws])
+    db.flush()
+    return u1, u2, u3, ws
+
+
+def test_origem_do_saldo_fecha_a_conta(db_session: Session):
+    """`balance == Σ meses + older + unassigned`, e bate com `/debts`.
+
+    Cenário deliberadamente sujo: três pessoas, meses com sinais opostos, acerto
+    COM mês e acerto SEM mês. É o caso em que a versão ingênua (somar só os meses)
+    erra, porque o acerto global não pertence a mês nenhum.
+    """
+    u1, u2, u3, ws = _trio(db_session, "fecha")
+
+    # jan: eu pago 300, rateio igual → sobro 200
+    _despesa(db_session, ws.id, "2026-01",
+             {u1.id: Decimal("300.00")},
+             {u1.id: Decimal("100.00"), u2.id: Decimal("100.00"), u3.id: Decimal("100.00")})
+    # fev: Ana paga 600, rateio igual → devo 200
+    _despesa(db_session, ws.id, "2026-02",
+             {u2.id: Decimal("600.00")},
+             {u1.id: Decimal("200.00"), u2.id: Decimal("200.00"), u3.id: Decimal("200.00")})
+    # mar: Bruno paga 90, rateio igual → devo 30
+    _despesa(db_session, ws.id, "2026-03",
+             {u3.id: Decimal("90.00")},
+             {u1.id: Decimal("30.00"), u2.id: Decimal("30.00"), u3.id: Decimal("30.00")})
+    # Acerto COM mês: eu pago 50 à Ana, quitando parte de fevereiro
+    db_session.add(Settlement(
+        workspace_id=ws.id, from_user_id=u1.id, to_user_id=u2.id,
+        amount=Decimal("50.00"), billing_month="2026-02",
+    ))
+    # Acerto SEM mês: Bruno me paga 40 "por fora"
+    db_session.add(Settlement(
+        workspace_id=ws.id, from_user_id=u3.id, to_user_id=u1.id,
+        amount=Decimal("40.00"), billing_month=None,
+    ))
+    db_session.commit()
+
+    origem = DebtService.get_balance_by_month(db_session, ws.id, u1.id)
+
+    por_mes = {m["month"]: m["balance"] for m in origem["months"]}
+    assert por_mes == {
+        "2026-01": Decimal("200.00"),
+        "2026-02": Decimal("-150.00"),   # -200 devidos + 50 já acertados
+        "2026-03": Decimal("-30.00"),
+    }
+    # Do meu ponto de vista, receber um acerto DERRUBA meu saldo.
+    assert origem["unassigned"] == Decimal("-40.00")
+    assert origem["older"] == {"count": 0, "balance": Decimal("0.00")}
+
+    # A identidade, escrita como a tela a exibe
+    soma = sum(por_mes.values(), Decimal("0.00")) + origem["older"]["balance"] + origem["unassigned"]
+    assert soma == origem["balance"] == Decimal("-20.00")
+    # ... e a segunda testemunha: é o mesmo número que `/debts` mostra
+    assert origem["balance"] == _saldo_segundo_debts(db_session, ws.id, u1.id)
+
+    # A linha do mês diz a quem, e quanto daquele mês já foi acertado
+    fev = next(m for m in origem["months"] if m["month"] == "2026-02")
+    assert fev["settled"] == Decimal("50.00")
+    assert {(d["debtor_id"], d["creditor_id"]) for d in fev["net_debts"]} == {(u1.id, u2.id), (u3.id, u2.id)}
+    assert origem["months"][0]["month"] == "2026-03"  # mais recente primeiro
+
+
+def test_origem_ignora_mes_quitado_sem_desequilibrar_a_conta(db_session: Session):
+    """Mês fechado sai da lista — e some contribuindo exatamente zero."""
+    u1, u2, _u3, ws = _trio(db_session, "quitado")
+
+    _despesa(db_session, ws.id, "2026-04",
+             {u2.id: Decimal("100.00")},
+             {u1.id: Decimal("50.00"), u2.id: Decimal("50.00")})
+    _despesa(db_session, ws.id, "2026-05",
+             {u2.id: Decimal("80.00")},
+             {u1.id: Decimal("40.00"), u2.id: Decimal("40.00")})
+    db_session.commit()
+
+    antes = DebtService.get_balance_by_month(db_session, ws.id, u1.id)
+    assert [m["month"] for m in antes["months"]] == ["2026-05", "2026-04"]
+    assert antes["balance"] == Decimal("-90.00")
+
+    # Quito abril inteiro
+    db_session.add(Settlement(
+        workspace_id=ws.id, from_user_id=u1.id, to_user_id=u2.id,
+        amount=Decimal("50.00"), billing_month="2026-04",
+    ))
+    db_session.commit()
+
+    depois = DebtService.get_balance_by_month(db_session, ws.id, u1.id)
+    assert [m["month"] for m in depois["months"]] == ["2026-05"]
+    assert depois["balance"] == Decimal("-40.00")
+    assert depois["balance"] == _saldo_segundo_debts(db_session, ws.id, u1.id)
+    soma = sum((m["balance"] for m in depois["months"]), Decimal("0.00")) + depois["unassigned"]
+    assert soma == depois["balance"]
+
+
+def test_origem_mostra_os_meses_mesmo_com_saldo_total_zero(db_session: Session):
+    """Saldo global zero NÃO quer dizer mês nenhum em aberto.
+
+    Devo 50 de janeiro e tenho 50 a receber de fevereiro: `/debts` não me lista
+    (líquido zero), mas os dois meses seguem abertos e cada um se acerta sozinho.
+    É o caso que prova por que a quebra é por SALDO da pessoa e não pela soma dos
+    pares que o pareamento guloso devolve — os pares do mês não somam os globais.
+    """
+    u1, u2, _u3, ws = _trio(db_session, "zero")
+
+    _despesa(db_session, ws.id, "2026-01",
+             {u2.id: Decimal("100.00")},
+             {u1.id: Decimal("50.00"), u2.id: Decimal("50.00")})
+    _despesa(db_session, ws.id, "2026-02",
+             {u1.id: Decimal("100.00")},
+             {u1.id: Decimal("50.00"), u2.id: Decimal("50.00")})
+    db_session.commit()
+
+    assert DebtService.get_workspace_debts(db_session, ws.id) == []
+
+    origem = DebtService.get_balance_by_month(db_session, ws.id, u1.id)
+    assert origem["balance"] == Decimal("0.00")
+    assert {m["month"]: m["balance"] for m in origem["months"]} == {
+        "2026-01": Decimal("-50.00"),
+        "2026-02": Decimal("50.00"),
+    }
+    soma = sum((m["balance"] for m in origem["months"]), Decimal("0.00")) + origem["unassigned"]
+    assert soma == origem["balance"]
+
+
+def test_origem_agrupa_os_meses_antigos_em_vez_de_truncar(db_session: Session):
+    """Além do teto, os meses viram `older` — a lista encolhe, a conta não."""
+    u1, u2, _u3, ws = _trio(db_session, "antigos")
+
+    for mes in ["2026-01", "2026-02", "2026-03", "2026-04"]:
+        _despesa(db_session, ws.id, mes,
+                 {u2.id: Decimal("100.00")},
+                 {u1.id: Decimal("50.00"), u2.id: Decimal("50.00")})
+    db_session.commit()
+
+    origem = DebtService.get_balance_by_month(db_session, ws.id, u1.id, limite=2)
+    assert [m["month"] for m in origem["months"]] == ["2026-04", "2026-03"]
+    assert origem["older"] == {"count": 2, "balance": Decimal("-100.00")}
+    soma = (
+        sum((m["balance"] for m in origem["months"]), Decimal("0.00"))
+        + origem["older"]["balance"]
+        + origem["unassigned"]
+    )
+    assert soma == origem["balance"] == Decimal("-200.00")
+    assert origem["balance"] == _saldo_segundo_debts(db_session, ws.id, u1.id)
+
+
+def test_origem_recorta_as_linhas_de_quem_nao_tem_acesso_completo(db_session: Session):
+    """ADR 0018: sem acesso completo, só as linhas em que eu sou uma das pontas.
+
+    O SALDO continua sendo o meu inteiro — recortar a origem dele daria um total
+    diferente do que `/debts` mostra para a mesma pessoa.
+    """
+    u1, u2, u3, ws = _trio(db_session, "recorte")
+
+    _despesa(db_session, ws.id, "2026-07",
+             {u2.id: Decimal("300.00")},
+             {u1.id: Decimal("100.00"), u2.id: Decimal("100.00"), u3.id: Decimal("100.00")})
+    db_session.commit()
+
+    completo = DebtService.get_balance_by_month(db_session, ws.id, u1.id)
+    assert len(completo["months"][0]["net_debts"]) == 2  # eu→Ana e Bruno→Ana
+
+    recortado = DebtService.get_balance_by_month(
+        db_session, ws.id, u1.id, viewer_user_id=u1.id
+    )
+    assert [(d["debtor_id"], d["creditor_id"]) for d in recortado["months"][0]["net_debts"]] == [
+        (u1.id, u2.id)
+    ]
+    assert recortado["balance"] == completo["balance"] == Decimal("-100.00")
+
+
+def test_origem_e_retrato_do_mes_dao_o_mesmo_numero(db_session: Session):
+    """A linha "ago/2026 · você deve R$ 200" tem de bater com o que abre ao clicar.
+
+    São dois caminhos de cálculo diferentes para o mesmo número: a origem agrupa
+    o histórico inteiro em SQL, o retrato carrega um mês e pareia em Python. Nada
+    obriga os dois a concordarem — e discordar seria invisível, porque cada tela
+    mostra um só. Foi assim que o app já teve dois "Acertos" que não mostravam a
+    mesma coisa.
+    """
+    u1, u2, u3, ws = _trio(db_session, "concorda")
+
+    _despesa(db_session, ws.id, "2026-01",
+             {u1.id: Decimal("300.00")},
+             {u1.id: Decimal("100.00"), u2.id: Decimal("100.00"), u3.id: Decimal("100.00")})
+    _despesa(db_session, ws.id, "2026-02",
+             {u2.id: Decimal("600.00")},
+             {u1.id: Decimal("200.00"), u2.id: Decimal("200.00"), u3.id: Decimal("200.00")})
+    _despesa(db_session, ws.id, "2026-03",
+             {u3.id: Decimal("120.00")},
+             {u1.id: Decimal("40.00"), u2.id: Decimal("40.00"), u3.id: Decimal("40.00")})
+    db_session.add(Settlement(
+        workspace_id=ws.id, from_user_id=u1.id, to_user_id=u2.id,
+        amount=Decimal("50.00"), billing_month="2026-02",
+    ))
+    db_session.commit()
+
+    origem = DebtService.get_balance_by_month(db_session, ws.id, u1.id)
+    assert origem["months"], "o cenário precisa ter mês em aberto"
+
+    for linha in origem["months"]:
+        ledger = DebtService.get_monthly_ledger(db_session, ws.id, linha["month"])
+        # O saldo que o retrato do mês implica para mim, pelas linhas dele
+        recebe = sum(
+            (d["amount"] for d in ledger["net_debts"] if d["creditor_id"] == u1.id),
+            Decimal("0.00"),
+        )
+        paga = sum(
+            (d["amount"] for d in ledger["net_debts"] if d["debtor_id"] == u1.id),
+            Decimal("0.00"),
+        )
+        assert linha["balance"] == recebe - paga, (
+            f"{linha['month']}: origem diz {linha['balance']}, o mês diz {recebe - paga}"
+        )
+        # E o "já acertados" da linha bate com o do retrato
+        assert linha["settled"] == ledger["settled_total"]
+
+
+def test_origem_ignora_moeda_estrangeira_como_o_saldo_ignora(db_session: Session):
+    """Mesmos filtros de `get_workspace_debts` — senão os dois números divergem.
+
+    Despesa fora da moeda-base não entra no saldo (ADR 0006). Se entrasse só aqui,
+    a quebra passaria a somar mais do que o total, e o defeito seria invisível:
+    os dois números continuariam plausíveis.
+    """
+    u1, u2, _u3, ws = _trio(db_session, "moeda")
+
+    _despesa(db_session, ws.id, "2026-08",
+             {u2.id: Decimal("100.00")},
+             {u1.id: Decimal("50.00"), u2.id: Decimal("50.00")})
+    estrangeira = _despesa(db_session, ws.id, "2026-08",
+                           {u2.id: Decimal("200.00")},
+                           {u1.id: Decimal("100.00"), u2.id: Decimal("100.00")}, dia=11)
+    estrangeira.currency = "USD"
+    db_session.add(estrangeira)
+
+    cancelada = _despesa(db_session, ws.id, "2026-08",
+                         {u2.id: Decimal("400.00")},
+                         {u1.id: Decimal("200.00"), u2.id: Decimal("200.00")}, dia=12)
+    cancelada.status = TransactionStatus.cancelled
+    db_session.add(cancelada)
+    db_session.commit()
+
+    origem = DebtService.get_balance_by_month(db_session, ws.id, u1.id)
+    assert origem["balance"] == Decimal("-50.00")
+    assert origem["balance"] == _saldo_segundo_debts(db_session, ws.id, u1.id)
+    assert [m["balance"] for m in origem["months"]] == [Decimal("-50.00")]

@@ -124,3 +124,52 @@ def test_get_monthly_debts(db_session: Session, auth_header, test_workspace, oth
     # Formato de mês inválido
     resp3 = client.get(f"/api/v1/workspaces/{test_workspace.id}/debts/monthly?month=xx", headers=auth_header)
     assert resp3.status_code == 400
+
+
+def test_get_debts_by_month(db_session: Session, auth_header, test_workspace, other_user, override_get_session):
+    """A origem do saldo pela ROTA, com a conta fechando no corpo da resposta.
+
+    A identidade já está travada no serviço; o que se prova aqui é que ela
+    sobrevive à serialização — `Decimal` sai como string decimal (docs/API.md), e
+    a tela soma strings.
+    """
+    user1 = db_session.exec(select(User).where(User.email == "user1@example.com")).first()
+
+    for mes, dia, valor in (("2026-01", 10, "100.00"), ("2026-02", 10, "60.00")):
+        tx = Transaction(
+            title=f"Compra {mes}", total_amount=Decimal(valor),
+            transaction_date=datetime(2026, int(mes[-2:]), dia, tzinfo=UTC),
+            workspace_id=test_workspace.id, created_by_user_id=other_user.id,
+            currency="BRL", status="confirmed", billing_month=mes,
+        )
+        db_session.add(tx)
+        db_session.commit()
+        db_session.refresh(tx)
+        metade = Decimal(valor) / 2
+        db_session.add(TransactionPayer(transaction_id=tx.id, user_id=other_user.id, amount=Decimal(valor)))
+        db_session.add(TransactionSplit(transaction_id=tx.id, user_id=user1.id, split_method=SplitMethod.equal, input_value=Decimal("0"), computed_amount=metade))
+        db_session.add(TransactionSplit(transaction_id=tx.id, user_id=other_user.id, split_method=SplitMethod.equal, input_value=Decimal("0"), computed_amount=metade))
+    db_session.commit()
+
+    resp = client.get(f"/api/v1/workspaces/{test_workspace.id}/debts/by-month", headers=auth_header)
+    assert resp.status_code == 200
+    data = resp.json()
+
+    assert data["base_currency"] == "BRL"
+    assert [m["month"] for m in data["months"]] == ["2026-02", "2026-01"]
+    assert [m["balance"] for m in data["months"]] == ["-30.00", "-50.00"]
+    assert data["older"] == {"count": 0, "balance": "0.00"}
+    assert data["unassigned"] == "0.00"
+
+    soma = sum(Decimal(m["balance"]) for m in data["months"])
+    assert soma + Decimal(data["older"]["balance"]) + Decimal(data["unassigned"]) == Decimal(data["balance"])
+
+    # O total tem de ser o mesmo que `/debts` mostra na mesma tela
+    linhas = client.get(f"/api/v1/workspaces/{test_workspace.id}/debts", headers=auth_header).json()
+    devo = sum(Decimal(x["amount"]) for x in linhas if x["debtor_id"] == user1.id)
+    assert Decimal(data["balance"]) == -devo == Decimal("-80.00")
+
+    # A linha do mês diz a quem
+    fev = data["months"][0]
+    assert fev["net_debts"][0]["debtor_id"] == user1.id
+    assert fev["net_debts"][0]["creditor_id"] == other_user.id
