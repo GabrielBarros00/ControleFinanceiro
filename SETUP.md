@@ -295,7 +295,7 @@ Outros provedores SMTP com STARTTLS também usam os mesmos campos.
 # Backend (porta 8000, SQLite, sem depender de Docker)
 cd backend
 cp .env.example .env        # os valores default já funcionam sem editar
-pip install -r requirements.txt   # produção; para desenvolver: -r requirements-dev.txt
+pip install -r requirements-dev.txt   # já puxa as de produção via requirements.in
 python -m uvicorn app.main:app --reload
 
 # Frontend (porta 5173)

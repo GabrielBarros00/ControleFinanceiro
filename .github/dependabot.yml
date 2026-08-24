@@ -2,23 +2,26 @@ version: 2
 updates:
   # Dependências Python do backend
   #
-  # AGRUPADAS de propósito, e o motivo é o `requirements.lock`: o Dependabot
-  # NÃO o enxerga. O ecossistema pip dele procura por `*.txt` e `*.in`, e o
-  # handler de pip-compile só é acionado a partir de um arquivo `.in` — aqui o
-  # par é `requirements.txt` -> `requirements.lock`, que não casa com nenhum dos
-  # dois. Resultado: ele mexe no `requirements.txt`, deixa o lock para trás e o
-  # gate "Lock de dependências em dia" reprova o PR por uma lacuna de
-  # ferramenta, não por um problema na atualização.
+  # O par é `requirements.in` (fonte) -> `requirements.txt` (compilado pelo
+  # pip-compile). Essa ordem de nomes não é estética: o Dependabot só reconhece
+  # um arquivo como saída de pip-compile se ele terminar em `.txt` E existir um
+  # `.in` de mesmo nome-base — é o `PipCompileFileMatcher` do dependabot-core.
   #
-  # Enquanto o layout for este, cada PR de pip precisa de um `pip-compile` à
-  # mão. Um grupo transforma cinco PRs vermelhos por semana em UM, e portanto
-  # cinco regenerações em uma — feita com `scripts/relock.sh`, que reproduz o
-  # ambiente do gate. De quebra some o atrito de ordem de merge: cinco PRs
-  # tocando o mesmo lock se atropelam, um só não.
+  # Antes de 2026-08-24 o par era `requirements.txt` -> `requirements.lock`, que
+  # reprovava na primeira condição. O Dependabot mexia na fonte, deixava o
+  # compilado para trás, e o gate do CI reprovava o PR por uma lacuna de
+  # ferramenta. Cada PR de dependência Python precisava de um `pip-compile` à
+  # mão — foi o que aconteceu nos PRs #37, #38, #40 e #41, todos com um segundo
+  # commit humano só para regenerar. Com o layout atual ele recompila sozinho.
   #
-  # A saída definitiva é adotar o layout que o Dependabot sabe recompilar
-  # sozinho (`requirements.in` -> `requirements.txt`), e aí este grupo passa a
-  # ser só uma preferência de revisão.
+  # O agrupamento SOBREVIVEU à correção, mas por outro motivo: o compilado é um
+  # arquivo só, e cinco PRs mexendo nele se atropelam em conflito de merge. Um
+  # grupo transforma isso em um PR e uma recompilação.
+  #
+  # MAJOR fica FORA do grupo, de propósito. Foi a lição do #49: um bump de
+  # FastAPI mudou onde as rotas ficam guardadas e cegou quatro varreduras de
+  # segurança do projeto, escondido no meio de outras onze atualizações
+  # inofensivas. Sozinho num PR, um bump desses é lido com a atenção que pede.
   - package-ecosystem: "pip"
     directory: "/backend"
     schedule:
@@ -30,8 +33,16 @@ updates:
       backend-python:
         patterns:
           - "*"
+        update-types:
+          - "minor"
+          - "patch"
 
   # Dependências npm do frontend
+  #
+  # Agrupadas por tipo: quebrar uma dependência de RUNTIME derruba o app; uma de
+  # desenvolvimento (vitest, playwright, tipos) no máximo derruba o CI, e pode
+  # ser revisada em lote sem o mesmo cuidado. Major fora do grupo pela mesma
+  # razão do pip.
   - package-ecosystem: "npm"
     directory: "/frontend"
     schedule:
@@ -39,6 +50,17 @@ updates:
     open-pull-requests-limit: 5
     commit-message:
       prefix: "chore(deps)"
+    groups:
+      frontend-prod:
+        dependency-type: "production"
+        update-types:
+          - "minor"
+          - "patch"
+      frontend-dev:
+        dependency-type: "development"
+        update-types:
+          - "minor"
+          - "patch"
 
   # Actions do GitHub usadas nos workflows
   - package-ecosystem: "github-actions"
@@ -47,3 +69,64 @@ updates:
       interval: "weekly"
     commit-message:
       prefix: "chore(ci)"
+    groups:
+      github-actions:
+        patterns:
+          - "*"
+        update-types:
+          - "minor"
+          - "patch"
+
+  # Imagens base dos Dockerfiles
+  #
+  # Faltava, e a lacuna era silenciosa: `python:3.12-slim` (backend),
+  # `node:22-alpine` e `nginx:alpine` (frontend) nunca recebiam correção de
+  # segurança por aqui. O `pip-audit` do CI olha as dependências Python, não o
+  # sistema operacional debaixo delas — uma CVE em openssl na imagem base não
+  # aparecia em gate nenhum, e isto está em produção.
+  #
+  # Só minor/patch: subir a major da imagem base (Python 3.12 -> 3.13, Node 22
+  # -> 24) é decisão de plataforma e não deve chegar como PR automático.
+  - package-ecosystem: "docker"
+    directories:
+      - "/backend"
+      - "/frontend"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "chore(docker)"
+    groups:
+      docker-images:
+        patterns:
+          - "*"
+        update-types:
+          - "minor"
+          - "patch"
+
+  # Imagens do docker-compose
+  #
+  # Ecossistema SEPARADO do `docker` acima: aquele lê Dockerfile, este lê
+  # docker-compose.yml. Configurar só o primeiro deixaria o `postgres:16-alpine`
+  # do compose sem atualização nenhuma — que é o banco do desenvolvimento e o
+  # mesmo major que roda em produção.
+  #
+  # `cloudflare/cloudflared:latest` e `dpage/pgadmin4` (sem tag) não têm versão
+  # para comparar; o Dependabot os ignora sozinho, e é por isso que não estão
+  # numa lista de exceção aqui.
+  #
+  # Major fora: Postgres 16 -> 17 exige migração de dados, não é merge de PR.
+  - package-ecosystem: "docker-compose"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "chore(docker)"
+    groups:
+      compose-images:
+        patterns:
+          - "*"
+        update-types:
+          - "minor"
+          - "patch"

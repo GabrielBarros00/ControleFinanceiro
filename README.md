@@ -53,7 +53,7 @@ em tema claro e escuro, incluindo mobile, modais e a área administrativa.
 # Backend — porta 8000, SQLite local, schema criado no startup
 cd backend
 cp .env.example .env            # os defaults já funcionam
-pip install -r requirements.txt   # instala produção; para desenvolver use requirements-dev.txt
+pip install -r requirements-dev.txt   # já puxa as de produção via requirements.in
 python -m uvicorn app.main:app --reload
 
 # Frontend — porta 5173
