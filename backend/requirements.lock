@@ -123,7 +123,7 @@ typing-inspection==0.4.2
     #   pydantic-settings
 tzdata==2026.3
     # via -r requirements.txt
-uvicorn==0.46.0
+uvicorn==0.52.3
     # via -r requirements.txt
 uvloop==0.22.1
     # via uvicorn
