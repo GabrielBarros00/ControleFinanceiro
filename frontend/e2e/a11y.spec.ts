@@ -219,8 +219,19 @@ test.describe('Acessibilidade (axe · WCAG 2 A/AA)', () => {
     await page.goto('/me/settlements');
     await expect(page.getByRole('heading', { name: 'Seus acertos' })).toBeVisible();
 
-    const { violations } = await analisar(page);
-    expect(resumir(violations)).toBe('');
+    // O axe só vê o que está montado, e o Radix DESMONTA a aba inativa: medir só
+    // a inicial deixaria dois terços da tela sem varredura — inclusive a tabela
+    // do histórico e o navegador de mês, que são o que há de mais denso aqui.
+    for (const aba of ['Resumo', 'Por mês', 'Histórico']) {
+      await page.getByRole('tab', { name: aba, exact: true }).click();
+      await expect(page.getByRole('tab', { name: aba, exact: true })).toHaveAttribute(
+        'data-state',
+        'active',
+      );
+      const { violations } = await analisar(page);
+      expect(resumir(violations), `aba "${aba}"`).toBe('');
+    }
+
     expect(erros).toEqual([]);
     await context.close();
   });

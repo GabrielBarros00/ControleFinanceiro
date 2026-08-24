@@ -28,6 +28,9 @@ export function WorkspaceCreateDialog({ open, onOpenChange }: WorkspaceCreateDia
   const [name, setName] = React.useState('');
   const [description, setDescription] = React.useState('');
   const [baseCurrency, setBaseCurrency] = React.useState('BRL');
+  // Ligado por padrão (ADR 0029): é o comportamento que responde "quanto ainda
+  // vai sair este mês", e o que não controla pagamento não tem essa resposta.
+  const [settlementTracking, setSettlementTracking] = React.useState(true);
   const [loading, setLoading] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
 
@@ -43,10 +46,12 @@ export function WorkspaceCreateDialog({ open, onOpenChange }: WorkspaceCreateDia
         name: name.trim(),
         description: description.trim() || undefined,
         base_currency: baseCurrency,
+        settlement_tracking: settlementTracking,
       });
       setName('');
       setDescription('');
       setBaseCurrency('BRL');
+      setSettlementTracking(true);
       onOpenChange(false);
     } catch {
       setError('Erro ao criar workspace. Tente novamente.');
@@ -107,6 +112,34 @@ export function WorkspaceCreateDialog({ open, onOpenChange }: WorkspaceCreateDia
               depois, mas aí o histórico inteiro é reconvertido.
             </p>
           </div>
+
+          {/* Controle de pagamento (ADR 0029). Perguntado NA CRIAÇÃO porque a
+              resposta depende de como a casa trabalha — quem lança tudo depois
+              de pagar não quer a etapa a mais —, e porque mudar depois só vale
+              para o que for lançado dali em diante. */}
+          <label
+            htmlFor="ws-settlement"
+            className="flex cursor-pointer items-start gap-3 rounded-lg border border-border bg-accent/20 p-3"
+          >
+            <input
+              id="ws-settlement"
+              type="checkbox"
+              checked={settlementTracking}
+              onChange={(e) => setSettlementTracking(e.target.checked)}
+              className="mt-0.5 h-5 w-5 shrink-0 rounded border-border accent-primary"
+            />
+            <span className="min-w-0">
+              <span className="block text-sm font-medium text-foreground">
+                Controlar o pagamento das contas
+              </span>
+              <span className="block text-xs text-muted-foreground">
+                {settlementTracking
+                  ? 'Boleto, Pix e transferência esperam a sua confirmação antes de sair do caixa, e ficam em Contas a pagar.'
+                  : 'Todo lançamento sai do caixa na data em que foi feito.'}
+              </span>
+            </span>
+          </label>
+
           {error && <p className="text-xs text-destructive font-medium">{error}</p>}
         </div>
         <DialogFooter>

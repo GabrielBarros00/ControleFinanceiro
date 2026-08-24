@@ -142,6 +142,14 @@ function CreateFinancingDialog({ open, onOpenChange }: { open: boolean; onOpenCh
   const [installments, setInstallments] = React.useState(12);
   const [method, setMethod] = React.useState<'SAC' | 'PRICE'>('SAC');
   const [startDate, setStartDate] = React.useState(todayLocalISO);
+  /**
+   * Parcelamento SEM JUROS (ADR 0030) — mensalidade de faculdade, curso, plano
+   * anual dividido. O cronograma já sabia lidar com taxa zero (o `else` explícito
+   * do PRICE em `FinancingService`); o que faltava era a porta de entrada. Sem
+   * ela, quem tem 144 mensalidades iguais a pagar era recebido por "Juros (% ao
+   * mês)", "SAC" e "PRICE" — vocabulário de empréstimo para o que não é um.
+   */
+  const [semJuros, setSemJuros] = React.useState(false);
   const [saving, setSaving] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
 
@@ -156,14 +164,17 @@ function CreateFinancingDialog({ open, onOpenChange }: { open: boolean; onOpenCh
       await create({
         title: title.trim(),
         total_amount: String(totalAmount),
-        interest_rate: String(Number(interestRate.replace(',', '.')) / 100),
+        // Sem juros: taxa zero e PRICE, que com taxa zero é exatamente
+        // "total ÷ N" — parcelas iguais que somam o total, ao centavo.
+        interest_rate: semJuros ? '0' : String(Number(interestRate.replace(',', '.')) / 100),
         start_date: startDate,
         installments_count: installments,
-        method,
+        method: semJuros ? 'PRICE' : method,
         currency,
       });
       onOpenChange(false);
       setTitle(''); setTotalAmount(0); setInterestRate('1.00'); setInstallments(12);
+      setSemJuros(false);
       setCurrency(reportCurrency);
     } catch {
       setError('Erro ao criar financiamento.');
@@ -176,23 +187,48 @@ function CreateFinancingDialog({ open, onOpenChange }: { open: boolean; onOpenCh
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="bg-card border-border sm:max-w-[480px]">
         <DialogHeader>
-          <DialogTitle>Novo Financiamento</DialogTitle>
-          <DialogDescription>O cronograma de amortização é gerado automaticamente.</DialogDescription>
+          <DialogTitle>{semJuros ? 'Novo parcelamento' : 'Novo Financiamento'}</DialogTitle>
+          <DialogDescription>
+            {semJuros
+              ? 'Parcelas iguais, sem juros — mensalidade, curso, plano dividido.'
+              : 'O cronograma de amortização é gerado automaticamente.'}
+          </DialogDescription>
         </DialogHeader>
         <div className="space-y-4 py-4">
           <div className="space-y-2">
+            <Label htmlFor="financing-kind">Tipo</Label>
+            <select
+              id="financing-kind"
+              value={semJuros ? 'sem-juros' : 'com-juros'}
+              onChange={(e) => setSemJuros(e.target.value === 'sem-juros')}
+              className={selectClass}
+            >
+              <option value="com-juros" className="bg-card">Financiamento (com juros)</option>
+              <option value="sem-juros" className="bg-card">Parcelamento sem juros</option>
+            </select>
+          </div>
+          <div className="space-y-2">
             <Label>Título</Label>
-            <Input placeholder="Ex: Apartamento, Carro..." value={title} onChange={(e) => setTitle(e.target.value)} className="bg-background/50" />
+            <Input
+              placeholder={semJuros ? 'Ex: Faculdade, Curso...' : 'Ex: Apartamento, Carro...'}
+              value={title}
+              onChange={(e) => setTitle(e.target.value)}
+              className="bg-background/50"
+            />
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div className="space-y-2">
-              <Label>Valor Financiado</Label>
+              <Label>{semJuros ? 'Valor total' : 'Valor Financiado'}</Label>
               <MoneyInput value={totalAmount} onChange={setTotalAmount} prefix={currencySymbol(currency)} className="bg-background/50" />
             </div>
-            <div className="space-y-2">
-              <Label>Juros (% ao mês)</Label>
-              <Input type="text" inputMode="decimal" value={interestRate} onChange={(e) => setInterestRate(e.target.value)} className="bg-background/50" />
-            </div>
+            {/* Juros e sistema de amortização somem no modo sem juros: são o
+                vocabulário de empréstimo, e uma mensalidade não é um. */}
+            {!semJuros && (
+              <div className="space-y-2">
+                <Label>Juros (% ao mês)</Label>
+                <Input type="text" inputMode="decimal" value={interestRate} onChange={(e) => setInterestRate(e.target.value)} className="bg-background/50" />
+              </div>
+            )}
           </div>
           <div className="space-y-2">
             <Label htmlFor="financing-currency">Moeda do contrato</Label>
@@ -203,26 +239,34 @@ function CreateFinancingDialog({ open, onOpenChange }: { open: boolean; onOpenCh
               onChange={setCurrency}
             />
           </div>
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+          <div className={`grid grid-cols-1 gap-4 ${semJuros ? 'sm:grid-cols-2' : 'sm:grid-cols-3'}`}>
             <div className="space-y-2">
               <Label>Parcelas</Label>
               <Input type="number" min={1} max={600} value={installments} onChange={(e) => setInstallments(Number(e.target.value))} className="bg-background/50" />
+              {semJuros && totalAmount > 0 && installments > 0 && (
+                <p className="text-[11px] text-muted-foreground">
+                  {installments}× de{' '}
+                  {formatMoney(totalAmount / installments, { currency })}
+                </p>
+              )}
             </div>
             <div className="space-y-2">
               <Label>Início</Label>
               <Input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} className="bg-background/50" />
             </div>
-            <div className="space-y-2">
-              <Label>Sistema</Label>
-              <select
-                value={method}
-                onChange={(e) => setMethod(e.target.value as 'SAC' | 'PRICE')}
-                className={selectClass}
-              >
-                <option value="SAC" className="bg-card">SAC</option>
-                <option value="PRICE" className="bg-card">PRICE</option>
-              </select>
-            </div>
+            {!semJuros && (
+              <div className="space-y-2">
+                <Label>Sistema</Label>
+                <select
+                  value={method}
+                  onChange={(e) => setMethod(e.target.value as 'SAC' | 'PRICE')}
+                  className={selectClass}
+                >
+                  <option value="SAC" className="bg-card">SAC</option>
+                  <option value="PRICE" className="bg-card">PRICE</option>
+                </select>
+              </div>
+            )}
           </div>
           {error && <p className="text-xs text-destructive font-medium">{error}</p>}
         </div>
@@ -319,9 +363,18 @@ function FinancingDetail({ financing }: { financing: Financing }) {
 
       <Card className="bg-card border-border">
         <CardHeader>
-          <CardTitle>Tabela {financing.method} — {financing.title}</CardTitle>
+          {/* Sem juros não há sistema de amortização a nomear: "Tabela PRICE"
+              num parcelamento de mensalidade é vocabulário de empréstimo para o
+              que não é um (ADR 0030). */}
+          <CardTitle>
+            {Number(financing.interest_rate) === 0
+              ? `Parcelas — ${financing.title}`
+              : `Tabela ${financing.method} — ${financing.title}`}
+          </CardTitle>
           <CardDescription>
-            Visualização detalhada das parcelas e amortização.
+            {Number(financing.interest_rate) === 0
+              ? 'Parcelas iguais, sem juros.'
+              : 'Visualização detalhada das parcelas e amortização.'}
             {schedule.length > PARCELAS_POR_PAGINA && (
               <> Mostrando {inicio + 1}–{Math.min(inicio + PARCELAS_POR_PAGINA, schedule.length)} de {schedule.length}.</>
             )}

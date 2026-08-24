@@ -319,7 +319,10 @@ function Usuarios() {
           className="max-w-sm"
           aria-label="Buscar pessoa"
         />
-        <Button type="submit" variant="secondary">Buscar</Button>
+        {/* O submit só grava `buscaAplicada`; quem vai à rede é a query que
+            depende dela. `isFetching` (e não `isLoading`, que é só da primeira
+            carga) é o que fica verdadeiro em toda REbusca. */}
+        <Button type="submit" variant="secondary" pending={acoes.isFetching}>Buscar</Button>
       </form>
 
       {acoes.isLoading && <Skeleton className="h-64 rounded-xl" />}
@@ -438,7 +441,7 @@ function Convites() {
               Sem e-mail, vira um link que qualquer pessoa pode usar uma vez.
             </p>
           </div>
-          <Button type="submit" disabled={criar.isPending}>Gerar convite</Button>
+          <Button type="submit" pending={criar.isPending}>Gerar convite</Button>
         </form>
       </Card>
 
@@ -449,57 +452,86 @@ function Convites() {
           description="Gere um convite acima para permitir que alguém crie uma conta."
         />
       )}
-      {convites && convites.length > 0 && (
-        <Card className="overflow-x-auto p-0">
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Para</TableHead>
-                <TableHead>Situação</TableHead>
-                <TableHead>Usos</TableHead>
-                <TableHead>Expira</TableHead>
-                <TableHead>Ações</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {convites.map((c) => (
-                <TableRow key={c.id}>
-                  <TableCell className="text-sm">{c.email ?? 'Link aberto'}</TableCell>
-                  <TableCell>
-                    <Badge variant={c.status === 'pending' ? 'default' : 'secondary'}>
-                      {c.status === 'pending' ? 'Pendente'
-                        : c.status === 'accepted' ? 'Usado' : 'Revogado'}
-                    </Badge>
-                  </TableCell>
-                  <TableCell className="text-sm tabular-nums">
-                    {c.uses}{c.max_uses ? ` / ${c.max_uses}` : ''}
-                  </TableCell>
-                  <TableCell className="text-sm text-muted-foreground">{data(c.expires_at)}</TableCell>
-                  <TableCell>
-                    <div className="flex gap-2">
-                      <Button
-                        variant="ghost" size="sm"
-                        onClick={async () => {
-                          const ok = await copiarTexto(c.link);
-                          if (ok) toast.success('Link copiado.');
-                          else toast.error('Não foi possível copiar. Selecione o link manualmente.');
-                        }}
-                      >
-                        Copiar link
-                      </Button>
-                      {c.status === 'pending' && (
-                        <Button variant="ghost" size="sm" onClick={() => revogarConvite(c.id)}>
-                          Revogar
-                        </Button>
-                      )}
-                    </div>
-                  </TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        </Card>
-      )}
+      {convites && convites.length > 0 && (() => {
+        // O e-mail do convidado é a célula que não quebra, e num convite recém
+        // gerado ele é a informação principal — a coluna que sai de vista
+        // primeiro numa tabela de cinco. Os dois botões viram as ações do
+        // cartão, onde cabem lado a lado.
+        const situacao = (c: (typeof convites)[number]) => (
+          <Badge variant={c.status === 'pending' ? 'default' : 'secondary'}>
+            {c.status === 'pending' ? 'Pendente'
+              : c.status === 'accepted' ? 'Usado' : 'Revogado'}
+          </Badge>
+        );
+        const copiar = (c: (typeof convites)[number]) => (
+          <Button
+            variant="ghost" size="sm"
+            onClick={async () => {
+              const ok = await copiarTexto(c.link);
+              if (ok) toast.success('Link copiado.');
+              else toast.error('Não foi possível copiar. Selecione o link manualmente.');
+            }}
+          >
+            Copiar link
+          </Button>
+        );
+        const revogar = (c: (typeof convites)[number]) => c.status === 'pending' && (
+          <Button variant="ghost" size="sm" onClick={() => revogarConvite(c.id)}>
+            Revogar
+          </Button>
+        );
+
+        return (
+          <CardsOrTable
+            cards={(
+              <div className="space-y-2">
+                {convites.map((c) => (
+                  <DataCard
+                    key={c.id}
+                    title={c.email ?? 'Link aberto'}
+                    badge={situacao(c)}
+                    fields={[
+                      { label: 'Usos', value: `${c.uses}${c.max_uses ? ` / ${c.max_uses}` : ''}` },
+                      { label: 'Expira', value: data(c.expires_at) },
+                    ]}
+                    actions={<>{copiar(c)}{revogar(c)}</>}
+                  />
+                ))}
+              </div>
+            )}
+            table={(
+              <Card className="overflow-x-auto p-0">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Para</TableHead>
+                      <TableHead>Situação</TableHead>
+                      <TableHead>Usos</TableHead>
+                      <TableHead>Expira</TableHead>
+                      <TableHead>Ações</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {convites.map((c) => (
+                      <TableRow key={c.id}>
+                        <TableCell className="text-sm">{c.email ?? 'Link aberto'}</TableCell>
+                        <TableCell>{situacao(c)}</TableCell>
+                        <TableCell className="text-sm tabular-nums">
+                          {c.uses}{c.max_uses ? ` / ${c.max_uses}` : ''}
+                        </TableCell>
+                        <TableCell className="text-sm text-muted-foreground">{data(c.expires_at)}</TableCell>
+                        <TableCell>
+                          <div className="flex gap-2">{copiar(c)}{revogar(c)}</div>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </Card>
+            )}
+          />
+        );
+      })()}
     </div>
   );
 }
@@ -734,8 +766,12 @@ function Configuracoes() {
         )}
       </Card>
 
+      {/* `bottom-4` sozinho colocava esta faixa EMBAIXO da barra de navegação
+          inferior no celular (52px + área segura, `z-40`): "Salvar" ficava
+          coberto por "Lançamentos". Acima de `md` a barra inferior não existe e
+          o valor volta a ser 1rem. */}
       {sujo && (
-        <div className="sticky bottom-4 flex items-center justify-between gap-4 rounded-xl border border-border bg-card p-3 shadow-lg">
+        <div className="sticky bottom-[calc(4.5rem+env(safe-area-inset-bottom))] z-30 flex items-center justify-between gap-4 rounded-xl border border-border bg-card p-3 shadow-lg md:bottom-4">
           <span className="text-sm text-muted-foreground">Há alterações não salvas.</span>
           <div className="flex gap-2">
             <Button variant="ghost" onClick={() => setRascunho({})}>Descartar</Button>
@@ -802,34 +838,61 @@ function Auditoria() {
         num lançamento isso incluiria o valor, e a trilha administrativa não é uma porta
         para os dados de ninguém.
       </p>
-      <Card className="overflow-x-auto p-0">
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead>Quando</TableHead>
-              <TableHead>Ação</TableHead>
-              <TableHead>Recurso</TableHead>
-              <TableHead>Pessoa</TableHead>
-              <TableHead>Origem</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
+      {/* Cinco colunas num aparelho de 360px: a `whitespace-nowrap` da data já
+          consumia quase metade, e "quem fez o quê" — a pergunta que a tela
+          existe para responder — ficava fora da área visível. Mesmo tratamento
+          que a tabela de Pessoas logo acima já recebia. */}
+      <CardsOrTable
+        cards={(
+          <div className="space-y-2">
             {linhas.map((l) => (
-              <TableRow key={l.id}>
-                <TableCell className="whitespace-nowrap text-sm text-muted-foreground">
-                  {data(l.created_at)}
-                </TableCell>
-                <TableCell className="text-sm">{l.action}</TableCell>
-                <TableCell className="text-sm">
-                  {l.resource_type ?? '—'}{l.resource_id ? ` #${l.resource_id}` : ''}
-                </TableCell>
-                <TableCell className="text-sm tabular-nums">{l.user_id ?? '—'}</TableCell>
-                <TableCell className="text-sm text-muted-foreground">{l.ip_address ?? '—'}</TableCell>
-              </TableRow>
+              <DataCard
+                key={l.id}
+                title={l.action}
+                meta={data(l.created_at)}
+                fields={[
+                  {
+                    label: 'Recurso',
+                    value: `${l.resource_type ?? '—'}${l.resource_id ? ` #${l.resource_id}` : ''}`,
+                  },
+                  { label: 'Pessoa', value: l.user_id ?? '—' },
+                  { label: 'Origem', value: l.ip_address ?? '—', full: true },
+                ]}
+              />
             ))}
-          </TableBody>
-        </Table>
-      </Card>
+          </div>
+        )}
+        table={(
+          <Card className="overflow-x-auto p-0">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Quando</TableHead>
+                  <TableHead>Ação</TableHead>
+                  <TableHead>Recurso</TableHead>
+                  <TableHead>Pessoa</TableHead>
+                  <TableHead>Origem</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {linhas.map((l) => (
+                  <TableRow key={l.id}>
+                    <TableCell className="whitespace-nowrap text-sm text-muted-foreground">
+                      {data(l.created_at)}
+                    </TableCell>
+                    <TableCell className="text-sm">{l.action}</TableCell>
+                    <TableCell className="text-sm">
+                      {l.resource_type ?? '—'}{l.resource_id ? ` #${l.resource_id}` : ''}
+                    </TableCell>
+                    <TableCell className="text-sm tabular-nums">{l.user_id ?? '—'}</TableCell>
+                    <TableCell className="text-sm text-muted-foreground">{l.ip_address ?? '—'}</TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </Card>
+        )}
+      />
     </div>
   );
 }

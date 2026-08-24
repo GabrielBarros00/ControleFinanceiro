@@ -7,6 +7,7 @@ import datetime
 import re
 import uuid
 
+from app.schemas.common import StatusRead
 from app.db.session import get_session
 from app.domain.access_policy import (
     assert_can_write,
@@ -14,6 +15,7 @@ from app.domain.access_policy import (
     scope_transactions,
 )
 from app.domain.dates import add_months, month_key_local
+from app.domain.settlement import resolve_settled_at
 from app.models.workspace import WorkspaceMembership, WorkspaceRole
 from app.models.transaction import (
     Transaction,
@@ -26,9 +28,14 @@ from app.models.transaction import (
     PaymentMethod,
 )
 from app.schemas.transaction import (
+    BulkCreateResult,
+    BulkDeleteResult,
+    InstallmentGroupCancelResult,
+    InstallmentGroupRead,
     TransactionCreate,
     TransactionItemCreate,
     TransactionItemShareBase,
+    TransactionPreviewRead,
     TransactionRead,
     TransactionSplitBase,
     TransactionUpdate,
@@ -313,7 +320,10 @@ def create_transaction(
 
     # Create Transaction
     transaction_data = transaction_in.model_dump(
-        exclude={"payers", "splits", "items", "adjustments", "tag_ids", "installments_count"}
+        exclude={
+            "payers", "splits", "items", "adjustments", "tag_ids",
+            "installments_count", "settled",
+        }
     )
     if not transaction_data.get("billing_month"):
         transaction_data["billing_month"] = month_key_local(transaction_in.transaction_date)
@@ -323,6 +333,14 @@ def create_transaction(
         workspace_id=workspace_id,
         created_by_user_id=membership.user_id,
         statement_id=statement_id,
+        # Caixa (ADR 0029): quando o dinheiro saiu. `resolve_settled_at` é o
+        # ponto ÚNICO que decide — ver `app/domain/settlement.py`.
+        settled_at=resolve_settled_at(
+            session, workspace_id,
+            transaction_date=transaction_in.transaction_date,
+            credit_card_id=transaction_in.credit_card_id,
+            explicit=transaction_in.settled,
+        ),
         **(conv_meta or {}),
         **stmt_meta,
     )
@@ -489,7 +507,7 @@ def _create_installments(
 
     base_data = transaction_in.model_dump(exclude={
         "payers", "splits", "items", "adjustments", "tag_ids", "installments_count",
-        "title", "total_amount", "transaction_date", "billing_month",
+        "title", "total_amount", "transaction_date", "billing_month", "settled",
     })
 
     first_tx = None
@@ -533,6 +551,17 @@ def _create_installments(
                 installment_no=i + 1,
                 installments_of=count,
                 installment_group_id=group_id,
+                # Cada parcela responde pela SUA data (ADR 0029): a 1ª nasce
+                # liquidada e as futuras a pagar. `explicit` vale para o lote
+                # inteiro — quem diz "já paguei" está falando da compra, e num
+                # parcelamento sem cartão (carnê) isso continua sendo uma
+                # afirmação sobre a parcela que já venceu, não sobre as outras.
+                settled_at=resolve_settled_at(
+                    session, workspace_id,
+                    transaction_date=inst_date,
+                    credit_card_id=transaction_in.credit_card_id,
+                    explicit=transaction_in.settled if i == 0 else None,
+                ),
                 **inst_meta,
             )
             session.add(db_transaction)
@@ -572,7 +601,7 @@ def _create_installments(
 
     return first_tx
 
-@router.post("/preview")
+@router.post("/preview", response_model=TransactionPreviewRead)
 def preview_transaction(
     workspace_id: int,
     *,
@@ -612,7 +641,10 @@ def list_transactions(
     search: Optional[str] = None,
     category_id: Optional[int] = None,
     payment_method: Optional[PaymentMethod] = None,
-    tag_id: Optional[int] = None
+    tag_id: Optional[int] = None,
+    # Liquidação (ADR 0029): `false` traz só o que ainda não saiu do caixa.
+    # Ausente = tudo, que é a leitura padrão do extrato.
+    settled: Optional[bool] = None,
 ):
     offset = (page - 1) * limit
 
@@ -663,6 +695,16 @@ def list_transactions(
     # Filtering by payment method
     if payment_method:
         statement = statement.where(Transaction.payment_method == payment_method)
+
+    # Filtering by settlement (ADR 0029). Compra no CARTÃO fica fora do recorte
+    # "a pagar": ela nunca tem liquidação própria — quem se paga é a fatura —, e
+    # sem esta exclusão o filtro devolveria toda compra do mês como pendente.
+    if settled is not None:
+        statement = statement.where(
+            Transaction.settled_at.is_not(None)
+            if settled
+            else (Transaction.settled_at.is_(None)) & (Transaction.credit_card_id.is_(None))
+        )
 
     # Filtering by tag
     if tag_id:
@@ -756,6 +798,25 @@ def update_transaction(
     if "transaction_date" in update_data and "billing_month" not in update_data:
         update_data["billing_month"] = month_key_local(update_data["transaction_date"])
 
+    # "Já foi paga" (ADR 0029) → `settled_at`. O campo de ENTRADA é booleano e a
+    # coluna é um instante, então a tradução mora aqui — e não pode ir para o
+    # `setattr` genérico lá embaixo, que gravaria um atributo `settled` fantasma
+    # no objeto do ORM: aceito pelo SQLModel, jamais persistido, e sem erro.
+    #
+    # Só age quando o booleano MUDA o estado. Um PUT que reenvia o formulário
+    # inteiro carrega `settled: true` junto com a edição do título; sem esta
+    # guarda, corrigir o título de uma conta paga em 14/08 reescreveria a data do
+    # pagamento para a data do lançamento e moveria a saída de caixa de mês.
+    if "settled" in update_data:
+        quer_liquidada = update_data.pop("settled")
+        ja_liquidada = db_transaction.settled_at is not None
+        if quer_liquidada and not ja_liquidada:
+            update_data["settled_at"] = update_data.get(
+                "transaction_date", db_transaction.transaction_date
+            )
+        elif not quer_liquidada and ja_liquidada:
+            update_data["settled_at"] = None
+
     # Coerência método de pagamento × cartão contra o estado EFETIVO
     if "payment_method" in update_data or "credit_card_id" in update_data:
         effective_card = update_data.get("credit_card_id", db_transaction.credit_card_id)
@@ -777,8 +838,29 @@ def update_transaction(
             effective_date = update_data.get("transaction_date", db_transaction.transaction_date)
             statement = CreditCardService.get_or_create_statement(session, card, effective_date)
             update_data["statement_id"] = statement.id
+            # Virou compra no cartão: a liquidação própria deixa de existir
+            # (ADR 0029). Quem paga é a FATURA, e manter `settled_at` aqui somaria
+            # a mesma saída duas vezes no caixa — uma pela despesa, outra pelo
+            # pagamento da fatura.
+            update_data["settled_at"] = None
         else:
             update_data["statement_id"] = None
+            # SAIU do cartão (tinha, deixou de ter): volta a ter liquidação
+            # própria. Sem isto a compra ficava com `settled_at` nulo para
+            # sempre — fora do caixa, e sem aparecer em Contas a pagar.
+            #
+            # A condição é a TRANSIÇÃO, não "está sem cartão": este ramo também
+            # roda quando só a data muda numa despesa que nunca teve cartão, e
+            # recalcular ali reabriria uma conta já paga só porque alguém
+            # corrigiu o dia.
+            if db_transaction.credit_card_id is not None and "settled_at" not in update_data:
+                update_data["settled_at"] = resolve_settled_at(
+                    session, workspace_id,
+                    transaction_date=update_data.get(
+                        "transaction_date", db_transaction.transaction_date
+                    ),
+                    explicit=transaction_in.settled,
+                )
 
     if FULL_EDIT_KEYS & update_data.keys():
         return _full_edit(session, workspace_id, db_transaction, transaction_in, update_data, membership)
@@ -984,7 +1066,7 @@ def _full_edit(
     return db_transaction
 
 
-@router.delete("/{transaction_id}")
+@router.delete("/{transaction_id}", response_model=StatusRead)
 def delete_transaction(
     workspace_id: int,
     transaction_id: int,
@@ -1348,7 +1430,7 @@ def _recompute_open_installments(
     return first_tx or paid[0]
 
 
-@router.post("/{transaction_id}/installment-group/cancel")
+@router.post("/{transaction_id}/installment-group/cancel", response_model=InstallmentGroupCancelResult)
 def cancel_installment_group(
     workspace_id: int,
     transaction_id: int,
@@ -1377,7 +1459,7 @@ def cancel_installment_group(
     return {"status": "ok", "cancelled": cancelled, "skipped_paid": skipped_paid}
 
 
-@router.delete("/{transaction_id}/installment-group")
+@router.delete("/{transaction_id}/installment-group", response_model=BulkDeleteResult)
 def delete_installment_group(
     workspace_id: int,
     transaction_id: int,
@@ -1409,7 +1491,7 @@ def delete_installment_group(
     return {"status": "ok", "deleted": deleted, "skipped_paid": skipped_paid}
 
 
-@router.get("/{transaction_id}/installment-group")
+@router.get("/{transaction_id}/installment-group", response_model=InstallmentGroupRead)
 def get_installment_group(
     workspace_id: int,
     transaction_id: int,
@@ -1543,7 +1625,7 @@ def update_installment_group(
     return first_tx
 
 
-@router.post("/bulk")
+@router.post("/bulk", response_model=BulkCreateResult)
 def bulk_create_transactions(
     workspace_id: int,
     # Mesmo teto do /imports/commit: sem ele um cliente autenticado pedia a
@@ -1586,7 +1668,14 @@ def bulk_create_transactions(
             # importada num workspace em outra moeda caía fora das agregações
             # (que filtram `currency == base`) e sumia sem aviso.
             currency=base_currency,
-            status="confirmed"
+            status="confirmed",
+            # Lote é IMPORTAÇÃO de fatos passados (ADR 0029): a linha descreve
+            # algo que já aconteceu, então nasce liquidada na própria data.
+            # Deixá-la a pagar encheria Contas a pagar com o histórico inteiro
+            # de quem sobe um extrato.
+            settled_at=resolve_settled_at(
+                session, workspace_id, transaction_date=dt, explicit=True
+            ),
         )
         session.add(db_transaction)
         session.flush() # Get ID

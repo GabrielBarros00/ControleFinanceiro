@@ -3,7 +3,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Button } from "@/components/ui/button";
 import { Plus, Edit2, Trash2, Calendar, Repeat, Loader2 } from 'lucide-react';
-import { useRecurring } from '@/hooks/use-recurring';
+import { useRecurring, type RecurringPlanItem } from '@/hooks/use-recurring';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import * as z from 'zod';
@@ -26,6 +26,10 @@ import { useBaseCurrency } from '@/hooks/use-base-currency';
 import { RecurrenceEditor } from "@/components/recurrence/RecurrenceEditor";
 import { MaterializeScopeField } from "@/components/recurrence/MaterializeScopeField";
 import {
+  RecurringReviewDialog,
+  type ReviewAction,
+} from "@/components/recurrence/RecurringReviewDialog";
+import {
   recurrenceLabel,
   recurrenceFromItem,
   toRecurrencePayload,
@@ -39,7 +43,7 @@ import { PAYMENT_METHOD_OPTIONS, paymentMethodLabel } from '@/lib/payment-method
 import { getApiErrorMessage } from '@/lib/api-error';
 import { toast } from '@/stores/toast';
 import { useConfirm } from '@/components/ui/confirm';
-import { todayLocalISO } from '@/lib/date';
+import { firstOfCurrentMonth, todayLocalISO } from '@/lib/date';
 import { PageHeader } from '@/components/layout/PageHeader';
 
 // Base UI Select foge do focus-trap do Dialog (Radix) — dentro de modal usamos
@@ -58,9 +62,16 @@ const recurringSchema = z.object({
   // 0 = nenhum cartão; só vale com payment_method === 'credit_card' (o backend recusa o resto)
   credit_card_id: z.number(),
   custom: z.boolean(),
+  // "Pagamento automático" (ADR 0029): o banco debita sozinho na data, então a
+  // ocorrência nasce liquidada e não entra em Contas a pagar.
+  auto_settle: z.boolean(),
   frequency: z.enum(['daily', 'weekly', 'monthly', 'yearly']),
   interval: z.number().min(1),
   start_date: z.string(),
+  // Fim da série (ADR 0030): `never` mantém o comportamento de sempre.
+  end_mode: z.enum(['never', 'on', 'after']),
+  end_date: z.string(),
+  end_after: z.number().min(1).max(600),
   day_of_month: z.number().min(1).max(31),
   day_of_week: z.number().min(0).max(6),
   month_of_year: z.number().min(1).max(12),
@@ -78,13 +89,19 @@ interface RecurringItem {
   category_id?: number | null;
   payment_method?: string | null;
   credit_card_id?: number | null;
+  auto_settle?: boolean | null;
   frequency: 'daily' | 'weekly' | 'monthly' | 'yearly';
   interval?: number | null;
   start_date?: string | null;
+  /** Fim da série (ADR 0030); `null` = sem fim. */
+  end_date?: string | null;
   day_of_month: number;
   day_of_week?: number | null;
   month_of_year?: number | null;
   is_active: boolean;
+  /** Derivados do servidor: alimentam o "87 de 144 restantes" da lista. */
+  occurrences_total?: number | null;
+  occurrences_remaining?: number | null;
 }
 
 const todayStr = todayLocalISO;
@@ -99,9 +116,13 @@ const DEFAULTS: RecurringValues = {
   payment_method: '',
   credit_card_id: 0,
   custom: false,
+  auto_settle: false,
   frequency: 'monthly',
   interval: 1,
   start_date: todayStr(),
+  end_mode: 'never',
+  end_date: '',
+  end_after: 12,
   day_of_month: 1,
   day_of_week: 0,
   month_of_year: 1,
@@ -109,19 +130,32 @@ const DEFAULTS: RecurringValues = {
 };
 
 export function RecurringTransactionsPage() {
-  const { recurring, isLoading, create, update, remove, generate, isGenerating } = useRecurring();
+  const {
+    recurring, isLoading, create, update, remove, generate, isGenerating,
+    preview, isPreviewing,
+  } = useRecurring();
   const { categories, categoryName } = useCategories();
   const baseCurrency = useBaseCurrency();
   const { cards } = useCreditCards();
   const confirm = useConfirm();
   const [dialogOpen, setDialogOpen] = React.useState(false);
   const [editingId, setEditingId] = React.useState<number | null>(null);
-  // Alcance da edição sobre as instâncias já geradas (não pagas)
-  const [editScope, setEditScope] = React.useState<'none' | 'future' | 'all'>('future');
   // Alcance da materialização quando a data de início é retroativa
   const [materialize, setMaterialize] = React.useState<MaterializeScope>('current');
 
-  const { register, handleSubmit, setValue, watch, reset, formState: { errors } } = useForm<RecurringValues>({
+  // --- Revisão (ADR 0030) ---------------------------------------------------
+  // O `<select>` "Aplicar alterações a" que vivia aqui virou um diálogo: ele não
+  // dizia quantos nem quais lançamentos seriam atingidos, e a data nunca se
+  // movia. `pendingPayload` guarda a edição enquanto a pessoa confere — é ela
+  // que será salva na confirmação, e não uma segunda leitura do formulário.
+  const [reviewOpen, setReviewOpen] = React.useState(false);
+  const [reviewAction, setReviewAction] = React.useState<ReviewAction>('update');
+  const [plano, setPlano] = React.useState<RecurringPlanItem[]>([]);
+  const [pendingPayload, setPendingPayload] = React.useState<Record<string, unknown> | null>(null);
+  const [since, setSince] = React.useState(firstOfCurrentMonth);
+  const [materializeEscolhido, setMaterializeEscolhido] = React.useState<MaterializeScope | undefined>();
+
+  const { register, handleSubmit, setValue, watch, reset, formState: { errors, isSubmitting } } = useForm<RecurringValues>({
     resolver: zodResolver(recurringSchema),
     defaultValues: DEFAULTS,
   });
@@ -144,6 +178,9 @@ export function RecurringTransactionsPage() {
     day_of_week: watch('day_of_week'),
     day_of_month: watch('day_of_month'),
     month_of_year: watch('month_of_year'),
+    end_mode: watch('end_mode'),
+    end_date: watch('end_date'),
+    end_after: watch('end_after'),
   };
   const patchRecurrence = (patch: Partial<RecurrenceValue>) => {
     (Object.entries(patch) as [keyof RecurrenceValue, RecurrenceValue[keyof RecurrenceValue]][])
@@ -152,16 +189,16 @@ export function RecurringTransactionsPage() {
 
   const openCreate = () => {
     setEditingId(null);
-    setEditScope('future');
     setMaterialize('current');
+    setSince(firstOfCurrentMonth());
     reset({ ...DEFAULTS, currency: baseCurrency, start_date: todayStr() });
     setDialogOpen(true);
   };
 
   const openEdit = (item: RecurringItem) => {
     setEditingId(item.id);
-    setEditScope('future');
     setMaterialize('current');
+    setSince(firstOfCurrentMonth());
     const rec = recurrenceFromItem(item);
     reset({
       title: item.title,
@@ -171,18 +208,37 @@ export function RecurringTransactionsPage() {
       category_id: item.category_id ?? 0,
       payment_method: item.payment_method ?? '',
       credit_card_id: item.credit_card_id ?? 0,
+      auto_settle: item.auto_settle ?? false,
       is_active: item.is_active,
       ...rec,
     });
     setDialogOpen(true);
   };
 
-  const onSubmit = async (data: RecurringValues) => {
-    if (data.custom && !data.start_date) {
-      toast.error('Escolha a data de início da recorrência personalizada.');
-      return;
-    }
-    const recValue: RecurrenceValue = {
+  /**
+   * Monta o payload da API a partir do formulário. Extraído porque a REVISÃO
+   * (ADR 0030) precisa do mesmo objeto duas vezes: uma para perguntar ao
+   * servidor o que vai acontecer, outra para salvar depois da confirmação.
+   * Montá-lo duas vezes seria a forma mais direta de a tela prometer uma coisa
+   * e salvar outra.
+   */
+  const montaPayload = (data: RecurringValues) => ({
+    title: data.title,
+    description: data.description,
+    base_amount: data.base_amount,
+    currency: data.currency || baseCurrency,
+    // A categoria segue para cada instância materializada (RecurringService._apply_category)
+    category_id: data.category_id > 0 ? data.category_id : null,
+    payment_method: data.payment_method || null,
+    // Cartão só acompanha o crédito — o backend rejeita a combinação inválida
+    credit_card_id:
+      data.payment_method === 'credit_card' && data.credit_card_id > 0 ? data.credit_card_id : null,
+    // No cartão a liquidação não existe (quem paga é a fatura), então mandar
+    // `true` ali seria ruído — o backend ignora, mas o modelo ficaria dizendo
+    // algo que não vale.
+    auto_settle: data.payment_method === 'credit_card' ? false : data.auto_settle,
+    is_active: data.is_active,
+    ...toRecurrencePayload({
       custom: data.custom,
       frequency: data.frequency,
       interval: data.interval,
@@ -190,27 +246,72 @@ export function RecurringTransactionsPage() {
       day_of_week: data.day_of_week,
       day_of_month: data.day_of_month,
       month_of_year: data.month_of_year,
-    };
-    const payload = {
-      title: data.title,
-      description: data.description,
-      base_amount: data.base_amount,
-      currency: data.currency || baseCurrency,
-      // A categoria segue para cada instância materializada (RecurringService._apply_category)
-      category_id: data.category_id > 0 ? data.category_id : null,
-      payment_method: data.payment_method || null,
-      // Cartão só acompanha o crédito — o backend rejeita a combinação inválida
-      credit_card_id:
-        data.payment_method === 'credit_card' && data.credit_card_id > 0 ? data.credit_card_id : null,
-      is_active: data.is_active,
-      ...toRecurrencePayload(recValue),
-    };
+      end_mode: data.end_mode,
+      end_date: data.end_date,
+      end_after: data.end_after,
+    }),
+  });
+
+  /**
+   * Pergunta ao servidor o que aconteceria e abre a revisão, se houver o que rever.
+   *
+   * Devolve o que quem chamou precisa decidir a seguir:
+   * - `aberta` — o diálogo assumiu o fluxo; não salve daqui;
+   * - `nada`   — não há lançamento a ajustar; siga com o caminho normal;
+   * - `erro`   — não deu para conferir. Abortamos de propósito: salvar sem saber
+   *   o que aconteceria com os lançamentos é justamente o que a revisão remove.
+   */
+  const abreRevisao = async (
+    acao: ReviewAction,
+    payload: Record<string, unknown> | null,
+    desde = since,
+  ): Promise<'aberta' | 'nada' | 'erro'> => {
+    try {
+      const itens = await preview({
+        id: editingId!,
+        action: acao,
+        changes: payload,
+        since: desde,
+      });
+      // Sem lançamento a ajustar, a revisão não tem o que perguntar — abrir um
+      // diálogo vazio seria uma etapa a mais para dizer "nada acontece".
+      if (itens.filter((i) => i.action !== 'none').length === 0) return 'nada';
+      setPlano(itens);
+      setReviewAction(acao);
+      setPendingPayload(payload);
+      setReviewOpen(true);
+      return 'aberta';
+    } catch (err) {
+      toast.error(getApiErrorMessage(err, 'Não foi possível conferir os lançamentos.'));
+      return 'erro';
+    }
+  };
+
+  const onSubmit = async (data: RecurringValues) => {
+    if (data.custom && !data.start_date) {
+      toast.error('Escolha a data de início da recorrência personalizada.');
+      return;
+    }
+    const payload = montaPayload(data);
     // `materialize` só viaja quando a pergunta foi feita; senão o backend usa o
     // padrão 'current' (mês corrente) e o histórico fica intocado.
     const scope = isRetroactiveStart(data.start_date) ? materialize : undefined;
+
+    // Editando: pergunta ANTES de salvar o que fazer com os lançamentos já
+    // criados (ADR 0030). Antes isto era um `<select>` no rodapé, sem contagem e
+    // sem lista, e a data nunca se movia. Criar não passa pela revisão — não há
+    // lançamento anterior a rever.
+    if (editingId) {
+      setMaterializeEscolhido(scope);
+      const revisao = await abreRevisao(
+        data.is_active ? 'update' : 'deactivate', payload,
+      );
+      if (revisao !== 'nada') return;   // o diálogo assumiu, ou não deu para conferir
+    }
+
     try {
       if (editingId) {
-        await update({ id: editingId, data: payload, scope: editScope, materialize: scope });
+        await update({ id: editingId, data: payload, scope: 'none', materialize: scope });
       } else {
         await create({ data: payload, materialize: scope });
       }
@@ -220,16 +321,53 @@ export function RecurringTransactionsPage() {
     }
   };
 
-  const handleDelete = async (id: number) => {
+  /** Confirmação da revisão: salva o modelo E aplica as linhas escolhidas. */
+  const confirmaRevisao = async (escolha: { applyTo: number[]; createOccurrences: string[] }) => {
+    try {
+      if (reviewAction === 'delete') {
+        await remove({ id: editingId!, cancelInstances: escolha.applyTo });
+        toast.success('Recorrência excluída.');
+      } else {
+        await update({
+          id: editingId!,
+          data: pendingPayload!,
+          materialize: materializeEscolhido,
+          escolha: { ...escolha, since },
+        });
+        // O que foi feito, em número: sem isto a revisão fecha e a lista volta
+        // parecida, e a pessoa fica sem saber se os lançamentos foram mesmo
+        // ajustados — que é a dúvida de origem ("alterei e nada mudou").
+        const tocados = escolha.applyTo.length + escolha.createOccurrences.length;
+        toast.success(
+          tocados === 0
+            ? 'Recorrência salva. Nenhum lançamento foi alterado.'
+            : `Recorrência salva e ${tocados} lançamento(s) ajustado(s).`,
+        );
+      }
+      setReviewOpen(false);
+      setDialogOpen(false);
+    } catch (err) {
+      toast.error(getApiErrorMessage(err, 'Erro ao salvar despesa recorrente'));
+    }
+  };
+
+  const handleDelete = async (item: RecurringItem) => {
+    setEditingId(item.id);
+    // A revisão faz o papel do `confirm` quando há lançamentos a decidir: ela
+    // pergunta e mostra. Sem nenhum, o `confirm` simples basta — e aí a frase
+    // "não afeta os já gerados" é verdadeira porque não há nenhum.
+    const revisao = await abreRevisao('delete', null);
+    if (revisao !== 'nada') return;
+
     const ok = await confirm({
       title: 'Excluir despesa recorrente',
-      description: 'Tem certeza? Isso não afetará transações já geradas.',
+      description: 'Tem certeza? Nenhum lançamento foi gerado por ela ainda.',
       confirmLabel: 'Excluir',
       destructive: true,
     });
     if (!ok) return;
     try {
-      await remove(id);
+      await remove({ id: item.id });
     } catch (err) {
       toast.error(getApiErrorMessage(err, 'Erro ao excluir despesa recorrente'));
     }
@@ -328,7 +466,7 @@ export function RecurringTransactionsPage() {
                   variant="outline"
                   size="sm"
                   aria-label={`Excluir recorrência ${item.title}`}
-                  onClick={() => handleDelete(item.id)}
+                  onClick={() => handleDelete(item)}
                   className="h-10 w-10 p-0 text-destructive"
                 >
                   <Trash2 className="h-4 w-4" />
@@ -417,7 +555,7 @@ export function RecurringTransactionsPage() {
                         variant="ghost"
                         size="sm"
                         aria-label={`Excluir recorrência ${item.title}`}
-                        onClick={() => handleDelete(item.id)}
+                        onClick={() => handleDelete(item)}
                         className="h-8 w-8 p-0 text-destructive hover:bg-destructive/10"
                       >
                         <Trash2 className="h-4 w-4" />
@@ -536,6 +674,26 @@ export function RecurringTransactionsPage() {
               )}
             </div>
 
+            {/* Pagamento automático (ADR 0029). Some no cartão: ali a compra vai
+                para a fatura e é ELA que se paga — marcar a ocorrência como
+                liquidada somaria a mesma saída duas vezes. */}
+            {paymentMethod !== 'credit_card' && (
+              <div className="flex items-center justify-between gap-4 rounded-lg border border-border bg-accent/30 p-3">
+                <div className="min-w-0 space-y-0.5">
+                  <Label htmlFor="rec-auto-settle">Pagamento automático</Label>
+                  <p className="text-[10px] font-medium text-muted-foreground">
+                    Débito em conta ou Pix automático: já sai do caixa na data.
+                    Desligado, a conta espera em <strong>Contas a pagar</strong>.
+                  </p>
+                </div>
+                <Switch
+                  id="rec-auto-settle"
+                  checked={watch('auto_settle')}
+                  onCheckedChange={(val) => setValue('auto_settle', val)}
+                />
+              </div>
+            )}
+
             <RecurrenceEditor value={recurrence} onChange={patchRecurrence} idPrefix="rec" />
 
             {isRetroactiveStart(watch('start_date')) && (
@@ -547,23 +705,15 @@ export function RecurringTransactionsPage() {
               />
             )}
 
+            {/* O `<select>` "Aplicar alterações a" que vivia aqui virou a
+                revisão (ADR 0030): ele não dizia quantos nem quais lançamentos
+                seriam atingidos, e a data nunca se movia. Agora Salvar abre uma
+                tela que mostra e deixa escolher linha a linha. */}
             {editingId && (
-              <div className="space-y-2 rounded-lg bg-accent/30 border border-border p-3">
-                <Label htmlFor="edit-scope">Aplicar alterações a</Label>
-                <select
-                  id="edit-scope"
-                  value={editScope}
-                  onChange={(e) => setEditScope(e.target.value as 'none' | 'future' | 'all')}
-                  className="flex h-10 w-full rounded-md border border-border bg-background px-3 py-2 text-sm text-foreground focus:outline-hidden focus:ring-2 focus:ring-ring"
-                >
-                  <option value="future">Deste mês em diante (lançamentos não pagos)</option>
-                  <option value="all">Todos os lançamentos não pagos</option>
-                  <option value="none">Só o modelo (não mexer nos lançamentos)</option>
-                </select>
-                <p className="text-[10px] text-muted-foreground font-medium">
-                  Lançamentos já pagos nunca são alterados.
-                </p>
-              </div>
+              <p className="rounded-lg border border-border bg-accent/30 p-3 text-[11px] font-medium text-muted-foreground">
+                Ao salvar, você confere o que acontece com os lançamentos já
+                criados — e escolhe quais ajustar. Os já pagos nunca são alterados.
+              </p>
             )}
 
             <div className="flex items-center justify-between p-3 rounded-lg bg-accent/30 border border-border">
@@ -578,12 +728,31 @@ export function RecurringTransactionsPage() {
             </div>
 
             <DialogFooter className="pt-4">
-              <Button type="button" variant="ghost" onClick={() => setDialogOpen(false)}>Cancelar</Button>
-              <Button type="submit" className="bg-primary font-bold px-8">Salvar</Button>
+              <Button type="button" variant="ghost" disabled={isSubmitting} onClick={() => setDialogOpen(false)}>Cancelar</Button>
+              <Button type="submit" className="bg-primary font-bold px-8" pending={isSubmitting}>Salvar</Button>
             </DialogFooter>
           </form>
         </DialogContent>
       </Dialog>
+
+      {/* A revisão (ADR 0030). Fora do `Dialog` de edição de propósito: dois
+          Radix Dialogs aninhados disputam o focus-trap, e o de dentro perde o
+          teclado. Este abre por cima e assume o fluxo até Confirmar/Cancelar. */}
+      <RecurringReviewDialog
+        open={reviewOpen}
+        onOpenChange={setReviewOpen}
+        action={reviewAction}
+        items={plano}
+        isLoading={isPreviewing}
+        since={since}
+        onSinceChange={(nova) => {
+          setSince(nova);
+          // Refaz o plano com o novo recorte — a lista tem de responder ao
+          // filtro, senão o campo seria decoração.
+          void abreRevisao(reviewAction, pendingPayload, nova);
+        }}
+        onConfirm={confirmaRevisao}
+      />
     </div>
   );
 }

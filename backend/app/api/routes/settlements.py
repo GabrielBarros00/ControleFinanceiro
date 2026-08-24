@@ -5,7 +5,7 @@ from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
-from app.schemas.common import DESCRIPTION_MAX, MAX_MONEY
+from app.schemas.common import DESCRIPTION_MAX, MAX_MONEY, StatusRead
 from sqlmodel import Session, select
 
 from app.db.locks import trava_workspace
@@ -159,7 +159,7 @@ def list_settlements(
     ).all()
 
 
-@router.delete("/{settlement_id}")
+@router.delete("/{settlement_id}", response_model=StatusRead)
 def delete_settlement(
     workspace_id: int,
     settlement_id: int,

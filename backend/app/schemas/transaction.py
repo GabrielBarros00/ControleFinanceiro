@@ -234,6 +234,11 @@ class TransactionCreate(TransactionBase):
     tag_ids: Optional[List[int]] = None
     # Parcelamento no cartão: cria N transações irmãs em meses sucessivos
     installments_count: Optional[int] = Field(default=None, ge=2, le=36)
+    # "Já foi paga" (ADR 0029). `None` = não opinou, e a rota decide pela data
+    # (`resolve_settled_at`): o que já venceu nasce liquidado, o que vence à
+    # frente nasce a pagar. Não é o mesmo que `status`: aqui se fala de CAIXA,
+    # lá de competência.
+    settled: Optional[bool] = None
 
     @model_validator(mode="after")
     def _validate_structure(self):
@@ -278,6 +283,10 @@ class TransactionSplitRead(TransactionSplitBase):
 class TransactionRead(TransactionBase):
     id: int
     workspace_id: int
+    # Quando o dinheiro saiu de fato; `None` = ainda a pagar (ADR 0029). A tela
+    # precisa do INSTANTE, não de um booleano: é ele que explica por que uma
+    # despesa de julho aparece no caixa de agosto.
+    settled_at: Optional[datetime] = None
     # Somente leitura: a fatura é SEMPRE derivada no servidor (ADR 0002)
     statement_id: Optional[int] = None
     created_by_user_id: Optional[int]
@@ -309,6 +318,10 @@ class TransactionUpdate(BaseModel):
     status: Optional[TransactionStatus] = None
     credit_card_id: Optional[int] = None
     payment_method: Optional[PaymentMethod] = None
+    # Marcar/desmarcar como paga (ADR 0029). Ausente = não mexe — é um fato de
+    # caixa, e uma edição de valor ou de divisão não pode ressuscitar nem apagar
+    # um pagamento sem querer.
+    settled: Optional[bool] = None
     # Categoria simplificada: upsert do item único da transação
     category_id: Optional[int] = None
     tag_ids: Optional[List[int]] = None
@@ -337,3 +350,91 @@ class TransactionListResponse(BaseModel):
     page: int
     limit: int
     total_pages: int
+
+
+# --------------------------------------------------------------------------
+# Rotas que devolviam dict cru
+# --------------------------------------------------------------------------
+
+class BreakdownSplit(TransactionSplitBase):
+    """Uma divisão JÁ CALCULADA: o que a pessoa efetivamente assume."""
+    computed_amount: Decimal
+
+
+class BreakdownItemShare(TransactionItemShareBase):
+    computed_amount: Decimal
+
+
+class BreakdownItem(TransactionItemBase):
+    shares: List[BreakdownItemShare] = []
+
+
+class TransactionPreviewRead(BaseModel):
+    """Dry-run da criação: a divisão calculada, sem persistir nada.
+
+    Sai da MESMA função do POST (`compute_transaction_breakdown`), então o que o
+    preview mostra é exatamente o que será gravado — a razão de ele existir. No
+    modo `item`, `splits` vem DERIVADO das shares (sempre `fixed`), que é como o
+    banco também os grava.
+    """
+    payers: List[TransactionPayerBase] = []
+    adjustments: List[TransactionAdjustmentBase] = []
+    items: List[BreakdownItem] = []
+    splits: List[BreakdownSplit] = []
+
+
+class InstallmentGroupRead(BaseModel):
+    """A compra parcelada vista como UMA compra (ADR: editar parcelada é editar
+    a compra inteira).
+
+    `group_total` soma as parcelas VIVAS, e é o número que o formulário de edição
+    usa — por isso as irmãs não são reescopadas por visibilidade: um total
+    parcial aqui é pior do que não mostrar.
+    """
+    installment_group_id: str
+    installments_of: Optional[int] = None
+    #: Quantas parcelas ainda existem (excluídas não contam).
+    count_live: int
+    #: Quantas já foram pagas — elas CONGELAM na edição do grupo.
+    paid_count: int
+    group_total: Decimal
+    #: Título base, sem o sufixo "i/N".
+    title: str
+    #: A definição da compra inteira no formato de leitura, para o formulário
+    #: pré-preencher o total cheio com a divisão certa.
+    whole: TransactionRead
+
+
+class BulkSkipped(BaseModel):
+    index: int
+    title: str
+    reason: str
+
+
+class BulkCreateResult(BaseModel):
+    """Criação em lote — nada é descartado em silêncio (ADR 0008)."""
+    status: str
+    created: int
+    skipped: int
+    skipped_details: List[BulkSkipped] = []
+
+
+class BulkDeleteResult(BaseModel):
+    """Exclusão em lote. `skipped_paid` existe porque despesa PAGA é imutável
+    (ADR 0003): ela é pulada, não recusada — senão um lote inteiro falharia por
+    causa de uma linha."""
+    status: str
+    deleted: int
+    skipped_paid: int
+
+
+class InstallmentGroupCancelResult(BaseModel):
+    """Cancelamento das parcelas FUTURAS de uma compra parcelada.
+
+    `skipped_paid` existe porque despesa paga é imutável (ADR 0003): ela é
+    pulada, não recusada — cancelar o resto de um carnê não pode falhar por
+    causa das parcelas que já foram quitadas.
+    """
+    status: str
+    cancelled: int
+    skipped_paid: int

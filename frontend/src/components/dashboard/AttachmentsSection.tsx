@@ -1,7 +1,8 @@
 import * as React from 'react';
+import { ActionLink } from '@/components/ui/action-link';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
-import { Paperclip, FileText, Image as ImageIcon, Trash2, Loader2, Upload } from 'lucide-react';
+import { Paperclip, FileText, Image as ImageIcon, Trash2, Upload } from 'lucide-react';
 import {
   ATTACHMENT_ACCEPT,
   useAttachments,
@@ -22,8 +23,11 @@ interface Row {
   filename: string;
   contentType: string;
   size: number;
-  onOpen: () => void;
-  onRemove: () => void;
+  // `unknown` e não `void`: abrir baixa o arquivo e remover chama a API. Um
+  // retorno tipado `void` faz o TypeScript engolir a promessa sem reclamar, e
+  // com ela some a trava de duplo clique.
+  onOpen: () => unknown;
+  onRemove: () => unknown;
 }
 
 interface ShellProps {
@@ -62,11 +66,11 @@ function AttachmentsShell({ rows, actionLabel, busy = false, hint, error, onPick
           type="button"
           variant="outline"
           size="sm"
-          disabled={busy}
+          pending={busy}
           onClick={() => inputRef.current?.click()}
           className="h-8 gap-1.5 border-primary text-primary hover:bg-primary/10 font-bold"
         >
-          {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Upload className="h-3.5 w-3.5" />}
+          <Upload className="h-3.5 w-3.5" />
           {actionLabel}
         </Button>
       </div>
@@ -80,13 +84,12 @@ function AttachmentsShell({ rows, actionLabel, busy = false, hint, error, onPick
               {row.contentType === 'application/pdf'
                 ? <FileText className="h-4 w-4 text-destructive shrink-0" />
                 : <ImageIcon className="h-4 w-4 text-primary shrink-0" />}
-              <button
-                type="button"
+              <ActionLink
                 onClick={row.onOpen}
                 className="flex-1 truncate text-left text-sm font-medium text-foreground hover:text-primary hover:underline"
               >
                 {row.filename}
-              </button>
+              </ActionLink>
               <span className="text-[10px] text-muted-foreground shrink-0">{formatSize(row.size)}</span>
               <Button
                 type="button"

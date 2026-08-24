@@ -134,12 +134,17 @@ def test_arquivar_financiamento_preserva_o_caixa_ja_registrado(db_session, cena)
 # --- 2. Dedup da parcela considera o status --------------------------------
 
 
-def _despesa_vinculada(db_session, cena, parcela, status=TransactionStatus.confirmed):
+def _despesa_vinculada(db_session, cena, parcela, status=TransactionStatus.confirmed,
+                       settled_at=DIA_25):
     tx = Transaction(
         title="Parcela 1/10", total_amount=parcela.total_amount,
         transaction_date=DIA_25, billing_month="2026-07", currency="BRL",
         workspace_id=cena["ws_id"], created_by_user_id=cena["user_id"],
         status=status, financing_installment_id=parcela.id,
+        # Liquidada por padrão, como a rota de pagar parcela a cria (ADR 0029).
+        # `settled_at=None` é o caso da conta a pagar — ver o teste da parcela
+        # que volta ao caixa quando a despesa vinculada não conta.
+        settled_at=settled_at,
     )
     db_session.add(tx)
     db_session.flush()
@@ -178,6 +183,23 @@ def test_cancelar_a_despesa_vinculada_devolve_a_parcela_ao_caixa(db_session, cen
     tx.status = TransactionStatus.cancelled
     db_session.add(tx)
     db_session.commit()
+
+    caixa = _caixa(db_session, cena)
+    assert caixa["cash_out_breakdown"]["transactions"] == Decimal("0.00")
+    assert caixa["cash_out_breakdown"]["financing_installments"] == Decimal("400.00")
+    assert caixa["cash_out"] == Decimal("400.00"), "a saída desapareceu dos dois lados"
+
+
+def test_despesa_vinculada_nao_liquidada_devolve_a_parcela_ao_caixa(db_session, cena):
+    """A mesma armadilha do teste acima, pela porta que o ADR 0029 abriu.
+
+    Desde a liquidação, a despesa vinculada só é saída de caixa quando tem
+    `settled_at`. Se a dedup continuasse perguntando só por status, desmarcar o
+    pagamento dela a tiraria da fonte 1 e ela ainda assim suprimiria a parcela —
+    a saída sumiria dos dois lados de novo, agora sem ninguém ter cancelado nada.
+    """
+    _financing, parcela = _financiamento_com_parcela_paga(db_session, cena)
+    _despesa_vinculada(db_session, cena, parcela, settled_at=None)
 
     caixa = _caixa(db_session, cena)
     assert caixa["cash_out_breakdown"]["transactions"] == Decimal("0.00")

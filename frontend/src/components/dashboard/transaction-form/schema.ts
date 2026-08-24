@@ -1,6 +1,6 @@
 import * as z from 'zod';
 import { formatCurrency } from '@/lib/money';
-import type { TransactionRead } from '@/types/transaction';
+import type { PaymentMethod, TransactionRead } from '@/types/transaction';
 import { apiDateToInput, todayLocalISO } from '@/lib/date';
 
 const formatPercent = (value: number) =>
@@ -57,6 +57,10 @@ export const transactionFormSchema = z.object({
   split_method: z.enum(['equal', 'percentage', 'fixed']),
   splits: z.array(shareSchema),
   items: z.array(itemSchema),
+  // "Já foi paga" (ADR 0029): CAIXA, não competência. `true` = o dinheiro já
+  // saiu; `false` = a despesa existe e entra no rateio, mas ainda está na fila
+  // de Contas a pagar. Só aparece nos espaços que controlam pagamento.
+  settled: z.boolean(),
 }).superRefine((data, ctx) => {
   if (data.payment_method === 'credit_card' && !data.credit_card_id) {
     ctx.addIssue({
@@ -280,8 +284,14 @@ export function toApiPayload(v: TransactionFormValues) {
     ? new Date().toISOString()
     : new Date(`${v.transaction_date}T12:00:00`).toISOString();
 
-  const paymentMethod =
-    v.credit_card_id && !v.payment_method ? 'credit_card' : v.payment_method || null;
+  // `PaymentMethod`, não `string`: o formulário guarda `''` para "não informado"
+  // e o campo é `z.string()` livre, então sem esta âncora um método inválido
+  // chegava ao backend e voltava 422 sem que o `tsc` tivesse como avisar. O
+  // `null` continua sendo o valor legítimo de "não informado" na API.
+  const paymentMethod: PaymentMethod | null =
+    v.credit_card_id && !v.payment_method
+      ? 'credit_card'
+      : ((v.payment_method || null) as PaymentMethod | null);
 
   const base = {
     title: v.title,
@@ -293,19 +303,26 @@ export function toApiPayload(v: TransactionFormValues) {
     credit_card_id: v.credit_card_id ? Number(v.credit_card_id) : null,
     split_mode: v.split_mode,
     tag_ids: v.tag_ids,
+    // Sempre explícito (ADR 0029): sem o campo, o backend cai no palpite pela
+    // data, e o palpite discordaria da caixa que a pessoa acabou de ver marcada
+    // na tela. Compra no cartão ignora — quem paga é a fatura.
+    settled: v.settled,
     ...(v.installments > 1 ? { installments_count: v.installments } : {}),
-    // Pagador único paga o total; com vários, cada um informa a sua parte
+    // Pagador único paga o total; com vários, cada um informa a sua parte.
+    // `PaymentMethod | null` pelo mesmo motivo do método da transação acima: o
+    // campo do formulário é string livre com `''` para "não informado" (ADR 0004
+    // — cada pagador pode ter origem própria).
     payers: v.payers.length === 1
       ? [{
           user_id: Number(v.payers[0].user_id),
           amount: v.total_amount,
-          payment_method: v.payers[0].payment_method || null,
+          payment_method: (v.payers[0].payment_method || null) as PaymentMethod | null,
           account_id: v.payers[0].account_id ? Number(v.payers[0].account_id) : null,
         }]
       : v.payers.map((p) => ({
           user_id: Number(p.user_id),
           amount: p.amount,
-          payment_method: p.payment_method || null,
+          payment_method: (p.payment_method || null) as PaymentMethod | null,
           account_id: p.account_id ? Number(p.account_id) : null,
         })),
   };
@@ -318,9 +335,18 @@ export function toApiPayload(v: TransactionFormValues) {
         split_method: v.split_method,
         input_value: v.split_method === 'equal' ? 0 : s.value,
       })),
-      // Categoria opcional: cria o item único da transação (alimenta relatórios)
+      // Categoria opcional: cria o item único da transação (alimenta relatórios).
+      // `quantity`/`position` explícitos: o backend tem default para os dois, mas
+      // omiti-los deixava o payload divergente do item do modo `item` logo abaixo
+      // — e nada garantia que os defaults continuassem sendo 1 e 0.
       items: v.category_id
-        ? [{ title: v.title, amount: v.total_amount, category_id: Number(v.category_id) }]
+        ? [{
+            title: v.title,
+            amount: v.total_amount,
+            quantity: 1,
+            position: 0,
+            category_id: Number(v.category_id),
+          }]
         : [],
     };
   }
@@ -362,6 +388,10 @@ export function fromApiTransaction(tx: TransactionRead): TransactionFormValues {
     installments: 1, // reparcelar não existe na edição
     tag_ids: (tx.tags ?? []).map((t) => t.id),
     split_mode: tx.split_mode ?? 'transaction',
+    // O estado REAL da liquidação, não um default (ADR 0029): abrir uma conta
+    // ainda não paga com a caixa marcada, e salvar, a daria por paga sem que
+    // ninguém tivesse dito isso.
+    settled: tx.settled_at != null,
   };
 
   if ((tx.split_mode ?? 'transaction') === 'transaction') {

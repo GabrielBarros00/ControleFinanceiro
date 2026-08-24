@@ -40,11 +40,13 @@ from app.models.credit_card import (
 from app.models.payment_account import PaymentAccount
 from app.models.transaction import Transaction
 from app.models.user import User
-from app.schemas.common import DESCRIPTION_MAX, MAX_MONEY, NAME_MAX, OptionalCurrencyCode
+from app.schemas.common import DESCRIPTION_MAX, MAX_MONEY, NAME_MAX, OptionalCurrencyCode, StatusRead
 from app.schemas.credit_card import (
+    CreditCardRead,
     StatementDetailRead,
     StatementListItemRead,
     StatementRead,
+    StatementTargetRead,
 )
 from app.services.credit_card_service import CreditCardService, StatementStateError
 
@@ -186,7 +188,7 @@ def _serialize_card(session: Session, card: CreditCard) -> dict:
     }
 
 
-@_colecao("get", "")
+@_colecao("get", "", response_model=list[CreditCardRead])
 def list_credit_cards(
     session: Session = Depends(get_session),
     current_user: User = Depends(get_current_user),
@@ -200,7 +202,7 @@ def list_credit_cards(
     return [_serialize_card(session, card) for card in cards]
 
 
-@_colecao("post", "")
+@_colecao("post", "", response_model=CreditCardRead)
 def create_credit_card(
     card_in: CreditCardCreate,
     session: Session = Depends(get_session),
@@ -215,7 +217,7 @@ def create_credit_card(
     return _serialize_card(session, card)
 
 
-@router.put("/{card_id}")
+@router.put("/{card_id}", response_model=CreditCardRead)
 def update_credit_card(
     card_id: int,
     card_in: CreditCardUpdate,
@@ -243,7 +245,7 @@ def update_credit_card(
     return _serialize_card(session, card)
 
 
-@router.delete("/{card_id}")
+@router.delete("/{card_id}", response_model=StatusRead)
 def delete_credit_card(
     card_id: int,
     session: Session = Depends(get_session),
@@ -280,7 +282,7 @@ def delete_credit_card(
     return {"status": "ok"}
 
 
-@router.get("/{card_id}/statement-for")
+@router.get("/{card_id}/statement-for", response_model=StatementTargetRead)
 def statement_for_date(
     card_id: int,
     # `date`, não `datetime`: o formulário tem um `<input type="date">` e manda

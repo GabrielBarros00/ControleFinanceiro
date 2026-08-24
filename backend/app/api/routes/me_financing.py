@@ -27,6 +27,7 @@ from app.api.routes.auth import get_current_user
 from app.db.session import get_session
 from app.domain.access_policy import assert_owns, personal_scope
 from app.domain.query_policy import resolve_personal_currency
+from app.domain.settlement import resolve_settled_at
 from app.models.financing import (
     AmortizationInstallment,
     AmortizationMethod,
@@ -42,7 +43,8 @@ from app.models.transaction import (
 )
 from app.models.user import User
 from app.models.workspace import WorkspaceMembership
-from app.schemas.common import DESCRIPTION_MAX, MAX_MONEY, OptionalCurrencyCode, TITLE_MAX
+from app.schemas.common import DESCRIPTION_MAX, InstallmentPaidRead, MAX_MONEY, OptionalCurrencyCode, StatusRead, TITLE_MAX
+from app.schemas.financing import EarlySettlementRead
 from app.services.base_conversion import compute_base_conversion
 from app.services.event_service import publish_event
 from app.services.financing_service import AmortizationError, FinancingService
@@ -214,7 +216,7 @@ def get_financing_schedule(
     ).all()
 
 
-@router.post("/{financing_id}/early-settlement")
+@router.post("/{financing_id}/early-settlement", response_model=EarlySettlementRead)
 def simulate_early_settlement(
     financing_id: int,
     data: EarlySettlementRequest,
@@ -310,7 +312,7 @@ def update_financing(
     return financing
 
 
-@router.post("/{financing_id}/installments/{installment_number}/pay")
+@router.post("/{financing_id}/installments/{installment_number}/pay", response_model=InstallmentPaidRead)
 def pay_installment(
     financing_id: int,
     installment_number: int,
@@ -413,6 +415,16 @@ def pay_installment(
             # Identidade da parcela: é por aqui que o estorno reencontra a despesa.
             # Pelo título, renomear o financiamento deixava a despesa órfã.
             financing_installment_id=installment.id,
+            # A rota chama-se "pagar parcela": o dinheiro saiu agora, na data
+            # informada (ADR 0029). Nasce liquidada, e por isso `explicit=True` —
+            # sem ele, pagar uma parcela com data futura (adiantamento) criaria
+            # uma conta a pagar por algo que a pessoa acabou de pagar. É também o
+            # que mantém a dedup do `CashFlowService` honesta: a despesa entra no
+            # caixa e a parcela é ignorada, como sempre foi.
+            settled_at=resolve_settled_at(
+                session, body.workspace_id,
+                transaction_date=pago_em, explicit=True,
+            ),
             **conversao_meta,
         )
         session.add(payment_tx)
@@ -459,7 +471,7 @@ def pay_installment(
     return {"status": "ok", "transaction_id": transaction_id}
 
 
-@router.post("/{financing_id}/installments/{installment_number}/unpay")
+@router.post("/{financing_id}/installments/{installment_number}/unpay", response_model=StatusRead)
 def unpay_installment(
     financing_id: int,
     installment_number: int,
@@ -518,7 +530,7 @@ def unpay_installment(
     return {"status": "ok"}
 
 
-@router.delete("/{financing_id}")
+@router.delete("/{financing_id}", response_model=StatusRead)
 def delete_financing(
     financing_id: int,
     # Cancelamento DELIBERADO de um financiamento com parcelas em aberto. Sem

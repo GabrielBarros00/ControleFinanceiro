@@ -19,6 +19,11 @@ export interface AuthUser {
    * se fosse a tranca, bastaria chamar a rota direto.
    */
   platform_role?: PlatformRole;
+  /**
+   * Token de cache da foto de perfil (8 primeiros do SHA-256 do conteúdo), ou
+   * ausente para quem não tem foto. A URL é montada em `lib/avatar.ts`.
+   */
+  avatar_version?: string | null;
 }
 
 interface AuthState {

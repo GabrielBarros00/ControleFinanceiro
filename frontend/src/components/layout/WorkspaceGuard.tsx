@@ -2,6 +2,7 @@ import { Navigate, Outlet, useParams } from 'react-router-dom';
 import * as React from 'react';
 import { useWorkspaces } from '@/hooks/use-workspaces';
 import { useUIStore } from '@/stores';
+import { ErrorState } from '@/components/ui/error-state';
 import { Skeleton } from '@/components/ui/skeleton';
 
 /**
@@ -18,7 +19,7 @@ import { Skeleton } from '@/components/ui/skeleton';
  */
 export function WorkspaceGuard() {
   const { workspaceId } = useParams<{ workspaceId: string }>();
-  const { workspaces, isLoading } = useWorkspaces();
+  const { workspaces, isLoading, isError, refetch } = useWorkspaces();
   const setCurrentWorkspaceId = useUIStore((s) => s.setCurrentWorkspaceId);
 
   const id = Number(workspaceId);
@@ -37,6 +38,22 @@ export function WorkspaceGuard() {
         <Skeleton className="h-10 w-64" />
         <Skeleton className="h-64 w-full" />
       </div>
+    );
+  }
+
+  // Erro NÃO é "não pertenço". A lista vem de `listQuery.data ?? []`, então uma
+  // falha de rede chegava aqui indistinguível de uma resposta legítima vazia — e
+  // o `Navigate` abaixo ejetava a pessoa do espaço em que ela estava, sem dizer
+  // nada, por causa de um backend que piscou. Redirecionar é irreversível pela
+  // tela (o link some do histórico com `replace`); errar para o lado de mostrar o
+  // problema com um botão de tentar de novo custa um clique.
+  if (isError) {
+    return (
+      <ErrorState
+        title="Não foi possível carregar seus espaços"
+        message="Verifique a conexão e tente de novo. Seus dados continuam aqui."
+        onRetry={refetch}
+      />
     );
   }
 

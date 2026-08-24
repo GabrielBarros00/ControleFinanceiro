@@ -253,6 +253,40 @@ class PersonalDebtService:
 
     # ------------------------------------------------------------------
     @staticmethod
+    def get_personal_by_month(db: Session, user_id: int) -> Dict[str, Any]:
+        """De quais meses vem o saldo, uma seção por casa.
+
+        Espelho global de `GET /{ws}/debts/by-month`. Cada grupo carrega o mesmo
+        payload de lá — `balance`, `months`, `older`, `unassigned` — acrescido do
+        id e do nome da casa.
+
+        **Sem total agregado, e aqui não é só questão de moeda.** O ADR 0020 já
+        proíbe compensar saldo entre casas; somar a origem delas produziria
+        exatamente a compensação proibida, com a agravante de parecer uma conta
+        fechada. Cada casa reconcilia consigo mesma.
+
+        `viewer_user_id=user_id` sempre, inclusive para quem é admin: a camada
+        `/me/*` é a visão da PESSOA (regra 2 do cabeçalho deste módulo).
+        """
+        grupos: List[Dict[str, Any]] = []
+        for ws in workspaces_do_usuario(db, user_id):
+            origem = DebtService.get_balance_by_month(
+                db, ws.id, user_id, viewer_user_id=user_id
+            )
+            # Casa sem nenhum mês de origem e sem acerto solto não vira seção —
+            # mesma regra de `get_personal_debts`, que também não lista casa
+            # quitada.
+            if not origem["months"] and not origem["unassigned"] and not origem["balance"]:
+                continue
+            grupos.append({
+                "workspace_id": ws.id,
+                "workspace_name": ws.name,
+                **origem,
+            })
+        return {"by_workspace": grupos}
+
+    # ------------------------------------------------------------------
+    @staticmethod
     def list_personal_settlements(
         db: Session,
         user_id: int,

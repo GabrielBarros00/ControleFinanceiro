@@ -65,3 +65,67 @@ class ErrorDetail(BaseModel):
 
 class ErrorResponse(BaseModel):
     error: ErrorDetail
+
+
+# --------------------------------------------------------------------------
+# Respostas de ACK
+# --------------------------------------------------------------------------
+#
+# São curtas, mas precisam de forma declarada pelo mesmo motivo que as outras: o
+# `api.gen.ts` gera `unknown` para o que não tem schema, e "unknown" e "objeto
+# com um campo `status`" são a mesma coisa para o TypeScript — nenhuma.
+# `tests/api/test_openapi_sem_resposta_crua.py` guarda essa regra sem allowlist.
+
+class StatusRead(BaseModel):
+    """Confirmação simples: `{"status": "ok"}`."""
+    status: str
+
+
+class MessageRead(BaseModel):
+    """Confirmação com texto para a tela — em PT-BR, como todo o app."""
+    message: str
+
+
+class DeletedRead(BaseModel):
+    """Confirmação que devolve o id afetado (exclusão/revogação)."""
+    status: str
+    id: int
+
+
+class CreatedCountRead(BaseModel):
+    """Quantas ocorrências a materialização criou nesta chamada."""
+    created: int
+
+
+class HealthRead(BaseModel):
+    """Saúde REAL — inclui um toque no banco.
+
+    Antes respondia `ok` sem consultar nada: com o Postgres fora do ar o
+    healthcheck do container seguia verde e o orquestrador nunca reiniciava nada.
+    """
+    #: `ok` ou `degraded` (este último acompanha HTTP 503).
+    status: str
+    version: str
+    database: str
+
+
+class MarkAllReadRead(BaseModel):
+    """Quantas notificações a chamada marcou — `0` é resposta legítima."""
+    status: str
+    marked: int
+
+
+class InstallmentPaidRead(BaseModel):
+    """Parcela de financiamento quitada.
+
+    `transaction_id` é a despesa VIVA que representa a parcela (Onda 8): sem ela
+    o pagamento não aparecia em lugar nenhum do caixa.
+    """
+    status: str
+    transaction_id: Optional[int] = None
+
+
+class InviteAcceptedRead(BaseModel):
+    """Convite aceito — o `workspace_id` é para onde a tela deve navegar."""
+    status: str
+    workspace_id: int

@@ -11,6 +11,7 @@ from app.db.locks import trava_workspace
 from app.db.session import get_session
 from app.domain.dates import civil_instant, local_day, month_key_local
 from app.domain.query_policy import workspace_base_currency
+from app.domain.settlement import resolve_settled_at
 from app.models.transaction import (
     Transaction,
     TransactionPayer,
@@ -25,6 +26,7 @@ from app.models.import_batch import (
     compute_fingerprint,
 )
 from app.models.workspace import WorkspaceMembership, WorkspaceRole
+from app.schemas.imports import CommitImportResult, ParseCsvResult
 from app.services import app_settings
 from app.services.csv_parser import CSVParserService, CSVColumnMapping
 from app.services.event_service import publish_event
@@ -88,7 +90,7 @@ def _mark_duplicates(session: Session, workspace_id: int, rows: List[Dict[str, A
 router = APIRouter(prefix="/workspaces/{workspace_id}/imports", tags=["imports"])
 
 
-@router.post("/parse", response_model=Dict[str, Any])
+@router.post("/parse", response_model=ParseCsvResult)
 def parse_csv(
     workspace_id: int,
     file: UploadFile = File(...),
@@ -161,7 +163,7 @@ class CommitRequest(BaseModel):
     rows: List[CommitRow] = Field(max_length=settings.IMPORT_MAX_ROWS)
 
 
-@router.post("/commit", response_model=Dict[str, Any])
+@router.post("/commit", response_model=CommitImportResult)
 def commit_import(
     workspace_id: int,
     body: CommitRequest,
@@ -244,6 +246,13 @@ def commit_import(
                 created_by_user_id=membership.user_id,
                 currency=base_currency,
                 status=TransactionStatus.confirmed,
+                # Extrato importado é FATO CONSUMADO (ADR 0029): a linha veio do
+                # banco, o dinheiro já saiu. Nasce liquidada na própria data,
+                # senão importar um CSV de seis meses despejaria o histórico
+                # inteiro em Contas a pagar.
+                settled_at=resolve_settled_at(
+                    session, workspace_id, transaction_date=quando, explicit=True
+                ),
             )
             session.add(tx)
             session.flush()

@@ -18,7 +18,16 @@ def validate_frequency_fields(
     month_of_year: Optional[int],
     interval: int = 1,
     start_date: Optional[date] = None,
+    end_date: Optional[date] = None,
 ) -> None:
+    # Fim antes do início não é série vazia por engano — é entrada contraditória,
+    # e aceitá-la criaria uma recorrência ativa que nunca gera nada e ninguém
+    # entende por quê (ADR 0030).
+    if end_date is not None and start_date is not None and end_date < start_date:
+        raise HTTPException(
+            status_code=400,
+            detail="A data de término não pode ser anterior à data de início",
+        )
     # Personalizado (a cada N>1): tudo deriva de start_date, que passa a ser exigido
     if interval and interval > 1:
         if start_date is None:

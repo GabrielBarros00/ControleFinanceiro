@@ -78,6 +78,27 @@ for (const exigido of ['192x192', '512x512']) {
 if (!manifesto.icons.some((i) => String(i.purpose ?? '').includes('maskable'))) {
   throw new Error('manifest.webmanifest sem ícone `maskable` — o launcher do Android corta a arte');
 }
+// `prefer_related_applications: true` diz ao Chrome "prefira o app nativo": ele
+// PARA de disparar `beforeinstallprompt` e para de oferecer "Instalar". O app
+// continua abrindo normalmente e nada aparece em log nenhum.
+//
+// O campo fica a uma palavra de distância de `related_applications`, logo abaixo
+// dele no manifesto, que existe para o `getInstalledRelatedApps()` do
+// diagnóstico em Configurações. Quem mexer num tropeça no outro — e é por isso
+// que o portão está AQUI, no build, e não só na suíte mobile do Playwright: este
+// roda a cada `npm run build`, sempre.
+if (manifesto.prefer_related_applications !== false) {
+  throw new Error(
+    'manifest.webmanifest com `prefer_related_applications` diferente de false — '
+    + 'o Chrome para de oferecer a instalação do app',
+  );
+}
+if (!(manifesto.related_applications ?? []).some((a) => a.platform === 'webapp')) {
+  throw new Error(
+    'manifest.webmanifest sem a entrada auto-referente em `related_applications` — '
+    + 'getInstalledRelatedApps() volta vazio e o app não sabe dizer se está instalado',
+  );
+}
 
 // O service worker sem handler de `fetch` não conta como service worker para o
 // critério de instalabilidade do Chrome; e `/api/` cacheado é a regra do

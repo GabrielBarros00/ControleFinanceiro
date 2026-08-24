@@ -27,6 +27,8 @@ export interface Member {
   financial_access: FinancialAccess;
   user_name: string;
   user_email: string;
+  /** Token de cache da foto (`lib/avatar.ts` monta a URL). */
+  avatar_version?: string | null;
   joined_at: string;
 }
 

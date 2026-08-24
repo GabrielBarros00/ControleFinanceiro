@@ -3,7 +3,7 @@ from datetime import datetime, UTC
 from enum import Enum
 from typing import Optional, List
 
-from sqlalchemy import Column, Index, Integer, String
+from sqlalchemy import Boolean, Column, Index, Integer, String, true
 from sqlmodel import SQLModel, Field, Relationship
 
 
@@ -45,6 +45,12 @@ class Workspace(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
     name: str = Field(index=True)
     description: Optional[str] = None
+    # Quem CRIOU — registro histórico, não o dono atual (ADR 0028).
+    #
+    # Nunca é reescrito, nem pela transferência de propriedade: quem criou
+    # continua tendo criado. O DONO é a membership com `role=owner`, que é a
+    # mesma linha que autoriza excluir o workspace — usar esta coluna para
+    # exibir "de quem é" foi a divergência que o ADR 0028 fechou.
     created_by_user_id: Optional[int] = Field(default=None, foreign_key="user.id")
     # Moeda-base das agregações (ADR 0006): transações em outra moeda ficam FORA
     # dos totais até existir taxa histórica congelada
@@ -56,6 +62,20 @@ class Workspace(SQLModel, table=True):
     event_seq: int = Field(
         default=0,
         sa_column=Column(Integer, nullable=False, server_default="0"),
+    )
+    # "Controlar o pagamento das contas" (ADR 0029): quando ligado, o lançamento
+    # fora do cartão só vira SAÍDA DE CAIXA depois de marcado como pago — e até
+    # lá aparece em Contas a pagar. Desligado, o comportamento é o antigo: o
+    # dinheiro sai na data do lançamento.
+    #
+    # É opção do ESPAÇO, e não da pessoa, porque a resposta muda com o combinado
+    # da casa: quem lança tudo depois de pagar não quer a etapa a mais; quem
+    # cadastra o boleto quando ele chega precisa dela. Ligado por padrão — o
+    # `server_default` vale para os espaços que já existem, que continuam
+    # idênticos porque a migração preenche `settled_at` de todo o histórico.
+    settlement_tracking: bool = Field(
+        default=True,
+        sa_column=Column(Boolean, nullable=False, server_default=true()),
     )
 
     created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))

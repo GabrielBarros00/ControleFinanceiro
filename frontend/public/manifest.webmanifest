@@ -12,6 +12,8 @@
   "theme_color": "#fcfbf9",
   "background_color": "#fcfbf9",
   "categories": ["finance", "productivity"],
+  "prefer_related_applications": false,
+  "related_applications": [{ "platform": "webapp", "url": "/manifest.webmanifest" }],
   "icons": [
     {
       "src": "/icon-192.png",

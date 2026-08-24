@@ -1,12 +1,14 @@
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { LogOut } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { Avatar } from '@/components/ui/avatar';
 import { useWorkspaces } from '@/hooks/use-workspaces';
 import { useAuth } from '@/hooks/use-auth';
-import { activeNavPath, navSections } from './nav-items';
+import { activeNavPath, navSections, rotuloDeEspaco } from './nav-items';
 import { ScopeSwitcher } from './ScopeSwitcher';
 import { useIsPlatformAdmin } from '@/hooks/use-admin';
 import { useWorkspaceId } from '@/hooks/use-workspace-id';
+import { useAuthStore } from '@/stores';
 
 function UserMenu() {
   const { user, logout } = useAuth();
@@ -21,9 +23,12 @@ function UserMenu() {
         to="/me/settings"
         className="flex min-w-0 flex-1 items-center gap-2.5 rounded-lg p-1.5 transition-colors hover:bg-muted"
       >
-        <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-brand-subtle text-sm font-semibold text-brand">
-          {user?.name?.[0]?.toUpperCase() ?? 'U'}
-        </span>
+        <Avatar
+          name={user?.name ?? 'Usuário'}
+          userId={user?.id}
+          version={user?.avatar_version}
+          size="sm"
+        />
         <div className="min-w-0">
           <p className="truncate text-sm font-medium text-foreground">{user?.name ?? 'Usuário'}</p>
           <p className="truncate text-[11px] text-muted-foreground">{user?.email}</p>
@@ -49,17 +54,19 @@ export function Sidebar() {
   // Administração do site (ADR 0026): a seção só existe para quem tem o papel.
   const ehAdminDaPlataforma = useIsPlatformAdmin();
   const { workspaces } = useWorkspaces();
+  // Só para dizer "De você" em vez de repetir o próprio nome (`rotuloDeEspaco`).
+  const usuario = useAuthStore((s) => s.user);
   const espaco = workspaces.find((w) => w.id === workspaceIdAtual);
   // Um item ativo por vez: ver `activeNavPath`. O teste de prefixo por item
   // acendia Painel e Relatórios juntos, porque `/w/1/reports` começa com `/w/1`.
   const ativo = activeNavPath(location.pathname, workspaceIdAtual, ehAdminDaPlataforma);
   const secoes = navSections(workspaceIdAtual, ehAdminDaPlataforma, {
     nome: espaco?.name,
-    membros: espaco?.member_count,
+    hint: rotuloDeEspaco(espaco, usuario?.id),
   });
 
   return (
-    <aside className="sticky top-0 hidden h-screen w-[240px] shrink-0 flex-col border-r border-border bg-card md:flex">
+    <aside className="sticky top-0 hidden h-dvh w-[240px] shrink-0 flex-col border-r border-border bg-card md:flex">
       <div className="px-4 py-5">
         {/* O nome por extenso não cabe em 240px a `text-lg`: 15px com
             `whitespace-nowrap` mantém a marca em uma linha só, sem estourar a

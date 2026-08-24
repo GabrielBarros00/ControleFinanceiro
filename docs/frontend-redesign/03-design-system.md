@@ -278,9 +278,13 @@ Só elementos **flutuantes** têm sombra. Superfícies estáticas usam borda.
 
 ## 8. Entregável desta camada (o que a Fase 1 produz)
 1. `src/index.css` reescrito com os tokens acima (`:root` + `.dark` + mapa de compat).
-2. `tailwind.config.js` estendido com os nomes semânticos:
-   `bg`, `surface`, `surface-2`, `text`, `text-muted`, `border`, `brand`, `income`,
-   `expense`, `warning`, `chart-1..6`, e os raios/sombras.
+2. Os nomes semânticos disponíveis como utilitários: `bg`, `surface`, `surface-2`,
+   `text`, `text-muted`, `border`, `brand`, `income`, `expense`, `warning`,
+   `chart-1..6`, e os raios/sombras.
+   <br>_Entregue diferente do plano:_ este item dizia "`tailwind.config.js`
+   estendido". O projeto está em **Tailwind v4**, que é CSS-first — esse arquivo
+   **não existe**, e os nomes vivem num bloco `@theme` do próprio `src/index.css`
+   (item 1). Procurar a config em JS aqui é procurar o que a v4 aboliu.
 3. Um arquivo `src/styles/tokens.md` (ou Storybook leve) mostrando a paleta e a escala —
    referência viva para quem implementa.
 4. Classe utilitária `.tabular` (`font-variant-numeric: tabular-nums`).

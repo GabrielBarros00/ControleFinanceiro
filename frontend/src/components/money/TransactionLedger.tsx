@@ -59,6 +59,10 @@ export function TransactionLedger({
     (userId: number) => members.find((m) => m.user_id === userId)?.user_name ?? `#${userId}`,
     [members],
   );
+  const memberAvatar = React.useCallback(
+    (userId: number) => members.find((m) => m.user_id === userId)?.avatar_version,
+    [members],
+  );
 
   const groups = React.useMemo(() => {
     const out: { key: string; label: string; items: TransactionRead[]; total: number }[] = [];
@@ -97,6 +101,7 @@ export function TransactionLedger({
                 tx={tx}
                 category={catFor(tx)}
                 memberName={memberName}
+                memberAvatar={memberAvatar}
                 canWrite={canWrite}
                 onEdit={onEdit}
                 onDelete={onDelete}

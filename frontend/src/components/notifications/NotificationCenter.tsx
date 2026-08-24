@@ -1,5 +1,7 @@
 import * as React from 'react';
+import { createPortal } from 'react-dom';
 import { Bell, Check, Loader2, X, Mail } from 'lucide-react';
+import { ActionLink } from '@/components/ui/action-link';
 import { Button } from '@/components/ui/button';
 import { useNotifications, type AppNotification } from '@/hooks/use-notifications';
 import { useUIStore } from '@/stores';
@@ -99,13 +101,12 @@ export function NotificationCenter() {
           <div className="flex items-center justify-between border-b border-border px-4 py-3">
             <p className="text-sm font-bold text-foreground">Notificações</p>
             {unread > 0 && (
-              <button
-                type="button"
+              <ActionLink
                 onClick={() => markAllRead()}
                 className="text-xs font-semibold text-brand hover:underline"
               >
                 Marcar todas como lidas
-              </button>
+              </ActionLink>
             )}
           </div>
 
@@ -165,13 +166,12 @@ export function NotificationCenter() {
                           </div>
                         ) : (
                           !n.read_at && (
-                            <button
-                              type="button"
+                            <ActionLink
                               onClick={() => markRead(n.id)}
                               className="mt-1.5 text-xs font-semibold text-brand hover:underline"
                             >
                               Marcar como lida
-                            </button>
+                            </ActionLink>
                           )
                         )}
                       </div>
@@ -184,9 +184,27 @@ export function NotificationCenter() {
         </div>
       )}
 
-      {/* Faixa fixa quando há convite esperando: o sino sozinho é discreto
-          demais para uma decisão que dá acesso às finanças de outra pessoa. */}
-      {convitesPendentes.length > 0 && !aberto && (
+      {/*
+        Faixa fixa quando há convite esperando: o sino sozinho é discreto demais
+        para uma decisão que dá acesso às finanças de outra pessoa.
+
+        POR QUE VAI PARA UM PORTAL, e não fica aqui dentro:
+
+        `position: fixed` só resolve contra a viewport enquanto nenhum ancestral
+        criar um containing block — e `backdrop-filter` cria. A barra superior do
+        `AppShell` é `sticky ... backdrop-blur-sm`, e este componente mora dentro
+        dela. O resultado é que `bottom: 5rem` resolvia contra a caixa de ~40px da
+        própria barra, e a faixa era desenhada 5rem ACIMA dela: medida no celular,
+        `topo=-70` numa tela de 727px de altura. Ou seja, o aviso que "precisa
+        estar visível de qualquer tela" nunca esteve visível em tela nenhuma do
+        celular — e nada avisa, porque o `fixed` continua sendo `fixed`, só que
+        contra outra caixa.
+
+        `createPortal` para o `body` põe a faixa fora do alcance de qualquer
+        filtro da barra superior. O `z-40` continua abaixo dos diálogos (z-50) e
+        empata com a barra inferior, que ela nunca cobre por causa do `bottom-20`.
+      */}
+      {convitesPendentes.length > 0 && !aberto && createPortal(
         <button
           type="button"
           onClick={() => setAberto(true)}
@@ -198,7 +216,8 @@ export function NotificationCenter() {
               ? `Convite para "${convitesPendentes[0].workspace_name}" esperando resposta`
               : `${convitesPendentes.length} convites esperando resposta`}
           </span>
-        </button>
+        </button>,
+        document.body,
       )}
     </div>
   );

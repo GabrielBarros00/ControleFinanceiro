@@ -19,7 +19,13 @@ interface TransactionDialogProps {
   transaction: TransactionRead | null;
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  onSave: (data: Record<string, unknown>) => Promise<void> | void;
+  /**
+   * Duas formas, e a diferença é o que o host usa para decidir o caminho: o
+   * formulário manda a definição COMPLETA (com `payers`), e a reabertura manda
+   * só `{status: 'confirmed'}`. Era `Record<string, unknown>`, que apagava as
+   * duas.
+   */
+  onSave: (data: TransactionApiPayload | { status: 'confirmed' }) => Promise<void> | void;
   onDelete: (id: number) => void;
   // Compra parcelada: definição INTEIRA (agregada) para editar o grupo todo, e
   // quantas parcelas já estão pagas (mostrado no aviso).

@@ -4,7 +4,7 @@ from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
-from app.schemas.common import NAME_MAX
+from app.schemas.common import NAME_MAX, StatusRead
 from sqlmodel import Session, select
 
 from app.api.deps import get_workspace_membership, require_role
@@ -120,7 +120,7 @@ def update_category(
     return category
 
 
-@router.delete("/{category_id}")
+@router.delete("/{category_id}", response_model=StatusRead)
 def delete_category(
     workspace_id: int,
     category_id: int,

@@ -86,6 +86,31 @@ describe('keysForEvent', () => {
     expect(keys).toContainEqual(['debts', WS_ID]);
   });
 
+  /*
+   * ADR 0031: a quebra "de onde vem esse saldo" É settlement-aware — registrar um
+   * acerto muda a linha do mês E o total. Ficar de fora daqui produziria a pior
+   * versão do defeito: o card do topo cairia na hora e a quebra abaixo dele
+   * continuaria com o número velho, ou seja, a conta que o bloco existe para
+   * fechar apareceria ABERTA, na mesma tela, sem nenhum erro em log.
+   *
+   * As chaves são citadas à mão de propósito: derivá-las do módulo é o arranjo
+   * que não pega família FALTANDO, que é justamente o risco aqui.
+   */
+  it.each([
+    ['settlement.created'],
+    ['settlement.deleted'],
+    ['transaction.created'],
+    ['transaction.deleted'],
+    ['member.removed'],
+  ])('%s atualiza a origem do saldo nas duas camadas', (tipo) => {
+    const keys = keysForEvent(tipo, WS_ID) as unknown[][];
+    // A da casa leva o id; a pessoal não — o TanStack casa por prefixo, e
+    // `['me-debts-by-month', 7]` não casaria com `['me-debts-by-month']`.
+    expect(keys).toContainEqual(['debts-by-month', WS_ID]);
+    expect(keys).toContainEqual(['me-debts-by-month']);
+    expect(keys).not.toContainEqual(['me-debts-by-month', WS_ID]);
+  });
+
   it('ciclo da fatura atualiza cartões e compromissos, não só a fatura', () => {
     const keys = keysForEvent('credit_card.statement_paid', WS_ID) as unknown[][];
     expect(keys).toContainEqual(['statements']);

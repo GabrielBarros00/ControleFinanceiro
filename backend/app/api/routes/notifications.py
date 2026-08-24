@@ -11,6 +11,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlmodel import Session
 
+from app.schemas.common import MarkAllReadRead
 from app.api.routes.auth import get_current_user
 from app.db.session import get_session
 from app.models.notification import NotificationType
@@ -66,7 +67,7 @@ def mark_notification_read(
     return NotificationRead.model_validate(notification, from_attributes=True)
 
 
-@router.post("/read-all")
+@router.post("/read-all", response_model=MarkAllReadRead)
 def mark_all_notifications_read(
     session: Session = Depends(get_session),
     current_user: User = Depends(get_current_user),

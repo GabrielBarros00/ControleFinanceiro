@@ -3,6 +3,7 @@ import {
   ArrowRight,
   ArrowDownLeft,
   ArrowUpRight,
+  CalendarClock,
   Receipt,
   TrendingUp,
   Wallet,
@@ -59,6 +60,11 @@ export function OverviewPage() {
   const netCash = n(overview?.net_cash);
   const aPagar = n(overview?.to_pay);
   const aReceber = n(overview?.to_receive);
+  // Contas a pagar (ADR 0029) — nome diferente de `aPagar` de propósito: aquele
+  // é o saldo com outras PESSOAS (acerto), este é conta que ainda não saiu do
+  // caixa. Dois eixos, e chamá-los igual foi o que motivou o nome "Compromissos".
+  const aPagarContas = n(overview?.payables_total);
+  const contasVencidas = n(overview?.payables_overdue);
 
   // Detalhamento da saída: só as linhas com valor, para o quadro não virar uma
   // lista de zeros em quem não tem cartão nem financiamento.
@@ -108,7 +114,7 @@ export function OverviewPage() {
         // usuário não teria como saber que ela não foi calculada (regra ERR-001).
         <ErrorState
           message="Não foi possível carregar a sua visão do mês."
-          onRetry={() => void refetch()}
+          onRetry={() => refetch()}
         />
       ) : (
         <>
@@ -232,6 +238,34 @@ export function OverviewPage() {
             <p className="px-4 pb-3 text-xs text-muted-foreground">
               Clique em uma linha para ver os movimentos que a compõem.
             </p>
+
+            {/* O que ainda NÃO saiu (ADR 0029). Fica dentro do quadro de caixa
+                porque completa a mesma frase: "saiu X, e ainda faltam Y". Antes
+                do ADR o número não existia — toda conta era dada por paga no
+                instante em que era registrada, e "quanto ainda vai sair este
+                mês" não tinha resposta em lugar nenhum. */}
+            {aPagarContas > 0 && (
+              <div className="border-t border-border px-4 py-3">
+                <Link
+                  to="/me/payables"
+                  className="-mx-2 flex items-center justify-between gap-4 rounded-md px-2 py-1 text-sm hover:bg-muted focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring"
+                >
+                  <span className="flex min-w-0 items-center gap-2 text-muted-foreground">
+                    <CalendarClock className="h-4 w-4 shrink-0" aria-hidden="true" />
+                    Ainda a pagar
+                    {contasVencidas > 0 && (
+                      <span className="text-expense">
+                        ({fmt(contasVencidas)} vencido)
+                      </span>
+                    )}
+                  </span>
+                  <span className="flex shrink-0 items-center gap-1.5 tabular-nums text-foreground">
+                    {fmt(aPagarContas)}
+                    <ArrowRight className="h-4 w-4 text-muted-foreground" aria-hidden="true" />
+                  </span>
+                </Link>
+              </div>
+            )}
           </section>
 
           {(aPagar > 0 || aReceber > 0) && (

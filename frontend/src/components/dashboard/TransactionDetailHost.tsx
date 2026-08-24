@@ -6,6 +6,7 @@ import { toast } from '@/stores/toast';
 import { getApiErrorMessage } from '@/lib/api-error';
 import { TransactionDetailDialog } from './TransactionDetailDialog';
 import { TransactionDialog } from './TransactionDialog';
+import type { TransactionApiPayload } from './transaction-form/TransactionForm';
 
 // Host global do detalhe/edição de lançamento (montado uma vez no AppShell).
 // Abre por id via useTxDetailStore, busca o lançamento e alterna entre o preview
@@ -52,13 +53,15 @@ export function TransactionDetailHost() {
     }
   };
 
-  const handleSave = async (data: Record<string, unknown>) => {
+  const handleSave = async (data: TransactionApiPayload | { status: 'confirmed' }) => {
     if (txId == null) return;
 
     // Compra parcelada: qualquer edição COMPLETA (com payers) vale para o grupo
     // inteiro — refatia total/nº e congela pagas. (Reabertura é só status, sem
     // payers, e segue pelo update normal.) O backend exige nº de parcelas ≥ 2.
-    if (transaction?.installment_group_id && data.payers !== undefined) {
+    // `'payers' in data` estreita a união: só a definição COMPLETA vinda do
+    // formulário tem pagadores — a reabertura manda apenas o status.
+    if (transaction?.installment_group_id && 'payers' in data) {
       const ok = await confirm({
         title: 'Editar compra parcelada',
         description:
@@ -75,7 +78,9 @@ export function TransactionDetailHost() {
 
     await update({ id: txId, data });
     // Reabertura (só status) mantém o modal aberto: o refetch troca para o form.
-    const isReopen = Object.keys(data).length === 1 && data.status === 'confirmed';
+    // `!('payers' in data)` é a mesma discriminação usada acima — o payload do
+    // formulário sempre traz pagadores; a reabertura, nunca.
+    const isReopen = !('payers' in data) && data.status === 'confirmed';
     if (!isReopen) close();
   };
 

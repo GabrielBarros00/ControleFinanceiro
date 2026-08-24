@@ -28,7 +28,23 @@ from app.models.audit import ActionType, AuditLog
 from app.models.refresh_session import RefreshSession
 from app.models.registration_invite import RegistrationInvite
 from app.models.user import PlatformRole, User, platform_level
-from app.models.workspace import InviteStatus
+from app.models.workspace import (
+    InviteStatus,
+    Workspace,
+    WorkspaceMembership,
+    WorkspaceRole,
+)
+from app.schemas.admin import (
+    AdminHealthRead,
+    AdminOverviewRead,
+    AdminUserDeleteRead,
+    AdminUserListRead,
+    AdminUserPatchRead,
+    RevokeSessionsRead,
+    SettingsPutRead,
+    SettingsRead,
+    TestEmailRead,
+)
 from app.services import admin_metrics, app_settings, registration_service
 from app.services.audit_service import AuditService
 from app.services import email_templates
@@ -92,7 +108,7 @@ def _registra(
 # Visão geral, saúde e auditoria
 # --------------------------------------------------------------------------
 
-@router.get("/overview")
+@router.get("/overview", response_model=AdminOverviewRead)
 def overview(
     db: Session = Depends(get_session),
     _: User = AdminDep,
@@ -100,7 +116,7 @@ def overview(
     return admin_metrics.visao_geral(db)
 
 
-@router.get("/health")
+@router.get("/health", response_model=AdminHealthRead)
 def health(
     db: Session = Depends(get_session),
     _: User = AdminDep,
@@ -154,7 +170,7 @@ def audit_global(
 # Usuários
 # --------------------------------------------------------------------------
 
-@router.get("/users")
+@router.get("/users", response_model=AdminUserListRead)
 def list_users(
     db: Session = Depends(get_session),
     _: User = AdminDep,
@@ -222,6 +238,44 @@ def _conta_superadmins(db: Session, exceto: Optional[int] = None) -> int:
     return len([i for i in ids if i != exceto])
 
 
+def _assert_nao_deixa_espaco_orfao(db: Session, alvo: User) -> None:
+    """Recusa tirar do ar quem ainda é DONO de algum espaço vivo (ADR 0028).
+
+    Sem isto, desativar ou excluir o dono produzia um espaço **permanentemente
+    indelével**: a única conta que pode apagá-lo (`require_role(owner)` no DELETE)
+    deixa de autenticar, o papel de owner não se promove nem se remove, e os dados
+    seguem vivos para os demais membros sem uma pessoa responsável por eles.
+
+    A saída é a transferência de propriedade, e a mensagem a nomeia — recusar sem
+    dizer o caminho só troca um estado sem volta por um beco sem saída.
+
+    Isto NÃO dá visão financeira nenhuma sobre o espaço a quem administra a
+    plataforma (ADR 0026): a resposta é o nome do espaço e o fato do bloqueio.
+    """
+    espacos = db.exec(
+        select(Workspace.name)
+        .join(WorkspaceMembership, WorkspaceMembership.workspace_id == Workspace.id)
+        .where(
+            WorkspaceMembership.user_id == alvo.id,
+            WorkspaceMembership.role == WorkspaceRole.owner.value,
+            Workspace.deleted_at.is_(None),
+        )
+        .order_by(Workspace.name)
+    ).all()
+    if not espacos:
+        return
+    raise HTTPException(
+        status_code=status.HTTP_409_CONFLICT,
+        detail=(
+            "Esta pessoa ainda é dona de "
+            + ", ".join(f"'{nome}'" for nome in espacos)
+            + ". Transfira a propriedade a outro membro antes de desativar ou "
+            "remover a conta — senão o espaço fica sem ninguém que possa "
+            "administrá-lo ou excluí-lo."
+        ),
+    )
+
+
 def _assert_pode_mexer_em(db: Session, ator: User, alvo: User, *, removendo_poder: bool) -> None:
     """As duas perguntas que toda ação sobre um usuário precisa responder.
 
@@ -255,7 +309,7 @@ def _assert_pode_mexer_em(db: Session, ator: User, alvo: User, *, removendo_pode
         )
 
 
-@router.patch("/users/{user_id}")
+@router.patch("/users/{user_id}", response_model=AdminUserPatchRead)
 def patch_user(
     user_id: int,
     dados: UserPatch,
@@ -294,6 +348,8 @@ def patch_user(
         and platform_level(dados.platform_role) < platform_level(alvo.platform_role)
     )
     _assert_pode_mexer_em(db, ator, alvo, removendo_poder=perdendo_papel or desativando)
+    if desativando:
+        _assert_nao_deixa_espaco_orfao(db, alvo)
 
     antes = {"is_active": alvo.is_active, "platform_role": alvo.platform_role}
     if dados.is_active is not None:
@@ -339,7 +395,7 @@ def _revoga_sessoes(db: Session, alvo: User) -> int:
     return len(sessoes)
 
 
-@router.post("/users/{user_id}/revoke-sessions")
+@router.post("/users/{user_id}/revoke-sessions", response_model=RevokeSessionsRead)
 def revoke_sessions(
     user_id: int,
     request: Request,
@@ -359,7 +415,7 @@ def revoke_sessions(
     return {"revogadas": quantas}
 
 
-@router.delete("/users/{user_id}")
+@router.delete("/users/{user_id}", response_model=AdminUserDeleteRead)
 def delete_user(
     user_id: int,
     request: Request,
@@ -380,6 +436,7 @@ def delete_user(
             detail="Você não pode remover a própria conta por aqui.",
         )
     _assert_pode_mexer_em(db, ator, alvo, removendo_poder=True)
+    _assert_nao_deixa_espaco_orfao(db, alvo)
 
     alvo.deleted_at = datetime.now(UTC)
     alvo.is_active = False
@@ -398,7 +455,7 @@ class SettingsPut(BaseModel):
     valores: Dict[str, Any]
 
 
-@router.get("/settings")
+@router.get("/settings", response_model=SettingsRead)
 def get_settings(
     db: Session = Depends(get_session),
     _: User = AdminDep,
@@ -425,7 +482,7 @@ def get_settings(
     }
 
 
-@router.put("/settings")
+@router.put("/settings", response_model=SettingsPutRead)
 def put_settings(
     dados: SettingsPut,
     request: Request,
@@ -474,7 +531,7 @@ class TestEmail(BaseModel):
     para: EmailStr
 
 
-@router.post("/settings/test-email")
+@router.post("/settings/test-email", response_model=TestEmailRead)
 def test_email(
     dados: TestEmail,
     _: User = AdminDep,
@@ -604,7 +661,7 @@ def create_invite(
     return resposta
 
 
-@router.delete("/registration-invites/{invite_id}")
+@router.delete("/registration-invites/{invite_id}", response_model=AdminUserDeleteRead)
 def revoke_invite(
     invite_id: int,
     request: Request,

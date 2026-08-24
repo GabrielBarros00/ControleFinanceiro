@@ -108,6 +108,23 @@ export function monthShortLabel(month: string): string {
   return new Date(y, m - 1, 1).toLocaleDateString('pt-BR', { month: 'short' });
 }
 
+/** `2026-08` → `ago/2026`. Rótulo curto MAS com o ano.
+ *
+ * O `monthShortLabel` devolve só "ago.", que serve num eixo de gráfico onde o
+ * ano está no título. Não serve nas listas de acerto: a origem de um saldo pode
+ * atravessar o ano, e duas linhas "ago." em anos diferentes seriam
+ * indistinguíveis — num lugar cujo ponto é justamente dizer de QUANDO vem a
+ * dívida.
+ */
+export function monthCompactLabel(month: string): string {
+  const [y, m] = month.split('-').map(Number);
+  if (!y || !m) return month;
+  const mes = new Date(y, m - 1, 1)
+    .toLocaleDateString('pt-BR', { month: 'short' })
+    .replace('.', '');
+  return `${mes}/${y}`;
+}
+
 /** `2026-08` → `agosto de 2026`. Rótulo por extenso do navegador de mês.
  *
  * Mora aqui, e não junto do componente, porque duas telas navegam pelos mesmos
