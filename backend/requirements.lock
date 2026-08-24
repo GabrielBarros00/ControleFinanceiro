@@ -103,7 +103,7 @@ starlette==1.6.0
     # via
     #   -r requirements.txt
     #   fastapi
-structlog==25.5.0
+structlog==26.1.0
     # via -r requirements.txt
 typing-extensions==4.16.0
     # via
