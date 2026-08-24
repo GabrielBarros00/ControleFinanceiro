@@ -92,7 +92,7 @@ python-multipart==0.0.31
     # via -r requirements.txt
 pyyaml==6.0.3
     # via uvicorn
-sqlalchemy==2.0.49
+sqlalchemy==2.0.52
     # via
     #   -r requirements.txt
     #   alembic
