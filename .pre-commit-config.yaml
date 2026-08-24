@@ -2,7 +2,7 @@
 # Rode manualmente em tudo:               pre-commit run --all-files
 repos:
   - repo: https://github.com/pre-commit/pre-commit-hooks
-    rev: v5.0.0
+    rev: v6.0.0
     hooks:
       - id: trailing-whitespace
       - id: end-of-file-fixer
@@ -10,15 +10,31 @@ repos:
       - id: check-added-large-files
       - id: check-merge-conflict
 
-  # Lint + format do backend (ruff)
+  # Lint do backend (ruff)
+  #
+  # A `rev` TEM de ser a mesma versão de ruff fixada em
+  # `backend/requirements-dev.txt` — é o que `test_versao_de_plataforma.py`
+  # verifica. Estava em v0.8.4 enquanto o CI rodava 0.16.4: oito majors de
+  # diferença, dois conjuntos de regras, e um hook que aprovava o que o CI
+  # reprovava. Ficou assim porque nada vigiava este arquivo — não havia
+  # ecossistema `pre-commit` no Dependabot. Agora há.
   - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: v0.8.4
+    rev: v0.16.4
     hooks:
       - id: ruff
         args: [--fix]
         files: ^backend/.*\.py$
-      - id: ruff-format
-        files: ^backend/.*\.py$
+      # `ruff-format` foi REMOVIDO daqui, de propósito.
+      #
+      # O CI não roda `ruff format --check`, e o comentário dele diz por quê: o
+      # backend nunca foi formatado com ruff e o check reprovaria quase tudo —
+      # hoje são 297 arquivos de 317. Enquanto isso for verdade, um hook de
+      # formatação reformata em PEDAÇOS, dentro de commits que falam de outra
+      # coisa, que é o oposto do "commit isolado" que aquela nota pede.
+      #
+      # Formatar tudo continua sendo uma boa ideia; só precisa ser a mudança
+      # inteira de uma vez. Quando for, este hook volta E o `ruff format
+      # --check` entra no CI — os dois juntos, senão a divergência renasce.
 
   # Lint do frontend (eslint via toolchain local do projeto)
   - repo: local

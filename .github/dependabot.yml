@@ -77,6 +77,29 @@ updates:
           - "minor"
           - "patch"
 
+  # Hooks do pre-commit
+  #
+  # Faltava, e o preço apareceu: o `ruff-pre-commit` ficou em v0.8.4 enquanto o
+  # CI subia para 0.16.4 — oito majors, dois conjuntos de regras, um hook que
+  # aprovava o que o CI reprovava. E o `pre-commit-hooks` parou no v5.0.0.
+  # Nenhum dos dois tinha quem os vigiasse.
+  #
+  # Major entra, ao contrário das imagens: aqui quebrar significa um hook que
+  # falha na sua máquina, não um deploy que não sobe.
+  - package-ecosystem: "pre-commit"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    commit-message:
+      prefix: "chore(deps)"
+    groups:
+      pre-commit:
+        patterns:
+          - "*"
+        update-types:
+          - "minor"
+          - "patch"
+
   # Imagens base dos Dockerfiles
   #
   # Faltava, e a lacuna era silenciosa: `python:3.12-slim` (backend),
