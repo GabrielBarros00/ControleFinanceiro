@@ -248,6 +248,14 @@ services:
   # O Tunnel alcança a porta interna 8080 do nginx pela rede dedicada. O nginx
   # só confia em CF-Connecting-IP quando o peer é o IP fixo deste container.
   cloudflared:
+    # A ÚNICA imagem sem versão fixada no projeto, e é de propósito. Todas as
+    # outras foram pinadas em 2026-08-24; esta ficou porque o cloudflared não é
+    # uma dependência do app, é o cliente de um serviço remoto: a Cloudflare
+    # deprecia versões antigas do túnel, e um cliente velho perde a conexão com
+    # a edge — o app fica inalcançável sem nada no stack parecer errado.
+    #
+    # `pull_policy: always` é o que fecha o par: sem ele, `:latest` seria só a
+    # imagem que por acaso está no disco, o pior dos dois mundos.
     image: cloudflare/cloudflared:latest
     # `--no-autoupdate` evita que o processo altere a própria imagem; o update
     # acontece de forma reproduzível no `docker compose up`, puxando antes de
@@ -268,7 +276,7 @@ services:
   # Ferramenta de administração do banco — apenas em desenvolvimento
   # (docker compose --profile dev up)
   pgadmin:
-    image: dpage/pgadmin4
+    image: dpage/pgadmin4:9.17
     profiles: ["dev"]
     restart: unless-stopped
     environment:

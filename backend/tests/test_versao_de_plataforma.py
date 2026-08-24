@@ -118,6 +118,37 @@ def test_pre_commit_nao_formata_enquanto_o_ci_nao_checa():
     )
 
 
+def test_nenhum_pip_install_sem_versao_no_ci():
+    """`pip install X` sem `==` no CI é vermelho esperando acontecer.
+
+    Já aconteceu uma vez, e está contado em `requirements-dev.txt`: o passo
+    `python -m pip install --upgrade pip`, sem pino, trouxe o pip 26, que
+    removeu um interno privado que o pip-tools importa — o `pip-compile` do
+    gate seguinte passou a morrer em 0,3 s sem ninguém ter tocado em
+    dependência alguma. Fixar as ferramentas e deixar o pip solto era proteger
+    a porta e deixar a janela aberta.
+
+    Instalar a partir de um arquivo (`-r`) está liberado: lá dentro tudo já é
+    `==`, e é o que este teste protege indiretamente.
+    """
+    solto = []
+    for linha in CI.read_text(encoding="utf-8").splitlines():
+        nu = linha.strip()
+        if nu.startswith("#") or "pip install" not in nu:
+            continue
+        alvo = nu.split("pip install", 1)[1]
+        if " -r " in alvo or alvo.strip().startswith("-r"):
+            continue
+        pacotes = [p for p in alvo.split() if p and not p.startswith("-")]
+        if any("==" not in p for p in pacotes):
+            solto.append(nu)
+
+    assert not solto, (
+        "instalação sem versão fixada no ci.yml:\n  " + "\n  ".join(solto)
+        + "\n\nFixe com `==`, ou traga o pacote do requirements-dev.txt."
+    )
+
+
 def test_relock_nao_tem_versao_de_python_escrita_na_mao():
     """O script tem que LER a versão, não repeti-la.
 

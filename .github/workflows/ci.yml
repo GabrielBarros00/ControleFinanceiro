@@ -27,7 +27,14 @@ jobs:
           python-version: ${{ env.PYTHON_VERSION }}
       - name: Install dependencies
         run: |
-          python -m pip install --upgrade pip
+          # PIP FIXADO. Sem pino aqui, este passo já quebrou o CI uma vez: o
+          # pip 26 removeu `pip._internal.utils.compat.stdlib_pkgs`, um
+          # interno privado que o pip-tools importa, e o `pip-compile` do
+          # gate abaixo passou a morrer em 0,3s sem ninguém ter tocado em
+          # dependência (ver o comentário em requirements-dev.txt). Fixar as
+          # ferramentas e deixar o pip solto era proteger a porta e deixar a
+          # janela aberta.
+          python -m pip install --upgrade pip==26.2.1
           pip install -r backend/requirements-dev.txt
       - name: Run lint
         run: |
@@ -37,7 +44,10 @@ jobs:
           # deve ser um commit isolado, não misturado a correções.
       - name: Audit dependencies (pip)
         run: |
-          pip install pip-audit
+          # `pip-audit` vem FIXADO do requirements-dev.txt, instalado no passo
+          # anterior. Solto, uma release que mude a saída ou a base de
+          # advisories reprova o CI sem mudança de código — mesma razão do
+          # pino do pip-tools.
           pip-audit -r backend/requirements.txt --strict
       # O `requirements.txt` compilado é o que a imagem instala (ver
       # backend/Dockerfile). Se ele não bater com o `requirements.in`, o
@@ -100,7 +110,14 @@ jobs:
           python-version: ${{ env.PYTHON_VERSION }}
       - name: Install dependencies
         run: |
-          python -m pip install --upgrade pip
+          # PIP FIXADO. Sem pino aqui, este passo já quebrou o CI uma vez: o
+          # pip 26 removeu `pip._internal.utils.compat.stdlib_pkgs`, um
+          # interno privado que o pip-tools importa, e o `pip-compile` do
+          # gate abaixo passou a morrer em 0,3s sem ninguém ter tocado em
+          # dependência (ver o comentário em requirements-dev.txt). Fixar as
+          # ferramentas e deixar o pip solto era proteger a porta e deixar a
+          # janela aberta.
+          python -m pip install --upgrade pip==26.2.1
           pip install -r backend/requirements-dev.txt
       - name: Run migrations (Postgres)
         run: |
@@ -317,7 +334,7 @@ jobs:
           exit 1
       - name: Smoke de produção (jornada completa)
         run: |
-          pip install httpx
+          pip install httpx==0.28.1
           python scripts/smoke_prod.py
       - name: Suíte e2e-prod (nginx + WebSocket + convite por link)
         run: |
