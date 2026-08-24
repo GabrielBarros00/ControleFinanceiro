@@ -116,9 +116,9 @@ frontend-audit:
 ifeq ($(OS),Windows_NT)
 PIP_AUDIT_CMD = docker run --rm -i python:3.12-slim \
 		sh -c "pip install -q pip-audit && cat > /tmp/lock.txt && pip-audit -r /tmp/lock.txt --strict" \
-		< backend/requirements.lock
+		< backend/requirements.txt
 else
-PIP_AUDIT_CMD = $(VENV_BIN)/pip-audit -r backend/requirements.lock --strict
+PIP_AUDIT_CMD = $(VENV_BIN)/pip-audit -r backend/requirements.txt --strict
 endif
 
 .PHONY: backend-audit

@@ -1,0 +1,76 @@
+# Dependências de PRODUÇÃO, com versão fixada. Este é o arquivo que se EDITA à
+# mão; o `requirements.txt` ao lado é gerado a partir daqui e é o que a imagem
+# instala.
+#
+# Sem pin, cada `docker build` podia trazer uma minor diferente de FastAPI,
+# SQLModel ou Pydantic e quebrar produção sem nenhuma mudança de código — e o
+# Dependabot configurado para /backend não tinha o que atualizar, dando falsa
+# sensação de cobertura. Ferramentas de teste/lint moram em requirements-dev.txt
+# e NÃO vão para a imagem.
+#
+# POR QUE OS NOMES PARECEM TROCADOS: até 2026-08-24 o par era
+# `requirements.txt` (fonte) -> `requirements.lock` (compilado), e o Dependabot
+# NÃO conseguia regenerar o compilado. Não era limitação de configuração: o
+# `PipCompileFileMatcher` dele exige que o arquivo compilado termine em `.txt` e
+# que exista um `.in` de mesmo nome-base. `requirements.lock` reprovava na
+# primeira condição, e nenhum cabeçalho resolvia. Resultado: TODO PR de
+# dependência Python chegava com o compilado velho, o gate reprovava, e alguém
+# regenerava à mão — foi o que aconteceu nos PRs #37, #38, #40 e #41.
+#
+# Com o par `.in` -> `.txt`, o Dependabot roda o pip-compile sozinho e o PR
+# chega verde. É por isso que o compilado tem o nome menos óbvio dos dois.
+#
+# Para atualizar: suba a versão aqui, regenere com `scripts/relock.sh`, rode a
+# suíte contra SQLite E Postgres, e só então faça o merge.
+#
+# O compilado é resolvido para LINUX/CPython 3.12 — a plataforma da imagem. Ele
+# traz pacotes que não existem no Windows (`uvloop`, via `uvicorn[standard]`),
+# então no desenvolvimento local em Windows instale ESTE arquivo mais o
+# `requirements-dev.txt`, não o compilado.
+
+# --- Web ---
+fastapi==0.141.1
+uvicorn[standard]==0.52.4
+starlette==1.6.0
+python-multipart==0.0.32
+
+# --- Modelos e validação ---
+pydantic[email]==2.13.4
+pydantic-settings==2.15.0
+sqlmodel==0.0.39
+SQLAlchemy==2.0.52
+alembic==1.19.1
+
+# --- Banco ---
+psycopg2-binary==2.9.12
+
+# --- Segurança ---
+# PyJWT no lugar de python-jose: o jose está praticamente sem manutenção e
+# acumula CVEs (confusão de algoritmo, "JWT bomb"). PyJWT é mantido e exige
+# `algorithms=` explícito na verificação.
+PyJWT[crypto]==2.13.0
+# Piso da `cryptography`, que entra pelo extra `[crypto]` acima e não tinha
+# restrição própria: o resolvedor congelou a 49.0.0 e o `pip-audit --strict` do
+# CI passou a reprovar por PYSEC-2026-3552 (oracle Bleichenbacher na
+# descriptografia PKCS#7, corrigida na 50.0.0), bloqueando qualquer release.
+# Este app não usa as APIs PKCS#7 e assina JWT só com HS256, então a
+# explorabilidade aqui é baixa — o que não é motivo para carregar a versão
+# vulnerável, e sim a razão de isto ser um piso e não um pin exato.
+cryptography>=50.0.0
+# argon2 é o algoritmo primário de senha (ver app/core/security.py). passlib
+# segue apenas para VERIFICAR hashes antigos (pbkdf2_sha256/bcrypt) e permitir o
+# rehash transparente no login; sai daqui quando não houver mais hash legado.
+argon2-cffi==25.1.0
+passlib==1.7.4
+bcrypt==5.0.0
+
+# --- Infra ---
+httpx==0.28.1
+structlog==26.1.0
+anyio==4.14.2
+python-dotenv==1.2.3
+# Base de fusos para `zoneinfo`. O calendário do app é `APP_TIMEZONE`
+# (America/Sao_Paulo por padrão) e o Windows não tem base de fusos do sistema —
+# sem este pacote, `ZoneInfo` levanta ModuleNotFoundError no desenvolvimento
+# local e o backend degradava para UTC justamente onde a diferença importa.
+tzdata==2026.3

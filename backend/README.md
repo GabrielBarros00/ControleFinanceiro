@@ -6,7 +6,7 @@ API em **FastAPI + SQLModel**, com **Alembic** (migrações), **PostgreSQL** em 
 
 ```bash
 python -m venv .venv && source .venv/bin/activate   # Windows: .venv\Scripts\activate
-pip install -r requirements.txt
+pip install -r requirements-dev.txt                  # puxa produção via requirements.in
 cp .env.example .env                                 # SQLite local, defaults prontos
 python -m uvicorn app.main:app --reload              # http://localhost:8000
 ```

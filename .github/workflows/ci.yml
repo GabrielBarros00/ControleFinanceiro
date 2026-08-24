@@ -32,30 +32,30 @@ jobs:
       - name: Audit dependencies (pip)
         run: |
           pip install pip-audit
-          pip-audit -r backend/requirements.lock --strict
-      # O lock é o que a imagem instala (ver backend/Dockerfile). Se ele não
-      # bater com o requirements.txt, o ambiente testado aqui não é o que vai
-      # para produção — e a divergência apareceria só no deploy.
+          pip-audit -r backend/requirements.txt --strict
+      # O `requirements.txt` compilado é o que a imagem instala (ver
+      # backend/Dockerfile). Se ele não bater com o `requirements.in`, o
+      # ambiente testado aqui não é o que vai para produção — e a divergência
+      # apareceria só no deploy.
       #
-      # O `pip-compile` roda EM CIMA do lock versionado, e não num arquivo novo:
-      # sem o arquivo de saída presente, o pip-tools perde as preferências de
-      # versão e reresolve tudo para o mais recente do PyPI — o gate ficaria
+      # O `pip-compile` roda EM CIMA do compilado versionado, e não num arquivo
+      # novo: sem o arquivo de saída presente, o pip-tools perde as preferências
+      # de versão e reresolve tudo para o mais recente do PyPI — o gate ficaria
       # vermelho a cada release de transitiva, sem uma linha de código ter mudado.
       # `pip-tools` sai do requirements-dev.txt, onde está FIXADO, pela mesma
       # razão: instalado sem versão, ele próprio é uma fonte de vermelho
       # espontâneo.
       #
-      # Quem reprova aqui quase sempre é um PR do Dependabot, que não sabe
-      # regenerar este lock (ver `.github/dependabot.yml`). Por isso a mensagem
-      # de erro aponta um comando exato em vez de dizer "rode pip-compile": as
-      # três coisas que precisam bater com este passo — Python 3.12, o pino do
-      # pip-tools e o in-place — não se acertam de memória.
-      - name: Lock de dependências em dia
+      # Desde que o layout virou `.in` -> `.txt` (2026-08-24), o Dependabot
+      # regenera o compilado sozinho e não reprova mais aqui. Este passo agora
+      # protege contra o caso humano: alguém editar o `requirements.in` e
+      # esquecer de recompilar.
+      - name: Compilado de dependências em dia
         run: |
           cd backend
-          pip-compile --output-file=requirements.lock --strip-extras --quiet requirements.txt
-          git diff --exit-code -- requirements.lock || {
-            echo "::error::requirements.lock desatualizado — rode 'scripts/relock.sh' na raiz do repositório e commite o resultado"
+          pip-compile --output-file=requirements.txt --strip-extras --quiet requirements.in
+          git diff --exit-code -- requirements.txt || {
+            echo "::error::requirements.txt (compilado) desatualizado — rode 'scripts/relock.sh' na raiz do repositório e commite o resultado"
             exit 1
           }
       - name: Run tests (SQLite) + cobertura

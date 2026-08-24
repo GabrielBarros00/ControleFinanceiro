@@ -1,18 +1,27 @@
 # Ferramentas de desenvolvimento e teste.
 #
-# Separadas de requirements.txt de propósito: antes `pytest` e `pytest-asyncio`
+# Separadas das de produção de propósito: antes `pytest` e `pytest-asyncio`
 # estavam nas dependências de produção e iam para a imagem Docker.
 #
-# Uso:  pip install -r requirements.txt -r requirements-dev.txt
-
--r requirements.txt
+# Uso:  pip install -r requirements-dev.txt
+#
+# O `-r` abaixo aponta para o `requirements.in` (a fonte), NÃO para o
+# `requirements.txt` (o compilado), e isso é deliberado: o compilado é resolvido
+# para Linux e lista `uvloop` e `httptools` sem marker de plataforma — pelo
+# `uvicorn[standard]`. Instalá-lo no Windows morre na hora, e aqui o
+# desenvolvimento é no Windows. É também o comportamento que este arquivo sempre
+# teve; antes da troca de nomes, `-r requirements.txt` já era a fonte.
+#
+# Quem precisa do ambiente EXATO da imagem instala o compilado direto
+# (`pip install -r requirements.txt`), que é o que o Dockerfile faz.
+-r requirements.in
 
 pytest==9.1.1
 pytest-asyncio==1.4.0
 pytest-cov==7.1.0
 ruff==0.16.4
-# Gera o `requirements.lock` e é o que o gate "Lock de dependências em dia" do CI
-# executa. FIXADO porque o gate compara a saída dele com o arquivo versionado:
+# Gera o `requirements.txt` compilado e é o que o gate "Compilado de dependências
+# em dia" do CI executa. FIXADO porque o gate compara a saída dele com o versionado:
 # instalado sem versão, uma release que mude o cabeçalho gerado ou a estratégia
 # de resolução reprovaria o CI sem uma linha de código ter mudado — e a correção
 # não estaria em lugar nenhum do diff. Mesma razão de todo o resto estar fixado.
