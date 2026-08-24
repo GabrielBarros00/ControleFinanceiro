@@ -14,7 +14,6 @@ from datetime import datetime, UTC
 from decimal import Decimal
 
 import pytest
-from fastapi.routing import APIRoute
 from fastapi.testclient import TestClient
 
 from app.core.jwt import create_access_token
@@ -28,6 +27,7 @@ from app.models.user import User
 from app.models.workspace import (
     FinancialAccess, Workspace, WorkspaceMembership, WorkspaceRole,
 )
+from tests.support.rotas import rotas_da_api
 
 cliente = TestClient(app, raise_server_exceptions=False)
 
@@ -145,8 +145,8 @@ def _varre(cookies, ws_id, tx_id):
 
 def _rotas_get():
     """Toda rota GET do app, com os parâmetros de caminho preenchíveis."""
-    for r in app.routes:
-        if isinstance(r, APIRoute) and "GET" in r.methods:
+    for r in rotas_da_api():
+        if "GET" in r.methods:
             yield r.path
 
 

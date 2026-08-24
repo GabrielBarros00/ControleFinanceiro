@@ -4,7 +4,7 @@
 #
 #    pip-compile --output-file=requirements.lock --strip-extras requirements.txt
 #
-alembic==1.18.4
+alembic==1.19.1
     # via -r requirements.txt
 annotated-doc==0.0.5
     # via fastapi
@@ -40,7 +40,7 @@ dnspython==2.8.0
     # via email-validator
 email-validator==2.3.0
     # via pydantic
-fastapi==0.136.1
+fastapi==0.141.1
     # via -r requirements.txt
 greenlet==3.5.4
     # via sqlalchemy
@@ -69,41 +69,41 @@ psycopg2-binary==2.9.12
     # via -r requirements.txt
 pycparser==3.0
     # via cffi
-pydantic==2.13.3
+pydantic==2.13.4
     # via
     #   -r requirements.txt
     #   fastapi
     #   pydantic-settings
     #   sqlmodel
-pydantic-core==2.46.3
+pydantic-core==2.46.4
     # via pydantic
-pydantic-settings==2.14.2
+pydantic-settings==2.15.0
     # via -r requirements.txt
 pyjwt==2.13.0
     # via
     #   -r requirements.txt
     #   pyjwt
-python-dotenv==1.2.2
+python-dotenv==1.2.3
     # via
     #   -r requirements.txt
     #   pydantic-settings
     #   uvicorn
-python-multipart==0.0.31
+python-multipart==0.0.32
     # via -r requirements.txt
 pyyaml==6.0.3
     # via uvicorn
-sqlalchemy==2.0.49
+sqlalchemy==2.0.52
     # via
     #   -r requirements.txt
     #   alembic
     #   sqlmodel
-sqlmodel==0.0.38
+sqlmodel==0.0.39
     # via -r requirements.txt
 starlette==1.6.0
     # via
     #   -r requirements.txt
     #   fastapi
-structlog==25.5.0
+structlog==26.1.0
     # via -r requirements.txt
 typing-extensions==4.16.0
     # via
@@ -123,7 +123,7 @@ typing-inspection==0.4.2
     #   pydantic-settings
 tzdata==2026.3
     # via -r requirements.txt
-uvicorn==0.46.0
+uvicorn==0.52.4
     # via -r requirements.txt
 uvloop==0.22.1
     # via uvicorn

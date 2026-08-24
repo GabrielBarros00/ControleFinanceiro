@@ -19,6 +19,7 @@ from app.services.recurring_service import (
     RecurringMaterializationService,
     RecurringService,
 )
+from tests.support.rotas import rota_temporaria
 
 
 @pytest.fixture
@@ -51,8 +52,7 @@ def test_erro_500_tem_request_id_e_cabecalhos(caplog):
     def _boom():
         raise RuntimeError("falha proposital")
 
-    app.include_router(boom)
-    try:
+    with rota_temporaria(boom):
         with TestClient(app, raise_server_exceptions=False) as client:
             resposta = client.get("/api/v1/_boom_teste")
         assert resposta.status_code == 500
@@ -60,11 +60,6 @@ def test_erro_500_tem_request_id_e_cabecalhos(caplog):
         assert resposta.headers.get("X-Content-Type-Options") == "nosniff"
         assert resposta.headers.get("X-Frame-Options") == "DENY"
         assert resposta.json()["error"]["code"] == "INTERNAL_SERVER_ERROR"
-    finally:
-        app.router.routes = [
-            r for r in app.router.routes
-            if getattr(r, "path", None) != "/api/v1/_boom_teste"
-        ]
 
 
 def test_erro_500_propaga_request_id_do_cliente():
@@ -74,18 +69,12 @@ def test_erro_500_propaga_request_id_do_cliente():
     def _boom():
         raise RuntimeError("falha proposital")
 
-    app.include_router(boom)
-    try:
+    with rota_temporaria(boom):
         with TestClient(app, raise_server_exceptions=False) as client:
             resposta = client.get(
                 "/api/v1/_boom_teste2", headers={"x-request-id": "meu-id-123"}
             )
         assert resposta.headers.get("X-Request-ID") == "meu-id-123"
-    finally:
-        app.router.routes = [
-            r for r in app.router.routes
-            if getattr(r, "path", None) != "/api/v1/_boom_teste2"
-        ]
 
 
 # --- D1: materialização não falha em silêncio -------------------------------
