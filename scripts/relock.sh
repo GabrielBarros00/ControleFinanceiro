@@ -47,7 +47,18 @@ if [ -z "$PIP_TOOLS_PIN" ]; then
 fi
 echo "==> pip-tools: $PIP_TOOLS_PIN (lido de requirements-dev.txt)"
 
-docker run --rm -v "$BACKEND_DIR:/w" -w /w python:3.12 sh -c "
+# A versão sai do Dockerfile do backend, não de um literal aqui: o compilado
+# grava o Python no cabeçalho, e se este script compilar noutra versão que a da
+# imagem o gate do CI reprova. Um lugar só para subir, e o
+# `test_versao_de_plataforma.py` garante que ele não se descole do resto.
+PYTHON_VERSION="$(sed -n 's/^FROM python:\([0-9][0-9.]*\)-slim.*/\1/p' backend/Dockerfile | head -1)"
+if [ -z "$PYTHON_VERSION" ]; then
+    echo "ERRO: não consegui ler a versão do Python de backend/Dockerfile" >&2
+    exit 1
+fi
+echo "==> Python: $PYTHON_VERSION (lido de backend/Dockerfile)"
+
+docker run --rm -v "$BACKEND_DIR:/w" -w /w "python:$PYTHON_VERSION" sh -c "
     set -e
     python -m pip install --upgrade pip -q --root-user-action=ignore
     pip install -q --root-user-action=ignore '$PIP_TOOLS_PIN'
