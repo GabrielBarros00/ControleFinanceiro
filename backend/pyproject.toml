@@ -36,6 +36,19 @@ filterwarnings = [
     "ignore:Accessing argon2.__version__ is deprecated:DeprecationWarning",
 ]
 
+[tool.ruff.lint]
+# EXPLÍCITO de propósito. Este era o default do ruff até a série 0.15, e o
+# projeto nunca o escreveu — vivia do default. No 0.16 o default deixou de ser
+# esta lista e passou a incluir dezenas de famílias novas (UP, B, I, DTZ, FURB,
+# SIM...): `ruff check backend` saltou de 0 para 1876 achados sem uma linha de
+# código ter mudado, e o bump de ferramenta virou um PR impossível de revisar.
+#
+# Fixando aqui, a versão do ruff volta a ser o que deveria ter sido sempre: uma
+# atualização de ferramenta, não uma mudança de política de lint. Ampliar o
+# conjunto continua possível — mas como decisão deliberada, em commit próprio,
+# com os achados lidos um a um.
+select = ["E4", "E7", "E9", "F"]
+
 [tool.ruff.lint.per-file-ignores]
 # Migrações geradas e conftest importam modelos após setup de path/config
 "alembic/versions/*" = ["E402"]
