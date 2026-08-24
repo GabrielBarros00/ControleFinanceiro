@@ -169,6 +169,10 @@ updates:
     open-pull-requests-limit: 5
     commit-message:
       prefix: "chore(docker)"
+    ignore:
+      - dependency-name: "postgres"
+        update-types:
+          - "version-update:semver-major"
     groups:
       compose-images:
         patterns:
