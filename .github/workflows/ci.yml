@@ -14,7 +14,7 @@ env:
   # com os Dockerfiles e com o `relock.sh`, para um PR que suba só a imagem
   # falhar dizendo o que falta em vez de passar entregando um ambiente misto.
   PYTHON_VERSION: '3.14'
-  NODE_VERSION: '26'
+  NODE_VERSION: '24'
 
 jobs:
   backend:

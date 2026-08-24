@@ -7,7 +7,14 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?defina POSTGRES_PASSWORD no .env}
       POSTGRES_DB: ${POSTGRES_DB:-controle_financeiro}
     volumes:
-      - postgres_data:/var/lib/postgresql/data
+      # `/var/lib/postgresql`, NÃO `/var/lib/postgresql/data`. O ponto de
+      # montagem mudou no Postgres 18: a imagem passou a guardar os dados num
+      # subdiretório versionado e recusa-se a subir se o volume for montado no
+      # caminho antigo, saindo com código 1 antes de qualquer healthcheck —
+      # "The suggested container configuration for 18+ is to place a single
+      # mount at /var/lib/postgresql". O motivo é permitir `pg_upgrade --link`
+      # sem cruzar fronteira de mount.
+      - postgres_data:/var/lib/postgresql
     healthcheck:
       # `-h 127.0.0.1` NÃO é enfeite: sem ele este healthcheck dá verde ANTES de
       # o banco existir, e o deploy novo falha.
