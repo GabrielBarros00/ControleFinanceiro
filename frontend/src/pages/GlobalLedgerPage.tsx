@@ -342,7 +342,7 @@ export function GlobalLedgerPage() {
                         </Badge>
                       </TableCell>
                       <TableCell className="text-right">
-                        {e.converted_amount === null ? (
+                        {e.converted_amount == null ? (
                           // Sem cotação para a data efetiva: a linha aparece
                           // marcada em vez de sumir ou virar zero (ADR 0006).
                           <span className="text-sm text-muted-foreground" title="Sem cotação para esta data">

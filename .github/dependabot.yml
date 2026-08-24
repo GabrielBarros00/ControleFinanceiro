@@ -124,17 +124,19 @@ updates:
   # para comparar; o Dependabot os ignora sozinho, e é por isso que não estão
   # numa lista de exceção aqui.
   #
-  # O ÚNICO major bloqueado do repositório, e só o do Postgres.
+  # Nada bloqueado aqui — major do Postgres inclusive, por decisão explícita de
+  # manter tudo na versão mais recente.
   #
-  # Aqui nenhum gate resolve, porque o problema não é código: subir o major do
-  # Postgres troca o formato do diretório de dados. O volume
-  # `controlefinanceiro_postgres_data` em produção foi inicializado pelo 16; um
-  # container 18 apontado para ele não migra nada — recusa-se a subir com
-  # "database files are incompatible with server". O CI passaria com folga,
-  # porque lá o banco nasce vazio a cada execução; quem quebra é o deploy.
+  # MAS o CI não consegue provar que esse merge é seguro, e vale saber por quê:
+  # subir o major do Postgres troca o formato do diretório de dados. No CI o
+  # banco nasce vazio a cada execução, então ele passa com folga; num volume
+  # já inicializado por uma versão anterior o container recusa-se a subir com
+  # "database files are incompatible with server". Quem quebra é o deploy.
   #
-  # Subir exige pg_dump antes, restore depois e janela de indisponibilidade.
-  # É tarefa planejada, não merge de PR — e por isso o PR nem chega.
+  # Portanto, ao mergear um major de Postgres: ou o volume é descartável (apague
+  # antes de subir a stack), ou é pg_dump na versão antiga e restore na nova.
+  # Está registrado em `docs/deploy-vps.md`.
+  #
   # As outras imagens do compose (cloudflared, pgadmin) usam `latest`/sem tag e
   # não têm versão para comparar; o Dependabot as ignora sozinho.
   - package-ecosystem: "docker-compose"
@@ -144,10 +146,6 @@ updates:
     open-pull-requests-limit: 5
     commit-message:
       prefix: "chore(docker)"
-    ignore:
-      - dependency-name: "postgres"
-        update-types:
-          - "version-update:semver-major"
     groups:
       compose-images:
         patterns:

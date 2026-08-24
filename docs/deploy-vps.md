@@ -255,6 +255,44 @@ E, uma vez por mês, **restaure** o dump mais recente num banco descartável par
 confirmar que ele presta (o ensaio está no [runbook](runbook-deploy.md#2-ensaie-a-migração-numa-cópia)).
 Backup que nunca foi restaurado não é backup.
 
+### Subir o MAJOR do Postgres
+
+O único bump de dependência que o CI não consegue provar. Lá o banco nasce vazio
+a cada execução, então o major passa com folga; num volume já inicializado por
+uma versão anterior o container **recusa-se a subir**:
+
+```
+FATAL:  database files are incompatible with server
+DETAIL: The data directory was initialized by PostgreSQL version 16,
+        which is not compatible with this version 18.
+```
+
+O `PG_VERSION` dentro do volume é o que manda. Confira antes:
+
+```bash
+docker run --rm -v controlefinanceiro_postgres_data:/v:ro alpine cat /v/PG_VERSION
+```
+
+Se bate com a imagem nova, não há o que fazer. Se não bate, escolha um:
+
+```bash
+# A) O volume é descartável (dev, ou instalação sem dado que importe)
+docker compose down
+docker volume rm controlefinanceiro_postgres_data
+docker compose up -d                       # o banco nasce de novo, na versão nova
+
+# B) Tem dado a preservar — dump na versão ANTIGA, restore na nova
+docker compose exec -T db pg_dumpall -U "$POSTGRES_USER" > /tmp/antes.sql
+docker compose down
+docker volume rm controlefinanceiro_postgres_data
+docker compose up -d db                    # espere ficar healthy
+docker compose exec -T db psql -U "$POSTGRES_USER" -d postgres < /tmp/antes.sql
+docker compose up -d
+```
+
+O dump tem de sair **antes** de trocar a imagem: o `pg_dumpall` da versão nova
+não lê um diretório de dados da antiga, que é justamente o problema.
+
 ---
 
 ## 8. Conferir que ficou de pé

@@ -13,8 +13,8 @@ env:
   # lugares; o gate `test_versao_de_plataforma.py` compara estes dois valores
   # com os Dockerfiles e com o `relock.sh`, para um PR que suba só a imagem
   # falhar dizendo o que falta em vez de passar entregando um ambiente misto.
-  PYTHON_VERSION: '3.12'
-  NODE_VERSION: '22'
+  PYTHON_VERSION: '3.14'
+  NODE_VERSION: '26'
 
 jobs:
   backend:
@@ -77,7 +77,7 @@ jobs:
     runs-on: ubuntu-latest
     services:
       postgres:
-        image: postgres:16-alpine
+        image: postgres:18-alpine
         env:
           POSTGRES_USER: cf4
           POSTGRES_PASSWORD: cf4
