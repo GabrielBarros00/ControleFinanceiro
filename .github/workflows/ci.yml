@@ -44,12 +44,18 @@ jobs:
       # `pip-tools` sai do requirements-dev.txt, onde está FIXADO, pela mesma
       # razão: instalado sem versão, ele próprio é uma fonte de vermelho
       # espontâneo.
+      #
+      # Quem reprova aqui quase sempre é um PR do Dependabot, que não sabe
+      # regenerar este lock (ver `.github/dependabot.yml`). Por isso a mensagem
+      # de erro aponta um comando exato em vez de dizer "rode pip-compile": as
+      # três coisas que precisam bater com este passo — Python 3.12, o pino do
+      # pip-tools e o in-place — não se acertam de memória.
       - name: Lock de dependências em dia
         run: |
           cd backend
           pip-compile --output-file=requirements.lock --strip-extras --quiet requirements.txt
           git diff --exit-code -- requirements.lock || {
-            echo "::error::requirements.lock desatualizado — regenere com pip-compile e commite"
+            echo "::error::requirements.lock desatualizado — rode 'scripts/relock.sh' na raiz do repositório e commite o resultado"
             exit 1
           }
       - name: Run tests (SQLite) + cobertura

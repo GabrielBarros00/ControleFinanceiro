@@ -1,6 +1,24 @@
 version: 2
 updates:
   # Dependências Python do backend
+  #
+  # AGRUPADAS de propósito, e o motivo é o `requirements.lock`: o Dependabot
+  # NÃO o enxerga. O ecossistema pip dele procura por `*.txt` e `*.in`, e o
+  # handler de pip-compile só é acionado a partir de um arquivo `.in` — aqui o
+  # par é `requirements.txt` -> `requirements.lock`, que não casa com nenhum dos
+  # dois. Resultado: ele mexe no `requirements.txt`, deixa o lock para trás e o
+  # gate "Lock de dependências em dia" reprova o PR por uma lacuna de
+  # ferramenta, não por um problema na atualização.
+  #
+  # Enquanto o layout for este, cada PR de pip precisa de um `pip-compile` à
+  # mão. Um grupo transforma cinco PRs vermelhos por semana em UM, e portanto
+  # cinco regenerações em uma — feita com `scripts/relock.sh`, que reproduz o
+  # ambiente do gate. De quebra some o atrito de ordem de merge: cinco PRs
+  # tocando o mesmo lock se atropelam, um só não.
+  #
+  # A saída definitiva é adotar o layout que o Dependabot sabe recompilar
+  # sozinho (`requirements.in` -> `requirements.txt`), e aí este grupo passa a
+  # ser só uma preferência de revisão.
   - package-ecosystem: "pip"
     directory: "/backend"
     schedule:
@@ -8,6 +26,10 @@ updates:
     open-pull-requests-limit: 5
     commit-message:
       prefix: "chore(deps)"
+    groups:
+      backend-python:
+        patterns:
+          - "*"
 
   # Dependências npm do frontend
   - package-ecosystem: "npm"
