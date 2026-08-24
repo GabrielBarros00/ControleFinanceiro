@@ -23,8 +23,30 @@
 # Roda em container para não depender do Python instalado na máquina: aqui o
 # desenvolvimento é no Windows e o CI é Linux.
 #
-# Uso:  scripts/relock.sh
+# Uso:  scripts/relock.sh [--upgrade]
+#
+# Sem argumento ele preserva as versões que já estão no compilado, e isso é
+# deliberado (item 3 acima). O efeito colateral é que uma TRANSITIVA nunca sobe
+# sozinha: o Dependabot só mexe no `requirements.in`, que lista as diretas, e a
+# compilação in-place mantém o resto congelado. Em 2026-08-24 havia seis
+# paradas para trás por esse motivo — `mako`, `greenlet`, `idna`, `cffi`,
+# `typing-inspection` e `argon2-cffi-bindings` — sem nada no projeto capaz de
+# movê-las.
+#
+# `--upgrade` resolve tudo de novo a partir do zero e sobe cada transitiva até
+# o teto que as diretas permitem. Use quando o `pip-audit` acusar CVE em
+# transitiva, ou de tempos em tempos para elas não apodrecerem. O diff é maior
+# e pede a suíte rodada, por isso não é o padrão.
 set -euo pipefail
+
+MODO_UPGRADE=""
+if [ "${1:-}" = "--upgrade" ]; then
+    MODO_UPGRADE="--upgrade"
+    echo "==> modo --upgrade: as transitivas sobem até o teto das diretas"
+elif [ -n "${1:-}" ]; then
+    echo "ERRO: argumento desconhecido '$1' (só existe --upgrade)" >&2
+    exit 1
+fi
 
 cd "$(dirname "$0")/.."
 
@@ -62,7 +84,7 @@ docker run --rm -v "$BACKEND_DIR:/w" -w /w "python:$PYTHON_VERSION" sh -c "
     set -e
     python -m pip install --upgrade pip -q --root-user-action=ignore
     pip install -q --root-user-action=ignore '$PIP_TOOLS_PIN'
-    pip-compile --output-file=requirements.txt --strip-extras --quiet requirements.in
+    pip-compile $MODO_UPGRADE --output-file=requirements.txt --strip-extras --quiet requirements.in
 "
 
 echo "==> pronto. Diff:"
