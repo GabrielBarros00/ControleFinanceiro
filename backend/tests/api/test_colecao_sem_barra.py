@@ -9,10 +9,10 @@ criar workspace e listar e criar lançamento, tinham ficado de fora.
 O teste é uma VARREDURA e não uma lista: a coleção que nascer amanhã já entra.
 """
 import pytest
-from fastapi.routing import APIRoute
 from fastapi.testclient import TestClient
 
 from app.main import app
+from tests.support.rotas import rotas_da_api
 
 client = TestClient(app)
 
@@ -20,9 +20,7 @@ client = TestClient(app)
 def _formas_por_rota():
     """(método, caminho-base) → formas registradas (com e/ou sem barra)."""
     formas = {}
-    for rota in app.routes:
-        if not isinstance(rota, APIRoute):
-            continue
+    for rota in rotas_da_api():
         caminho = rota.path
         com_barra = caminho.endswith("/") and len(caminho) > 1
         base = caminho[:-1] if com_barra else caminho

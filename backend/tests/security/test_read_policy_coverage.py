@@ -16,9 +16,7 @@ de reabrir um problema já resolvido.
 import inspect
 import re
 
-from fastapi.routing import APIRoute
-
-from app.main import app
+from tests.support.rotas import rotas_da_api
 
 # Símbolos que contam como "esta rota consultou a política"
 _SIMBOLOS_DE_POLITICA = (
@@ -66,9 +64,7 @@ _DISPENSADAS = {
 
 
 def _rotas_de_leitura():
-    for rota in app.routes:
-        if not isinstance(rota, APIRoute):
-            continue
+    for rota in rotas_da_api():
         if "GET" not in rota.methods or "{workspace_id}" not in rota.path:
             continue
         yield rota

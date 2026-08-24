@@ -17,7 +17,7 @@ VÁLIDO segundo o schema, com UM campo numérico levado ao extremo por vez: é a
 from typing import Any, Dict
 
 import pytest
-from fastapi.routing import APIRoute
+from fastapi.routing import RouteContext
 from fastapi.testclient import TestClient
 
 from app.core.jwt import create_access_token
@@ -26,6 +26,7 @@ from app.models.user import User
 from app.models.workspace import (
     FinancialAccess, Workspace, WorkspaceMembership, WorkspaceRole,
 )
+from tests.support.rotas import rotas_da_api
 
 cliente = TestClient(app, raise_server_exceptions=False)
 
@@ -70,7 +71,7 @@ def _valor_valido(prop: Dict[str, Any], spec: Dict[str, Any]) -> Any:
     return "ok"
 
 
-def _corpo_base(rota: APIRoute, spec: Dict[str, Any]):
+def _corpo_base(rota: RouteContext, spec: Dict[str, Any]):
     """Corpo mínimo VÁLIDO segundo o schema, e a lista de campos numéricos."""
     caminho = spec["paths"].get(rota.path)
     if not caminho:
@@ -142,9 +143,7 @@ def test_nenhuma_rota_de_escrita_responde_500(ator):
     }
 
     quebrou, chamadas, com_corpo = [], 0, 0
-    for rota in app.routes:
-        if not isinstance(rota, APIRoute):
-            continue
+    for rota in rotas_da_api():
         metodos = rota.methods & {"POST", "PUT", "PATCH"}
         if not metodos:
             continue
