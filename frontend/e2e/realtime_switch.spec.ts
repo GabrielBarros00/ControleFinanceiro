@@ -95,13 +95,24 @@ test.describe('Troca de workspace: janela do handshake', () => {
       ws.connectToServer();
     });
 
-    await pageB.goto('/');
-    await expect(pageB.getByRole('heading', { name: /Seu mês|Painel/ })).toBeVisible();
-    // Pré-condição: B está no próprio workspace, com socket aberto
-    await pageB.waitForEvent('websocket', {
+    // Pré-condição: B está no próprio workspace, com socket aberto.
+    //
+    // A promessa é criada ANTES do `goto`, e essa ordem é o teste inteiro:
+    // `waitForEvent` só enxerga o que acontecer DEPOIS de ele ser chamado. Com
+    // a chamada abaixo do `expect` do heading, o socket de B abria durante
+    // aquele await e o evento passava despercebido — o teste então esperava
+    // 20 s por algo que já tinha acontecido e falhava. Era intermitente porque
+    // dependia de quem ganhasse a corrida, e no runner Windows do CI ele
+    // perdia com frequência (reprovou cinco vezes nesta série de PRs, sempre
+    // aqui). `realtime.spec.ts` já fazia certo.
+    const socketDeB = pageB.waitForEvent('websocket', {
       predicate: (w) => w.url().includes(`/ws/workspaces/${wsB.id}`),
       timeout: 20_000,
     });
+
+    await pageB.goto('/');
+    await expect(pageB.getByRole('heading', { name: /Seu mês|Painel/ })).toBeVisible();
+    await socketDeB;
 
     // Troca pelo switcher do sidebar
     // Ver a nota em realtime.spec.ts: o botão traz o nome do espaço.

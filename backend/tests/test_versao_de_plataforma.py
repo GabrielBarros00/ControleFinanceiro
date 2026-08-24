@@ -24,6 +24,8 @@ DOCKERFILE_BACKEND = ROOT / "backend" / "Dockerfile"
 DOCKERFILE_FRONTEND = ROOT / "frontend" / "Dockerfile"
 RELOCK = ROOT / "scripts" / "relock.sh"
 COMPILADO = ROOT / "backend" / "requirements.txt"
+REQ_DEV = ROOT / "backend" / "requirements-dev.txt"
+PRE_COMMIT = ROOT / ".pre-commit-config.yaml"
 
 
 def _do_ci(chave: str) -> str:
@@ -67,6 +69,83 @@ def test_node_e_o_mesmo_no_ci_e_no_dockerfile():
         f"  frontend/Dockerfile (FROM node:):            {imagem.group(1)}\n\n"
         "O build do frontend roda nos dois; versões diferentes significam que o "
         "bundle testado não é o bundle publicado."
+    )
+
+
+def test_ruff_do_pre_commit_e_o_mesmo_do_ci():
+    """O hook e o CI têm de rodar a MESMA versão de ruff.
+
+    Estavam separados por oito majors — `rev: v0.8.4` no hook contra
+    `ruff==0.16.4` no CI. Duas versões de ruff são dois conjuntos de regras: o
+    hook aprovava o que o CI reprovava, e o desenvolvedor descobria no PR o que
+    deveria ter descoberto no commit. Ficou assim porque nada vigiava o
+    `.pre-commit-config.yaml` — não havia ecossistema `pre-commit` no
+    Dependabot.
+    """
+    do_ci = re.search(r"^ruff==(\S+)", REQ_DEV.read_text(encoding="utf-8"), re.M)
+    assert do_ci, "não achei o pino do ruff em backend/requirements-dev.txt"
+
+    texto = PRE_COMMIT.read_text(encoding="utf-8")
+    do_hook = re.search(r"ruff-pre-commit\s*\n\s*rev:\s*v?(\S+)", texto)
+    assert do_hook, "não achei a rev do ruff-pre-commit em .pre-commit-config.yaml"
+
+    assert do_ci.group(1) == do_hook.group(1), (
+        "a versão do ruff divergiu entre o hook e o CI:\n"
+        f"  backend/requirements-dev.txt: {do_ci.group(1)}\n"
+        f"  .pre-commit-config.yaml:      {do_hook.group(1)}\n\n"
+        "Suba as duas juntas — versões diferentes de ruff aplicam regras "
+        "diferentes, e o hook passa a discordar do CI."
+    )
+
+
+def test_pre_commit_nao_formata_enquanto_o_ci_nao_checa():
+    """Formatação é tudo ou nada, e hoje é nada.
+
+    O CI não roda `ruff format --check` porque o backend nunca foi formatado.
+    Com um hook de formatação ativo, cada commit reformata os arquivos que
+    tocar — o repositório vai sendo formatado em pedaços, dentro de commits que
+    falam de outra coisa, que é o oposto do "commit isolado" que a nota do CI
+    pede.
+
+    Se um dia o `ruff format --check` entrar no CI, este teste sai junto com a
+    volta do hook. Os dois na mesma mudança.
+    """
+    texto = PRE_COMMIT.read_text(encoding="utf-8")
+    assert not re.search(r"^\s*-\s*id:\s*ruff-format\s*$", texto, re.M), (
+        "`ruff-format` voltou ao .pre-commit-config.yaml, mas o CI continua sem "
+        "`ruff format --check`. Ou entram os dois na mesma mudança — junto com o "
+        "commit que formata o backend inteiro — ou nenhum dos dois."
+    )
+
+
+def test_nenhum_pip_install_sem_versao_no_ci():
+    """`pip install X` sem `==` no CI é vermelho esperando acontecer.
+
+    Já aconteceu uma vez, e está contado em `requirements-dev.txt`: o passo
+    `python -m pip install --upgrade pip`, sem pino, trouxe o pip 26, que
+    removeu um interno privado que o pip-tools importa — o `pip-compile` do
+    gate seguinte passou a morrer em 0,3 s sem ninguém ter tocado em
+    dependência alguma. Fixar as ferramentas e deixar o pip solto era proteger
+    a porta e deixar a janela aberta.
+
+    Instalar a partir de um arquivo (`-r`) está liberado: lá dentro tudo já é
+    `==`, e é o que este teste protege indiretamente.
+    """
+    solto = []
+    for linha in CI.read_text(encoding="utf-8").splitlines():
+        nu = linha.strip()
+        if nu.startswith("#") or "pip install" not in nu:
+            continue
+        alvo = nu.split("pip install", 1)[1]
+        if " -r " in alvo or alvo.strip().startswith("-r"):
+            continue
+        pacotes = [p for p in alvo.split() if p and not p.startswith("-")]
+        if any("==" not in p for p in pacotes):
+            solto.append(nu)
+
+    assert not solto, (
+        "instalação sem versão fixada no ci.yml:\n  " + "\n  ".join(solto)
+        + "\n\nFixe com `==`, ou traga o pacote do requirements-dev.txt."
     )
 
 

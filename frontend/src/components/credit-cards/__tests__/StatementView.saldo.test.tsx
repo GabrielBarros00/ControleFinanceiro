@@ -27,7 +27,10 @@ const FATURA_PARCIAL = {
   remaining_amount: '700.00',
   payments: [{ id: 1, amount: '300.00', paid_at: '2026-07-28T12:00:00', account_id: null, note: null }],
   closed_at: '2026-07-25T00:00:00',
-  paid_at: null,
+  // Anotado porque `typeof FATURA_PARCIAL` é o tipo de `detalhe`, e este arquivo
+  // testa justamente a fatura JÁ paga: sem isto o TS infere o literal `null` e
+  // recusa a data no fixture de baixo.
+  paid_at: null as string | null,
   created_at: '2026-07-01T00:00:00',
   updated_at: '2026-07-28T00:00:00',
   transactions: [],

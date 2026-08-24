@@ -113,9 +113,13 @@ frontend-audit:
 # conforme o make (`C:/...` no mingw32-make, `/c/...` sob MSYS) — um alvo que
 # funciona na máquina de quem o escreveu e falha na do vizinho. Sem montagem não
 # há caminho a converter, e a linha vale igual em `cmd.exe` e em `sh`.
+# O pino sai do requirements-dev.txt para não virar um segundo lugar onde a
+# versão mora — mesma regra do pip-tools no scripts/relock.sh.
+PIP_AUDIT_PIN = $(shell grep -E '^pip-audit==' backend/requirements-dev.txt)
+
 ifeq ($(OS),Windows_NT)
 PIP_AUDIT_CMD = docker run --rm -i python:3.12-slim \
-		sh -c "pip install -q pip-audit && cat > /tmp/lock.txt && pip-audit -r /tmp/lock.txt --strict" \
+		sh -c "pip install -q $(PIP_AUDIT_PIN) && cat > /tmp/lock.txt && pip-audit -r /tmp/lock.txt --strict" \
 		< backend/requirements.txt
 else
 PIP_AUDIT_CMD = $(VENV_BIN)/pip-audit -r backend/requirements.txt --strict

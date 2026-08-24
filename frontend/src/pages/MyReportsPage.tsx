@@ -202,7 +202,7 @@ export function MyReportsPage() {
                   tickFormatter={(v) => formatCompact(v, moeda)}
                 />
                 <Tooltip
-                  formatter={(v: number) => formatMoney(v, { currency: moeda })}
+                  formatter={(v) => formatMoney(Number(v), { currency: moeda })}
                   contentStyle={{
                     backgroundColor: chart.tooltipBg,
                     border: `1px solid ${chart.tooltipBorder}`,
@@ -251,7 +251,7 @@ export function MyReportsPage() {
                   tickFormatter={(v) => formatCompact(v, moeda)}
                 />
                 <Tooltip
-                  formatter={(v: number) => formatMoney(v, { currency: moeda })}
+                  formatter={(v) => formatMoney(Number(v), { currency: moeda })}
                   contentStyle={{
                     backgroundColor: chart.tooltipBg,
                     border: `1px solid ${chart.tooltipBorder}`,

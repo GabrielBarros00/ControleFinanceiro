@@ -38,3 +38,10 @@ ruff==0.16.4
 # subir o pip-tools para a versão que restaurou a compatibilidade. Só considere
 # pinar o pip no workflow se o conserto demorar a sair.
 pip-tools==7.6.1
+
+# Roda o gate "Audit dependencies (pip)" do CI e o alvo `backend-audit` do
+# Makefile. FIXADO pela mesma razão do pip-tools: solto, uma release que mude a
+# saída, a base de advisories consultada ou o código de saída reprova o CI sem
+# uma linha de código ter mudado. Estava sendo instalado com `pip install
+# pip-audit` direto no workflow, sem versão.
+pip-audit==2.10.1

@@ -1,13 +1,20 @@
 services:
   db:
-    image: postgres:16-alpine
+    image: postgres:18-alpine
     restart: unless-stopped
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-cf4}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?defina POSTGRES_PASSWORD no .env}
       POSTGRES_DB: ${POSTGRES_DB:-controle_financeiro}
     volumes:
-      - postgres_data:/var/lib/postgresql/data
+      # `/var/lib/postgresql`, NÃO `/var/lib/postgresql/data`. O ponto de
+      # montagem mudou no Postgres 18: a imagem passou a guardar os dados num
+      # subdiretório versionado e recusa-se a subir se o volume for montado no
+      # caminho antigo, saindo com código 1 antes de qualquer healthcheck —
+      # "The suggested container configuration for 18+ is to place a single
+      # mount at /var/lib/postgresql". O motivo é permitir `pg_upgrade --link`
+      # sem cruzar fronteira de mount.
+      - postgres_data:/var/lib/postgresql
     healthcheck:
       # `-h 127.0.0.1` NÃO é enfeite: sem ele este healthcheck dá verde ANTES de
       # o banco existir, e o deploy novo falha.
@@ -241,6 +248,14 @@ services:
   # O Tunnel alcança a porta interna 8080 do nginx pela rede dedicada. O nginx
   # só confia em CF-Connecting-IP quando o peer é o IP fixo deste container.
   cloudflared:
+    # A ÚNICA imagem sem versão fixada no projeto, e é de propósito. Todas as
+    # outras foram pinadas em 2026-08-24; esta ficou porque o cloudflared não é
+    # uma dependência do app, é o cliente de um serviço remoto: a Cloudflare
+    # deprecia versões antigas do túnel, e um cliente velho perde a conexão com
+    # a edge — o app fica inalcançável sem nada no stack parecer errado.
+    #
+    # `pull_policy: always` é o que fecha o par: sem ele, `:latest` seria só a
+    # imagem que por acaso está no disco, o pior dos dois mundos.
     image: cloudflare/cloudflared:latest
     # `--no-autoupdate` evita que o processo altere a própria imagem; o update
     # acontece de forma reproduzível no `docker compose up`, puxando antes de
@@ -261,7 +276,7 @@ services:
   # Ferramenta de administração do banco — apenas em desenvolvimento
   # (docker compose --profile dev up)
   pgadmin:
-    image: dpage/pgadmin4
+    image: dpage/pgadmin4:9.17
     profiles: ["dev"]
     restart: unless-stopped
     environment:
