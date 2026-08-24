@@ -85,8 +85,17 @@ updates:
   # sistema operacional debaixo delas — uma CVE em openssl na imagem base não
   # aparecia em gate nenhum, e isto está em produção.
   #
-  # Só minor/patch: subir a major da imagem base (Python 3.12 -> 3.13, Node 22
-  # -> 24) é decisão de plataforma e não deve chegar como PR automático.
+  # Major é IGNORADO, e o `ignore` é a única coisa que faz isso. `update-types`
+  # dentro de `groups` só decide o que entra no MESMO PR — o que fica de fora
+  # continua virando PR individual. A primeira versão desta config tinha só o
+  # `update-types` e prometia no comentário que major não chegaria sozinho;
+  # chegaram três no mesmo dia: Python 3.12 -> 3.14 (#54), Node 22 -> 26 (#55)
+  # e Postgres 16 -> 18 (#53).
+  #
+  # E não é preferência de revisão: o Python da imagem tem que casar com o
+  # `scripts/relock.sh` e com o `setup-python` do CI, os três fixados em 3.12.
+  # Um PR que sobe só o Dockerfile passa no CI (que continua em 3.12) e entrega
+  # em produção uma imagem cujo compilado foi resolvido para outro Python.
   - package-ecosystem: "docker"
     directories:
       - "/backend"
@@ -96,13 +105,14 @@ updates:
     open-pull-requests-limit: 5
     commit-message:
       prefix: "chore(docker)"
+    ignore:
+      - dependency-name: "*"
+        update-types:
+          - "version-update:semver-major"
     groups:
       docker-images:
         patterns:
           - "*"
-        update-types:
-          - "minor"
-          - "patch"
 
   # Imagens do docker-compose
   #
@@ -115,7 +125,11 @@ updates:
   # para comparar; o Dependabot os ignora sozinho, e é por isso que não estão
   # numa lista de exceção aqui.
   #
-  # Major fora: Postgres 16 -> 17 exige migração de dados, não é merge de PR.
+  # Major IGNORADO, mesmo motivo do bloco acima — e aqui o risco é maior: subir
+  # o major do Postgres troca o formato do diretório de dados. O volume
+  # `controlefinanceiro_postgres_data` que existe hoje foi inicializado pelo 16;
+  # um container 18 apontado para ele não migra nada, ele se recusa a subir. É
+  # `pg_dump`/`pg_restore`, não merge de PR.
   - package-ecosystem: "docker-compose"
     directory: "/"
     schedule:
@@ -123,10 +137,11 @@ updates:
     open-pull-requests-limit: 5
     commit-message:
       prefix: "chore(docker)"
+    ignore:
+      - dependency-name: "*"
+        update-types:
+          - "version-update:semver-major"
     groups:
       compose-images:
         patterns:
           - "*"
-        update-types:
-          - "minor"
-          - "patch"
