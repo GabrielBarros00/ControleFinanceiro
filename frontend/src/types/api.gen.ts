@@ -2118,12 +2118,18 @@ export interface paths {
         put?: never;
         /**
          * Test Email
-         * @description Dispara um e-mail de teste e devolve o erro NA TELA.
+         * @description Dispara um e-mail de teste sob demanda e diz SE saiu — o porquê fica no log.
          *
-         *     Até aqui, descobrir que o SMTP estava mal configurado exigia provocar um
-         *     convite de verdade e ler `docker compose logs backend` — quem não tem acesso
-         *     ao host simplesmente não descobria, e o sintoma era "o convite não chegou",
-         *     indistinguível de spam.
+         *     O ganho sobre o que existia antes é poder provocar a falha na hora, e saber
+         *     se ela é de SMTP ou da aplicação, sem precisar criar um convite de verdade e
+         *     esperar para descobrir que ele não chegou (sintoma indistinguível de spam).
+         *
+         *     O que NÃO volta na resposta é o texto da exceção. A versão original desta
+         *     rota devolvia `str(exc)` na tela, e o custo dessa conveniência era um
+         *     `except Exception` que ecoava também o `str()` de qualquer defeito interno —
+         *     caminho de arquivo, nome de módulo, o que estivesse na mensagem. Hoje o
+         *     `detalhe` é sempre uma constante deste arquivo, e o diagnóstico inteiro sai
+         *     pelo log, nos eventos `teste_de_email_falhou` e `teste_de_email_quebrou`.
          */
         post: operations["test_email_api_v1_admin_settings_test_email_post"];
         delete?: never;

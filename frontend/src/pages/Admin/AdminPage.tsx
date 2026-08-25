@@ -577,10 +577,12 @@ function Configuracoes() {
         setResultadoDoTeste({ ok: false, texto: r.detalhe ?? 'SMTP não configurado.' });
         toast.warning('SMTP não configurado.');
       } else {
-        // O diagnóstico fica na TELA, não só no toast: a mensagem que interessa
-        // ("nenhuma porta respondeu…") tem três linhas e some antes de ser lida.
+        // Painel fixo e não toast: o `detalhe` diz em que EVENTO do log do
+        // backend está o motivo (o texto da exceção não volta na resposta, por
+        // decisão de segurança), e uma chave de grep some antes de ser copiada
+        // se aparecer num toast de cinco segundos.
         setResultadoDoTeste({ ok: false, texto: r.detalhe ?? 'Falha sem detalhe.' });
-        toast.error('Falhou — o motivo está abaixo do botão.');
+        toast.error('Falhou — abaixo do botão está onde achar o motivo.');
       }
     } catch (err) {
       setResultadoDoTeste({ ok: false, texto: getApiErrorMessage(err) });

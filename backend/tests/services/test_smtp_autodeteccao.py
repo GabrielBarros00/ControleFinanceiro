@@ -179,11 +179,22 @@ def test_credencial_recusada_nao_e_repetida_em_outras_portas(monta):
     """
     servidor = monta({25, 465, 587, 2465, 2525, 2587}, credencial_invalida=True)
 
-    with pytest.raises(smtplib.SMTPAuthenticationError):
+    with pytest.raises(smtp_transport.RecusadoPeloServidor) as erro:
         envia(raise_on_error=True)
 
     assert len(servidor.logins) == 1, f"tentou logar {len(servidor.logins)}x"
     assert servidor.entregues == []
+
+    # `ErroDeEnvio`, não `SMTPAuthenticationError` crua: é o contrato de
+    # `entrega()`. Sem ele, senha errada — o caso nº 1 em produção — chega ao
+    # chamador indistinguível de um bug da aplicação, e a tela de Admin manda o
+    # operador procurar defeito em vez de conferir a credencial.
+    assert isinstance(erro.value, smtp_transport.ErroDeEnvio)
+    assert isinstance(erro.value.__cause__, smtplib.SMTPAuthenticationError)
+    # E a resposta LITERAL do servidor sobrevive ao envelope. Ela não vai para a
+    # tela (é o log que a recebe), mas se sumir aqui não chega a lugar nenhum —
+    # e sem o "535 Invalid API key" não há o que fazer com a informação.
+    assert "535" in str(erro.value) and "Invalid API key" in str(erro.value)
 
 
 def test_queda_depois_do_envio_nao_reenvia_por_outra_porta(monta):

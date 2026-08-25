@@ -84,6 +84,22 @@ class EntregaIncerta(ErroDeEnvio):
     """
 
 
+class RecusadoPeloServidor(ErroDeEnvio):
+    """O SMTP respondeu, e respondeu "não": senha, remetente ou destinatário.
+
+    Estas são as falhas mais comuns em produção e as mais fáceis de corrigir —
+    "535 Username and Password not accepted" diz exatamente o que fazer. Mas
+    `smtplib` as levanta como `SMTPException` crua, e crua elas escapavam de
+    `entrega()` sem passar por `ErroDeEnvio`, indistinguíveis de um defeito da
+    aplicação para quem chama.
+
+    Não é distinção acadêmica: a tela de Admin CLASSIFICA a falha ("problema de
+    SMTP" × "erro interno da aplicação") e o log escolhe o nível por ela. Sem
+    este envelope, senha errada — o caso nº 1 — apareceria como defeito interno,
+    mandando o operador procurar bug em vez de conferir a credencial.
+    """
+
+
 class _RotaImprestavel(Exception):
     """Interno: este endpoint não serve, o próximo candidato ainda pode servir."""
 
@@ -317,7 +333,24 @@ def entrega(msg: EmailMessage, *, redescobrir: bool = False) -> Endpoint:
     tela de Admin. Quem clica nele acabou de mexer no firewall ou no provedor e
     quer a resposta de agora — não a rota memorizada, nem a espera do último
     fracasso.
+
+    CONTRATO: o que sai daqui é um `Endpoint` ou um `ErroDeEnvio` — nunca uma
+    exceção crua do `smtplib`. É o que deixa o chamador separar "o e-mail não
+    saiu" de "a aplicação quebrou" com um `except`, em vez de por adivinhação
+    sobre o tipo (ver `RecusadoPeloServidor`).
     """
+    try:
+        return _roteia(msg, redescobrir=redescobrir)
+    except ErroDeEnvio:
+        raise
+    except smtplib.SMTPException as exc:
+        # Resposta do servidor. `_e_falha_de_rota` já as separou das falhas de
+        # rede lá embaixo, para não repetir em cinco portas; aqui elas só ganham
+        # o envelope que o contrato exige.
+        raise RecusadoPeloServidor(f"o servidor de e-mail recusou: {exc}") from exc
+
+
+def _roteia(msg: EmailMessage, *, redescobrir: bool = False) -> Endpoint:
     assinatura = _assinatura()
 
     if not redescobrir:

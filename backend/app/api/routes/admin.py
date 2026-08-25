@@ -49,6 +49,7 @@ from app.services import admin_metrics, app_settings, registration_service
 from app.services.audit_service import AuditService
 from app.services import email_templates
 from app.services.email_service import EmailService
+from app.services.smtp_transport import ErroDeEnvio
 
 logger = structlog.get_logger("app.admin")
 
@@ -536,12 +537,18 @@ def test_email(
     dados: TestEmail,
     _: User = AdminDep,
 ) -> Dict[str, Any]:
-    """Dispara um e-mail de teste e devolve o erro NA TELA.
+    """Dispara um e-mail de teste sob demanda e diz SE saiu — o porquê fica no log.
 
-    Até aqui, descobrir que o SMTP estava mal configurado exigia provocar um
-    convite de verdade e ler `docker compose logs backend` — quem não tem acesso
-    ao host simplesmente não descobria, e o sintoma era "o convite não chegou",
-    indistinguível de spam.
+    O ganho sobre o que existia antes é poder provocar a falha na hora, e saber
+    se ela é de SMTP ou da aplicação, sem precisar criar um convite de verdade e
+    esperar para descobrir que ele não chegou (sintoma indistinguível de spam).
+
+    O que NÃO volta na resposta é o texto da exceção. A versão original desta
+    rota devolvia `str(exc)` na tela, e o custo dessa conveniência era um
+    `except Exception` que ecoava também o `str()` de qualquer defeito interno —
+    caminho de arquivo, nome de módulo, o que estivesse na mensagem. Hoje o
+    `detalhe` é sempre uma constante deste arquivo, e o diagnóstico inteiro sai
+    pelo log, nos eventos `teste_de_email_falhou` e `teste_de_email_quebrou`.
     """
     if not settings.SMTP_HOST:
         return {
@@ -572,10 +579,40 @@ def test_email(
             "detalhe": None,
             "rota": str(rota) if rota else None,
         }
-    except Exception as exc:
-        detalhe = str(exc) or exc.__class__.__name__
-        logger.warning("teste_de_email_falhou", erro=detalhe)
-        return {"enviado": False, "configurado": True, "detalhe": detalhe, "rota": None}
+    # NENHUM texto de exceção sai na resposta — nem o do SMTP, nem o nosso. É
+    # uma decisão de segurança tomada de olhos abertos, e o custo é conhecido:
+    # este botão nasceu (ADR 0026) para poupar quem não tem acesso ao host de
+    # ter de ler `docker compose logs backend`, e mandá-lo de volta ao log é
+    # devolver parte desse problema.
+    #
+    # O que compra em troca é uma resposta que não depende de julgamento sobre
+    # qual mensagem é "segura o bastante": o `detalhe` é sempre uma constante
+    # deste arquivo. `str(exc)` de uma falha de SMTP costuma ser inofensivo,
+    # mas ele carrega o que o servidor remoto quis pôr nele — e o servidor
+    # remoto é quem está sendo diagnosticado.
+    #
+    # O diagnóstico não some, muda de lugar: vai INTEIRO para o log, com chave
+    # de evento estável para ser encontrado com grep.
+    except ErroDeEnvio as exc:
+        # Falha de envio esperada: SMTP recusou, não respondeu, não resolveu.
+        # `warning`, não `exception` — não é defeito, e não deve acordar
+        # ninguém olhando o log de erro.
+        logger.warning("teste_de_email_falhou", erro=str(exc) or exc.__class__.__name__)
+        detalhe = (
+            "não foi possível enviar o e-mail de teste. O motivo exato está no log do "
+            "backend, no evento `teste_de_email_falhou`."
+        )
+    except Exception:
+        # Defeito NOSSO, não configuração de SMTP. A distinção fica na tela de
+        # propósito: sem ela o operador vai mexer em host, porta e senha para
+        # perseguir um TypeError. É uma categoria, não conteúdo da exceção.
+        logger.exception("teste_de_email_quebrou")
+        detalhe = (
+            "o teste falhou por um erro interno da aplicação, não por configuração de "
+            "SMTP. O traceback está no log do backend, no evento "
+            "`teste_de_email_quebrou`."
+        )
+    return {"enviado": False, "configurado": True, "detalhe": detalhe, "rota": None}
 
 
 # --------------------------------------------------------------------------
