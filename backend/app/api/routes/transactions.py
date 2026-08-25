@@ -1148,7 +1148,13 @@ def _get_group_anchor(
 
 # "Compra (3/12)" → "Compra": o sufixo de parcela é derivado, não faz parte do
 # título base que o usuário edita.
-_INSTALLMENT_SUFFIX_RE = re.compile(r"\s*\(\d+/\d+\)\s*$")
+#
+# SEM `\s*` na frente de propósito. Com ele, o espaço antes do parêntese vira o
+# primeiro token do padrão, e aí toda posição da string é um começo possível: o
+# motor consome os espaços, esbarra no `\(` e recua — O(n²) num título que seja
+# só espaço em branco. O `.strip()` abaixo já tira esse espaço, então o prefixo
+# não fazia trabalho nenhum além do de dar o que retroceder.
+_INSTALLMENT_SUFFIX_RE = re.compile(r"\(\d+/\d+\)\s*$")
 
 
 def _strip_installment_suffix(title: str) -> str:

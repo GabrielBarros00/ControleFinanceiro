@@ -6,6 +6,18 @@ on:
   pull_request:
     branches: [ main, master ]
 
+# GITHUB_TOKEN mínimo, no topo, valendo para TODOS os jobs. Sem este bloco o
+# token herda o padrão da organização — que pode ser `write-all` — e cada job
+# daqui passa a poder escrever no repositório sem precisar. O que estes jobs
+# fazem é clonar, instalar e rodar teste; nenhum abre PR, publica release ou
+# comenta. `upload-artifact` e o cache do `setup-node` não usam o GITHUB_TOKEN
+# (vão pelo token de runtime), então não pedem nada além disto.
+#
+# O risco concreto não é o workflow atual: é uma dependência de build ou uma
+# ação de terceiro comprometida rodando com um token que pode dar push.
+permissions:
+  contents: read
+
 env:
   SECRET_KEY: ci-secret-key-only-for-tests-0123456789abcdef
   DATABASE_URL: sqlite:///./ci.db

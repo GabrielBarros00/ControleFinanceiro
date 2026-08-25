@@ -49,6 +49,7 @@ from app.services import admin_metrics, app_settings, registration_service
 from app.services.audit_service import AuditService
 from app.services import email_templates
 from app.services.email_service import EmailService
+from app.services.smtp_transport import ErroDeEnvio
 
 logger = structlog.get_logger("app.admin")
 
@@ -572,10 +573,24 @@ def test_email(
             "detalhe": None,
             "rota": str(rota) if rota else None,
         }
-    except Exception as exc:
+    except ErroDeEnvio as exc:
+        # `ErroDeEnvio` é, por definição, "falha de envio já traduzida para quem
+        # vai ler na tela de Admin": o texto foi escrito no smtp_transport para
+        # ser mostrado, e é o que responde a pergunta do botão — "535 Username
+        # and Password not accepted", "nenhuma porta respondeu a partir deste
+        # servidor". Sai inteiro.
         detalhe = str(exc) or exc.__class__.__name__
         logger.warning("teste_de_email_falhou", erro=detalhe)
-        return {"enviado": False, "configurado": True, "detalhe": detalhe, "rota": None}
+    except Exception as exc:
+        # Aqui NÃO é falha de SMTP, é defeito nosso — um TypeError, um
+        # atributo que sumiu. O `str()` dessas carrega caminho de arquivo e
+        # nome de interno, e ecoar isso na tela transforma um diagnóstico de
+        # e-mail em vazamento de detalhe de implementação. O texto completo, com
+        # traceback, vai para o log; a tela recebe só a classe, que basta para
+        # distinguir "meu SMTP está errado" de "isto quebrou".
+        logger.exception("teste_de_email_quebrou")
+        detalhe = f"erro inesperado ({exc.__class__.__name__}) — veja o log do backend"
+    return {"enviado": False, "configurado": True, "detalhe": detalhe, "rota": None}
 
 
 # --------------------------------------------------------------------------

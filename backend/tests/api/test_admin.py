@@ -571,3 +571,58 @@ def test_teste_de_email_devolve_o_diagnostico_da_falha(elenco, monkeypatch):
     corpo = resp.json()
     assert corpo["enviado"] is False and corpo["configurado"] is True
     assert "2587" in corpo["detalhe"], corpo["detalhe"]
+
+
+def test_teste_de_email_mostra_a_recusa_literal_do_servidor(elenco, monkeypatch):
+    """Senha recusada é a falha nº 1 em produção, e a resposta do servidor DIZ o que fazer.
+
+    Ela chega aqui como `smtplib.SMTPAuthenticationError` crua; é `entrega()`
+    que a envelopa em `ErroDeEnvio` para esta tela poder mostrá-la sem abrir a
+    porta do `except Exception` (ver o teste seguinte).
+    """
+    monkeypatch.setattr("app.core.config.settings.SMTP_HOST", "smtp.exemplo.com")
+
+    def recusa(*a, **kw):
+        raise smtp_transport.RecusadoPeloServidor(
+            "o servidor de e-mail recusou: (535, b'5.7.8 Username and Password not accepted')"
+        )
+
+    monkeypatch.setattr("app.services.email_service.EmailService.send", recusa)
+
+    resp = client.post(
+        "/api/v1/admin/settings/test-email",
+        json={"para": "eu@example.com"},
+        headers=_headers(elenco["admin"]),
+    )
+    corpo = resp.json()
+    assert corpo["enviado"] is False and corpo["configurado"] is True
+    assert "535" in corpo["detalhe"] and "Password not accepted" in corpo["detalhe"], corpo
+
+
+def test_teste_de_email_nao_ecoa_defeito_interno_na_tela(elenco, monkeypatch):
+    """Defeito NOSSO não vira texto na tela — vira nome de classe e uma linha no log.
+
+    A tela existe para diagnosticar SMTP, e o preço de mostrar `str(exc)` era
+    ecoar também o `str()` de qualquer exceção que passasse por ali: caminho de
+    arquivo do container, nome de interno, valor de configuração na mensagem.
+    O alerta `py/stack-trace-exposure` do CodeQL é exatamente este caminho.
+    """
+    monkeypatch.setattr("app.core.config.settings.SMTP_HOST", "smtp.exemplo.com")
+
+    def quebra(*a, **kw):
+        raise RuntimeError("/srv/app/app/services/segredo.py: SMTP_PASSWORD=hunter2")
+
+    monkeypatch.setattr("app.services.email_service.EmailService.send", quebra)
+
+    resp = client.post(
+        "/api/v1/admin/settings/test-email",
+        json={"para": "eu@example.com"},
+        headers=_headers(elenco["admin"]),
+    )
+    assert resp.status_code == 200, "o botão responde, não estoura um 500"
+    corpo = resp.json()
+    assert corpo["enviado"] is False
+    detalhe = corpo["detalhe"]
+    assert "hunter2" not in detalhe and "/srv/app" not in detalhe, detalhe
+    # Mas ainda tem de ser distinguível de "meu SMTP está mal configurado".
+    assert "RuntimeError" in detalhe, detalhe
