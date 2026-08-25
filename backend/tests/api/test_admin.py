@@ -4,8 +4,11 @@ O que está sendo provado aqui não é "a rota responde 200" — é que ninguém
 papel chega perto dela, e que nenhuma sequência de PATCHes plausível deixa o
 sistema sem quem o administre.
 """
+import smtplib
+
 import pytest
 from fastapi.testclient import TestClient
+from structlog.testing import capture_logs
 
 from app.core.jwt import create_access_token
 from app.main import app
@@ -552,8 +555,21 @@ def test_teste_de_email_diz_por_qual_porta_o_envio_saiu(elenco, monkeypatch):
     assert "2587" in corpo["rota"]
 
 
-def test_teste_de_email_devolve_o_diagnostico_da_falha(elenco, monkeypatch):
-    """O erro chega à TELA. Antes, "timed out" só existia no log do container."""
+def _dispara_o_teste_de_email(elenco):
+    return client.post(
+        "/api/v1/admin/settings/test-email",
+        json={"para": "eu@example.com"},
+        headers=_headers(elenco["admin"]),
+    )
+
+
+def test_teste_de_email_manda_o_diagnostico_para_o_log_e_nao_para_a_tela(elenco, monkeypatch):
+    """O "2587" tem de existir — no LOG. Na resposta HTTP, não.
+
+    As duas metades são o teste: sem a primeira, "não expor" vira "não
+    diagnosticar" e o botão deixa de servir para o que foi feito; sem a segunda,
+    o texto volta à tela na primeira refatoração distraída.
+    """
     monkeypatch.setattr("app.core.config.settings.SMTP_HOST", "smtp.exemplo.com")
     monkeypatch.setattr("app.services.smtp_transport._resolve", lambda host: True)
     monkeypatch.setattr(
@@ -561,24 +577,31 @@ def test_teste_de_email_devolve_o_diagnostico_da_falha(elenco, monkeypatch):
     )
     smtp_transport.esquece_rota()
 
-    resp = client.post(
-        "/api/v1/admin/settings/test-email",
-        json={"para": "eu@example.com"},
-        headers=_headers(elenco["admin"]),
-    )
+    with capture_logs() as registros:
+        resp = _dispara_o_teste_de_email(elenco)
     smtp_transport.esquece_rota()
 
     corpo = resp.json()
     assert corpo["enviado"] is False and corpo["configurado"] is True
-    assert "2587" in corpo["detalhe"], corpo["detalhe"]
+
+    falhou = [r for r in registros if r["event"] == "teste_de_email_falhou"]
+    assert falhou, f"a falha não foi logada; eventos: {[r['event'] for r in registros]}"
+    assert "2587" in falhou[0]["erro"], falhou[0]
+
+    assert "2587" not in corpo["detalhe"], corpo["detalhe"]
+    assert "teste_de_email_falhou" in corpo["detalhe"], (
+        "a tela não diz ONDE procurar — mandar ao log sem a chave do evento é "
+        "mandar procurar agulha no palheiro"
+    )
 
 
-def test_teste_de_email_mostra_a_recusa_literal_do_servidor(elenco, monkeypatch):
-    """Senha recusada é a falha nº 1 em produção, e a resposta do servidor DIZ o que fazer.
+def test_teste_de_email_nao_devolve_a_recusa_literal_do_servidor(elenco, monkeypatch):
+    """Nem o "535" do servidor sai na resposta, por mais útil que ele seja.
 
-    Ela chega aqui como `smtplib.SMTPAuthenticationError` crua; é `entrega()`
-    que a envelopa em `ErroDeEnvio` para esta tela poder mostrá-la sem abrir a
-    porta do `except Exception` (ver o teste seguinte).
+    Este é o caso que mais dói na decisão de não expor — é a falha nº 1 em
+    produção e a resposta do servidor diz exatamente o que corrigir. Ainda
+    assim: o texto vem do servidor remoto, que é justamente o que está sendo
+    diagnosticado, e quem escolhe o que há nele não somos nós.
     """
     monkeypatch.setattr("app.core.config.settings.SMTP_HOST", "smtp.exemplo.com")
 
@@ -589,23 +612,38 @@ def test_teste_de_email_mostra_a_recusa_literal_do_servidor(elenco, monkeypatch)
 
     monkeypatch.setattr("app.services.email_service.EmailService.send", recusa)
 
-    resp = client.post(
-        "/api/v1/admin/settings/test-email",
-        json={"para": "eu@example.com"},
-        headers=_headers(elenco["admin"]),
-    )
+    with capture_logs() as registros:
+        resp = _dispara_o_teste_de_email(elenco)
+
     corpo = resp.json()
     assert corpo["enviado"] is False and corpo["configurado"] is True
-    assert "535" in corpo["detalhe"] and "Password not accepted" in corpo["detalhe"], corpo
+    assert "535" not in corpo["detalhe"], corpo["detalhe"]
+    assert "Password not accepted" not in corpo["detalhe"], corpo["detalhe"]
+
+    # E, no log, inteiro — incluindo o "535", que é o que resolve o problema.
+    falhou = [r for r in registros if r["event"] == "teste_de_email_falhou"]
+    assert falhou and "535" in falhou[0]["erro"], registros
+
+    # A tela não mostra o motivo, mas AFIRMA uma categoria — e afirmar errado é
+    # pior que não afirmar: mandaria caçar bug quem só precisa trocar a senha.
+    #
+    # A garantia é de dois elos, e nenhum deles sozinho: aqui, que um
+    # `ErroDeEnvio` nunca é reportado como defeito interno; e em
+    # `test_credencial_recusada_nao_e_repetida_em_outras_portas`, que `entrega()`
+    # de fato entrega a recusa do servidor como `ErroDeEnvio` (é lá que o
+    # `SMTPAuthenticationError` real aparece — este teste injeta a exceção já
+    # envelopada, e não provaria o envelope).
+    assert "erro interno" not in corpo["detalhe"], corpo["detalhe"]
+    assert "SMTP" in corpo["detalhe"] or "e-mail de teste" in corpo["detalhe"], corpo
 
 
 def test_teste_de_email_nao_ecoa_defeito_interno_na_tela(elenco, monkeypatch):
-    """Defeito NOSSO não vira texto na tela — vira nome de classe e uma linha no log.
+    """Defeito NOSSO não vira texto na tela — vira uma linha no log.
 
-    A tela existe para diagnosticar SMTP, e o preço de mostrar `str(exc)` era
-    ecoar também o `str()` de qualquer exceção que passasse por ali: caminho de
-    arquivo do container, nome de interno, valor de configuração na mensagem.
-    O alerta `py/stack-trace-exposure` do CodeQL é exatamente este caminho.
+    O preço de mostrar `str(exc)` era ecoar também o `str()` de qualquer exceção
+    que passasse por ali: caminho de arquivo do container, nome de interno,
+    valor de configuração na mensagem. O alerta `py/stack-trace-exposure` do
+    CodeQL é exatamente este caminho.
     """
     monkeypatch.setattr("app.core.config.settings.SMTP_HOST", "smtp.exemplo.com")
 
@@ -614,15 +652,55 @@ def test_teste_de_email_nao_ecoa_defeito_interno_na_tela(elenco, monkeypatch):
 
     monkeypatch.setattr("app.services.email_service.EmailService.send", quebra)
 
-    resp = client.post(
-        "/api/v1/admin/settings/test-email",
-        json={"para": "eu@example.com"},
-        headers=_headers(elenco["admin"]),
-    )
+    resp = _dispara_o_teste_de_email(elenco)
+
     assert resp.status_code == 200, "o botão responde, não estoura um 500"
     corpo = resp.json()
     assert corpo["enviado"] is False
     detalhe = corpo["detalhe"]
     assert "hunter2" not in detalhe and "/srv/app" not in detalhe, detalhe
-    # Mas ainda tem de ser distinguível de "meu SMTP está mal configurado".
-    assert "RuntimeError" in detalhe, detalhe
+    # Nem o nome da classe: `RuntimeError` já é informação sobre o interno, e a
+    # regra aqui é "o `detalhe` é uma constante do arquivo", sem exceções.
+    assert "RuntimeError" not in detalhe, detalhe
+    # Mas a CATEGORIA fica: sem ela o operador vai mexer em host, porta e senha
+    # atrás de um defeito que não está no SMTP.
+    assert "erro interno" in detalhe, detalhe
+
+
+def test_nenhuma_falha_do_teste_de_email_devolve_texto_de_excecao(elenco, monkeypatch):
+    """Varredura: o `detalhe` é sempre uma das constantes, para QUALQUER exceção.
+
+    Os testes acima cobrem um caminho cada. Este cobre o denominador — inclusive
+    as exceções que ninguém pensou em listar —, porque a regressão que interessa
+    não é "o caso X voltou a vazar", é "alguém acrescentou um `except` novo".
+    """
+    monkeypatch.setattr("app.core.config.settings.SMTP_HOST", "smtp.exemplo.com")
+
+    marca = "CANARIO-a1b2c3-nao-pode-sair-na-resposta"
+    excecoes = [
+        smtp_transport.SemRota(marca),
+        smtp_transport.EntregaIncerta(marca),
+        smtp_transport.RecusadoPeloServidor(marca),
+        smtp_transport.ErroDeEnvio(marca),
+        RuntimeError(marca),
+        ValueError(marca),
+        OSError(marca),
+        smtplib.SMTPAuthenticationError(535, marca.encode()),
+        KeyError(marca),
+        TypeError(marca),
+    ]
+
+    for exc in excecoes:
+        def estoura(*a, __exc=exc, **kw):
+            raise __exc
+
+        monkeypatch.setattr("app.services.email_service.EmailService.send", estoura)
+        corpo = _dispara_o_teste_de_email(elenco).json()
+
+        assert corpo["enviado"] is False, exc
+        assert marca not in corpo["detalhe"], (
+            f"{type(exc).__name__} vazou o texto da exceção na resposta: {corpo['detalhe']}"
+        )
+        assert type(exc).__name__ not in corpo["detalhe"], (
+            f"{type(exc).__name__} vazou o nome da classe na resposta: {corpo['detalhe']}"
+        )

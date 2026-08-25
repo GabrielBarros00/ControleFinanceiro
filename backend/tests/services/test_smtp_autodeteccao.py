@@ -186,12 +186,14 @@ def test_credencial_recusada_nao_e_repetida_em_outras_portas(monta):
     assert servidor.entregues == []
 
     # `ErroDeEnvio`, não `SMTPAuthenticationError` crua: é o contrato de
-    # `entrega()`, e é o que deixa a tela de Admin mostrar a falha de e-mail sem
-    # precisar de um `except Exception` que ecoaria qualquer defeito interno.
+    # `entrega()`. Sem ele, senha errada — o caso nº 1 em produção — chega ao
+    # chamador indistinguível de um bug da aplicação, e a tela de Admin manda o
+    # operador procurar defeito em vez de conferir a credencial.
     assert isinstance(erro.value, smtp_transport.ErroDeEnvio)
     assert isinstance(erro.value.__cause__, smtplib.SMTPAuthenticationError)
-    # E a resposta LITERAL do servidor sobrevive ao envelope — sem o "535
-    # Invalid API key", o admin fica com "não deu" e nada para fazer a respeito.
+    # E a resposta LITERAL do servidor sobrevive ao envelope. Ela não vai para a
+    # tela (é o log que a recebe), mas se sumir aqui não chega a lugar nenhum —
+    # e sem o "535 Invalid API key" não há o que fazer com a informação.
     assert "535" in str(erro.value) and "Invalid API key" in str(erro.value)
 
 

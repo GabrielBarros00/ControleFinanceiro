@@ -90,11 +90,13 @@ class RecusadoPeloServidor(ErroDeEnvio):
     Estas são as falhas mais comuns em produção e as mais fáceis de corrigir —
     "535 Username and Password not accepted" diz exatamente o que fazer. Mas
     `smtplib` as levanta como `SMTPException` crua, e crua elas escapavam de
-    `entrega()` sem passar por `ErroDeEnvio`: quem chama tinha de escolher entre
-    capturar `Exception` (e ecoar na tela o `str()` de qualquer defeito nosso) ou
-    perder justamente o diagnóstico que importa. Envelopar aqui, na fronteira,
-    faz `ErroDeEnvio` cumprir o que promete — tudo que sai de `entrega()` é uma
-    rota ou uma mensagem escrita para ser lida.
+    `entrega()` sem passar por `ErroDeEnvio`, indistinguíveis de um defeito da
+    aplicação para quem chama.
+
+    Não é distinção acadêmica: a tela de Admin CLASSIFICA a falha ("problema de
+    SMTP" × "erro interno da aplicação") e o log escolhe o nível por ela. Sem
+    este envelope, senha errada — o caso nº 1 — apareceria como defeito interno,
+    mandando o operador procurar bug em vez de conferir a credencial.
     """
 
 
@@ -333,9 +335,9 @@ def entrega(msg: EmailMessage, *, redescobrir: bool = False) -> Endpoint:
     fracasso.
 
     CONTRATO: o que sai daqui é um `Endpoint` ou um `ErroDeEnvio` — nunca uma
-    exceção crua do `smtplib`. É o que permite ao chamador mostrar a falha de
-    e-mail na tela sem virar um `except Exception` que ecoaria também o
-    `str()` de um defeito interno (ver `RecusadoPeloServidor`).
+    exceção crua do `smtplib`. É o que deixa o chamador separar "o e-mail não
+    saiu" de "a aplicação quebrou" com um `except`, em vez de por adivinhação
+    sobre o tipo (ver `RecusadoPeloServidor`).
     """
     try:
         return _roteia(msg, redescobrir=redescobrir)
