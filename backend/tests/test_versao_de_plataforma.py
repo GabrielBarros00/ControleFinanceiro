@@ -27,6 +27,7 @@ COMPILADO = ROOT / "backend" / "requirements.txt"
 REQ_DEV = ROOT / "backend" / "requirements-dev.txt"
 PRE_COMMIT = ROOT / ".pre-commit-config.yaml"
 MAKEFILE = ROOT / "Makefile"
+COMPOSE = ROOT / "docker-compose.yml"
 
 
 def _do_ci(chave: str) -> str:
@@ -70,6 +71,36 @@ def test_node_e_o_mesmo_no_ci_e_no_dockerfile():
         f"  frontend/Dockerfile (FROM node:):            {imagem.group(1)}\n\n"
         "O build do frontend roda nos dois; versões diferentes significam que o "
         "bundle testado não é o bundle publicado."
+    )
+
+
+def test_postgres_do_ci_e_o_mesmo_do_compose():
+    """A suíte tem de rodar no MESMO major de Postgres que o deploy.
+
+    A versão está em dois lugares — `docker-compose.yml` e o `services:` do
+    `ci.yml` — e eles vão divergir sozinhos, não por descuido: o ecossistema
+    `docker` do Dependabot lê Dockerfile, o `docker-compose` lê o compose, e o
+    `github-actions` atualiza AÇÕES, não imagens de serviço. Nada olha o
+    `image:` dentro do workflow. Então o PR do Dependabot sobe o compose e
+    deixa o CI para trás.
+
+    O estrago é do tipo que não aparece: a suíte inteira fica verde no Postgres
+    antigo enquanto produção roda o novo. Majors de Postgres mudam
+    comportamento — o 18 trocou até o ponto de montagem dos dados.
+    """
+    do_compose = re.search(r"^\s*image:\s*postgres:(\S+)", COMPOSE.read_text(encoding="utf-8"), re.M)
+    assert do_compose, "não achei a imagem do postgres no docker-compose.yml"
+
+    do_ci = re.search(r"^\s*image:\s*postgres:(\S+)", CI.read_text(encoding="utf-8"), re.M)
+    assert do_ci, "não achei a imagem do postgres nos services: do ci.yml"
+
+    assert do_compose.group(1) == do_ci.group(1), (
+        "a versão do Postgres divergiu:\n"
+        f"  docker-compose.yml:        postgres:{do_compose.group(1)}\n"
+        f"  .github/workflows/ci.yml:  postgres:{do_ci.group(1)}\n\n"
+        "O Dependabot sobe o do compose e NÃO enxerga o do workflow — suba o do "
+        "ci.yml junto, à mão. Rodar a suíte num major diferente do de produção "
+        "deixa tudo verde e não prova nada."
     )
 
 
@@ -159,17 +190,27 @@ def test_nenhum_pip_install_sem_versao_no_ci():
     Instalar a partir de um arquivo (`-r`) está liberado: lá dentro tudo já é
     `==`, e é o que este teste protege indiretamente.
     """
-    solto = []
+    solto, examinadas = [], 0
     for linha in CI.read_text(encoding="utf-8").splitlines():
         nu = linha.strip()
         if nu.startswith("#") or "pip install" not in nu:
             continue
+        examinadas += 1
         alvo = nu.split("pip install", 1)[1]
         if " -r " in alvo or alvo.strip().startswith("-r"):
             continue
         pacotes = [p for p in alvo.split() if p and not p.startswith("-")]
         if any("==" not in p for p in pacotes):
             solto.append(nu)
+
+    # O denominador. Sem ele este teste passa varrendo o vazio — bastava o
+    # workflow ser renomeado, ou os `pip install` migrarem para um script, para
+    # ele aprovar um CI que não examinou. Foi exatamente assim que o gate do 307
+    # ficou verde protegendo uma rota só.
+    assert examinadas >= 5, (
+        f"só {examinadas} linhas com `pip install` no ci.yml — o teste não está "
+        "medindo nada. O workflow mudou de forma?"
+    )
 
     assert not solto, (
         "instalação sem versão fixada no ci.yml:\n  " + "\n  ".join(solto)

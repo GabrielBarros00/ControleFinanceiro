@@ -10,7 +10,7 @@ transferência eram rótulos sem efeito, e o status `paid`, que deveria signific
 A regra mora aqui, e não espalhada nos seis caminhos que constroem `Transaction`,
 porque o modo de falha é silencioso nos dois sentidos: um caminho que esquece de
 liquidar some com a despesa do caixa; um que liquida sempre reintroduz o defeito
-que este módulo veio fechar. `tests/test_settled_at_ponto_unico.py` é o portão que
+que este módulo veio fechar. `tests/test_liquidacao_ponto_unico.py` é o portão que
 mantém a lista fechada.
 """
 from datetime import datetime

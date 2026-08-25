@@ -304,7 +304,7 @@ def _transaction_stamp_on_insert(mapper, connection, target: Transaction) -> Non
     # meia-noite (linha de CSV, cronograma, fixture). Converter às cegas move a
     # segunda para o dia anterior — `datetime(2026, 5, 1)` viraria competência de
     # abril. Quem SABE que recebeu um instante converte na entrada, com
-    # `month_key_local` (ver `routes/transactions.py`).
+    # `month_key_local` (ver `api/routes/transactions.py`).
     if not target.billing_month and target.transaction_date is not None:
         target.billing_month = target.transaction_date.strftime("%Y-%m")
     # Perna de fatura (ADR 0024), pelo mesmo motivo do `billing_month` acima: a
