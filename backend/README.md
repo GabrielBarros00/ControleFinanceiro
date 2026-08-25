@@ -17,11 +17,18 @@ Docs interativas (só fora de produção): <http://localhost:8000/docs>.
 
 ```bash
 python -m pytest                     # SQLite em memória
-ruff check app && ruff format app    # lint + formatação
+ruff check app                      # lint (formatação NÃO: ver nota abaixo)
 
 # contra Postgres (como no CI):
 TEST_DATABASE_URL=postgresql+psycopg2://user:pass@localhost:5432/db APP_ENV=test python -m pytest
 ```
+
+> **Não rode `ruff format`.** O backend nunca foi formatado com ele: hoje o
+> `ruff format --check` reescreveria 297 dos 317 arquivos. Formatar em pedaços
+> espalha ruído por commits que falam de outra coisa, então o CI não checa
+> formato e o hook `ruff-format` está fora do pre-commit de propósito. Quando a
+> decisão for tomada, é um commit isolado — e aí o hook volta e o check entra no
+> CI na mesma mudança (`test_versao_de_plataforma.py` cobra os dois juntos).
 
 ## Estrutura (`app/`)
 
