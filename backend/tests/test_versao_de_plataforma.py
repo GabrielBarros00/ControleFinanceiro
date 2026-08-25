@@ -26,6 +26,7 @@ RELOCK = ROOT / "scripts" / "relock.sh"
 COMPILADO = ROOT / "backend" / "requirements.txt"
 REQ_DEV = ROOT / "backend" / "requirements-dev.txt"
 PRE_COMMIT = ROOT / ".pre-commit-config.yaml"
+MAKEFILE = ROOT / "Makefile"
 
 
 def _do_ci(chave: str) -> str:
@@ -69,6 +70,33 @@ def test_node_e_o_mesmo_no_ci_e_no_dockerfile():
         f"  frontend/Dockerfile (FROM node:):            {imagem.group(1)}\n\n"
         "O build do frontend roda nos dois; versões diferentes significam que o "
         "bundle testado não é o bundle publicado."
+    )
+
+
+def test_makefile_nao_fixa_a_imagem_do_python_na_mao():
+    """O alvo `backend-audit` do Windows tem de rodar na imagem de produção.
+
+    Ele roda o `pip-audit` dentro de um container porque o `uvloop` não compila
+    no Windows. A imagem estava escrita como `python:3.12-slim` literal, e ficou
+    para trás quando o backend foi para 3.14 — a auditoria local passou a
+    resolver a árvore de dependências num Python diferente do que vai para
+    produção, enquanto o comentário ao lado ainda garantia que eram o mesmo.
+    Não deu vermelho em lugar nenhum: o CI roda o audit em Linux, por outro
+    caminho, e só quem rodasse `make backend-audit` no Windows tocaria nisso.
+
+    Agora a versão sai do `backend/Dockerfile`, como no `relock.sh`.
+    """
+    texto = MAKEFILE.read_text(encoding="utf-8")
+    codigo = "\n".join(
+        linha for linha in texto.splitlines() if not linha.lstrip().startswith("#")
+    )
+
+    assert not re.search(r"python:[0-9]", codigo), (
+        "o Makefile voltou a fixar a imagem do Python na mão; ela deve sair do "
+        "backend/Dockerfile (veja a variável PYTHON_IMAGE)"
+    )
+    assert "backend/Dockerfile" in codigo, (
+        "o Makefile não lê mais a imagem do Python do backend/Dockerfile"
     )
 
 

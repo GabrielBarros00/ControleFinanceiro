@@ -105,8 +105,12 @@ frontend-audit:
 # `pip install --dry-run` do lock, e o `uvloop` (transitivo de
 # `uvicorn[standard]`) aborta a build com "uvloop does not support Windows at
 # the moment". `--no-deps` não ajuda — o dry-run acontece do mesmo jeito. Por
-# isso, no Windows, o alvo roda a MESMA verificação dentro do
-# `python:3.12-slim`, que é a base da imagem de produção.
+# isso, no Windows, o alvo roda a MESMA verificação dentro da imagem base de
+# produção. A versão sai do `backend/Dockerfile`, não de um literal aqui:
+# estava escrita como `python:3.12-slim` e ficou para trás quando a imagem foi
+# para 3.14 — a auditoria local resolvia a árvore noutro Python que o do
+# deploy, e o comentário ainda afirmava que eram o mesmo. Mesma regra do
+# pip-tools e do relock.sh: um lugar só, e um gate cobrando.
 #
 # O lock entra por STDIN em vez de um volume montado de propósito: `-v` exigiria
 # um caminho absoluto no formato do Windows, e o valor de `$(CURDIR)` muda
@@ -116,9 +120,10 @@ frontend-audit:
 # O pino sai do requirements-dev.txt para não virar um segundo lugar onde a
 # versão mora — mesma regra do pip-tools no scripts/relock.sh.
 PIP_AUDIT_PIN = $(shell grep -E '^pip-audit==' backend/requirements-dev.txt)
+PYTHON_IMAGE = $(shell grep -oE 'python:[0-9.]+-slim' backend/Dockerfile | head -1)
 
 ifeq ($(OS),Windows_NT)
-PIP_AUDIT_CMD = docker run --rm -i python:3.12-slim \
+PIP_AUDIT_CMD = docker run --rm -i $(PYTHON_IMAGE) \
 		sh -c "pip install -q $(PIP_AUDIT_PIN) && cat > /tmp/lock.txt && pip-audit -r /tmp/lock.txt --strict" \
 		< backend/requirements.txt
 else

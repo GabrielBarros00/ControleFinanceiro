@@ -23,7 +23,8 @@
 # Para atualizar: suba a versão aqui, regenere com `scripts/relock.sh`, rode a
 # suíte contra SQLite E Postgres, e só então faça o merge.
 #
-# O compilado é resolvido para LINUX/CPython 3.12 — a plataforma da imagem. Ele
+# O compilado é resolvido para LINUX, no Python da imagem (o `FROM` do
+# backend/Dockerfile; não repetido aqui de propósito, para não apodrecer). Ele
 # traz pacotes que não existem no Windows (`uvloop`, via `uvicorn[standard]`),
 # então no desenvolvimento local em Windows instale ESTE arquivo mais o
 # `requirements-dev.txt`, não o compilado.

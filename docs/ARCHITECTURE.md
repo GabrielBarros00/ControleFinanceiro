@@ -155,7 +155,8 @@ Erros saem sempre no envelope `{"error": {"code", "message", "details"}}` (ver [
 
 `docker-compose.yml` define:
 
-- **db** — `postgres:16-alpine`, volume `postgres_data`, healthcheck.
+- **db** — `postgres:18-alpine`, volume `postgres_data` montado em
+  `/var/lib/postgresql` (o 18 mudou o ponto de montagem), healthcheck.
 - **backend** — build de `./backend`, `APP_ENV=production`, exige `SECRET_KEY` e `POSTGRES_PASSWORD` (falha o boot se ausentes/fracos), healthcheck em `/api/v1/health`.
 - **frontend** — build de `./frontend` (SPA + nginx), única porta exposta (`HTTP_PORT:80`).
 - **pgadmin** — só no profile `dev` (`docker compose --profile dev up`).

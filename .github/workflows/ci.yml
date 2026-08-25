@@ -40,7 +40,7 @@ jobs:
         run: |
           ruff check backend
           # NOTA: `ruff format --check` ainda não entra aqui — o código nunca foi
-          # formatado com ele e o check reprovaria ~180 arquivos. Formatar tudo
+          # formatado com ele e o check reprovaria 297 dos 317 arquivos. Formatar tudo
           # deve ser um commit isolado, não misturado a correções.
       - name: Audit dependencies (pip)
         run: |
