@@ -75,10 +75,36 @@ async function analisar(page: Page, seletor?: string) {
   return builder.analyze();
 }
 
-/** Erro legível: o dump cru do axe não diz em qual elemento o problema está. */
+/**
+ * Erro legível: o dump cru do axe não diz em qual elemento o problema está.
+ *
+ * Inclui o HTML do nó e, quando a regra é de contraste, as cores e a razão
+ * medida. A versão anterior imprimia só o SELETOR — e um seletor de classe
+ * Tailwind escapada (`.\[\&_svg\:not...\]\:size-4`) não identifica elemento
+ * nenhum: ele está em todo botão do app.
+ *
+ * Isso não é cosmético. Esta asserção reprova de forma intermitente (~1 em 25
+ * rodadas da suíte), e nas primeiras ocorrências não havia como saber qual
+ * botão era: o `trace` só é gravado em nova tentativa, o `test-results` é
+ * apagado pela rodada seguinte, e a mensagem não trazia nem a cor nem o HTML.
+ * Foram três hipóteses testadas e descartadas por falta desse dado. Com o
+ * `outerHTML` e o par de cores na mensagem, a PRÓXIMA ocorrência — no CI ou
+ * aqui — se explica sozinha.
+ */
 function resumir(violations: Awaited<ReturnType<typeof analisar>>['violations']) {
   return violations
-    .map((v) => `${v.id} (${v.impact}): ${v.help}\n    ${v.nodes.map((n) => n.target.join(' ')).join('\n    ')}`)
+    .map((v) => {
+      const nos = v.nodes.map((n) => {
+        const dados = [...n.any, ...n.all]
+          .map((c) => c.data as { fgColor?: string; bgColor?: string; contrastRatio?: number } | undefined)
+          .find((d) => d?.contrastRatio !== undefined);
+        const cor = dados
+          ? ` [fg=${dados.fgColor} bg=${dados.bgColor} razão=${dados.contrastRatio}]`
+          : '';
+        return `    ${n.target.join(' ')}${cor}\n      ${n.html}`;
+      });
+      return `${v.id} (${v.impact}): ${v.help}\n${nos.join('\n')}`;
+    })
     .join('\n\n');
 }
 
@@ -353,6 +379,19 @@ test.describe('Acessibilidade (axe · WCAG 2 A/AA)', () => {
       const alvo = page.getByRole('tab', { name: aba });
       if (await alvo.count() === 0) continue;
       await alvo.click();
+      /*
+       * Clicar não é trocar: o Radix atualiza `aria-selected` e remonta o painel
+       * num passo posterior ao clique. Sem esperar por isto, o axe fotografa o
+       * painel ANTERIOR — ou, pior, o DOM no meio da troca, e aí reporta
+       * contraste em elemento que parado passa folgado. Era a explicação mais
+       * provável da reprovação intermitente desta aba (~1% das rodadas), que
+       * nenhuma inspeção do CSS explicava: o par de cor mais apertado da tela
+       * está em 4,75:1 e não oscila.
+       *
+       * Mesmo defeito, e mesma correção, do `mobile_layout.mobile.spec.ts` —
+       * lá ele fazia o portão MEDIR A ABA ERRADA em silêncio.
+       */
+      await expect(alvo).toHaveAttribute('aria-selected', 'true', { timeout: 15_000 });
       const resultado = await analisar(page);
       expect(resumir(resultado.violations), `aba ${aba}`).toBe('');
     }

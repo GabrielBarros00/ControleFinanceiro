@@ -146,6 +146,92 @@ async function contaComDados(browser: Parameters<Parameters<typeof test>[1]>[0][
  * `papel` distingue os dois mecanismos de aba do app: `SettingsShell` usa
  * botões numa faixa rolável; `/admin` usa Radix Tabs (`role="tab"`).
  */
+/**
+ * Espera a tela ASSENTAR, sem cronômetro.
+ *
+ * Antes daqui havia treze `waitForTimeout` de 200 a 800 ms, um em cada ponto
+ * que dispara `animate-in`/`slide-in`. Eles somavam mais de 25 s de sono puro —
+ * só o laço das 18 rotas gastava 12,6 s — e mesmo assim não davam garantia
+ * nenhuma: quem dorme 700 ms num runner carregado mede no meio da animação
+ * exatamente como antes, e o erro que sai é "a tela estoura a largura", que é a
+ * pista errada.
+ *
+ * O que substitui são as três coisas que o sono estava tentando comprar:
+ *
+ * 1. `networkidle` — que o sono NÃO cobria. Uma aba que busca dados ao abrir
+ *    podia ser medida vazia, e uma tabela vazia cabe em qualquer largura: era
+ *    um jeito silencioso de o portão passar sem medir nada.
+ * 2. Nenhum `<Skeleton>` em pé (`[data-slot="skeleton"]`). Rede ociosa não quer
+ *    dizer tela pronta: em `/me/settlements` o `<details>` de "De onde vem esse
+ *    saldo" só nasce quando `origemLoading` vira falso
+ *    (MySettlementsPage.tsx:349), e até lá o lugar dele é um esqueleto.
+ *    `toHaveCount(0)` resolve na hora quando não há nenhum, então não custa
+ *    nada no caso comum.
+ *
+ *    NÃO se espera spinner (`.animate-spin`) aqui, e a tentação existiu: a
+ *    hipótese era que o `Loader2` da aba "Por mês" fosse a causa das
+ *    reprovações. Medição direta com a CPU em 2 núcleos desmentiu — no momento
+ *    da contagem havia ZERO esqueleto e ZERO spinner na página. A causa era
+ *    outra (ver `trocarAba`), e esperar por `.animate-spin` só acrescentava
+ *    espera: são 39 usos no app, muitos dentro de botão em mutação, e qualquer
+ *    um deles pendurado leva a espera ao teto de 10 s sem motivo.
+ * 3. `getAnimations()` sem nada rodando — a pergunta exata, feita ao navegador.
+ *    Com `reducedMotion: 'reduce'` na config, o app zera `animation-duration` e
+ *    `transition-duration` (o bloco `prefers-reduced-motion` do `index.css`),
+ *    então isto responde de imediato em vez de esperar o pior caso. Animação
+ *    INFINITA fica de fora: `animate-pulse` e spinner nunca terminam, e esperar
+ *    por eles é esperar o timeout — é a mesma isenção que o `a11y.spec.ts` já
+ *    fazia.
+ *
+ * `catch` em tudo: aqui não se afirma nada, só se espera. Quem afirma é o
+ * `semRolagemHorizontal` logo depois.
+ */
+async function esperarAssentar(page: Page) {
+  await page.waitForLoadState('networkidle').catch(() => {});
+  // `toHaveCount(0)` e não `first().waitFor({ state: 'detached' })`: esperar o
+  // PRIMEIRO elemento sumir não é esperar que não sobre nenhum.
+  await expect(page.locator('[data-slot="skeleton"]'))
+    .toHaveCount(0, { timeout: 10_000 })
+    .catch(() => {});
+  await page
+    .waitForFunction(
+      () =>
+        document.getAnimations().every((a) => {
+          if (a.playState !== 'running') return true;
+          const iteracoes = (a.effect?.getTiming().iterations ?? 1) as number;
+          return iteracoes === Infinity;
+        }),
+      null,
+      { timeout: 5_000 },
+    )
+    .catch(() => {});
+}
+
+/**
+ * Troca de aba e SÓ volta quando a aba pedida está de fato selecionada.
+ *
+ * Clicar não é trocar. O Radix atualiza `aria-selected` e remonta o painel num
+ * passo posterior ao clique, e sem esperar por isso a medição seguinte recai
+ * sobre o painel ANTERIOR. Foi o defeito real por trás do "não tinha bloco
+ * recolhido para abrir": o laço terminava em "Histórico" (que não tem
+ * `<details>`), clicava em "Resumo" e contava enquanto "Histórico" ainda estava
+ * montado — zero blocos, e o erro apontando para a tela errada.
+ *
+ * O `waitForTimeout(800)` que existia aqui comprava isso por acidente. Ao sair,
+ * levou junto a garantia — e o gate passou a medir a aba errada em silêncio nas
+ * vezes em que não reprovava, que é o pior dos dois estados.
+ */
+async function trocarAba(page: Page, aba: string, papel: 'button' | 'tab' = 'button') {
+  const alvo = page.getByRole(papel, { name: aba, exact: true }).first();
+  await alvo.click();
+  // 15 s, e não os 5 s padrão: num runner espremido a troca de aba já levou mais
+  // que isso, e aí quem reprova é a espera — não o defeito que ela protege.
+  if (papel === 'tab') {
+    await expect(alvo).toHaveAttribute('aria-selected', 'true', { timeout: 15_000 });
+  }
+  await esperarAssentar(page);
+}
+
 async function medirAbas(
   page: Page,
   rota: string,
@@ -153,11 +239,7 @@ async function medirAbas(
   papel: 'button' | 'tab' = 'button',
 ) {
   for (const aba of abas) {
-    const alvo = page.getByRole(papel, { name: aba, exact: true }).first();
-    await alvo.click();
-    // A troca de aba dispara `animate-in` (300–700ms) e o `transform` do
-    // `slide-in` move o conteúdo para fora da viewport enquanto roda.
-    await page.waitForTimeout(800);
+    await trocarAba(page, aba, papel);
     await semRolagemHorizontal(page, `${rota} › aba "${aba}"`);
   }
 }
@@ -302,10 +384,7 @@ test.describe('Layout mobile — nenhuma tela estoura a largura', () => {
 
     for (const rota of rotas) {
       await page.goto(rota);
-      await page.waitForLoadState('networkidle').catch(() => {});
-      // As animações de entrada movem elementos para fora da viewport durante
-      // o `slide-in`; medir no meio delas acusa estouro que não existe parado.
-      await page.waitForTimeout(700);
+      await esperarAssentar(page);
       await semRolagemHorizontal(page, rota);
     }
 
@@ -352,20 +431,18 @@ test.describe('Layout mobile — nenhuma tela estoura a largura', () => {
 
     for (const rota of [`/w/${wsId}/debts`, '/me/settlements']) {
       await page.goto(rota);
-      await page.waitForLoadState('networkidle').catch(() => {});
-      await page.waitForTimeout(700);
+      await esperarAssentar(page);
       await medirAbas(page, rota, ['Resumo', 'Por mês', 'Histórico'], 'tab');
 
       // Tudo o que está atrás de um `<details>`, aberto de uma vez: é o estado
       // em que a pessoa realmente lê a tabela larga.
       let abertos = 0;
       for (const aba of ['Resumo', 'Por mês']) {
-        await page.getByRole('tab', { name: aba, exact: true }).first().click();
-        await page.waitForTimeout(800);
+        await trocarAba(page, aba, 'tab');
         const blocos = page.locator('details:not([open]) > summary');
         for (let i = await blocos.count(); i > 0; i--) {
           await blocos.first().click();
-          await page.waitForTimeout(200);
+          await esperarAssentar(page);
           abertos++;
         }
         await semRolagemHorizontal(page, `${rota} › aba "${aba}" com tudo aberto`);
@@ -387,8 +464,7 @@ test.describe('Layout mobile — nenhuma tela estoura a largura', () => {
     await page.setViewportSize({ width: LARGURA, height: 780 });
 
     await page.goto(`/invite/${conviteToken}`);
-    await page.waitForLoadState('networkidle').catch(() => {});
-    await page.waitForTimeout(700);
+    await esperarAssentar(page);
     await semRolagemHorizontal(page, '/invite/:token');
 
     await context.close();
@@ -431,7 +507,7 @@ test.describe('Layout mobile — nenhuma tela estoura a largura', () => {
     await expect(page.getByRole('heading', { name: /Administração/i })).toBeVisible({
       timeout: 30_000,
     });
-    await page.waitForTimeout(700);
+    await esperarAssentar(page);
     await semRolagemHorizontal(page, '/admin');
     await medirAbas(
       page,
@@ -449,8 +525,7 @@ test.describe('Layout mobile — nenhuma tela estoura a largura', () => {
     await page.setViewportSize({ width: LARGURA, height: 780 });
     for (const rota of ['/login', '/register', '/forgot-password', '/reset-password']) {
       await page.goto(rota);
-      await page.waitForLoadState('networkidle').catch(() => {});
-      await page.waitForTimeout(500);
+      await esperarAssentar(page);
       await semRolagemHorizontal(page, rota);
     }
     await context.close();
@@ -468,23 +543,26 @@ test.describe('Layout mobile — nenhuma tela estoura a largura', () => {
     await page.locator('nav').last().getByRole('button', { name: 'Nova despesa' }).click();
     await expect(page.getByRole('dialog')).toBeVisible();
     await page.getByRole('dialog').getByRole('button', { name: /Opções avançadas/ }).click();
-    await page.waitForTimeout(600);
+    await esperarAssentar(page);
     await semRolagemHorizontal(page, 'diálogo Nova despesa');
+    // Fechar é uma AFIRMAÇÃO, não uma espera: o passo seguinte clica na barra
+    // de baixo, e o diálogo ainda aberto intercepta o clique. Dormir 400 ms
+    // acertava quase sempre; `toBeHidden` acerta sempre.
     await page.keyboard.press('Escape');
-    await page.waitForTimeout(400);
+    await expect(page.getByRole('dialog')).toBeHidden();
 
     // Gaveta "Mais" — a navegação inteira do celular.
     await page.locator('nav').last().getByText('Mais', { exact: true }).click();
     await expect(page.getByRole('dialog')).toBeVisible();
-    await page.waitForTimeout(500);
+    await esperarAssentar(page);
     await semRolagemHorizontal(page, 'gaveta Mais');
     await page.keyboard.press('Escape');
-    await page.waitForTimeout(400);
+    await expect(page.getByRole('dialog')).toBeHidden();
 
     // Gaveta de filtros — só existe abaixo de `sm`.
     await page.getByRole('button', { name: /^Filtros/ }).click();
     await expect(page.getByRole('dialog')).toBeVisible();
-    await page.waitForTimeout(500);
+    await esperarAssentar(page);
     await semRolagemHorizontal(page, 'gaveta Filtros');
 
     await context.close();

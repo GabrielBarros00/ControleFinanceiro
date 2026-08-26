@@ -18,6 +18,17 @@ on:
 permissions:
   contents: read
 
+# Um run por referência. Sem isto, cada push numa branch de PR deixa o run
+# anterior correndo até o fim: o histórico mostra seis runs do mesmo PR em
+# quarenta minutos, todos completos, e só o último importava.
+#
+# `cancel-in-progress` SÓ em pull request. Num push para `main` o run é o que
+# atesta o commit que vai para produção — cancelá-lo porque outro chegou depois
+# deixaria um commit de `main` sem verificação nenhuma.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 env:
   SECRET_KEY: ci-secret-key-only-for-tests-0123456789abcdef
   DATABASE_URL: sqlite:///./ci.db
@@ -37,6 +48,15 @@ jobs:
         uses: actions/setup-python@v7
         with:
           python-version: ${{ env.PYTHON_VERSION }}
+          # Sem isto o log mostra 160 linhas de `Downloading` e zero de `Using
+          # cached`: todo run rebaixava as ~80 rodas do zero, em quatro jobs.
+          # Os DOIS arquivos entram na chave porque `requirements-dev.txt` faz
+          # `-r requirements.in` — com só o primeiro, mexer no segundo serviria
+          # um cache velho.
+          cache: 'pip'
+          cache-dependency-path: |
+            backend/requirements-dev.txt
+            backend/requirements.in
       - name: Install dependencies
         run: |
           # PIP FIXADO. Sem pino aqui, este passo já quebrou o CI uma vez: o
@@ -120,6 +140,15 @@ jobs:
         uses: actions/setup-python@v7
         with:
           python-version: ${{ env.PYTHON_VERSION }}
+          # Sem isto o log mostra 160 linhas de `Downloading` e zero de `Using
+          # cached`: todo run rebaixava as ~80 rodas do zero, em quatro jobs.
+          # Os DOIS arquivos entram na chave porque `requirements-dev.txt` faz
+          # `-r requirements.in` — com só o primeiro, mexer no segundo serviria
+          # um cache velho.
+          cache: 'pip'
+          cache-dependency-path: |
+            backend/requirements-dev.txt
+            backend/requirements.in
       - name: Install dependencies
         run: |
           # PIP FIXADO. Sem pino aqui, este passo já quebrou o CI uma vez: o
@@ -192,6 +221,9 @@ jobs:
       - uses: actions/setup-python@v7
         with:
           python-version: ${{ env.PYTHON_VERSION }}
+          # Aqui a chave é o COMPILADO, que é o que este job instala.
+          cache: 'pip'
+          cache-dependency-path: backend/requirements.txt
       - uses: actions/setup-node@v7
         with:
           node-version: ${{ env.NODE_VERSION }}
@@ -217,6 +249,10 @@ jobs:
         uses: actions/setup-python@v7
         with:
           python-version: ${{ env.PYTHON_VERSION }}
+          cache: 'pip'
+          cache-dependency-path: |
+            backend/requirements-dev.txt
+            backend/requirements.in
       - name: Set up Node.js
         uses: actions/setup-node@v7
         with:
@@ -229,6 +265,17 @@ jobs:
       - name: Install frontend dependencies
         run: |
           cd frontend && npm ci
+      # A chave é o `package-lock.json` inteiro, e não a versão do Playwright.
+      # Erra para o lado seguro: qualquer bump de dependência invalida o cache
+      # sem necessidade, mas nunca serve um navegador de versão errada para um
+      # `@playwright/test` novo — que é o modo de falhar que importa.
+      - name: Cache dos navegadores do Playwright
+        uses: actions/cache@v6
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('frontend/package-lock.json') }}
+      # `--with-deps` continua: as bibliotecas de sistema vêm do apt e não estão
+      # no cache acima. Com o navegador já em disco, este passo só as confere.
       - name: Install Playwright browsers
         run: |
           cd frontend && npx playwright install --with-deps chromium
@@ -265,6 +312,12 @@ jobs:
       - uses: actions/setup-python@v7
         with:
           python-version: ${{ env.PYTHON_VERSION }}
+          # O passo mais caro deste job depois da suíte: 53 s no Windows contra
+          # 25 s no Ubuntu, todo run, sem reaproveitar nada.
+          cache: 'pip'
+          cache-dependency-path: |
+            backend/requirements-dev.txt
+            backend/requirements.in
       - uses: actions/setup-node@v7
         with:
           node-version: ${{ env.NODE_VERSION }}
@@ -275,6 +328,12 @@ jobs:
       - name: Install frontend dependencies
         working-directory: frontend
         run: npm ci
+      # Caminho do Windows, que NÃO é o `~/.cache/ms-playwright` do Ubuntu.
+      - name: Cache dos navegadores do Playwright
+        uses: actions/cache@v6
+        with:
+          path: ~\AppData\Local\ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('frontend/package-lock.json') }}
       # Sem `--with-deps`: instalar dependências de sistema só existe no Ubuntu.
       - name: Install Playwright browsers
         working-directory: frontend
@@ -311,6 +370,14 @@ jobs:
           node-version: ${{ env.NODE_VERSION }}
           cache: 'npm'
           cache-dependency-path: frontend/package-lock.json
+      # Mesma chave dos outros dois jobs, então o navegador é baixado uma vez e
+      # os três aproveitam. Aqui a instalação acontece lá embaixo, junto da
+      # suíte `e2e-prod`; o cache precisa ser restaurado antes disso.
+      - name: Cache dos navegadores do Playwright
+        uses: actions/cache@v6
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('frontend/package-lock.json') }}
       # Mesmas variáveis do .env de teste local. COOKIE_SECURE=True de propósito:
       # é o valor de produção, e o Chrome trata localhost como contexto seguro,
       # então o cookie funciona sobre http sem afrouxar a configuração.
