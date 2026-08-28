@@ -64,6 +64,21 @@ const MoneyInput = React.forwardRef<HTMLInputElement, MoneyInputProps>(
           </span>
         )}
         <Input
+          // `numeric` e não `decimal`, e nunca `type="number"`:
+          //
+          // `maskCurrency` faz `replace(/\D/g, '')` — este campo só consome
+          // DÍGITOS, e a vírgula é produzida pela máscara, jamais digitada. Com
+          // `decimal` o iPhone exibiria uma tecla de vírgula que não faz nada
+          // ao ser pressionada. `numeric` dá o teclado de dígitos puro, que é
+          // exatamente o vocabulário do campo.
+          //
+          // `type="number"` está descartado porque o valor exibido é
+          // "1.234,56", inválido para um campo numérico: o navegador esvazia o
+          // campo. Sem `type`, o HTML assume `text` — e `text` sem `inputMode`
+          // é o QWERTY completo, que era o defeito daqui.
+          //
+          // Antes do spread, de propósito: quem chama ainda consegue trocar.
+          inputMode="numeric"
           {...props}
           ref={ref}
           value={displayValue}

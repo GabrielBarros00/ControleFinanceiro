@@ -96,6 +96,7 @@ export function SplitEditor({ participants }: SplitEditorProps) {
                   {splitMethod === 'percentage' ? (
                     <Input
                       type="number"
+                      inputMode="decimal"
                       step="0.01"
                       placeholder="%"
                       aria-label="Percentual"

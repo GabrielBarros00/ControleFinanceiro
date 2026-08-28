@@ -180,11 +180,12 @@ export function OnboardingModal() {
                        <Label className="flex items-center gap-1.5">
                          <Calendar className="h-3.5 w-3.5 text-muted-foreground" /> Fechamento
                        </Label>
-                       <Input 
-                        type="number" 
-                        min={1} 
-                        max={31} 
-                        placeholder="5" 
+                       <Input
+                        type="number"
+                        inputMode="numeric"
+                        min={1}
+                        max={31}
+                        placeholder="5"
                         value={closingDay} 
                         onChange={(e) => setClosingDay(parseInt(e.target.value) || 5)} 
                        />

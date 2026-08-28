@@ -313,6 +313,7 @@ function Usuarios() {
     <div className="space-y-4">
       <form onSubmit={submeter} className="flex gap-2">
         <Input
+          type="search"
           value={busca}
           onChange={(e) => setBusca(e.target.value)}
           placeholder="Buscar por nome ou e-mail"
@@ -634,7 +635,7 @@ function Configuracoes() {
           <div>
             <Label htmlFor="cfg-expira">Validade do convite (dias)</Label>
             <Input
-              id="cfg-expira" type="number" min={1} max={365}
+              id="cfg-expira" type="number" inputMode="numeric" min={1} max={365}
               value={String(valor('invite_expiry_days') ?? '')}
               onChange={(e) => mudar('invite_expiry_days', Number(e.target.value))}
             />
@@ -642,7 +643,7 @@ function Configuracoes() {
           <div>
             <Label htmlFor="cfg-cota">Convites por pessoa, por mês</Label>
             <Input
-              id="cfg-cota" type="number" min={1} max={1000}
+              id="cfg-cota" type="number" inputMode="numeric" min={1} max={1000}
               value={String(valor('user_invite_quota_per_month') ?? '')}
               onChange={(e) => mudar('user_invite_quota_per_month', Number(e.target.value))}
             />
@@ -659,7 +660,7 @@ function Configuracoes() {
           <div>
             <Label htmlFor="cfg-quota">Anexos por espaço (MB)</Label>
             <Input
-              id="cfg-quota" type="number" min={1}
+              id="cfg-quota" type="number" inputMode="numeric" min={1}
               value={String(Math.round(Number(valor('attachment_quota_bytes') ?? 0) / 1048576))}
               onChange={(e) => mudar('attachment_quota_bytes', Number(e.target.value) * 1048576)}
             />
@@ -668,7 +669,7 @@ function Configuracoes() {
           <div>
             <Label htmlFor="cfg-upload">Tamanho máximo por arquivo (MB)</Label>
             <Input
-              id="cfg-upload" type="number" min={1}
+              id="cfg-upload" type="number" inputMode="numeric" min={1}
               max={Math.floor(dados.limite_nginx_bytes / 1048576)}
               value={String(Math.round(Number(valor('upload_max_bytes') ?? 0) / 1048576))}
               onChange={(e) => mudar('upload_max_bytes', Number(e.target.value) * 1048576)}
@@ -684,7 +685,7 @@ function Configuracoes() {
           <div>
             <Label htmlFor="cfg-linhas">Linhas por importação</Label>
             <Input
-              id="cfg-linhas" type="number" min={1}
+              id="cfg-linhas" type="number" inputMode="numeric" min={1}
               value={String(valor('import_max_rows') ?? '')}
               onChange={(e) => mudar('import_max_rows', Number(e.target.value))}
             />
@@ -696,7 +697,7 @@ function Configuracoes() {
           <div>
             <Label htmlFor="cfg-rl-ip">Tentativas de login por minuto (por IP)</Label>
             <Input
-              id="cfg-rl-ip" type="number" min={1}
+              id="cfg-rl-ip" type="number" inputMode="numeric" min={1}
               value={String(valor('rate_limit_auth_per_minute') ?? '')}
               onChange={(e) => mudar('rate_limit_auth_per_minute', Number(e.target.value))}
             />
@@ -708,7 +709,7 @@ function Configuracoes() {
           <div>
             <Label htmlFor="cfg-rl-conta">Tentativas por minuto (por conta)</Label>
             <Input
-              id="cfg-rl-conta" type="number" min={1}
+              id="cfg-rl-conta" type="number" inputMode="numeric" min={1}
               value={String(valor('rate_limit_account_per_minute') ?? '')}
               onChange={(e) => mudar('rate_limit_account_per_minute', Number(e.target.value))}
             />
