@@ -35,6 +35,17 @@ o site ([ADR 0026](adr/0026-papel-de-plataforma-e-cadastro-por-convite.md)).
 | **Importar CSV** | [![](images/importar-light.png)](images/importar-light.png) | [![](images/importar-dark.png)](images/importar-dark.png) |
 | **Configurações do workspace** | [![](images/configuracoes-workspace-light.png)](images/configuracoes-workspace-light.png) | [![](images/configuracoes-workspace-dark.png)](images/configuracoes-workspace-dark.png) |
 
+## Avisos de vencimento
+
+| Tela | Claro | Escuro |
+|---|:---:|:---:|
+| **O convite** — explica o que se ganha ANTES de pedir a permissão | [![](images/aviso-convite-light.png)](images/aviso-convite-light.png) | [![](images/aviso-convite-dark.png)](images/aviso-convite-dark.png) |
+| **Contas a pagar** — a oferta fica onde a falta do aviso dói | [![](images/aviso-contas-a-pagar-light.png)](images/aviso-contas-a-pagar-light.png) | [![](images/aviso-contas-a-pagar-dark.png)](images/aviso-contas-a-pagar-dark.png) |
+
+O prompt do navegador só aparece depois do clique em **Ativar avisos**: negado,
+ele não pode ser pedido de novo, e um "não" por reflexo custaria o canal para
+sempre ([ADR 0033](adr/0033-aviso-de-vencimento.md)).
+
 ## Plataforma
 
 | Tela | Claro | Escuro |

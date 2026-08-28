@@ -11,6 +11,42 @@ segue [SemVer](https://semver.org/lang/pt-BR/).
 
 ## [Não lançado]
 
+### O app passou a avisar antes de a conta vencer
+
+Ele sabia o que você deve e quando, e não contava. As telas de Contas a pagar e
+Compromissos são **puxadas**: só informam quem abre. Uma conta esquecida é a
+falha mais cara que este app pode deixar acontecer, e é justamente a que ele
+tinha todos os dados para evitar.
+
+Agora avisa **três dias antes** (configurável), **no dia** e **uma vez** se
+passar — cobrindo as três obrigações com data: conta a pagar, fatura de cartão e
+parcela de financiamento. Notificar só conta a pagar entregaria algo que parece
+completo e não é: o `payables_service` exclui compra no cartão de propósito, e a
+fatura — a conta que mais dói esquecer — ficaria calada.
+
+**Três marcos por conta é o teto.** Cada aviso a mais é fadiga, e fadiga
+transforma notificação em ruído que a pessoa desliga — perdendo junto o aviso que
+importava. Cinco contas vencendo viram **um** aviso, não cinco.
+
+**A permissão se pede uma vez, e só depois de explicar.** `requestPermission()` é
+irreversível na prática: negado, o navegador não pergunta de novo e o conserto
+vira um caminho nas configurações que ninguém acha sozinho. Então primeiro
+aparece um convite nosso, dizendo o que se ganha; o prompt do navegador só vem
+depois do clique em "Ativar". Quem diz "agora não" não some: fica um botão ao
+lado do sino e na tela de Contas a pagar, e o convite volta em uma semana.
+
+**No iPhone, instalar deixou de ser opcional** — a Apple só entrega push para app
+da Tela de Início. O app detecta o caso e ensina a instalar, em vez de oferecer
+um botão que não pode funcionar.
+
+O aviso **não mostra o valor** por padrão. O conteúdo trafega cifrado ponta a
+ponta; a exposição real é a tela de bloqueio, onde qualquer um que olhe o
+aparelho lê o que chegou (ADRs 0018 e 0021). Há preferência para incluir.
+
+Sem chave VAPID configurada a funcionalidade **se desliga sozinha** em vez de
+quebrar: o sino continua avisando. Ver [SETUP.md](SETUP.md) e o
+[ADR 0033](docs/adr/0033-aviso-de-vencimento.md).
+
 ### Acertos: o saldo parou de parecer uma cobrança do mês
 
 A tela de Acertos empilhava quatro coisas na mesma rolagem — o acumulado de

@@ -10,6 +10,12 @@ class NotificationType(str, Enum):
     workspace_invite = "workspace_invite"   # convite para entrar num workspace
     member_added = "member_added"           # você entrou / alguém entrou
     invite_revoked = "invite_revoked"
+    # Vencimento chegando (ADR 0033). ATENÇÃO: esta coluna é enum NATIVO no
+    # Postgres (ver a revisão c1b7e0a4d386), então acrescentar um valor aqui
+    # exige `ALTER TYPE ... ADD VALUE` numa migração. Nem o `create_all` da
+    # suíte nem o `alembic check` enxergam a divergência: no SQLite enum é
+    # texto, e o teste passa verde enquanto produção quebra no INSERT.
+    due_reminder = "due_reminder"
 
 
 class Notification(SQLModel, table=True):

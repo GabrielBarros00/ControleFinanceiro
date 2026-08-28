@@ -75,3 +75,17 @@ python-dotenv==1.2.3
 # sem este pacote, `ZoneInfo` levanta ModuleNotFoundError no desenvolvimento
 # local e o backend degradava para UTC justamente onde a diferença importa.
 tzdata==2026.3
+# Criptografia do payload do Web Push (aes128gcm, RFC 8291/8188). É a ÚNICA peça
+# nova do aviso de vencimento (ADR 0033), e de propósito:
+#
+# O caminho óbvio seria `pywebpush`, que é a implementação de referência — mas
+# ela arrasta `requests` (e urllib3/charset-normalizer junto) para um projeto que
+# padronizou `httpx`, e traz `py-vapid` para gerar um JWT ES256 que o
+# `PyJWT[crypto]` daqui de cima já assina. Sobra exatamente uma coisa que não dá
+# para montar com o que já existe: a cifragem do corpo. É esta biblioteca.
+#
+# O que NÃO se faz é escrever essa cifragem à mão. Não é criptografia inventada
+# (são ECDH P-256 + HKDF + AES-GCM, todos na `cryptography` que já está aqui),
+# mas errar um byte de contexto no HKDF não estoura em teste nenhum: o push sai,
+# o serviço aceita, e o navegador descarta em silêncio.
+http-ece==1.2.1

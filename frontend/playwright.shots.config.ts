@@ -45,6 +45,14 @@ export default defineConfig({
         DATABASE_URL: 'sqlite:///./shots.db',
         REGISTRATION_MODE: 'open',
         SUPERADMIN_EMAIL: 'demo@cf4.app',
+        // Par VAPID DESCARTÁVEL, só para o catálogo (ADR 0033). Sem chave, o
+        // `/me/push/config` responde `enabled: false`, a interface esconde tudo
+        // o que é de notificação — e as telas novas sairiam em branco, sem erro
+        // nenhum a denunciar. Nada é enviado por aqui: o roteiro só fotografa.
+        VAPID_PUBLIC_KEY:
+          'BEl62iUYgUivxIkv69yViEuiBIa-Ib9-SkvMeAtA3LFgDzkrxZJjSgSnfckjBJuBkr3qBUYIHBQFLXYp5Nksh8U',
+        VAPID_PRIVATE_KEY: 'UUxI4O8-FbRouAevSmBQ6o18hgE4nSG3qwvJTfKc-ls',
+        VAPID_SUBJECT: 'mailto:demo@cf4.app',
       },
     },
     {

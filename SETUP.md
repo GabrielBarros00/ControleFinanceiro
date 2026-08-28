@@ -242,6 +242,52 @@ Como alternativa, para Gmail:
    ```
 Outros provedores SMTP com STARTTLS também usam os mesmos campos.
 
+### Aviso de vencimento (notificações)
+
+O app avisa quando uma conta a pagar, uma fatura de cartão ou uma parcela de
+financiamento está chegando no vencimento — três dias antes (configurável), no
+dia, e uma vez se passar ([ADR 0033](docs/adr/0033-aviso-de-vencimento.md)).
+
+O **sino dentro do app** funciona sem configurar nada. O **push** — o único canal
+que alcança com o app fechado — precisa de um par de chaves VAPID:
+
+```bash
+cd backend && python scripts/gerar_vapid.py
+```
+
+Cole a saída no `.env`:
+
+```
+VAPID_PUBLIC_KEY=<a chave pública que o script imprimiu>
+VAPID_PRIVATE_KEY=<a chave privada que o script imprimiu>
+VAPID_SUBJECT=mailto:voce@seudominio.com
+DUE_REMINDER_HOUR=9
+```
+
+`DUE_REMINDER_HOUR` é a hora **local** (no `APP_TIMEZONE`) em que o aviso sai.
+`VAPID_SUBJECT` é só contato do responsável pela origem — o serviço de push usa
+para falar com alguém se este site passar a se comportar mal; não autentica nada.
+
+Deixando as chaves em branco, a funcionalidade **se desliga sozinha** em vez de
+quebrar: a interface não oferece push e o sino continua avisando.
+
+> **Girar a chave invalida todas as inscrições.** Cada navegador precisa se
+> reinscrever, e ninguém recebe aviso no intervalo. Não é operação de rotina.
+
+**Onde o aviso chega**, que é a dúvida mais comum:
+
+| Onde | Chega? |
+|---|---|
+| Android — Chrome, aba comum | Sim, mesmo com o Chrome fechado |
+| Android — app instalado | Sim, com o ícone e o nome do app |
+| PC — Chrome/Edge | Sim, exige o Chrome vivo (mesmo em segundo plano) |
+| iPhone/iPad — Safari ou Chrome, em aba | **Não** — a Apple não permite |
+| iPhone/iPad — instalado na Tela de Início | Sim (iOS 16.4+) |
+
+No iPhone, portanto, **instalar não é opcional**: sem adicionar à Tela de Início
+pelo Safari, não há push. O app detecta esse caso e pede a instalação primeiro,
+em vez de oferecer um botão que não pode funcionar.
+
 ### Depois de subir
 
 - **Smoke test**: `python scripts/smoke_prod.py` (ou `SMOKE_BASE_URL=https://seu-dominio python scripts/smoke_prod.py`).

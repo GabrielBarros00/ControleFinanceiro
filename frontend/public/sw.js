@@ -29,7 +29,7 @@
 // Suba a versão para invalidar tudo o que ficou em cache de uma vez. É o único
 // botão de emergência de um SW: sem ele, um cache ruim sobrevive no aparelho da
 // pessoa e não há como alcançá-lo do servidor.
-const VERSAO = 'cf4-v1';
+const VERSAO = 'cf4-v2';
 const CACHE_CASCA = `${VERSAO}-casca`;
 const CACHE_ASSETS = `${VERSAO}-assets`;
 
@@ -67,6 +67,77 @@ self.addEventListener('activate', (evento) => {
 self.addEventListener('message', (evento) => {
   // Gancho para a página pedir a troca imediata depois de avisar o usuário.
   if (evento.data === 'pular-espera') self.skipWaiting();
+});
+
+/*
+ * ---- Aviso de vencimento (ADR 0033) ----
+ *
+ * Este handler é o que faz o aviso chegar com o app FECHADO — é a razão de o
+ * push existir, e o único pedaço do app que roda sem nenhuma aba aberta.
+ *
+ * `showNotification` é OBRIGATÓRIO. Um push recebido que não mostra notificação
+ * é "silent push", e os navegadores punem: o Chrome mostra um aviso genérico
+ * ("Este site foi atualizado em segundo plano") e, na reincidência, revoga a
+ * permissão da origem. Por isso o `catch` abaixo também notifica — falhar
+ * calado aqui custa o canal inteiro.
+ */
+self.addEventListener('push', (evento) => {
+  let dados = {};
+  try {
+    dados = evento.data ? evento.data.json() : {};
+  } catch {
+    // Payload que não é JSON (teste manual pelo DevTools, versão futura do
+    // servidor). Cai no genérico em vez de estourar — ver o parágrafo acima.
+  }
+
+  const titulo = dados.titulo || 'Controle Financeiro';
+  const opcoes = {
+    body: dados.corpo || 'Você tem uma conta chegando no vencimento.',
+    icon: '/icon-192.png',
+    // `badge` é o ícone monocromático da barra de status do Android. Sem ele o
+    // sistema desenha um quadrado cinza no lugar.
+    badge: '/icon-192.png',
+    lang: 'pt-BR',
+    // `tag` fixa: um aviso novo SUBSTITUI o anterior em vez de empilhar. O
+    // servidor já agrupa as contas do dia numa mensagem só, então duas
+    // notificações na bandeja significam que a de ontem ficou para trás — e
+    // ninguém quer sete cartõezinhos de "conta vencendo" acumulados.
+    tag: 'vencimento',
+    data: { url: dados.url || '/me/payables' },
+  };
+
+  evento.waitUntil(
+    self.registration.showNotification(titulo, opcoes).catch(() =>
+      self.registration.showNotification('Controle Financeiro', {
+        body: 'Você tem uma conta chegando no vencimento.',
+        icon: '/icon-192.png',
+        tag: 'vencimento',
+      }),
+    ),
+  );
+});
+
+self.addEventListener('notificationclick', (evento) => {
+  evento.notification.close();
+  const destino = (evento.notification.data && evento.notification.data.url) || '/me/payables';
+
+  // Reaproveita uma janela já aberta em vez de abrir outra: quem tem o app
+  // instalado e toca no aviso espera voltar para o app que já estava lá, não
+  // ganhar uma segunda janela do mesmo app.
+  evento.waitUntil(
+    self.clients
+      .matchAll({ type: 'window', includeUncontrolled: true })
+      .then((janelas) => {
+        for (const janela of janelas) {
+          if (janela.url.includes(destino) && 'focus' in janela) return janela.focus();
+        }
+        const primeira = janelas[0];
+        if (primeira && 'navigate' in primeira) {
+          return primeira.navigate(destino).then((j) => j && j.focus());
+        }
+        return self.clients.openWindow(destino);
+      }),
+  );
 });
 
 self.addEventListener('fetch', (evento) => {

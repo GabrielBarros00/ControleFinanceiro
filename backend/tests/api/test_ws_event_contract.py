@@ -89,7 +89,13 @@ def test_frontend_nao_lista_evento_inexistente():
 # `me_financing.py` publica evento no caso em que a mudança TOCA um workspace
 # (pagar a parcela criando a despesa lá), então não está isento por inteiro — as
 # rotas dele que não publicam são as que só mexem no cadastro pessoal.
-MODULOS_PESSOAIS = {"me_income.py", "me_cards.py", "me_accounts.py", "me_financing.py"}
+#
+# `me_push.py` é o caso mais extremo da regra: uma inscrição de push é de uma
+# pessoa E de um NAVEGADOR dela. Não há sala para transmitir, e transmitir seria
+# contar a outras pessoas em que aparelhos alguém recebe aviso (ADR 0018/0033).
+MODULOS_PESSOAIS = {
+    "me_income.py", "me_cards.py", "me_accounts.py", "me_financing.py", "me_push.py",
+}
 
 # Módulo de PLATAFORMA (ADR 0026): mesma razão dos pessoais, num terceiro eixo.
 # Papel de usuário, configuração do site e convite de cadastro não pertencem a
