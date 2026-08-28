@@ -15,7 +15,11 @@ from app.models.credit_card import (
     StatementStatus,
 )
 from app.models.payment_account import PaymentAccount
-from app.models.transaction import Transaction
+from app.models.transaction import (
+    STATEMENT_SHIFT_MAX,
+    STATEMENT_SHIFT_MIN,
+    Transaction,
+)
 
 
 def _safe_date(year: int, month: int, day: int) -> date:
@@ -26,6 +30,18 @@ def _safe_date(year: int, month: int, day: int) -> date:
 
 def _advance_month(year: int, month: int) -> tuple[int, int]:
     return (year + 1, 1) if month == 12 else (year, month + 1)
+
+
+def _retreat_month(year: int, month: int) -> tuple[int, int]:
+    return (year - 1, 12) if month == 1 else (year, month - 1)
+
+
+def _shift_month(year: int, month: int, shift: int) -> tuple[int, int]:
+    """Anda `shift` faturas a partir de (ano, mês). Negativo volta."""
+    passo = _advance_month if shift > 0 else _retreat_month
+    for _ in range(abs(shift)):
+        year, month = passo(year, month)
+    return year, month
 
 
 def _statement_dates(card: CreditCard, year: int, month: int) -> tuple[datetime, datetime]:
@@ -48,17 +64,44 @@ class StatementStateError(ValueError):
 
 class CreditCardService:
     @staticmethod
+    def natural_month(card: CreditCard, transaction_date: Union[datetime, date]) -> tuple[int, int]:
+        """O mês da fatura pela REGRA do ciclo, antes de qualquer correção.
+
+        Só a regra do dia de fechamento: sem o deslocamento declarado e sem a
+        rolagem por fatura fechada. É a referência contra a qual as duas se
+        medem — `rolled_forward` no preview e o próprio `statement_shift`, que
+        por definição é a distância entre isto e o destino escolhido.
+        """
+        t_date = local_day(transaction_date)
+        if t_date.day >= card.closing_day:
+            return _advance_month(t_date.year, t_date.month)
+        return t_date.year, t_date.month
+
+    @staticmethod
     def resolve_statement_target(
         db: Session,
         card: CreditCard,
         transaction_date: Union[datetime, date],
+        *,
+        shift: int = 0,
     ) -> tuple[int, int, Optional[CardStatement]]:
         """Para qual fatura esta compra vai — SEM criar nada (ADR 0002).
 
-        Devolve `(ano, mês, fatura_existente | None)` aplicando as duas regras que
-        o usuário não tem como adivinhar: a partir do dia de fechamento a compra
-        pertence à fatura do mês SEGUINTE; e se essa fatura já estiver
-        fechada/paga (imutável), rola para frente até achar uma aberta.
+        Devolve `(ano, mês, fatura_existente | None)` aplicando, nesta ordem, as
+        três regras que o usuário não tem como adivinhar:
+
+        1. a partir do dia de fechamento a compra pertence à fatura do mês
+           SEGUINTE (`natural_month`);
+        2. o deslocamento DECLARADO (`shift`, ADR 0032) — a correção de quem
+           sabe que o emissor processou a compra noutro ciclo;
+        3. se a fatura resultante já estiver fechada/paga (imutável), rola para
+           frente até achar uma aberta.
+
+        A ordem entre 2 e 3 importa e é esta: o deslocamento parte do alvo
+        NATURAL, não do alvo já rolado. Invertê-la faria "+1" a partir de uma
+        fatura que rolou dois meses cair três meses à frente do que o usuário
+        pediu — o deslocamento é uma correção sobre a regra do ciclo, não sobre
+        o acidente de a fatura estar fechada.
 
         Existe separado do `get_or_create_statement` para que a UI possa ANUNCIAR
         o destino enquanto o usuário preenche o formulário sem, com isso, criar
@@ -75,20 +118,10 @@ class CreditCardService:
         "virar datetime" reintroduziria o erro pelo outro lado, retrocedendo um
         dia em fuso negativo.
         """
-        t_date = local_day(transaction_date)
-
-        # A partir do fechamento, a compra pertence à fatura do mês seguinte
-        if t_date.day >= card.closing_day:
-            year, month = _advance_month(t_date.year, t_date.month)
-        else:
-            year, month = t_date.year, t_date.month
+        year, month = _shift_month(*CreditCardService.natural_month(card, transaction_date), shift)
 
         while True:
-            statement = db.exec(
-                select(CardStatement)
-                .where(CardStatement.card_id == card.id)
-                .where(CardStatement.month == f"{year}-{month:02d}")
-            ).first()
+            statement = CreditCardService.find_statement(db, card, year, month)
 
             if statement is None or statement.status == StatementStatus.open:
                 return year, month, statement
@@ -97,10 +130,54 @@ class CreditCardService:
             year, month = _advance_month(year, month)
 
     @staticmethod
+    def find_statement(
+        db: Session, card: CreditCard, year: int, month: int
+    ) -> Optional[CardStatement]:
+        """A fatura `{year}-{month}` deste cartão, ou `None`. Não cria nada."""
+        return db.exec(
+            select(CardStatement)
+            .where(CardStatement.card_id == card.id)
+            .where(CardStatement.month == f"{year}-{month:02d}")
+        ).first()
+
+    @staticmethod
+    def assert_shift_reachable(
+        db: Session,
+        card: CreditCard,
+        transaction_date: Union[datetime, date],
+        shift: int,
+    ) -> None:
+        """Recusa um deslocamento que não pode ser honrado (ADR 0032).
+
+        Sem isto, pedir "a fatura anterior" quando ela já está fechada cairia na
+        rolagem para frente do `resolve_statement_target` e a compra voltaria,
+        calada, para o alvo natural: o app diria "ok" e faria outra coisa. Um
+        pedido EXPLÍCITO que não pode ser atendido tem de falhar alto.
+
+        Só vale para `shift != 0`. Com deslocamento zero a rolagem continua sendo
+        o comportamento correto e desejado — ela não é o resultado de um pedido
+        do usuário, é a regra de imutabilidade da fatura fechada (ADR 0011)
+        fazendo o seu trabalho.
+        """
+        if not shift:
+            return
+        year, month = _shift_month(*CreditCardService.natural_month(card, transaction_date), shift)
+        statement = CreditCardService.find_statement(db, card, year, month)
+        if statement is not None and statement.status != StatementStatus.open:
+            rotulo = "paga" if statement.status == StatementStatus.paid else "fechada"
+            raise StatementStateError(
+                f"A fatura de {year}-{month:02d} já está {rotulo} e não aceita "
+                "lançamentos novos. Reabra-a antes de mover esta compra para ela."
+            )
+
+    @staticmethod
     def get_or_create_statement_tracked(
         db: Session,
         card: CreditCard,
         transaction_date: Union[datetime, date],
+        *,
+        shift: int = 0,
+        strict_shift: bool = True,
     ) -> tuple[CardStatement, bool]:
         """Como `get_or_create_statement`, mas diz se a fatura NASCEU agora.
 
@@ -111,9 +188,18 @@ class CreditCardService:
         VAZIA do ciclo corrente, e ela é indistinguível de lixo por qualquer
         critério de conteúdo (ver `_descartar_fatura_vazia` em
         `recurring_service.py`).
+
+        `strict_shift=True` faz a guarda de `assert_shift_reachable` valer aqui
+        dentro, e não em cada rota: o ponto de escrita é único, então esquecê-la
+        num caminho novo deixa de ser possível. Quem desliga é a materialização
+        preguiçosa da recorrência — ela roda dentro de rotas de LEITURA, e um
+        deslocamento inalcançável ali derrubaria um GET com 409 em vez de apenas
+        deixar a ocorrência cair no alvo natural (ver `_statement_for`).
         """
+        if strict_shift:
+            CreditCardService.assert_shift_reachable(db, card, transaction_date, shift)
         year, month, statement = CreditCardService.resolve_statement_target(
-            db, card, transaction_date
+            db, card, transaction_date, shift=shift
         )
         if statement is not None:
             return statement, False
@@ -136,11 +222,14 @@ class CreditCardService:
         db: Session,
         card: CreditCard,
         transaction_date: Union[datetime, date],
+        *,
+        shift: int = 0,
+        strict_shift: bool = True,
     ) -> CardStatement:
         """Fatura correta para uma transação (ADR 0002), criando-a se ainda não
         existe. A regra de roteamento vive em `resolve_statement_target`."""
         return CreditCardService.get_or_create_statement_tracked(
-            db, card, transaction_date
+            db, card, transaction_date, shift=shift, strict_shift=strict_shift
         )[0]
 
     @staticmethod
@@ -148,23 +237,32 @@ class CreditCardService:
         db: Session,
         card: CreditCard,
         transaction_date: Union[datetime, date],
+        *,
+        shift: int = 0,
     ) -> dict:
-        """Destino da compra em formato de leitura, sem efeito colateral."""
+        """Destino da compra em formato de leitura, sem efeito colateral.
+
+        Além do destino, devolve `options`: as faturas para as quais esta compra
+        PODE ser movida, cada uma já com o `statement_shift` que a alcança. É o
+        que permite à tela oferecer "em qual fatura entrou?" sem fazer aritmética
+        de ciclo no cliente — que seria uma segunda cópia da regra do ADR 0002,
+        divergindo do servidor na primeira mudança — e sem nunca mandar um
+        `statement_id`, que continua proibido.
+        """
         year, month, statement = CreditCardService.resolve_statement_target(
-            db, card, transaction_date
+            db, card, transaction_date, shift=shift
         )
         closing_dt, due_dt = _statement_dates(card, year, month)
 
-        # Mês "natural" pelo ciclo (só a regra do dia de fechamento, sem rolagem).
-        # A diferença entre ele e o destino real é exatamente o caso que
-        # surpreende: a fatura daquele mês já estava fechada/paga.
-        # `local_day` pelo mesmo motivo de `resolve_statement_target`: o preview
-        # tem de anunciar exatamente a fatura para onde a compra vai.
-        t_date = local_day(transaction_date)
-        if t_date.day >= card.closing_day:
-            natural = _advance_month(t_date.year, t_date.month)
-        else:
-            natural = (t_date.year, t_date.month)
+        # Mês "natural" pelo ciclo: só a regra do dia de fechamento, sem o
+        # deslocamento e sem a rolagem. A diferença entre ele e o destino real é
+        # exatamente o caso que surpreende quem digita.
+        natural = CreditCardService.natural_month(card, transaction_date)
+        # `rolled_forward` mede só a ROLAGEM (fatura fechada), nunca o
+        # deslocamento pedido: comparar contra o natural cru marcaria todo
+        # `shift != 0` como "rolou", e a tela avisaria "a fatura do mês já está
+        # fechada" sobre uma compra que o próprio usuário mandou para frente.
+        pedido = _shift_month(*natural, shift)
 
         return {
             "month": f"{year}-{month:02d}",
@@ -172,8 +270,74 @@ class CreditCardService:
             "due_date": statement.due_date if statement else due_dt,
             # False = a fatura ainda não existe (nasce no primeiro lançamento)
             "exists": statement is not None,
-            "rolled_forward": (year, month) != natural,
+            "rolled_forward": (year, month) != pedido,
+            "shift": shift,
+            "days_to_closing": CreditCardService._days_to_closing(
+                card, transaction_date, natural, (year, month), pedido
+            ),
+            "options": CreditCardService._shift_options(db, card, natural),
         }
+
+    @staticmethod
+    def _days_to_closing(
+        card: CreditCard,
+        transaction_date: Union[datetime, date],
+        natural: tuple[int, int],
+        destino: tuple[int, int],
+        pedido: tuple[int, int],
+    ) -> Optional[int]:
+        """Quantos dias faltam para a fatura de destino fechar. `None` quando a
+        pergunta não faz sentido.
+
+        Serve ao aviso da janela de fechamento (ADR 0032): perto do fechamento, a
+        chance de o emissor processar a compra já no ciclo seguinte é real, e é o
+        único momento em que o app pode alertar ANTES do fato.
+
+        `None` quando o destino não é o ciclo natural da compra — porque o
+        usuário já deslocou, ou porque a fatura rolou por estar fechada. Nos dois
+        casos o número compararia a data da compra com o fechamento de um ciclo a
+        que ela não pertence: um valor com aparência de resposta e sem
+        significado, que faria a tela avisar "faltam 2 dias para o fechamento"
+        sobre uma compra já movida.
+
+        Uma compra logo DEPOIS do fechamento devolve um número grande (ela abre o
+        ciclo seguinte), e isso é correto: não há nada de anômalo nela, e a tela
+        simplesmente não avisa. O aviso é unilateral por natureza — atraso de
+        captura de 1 a 3 dias nunca atravessa um ciclo inteiro.
+        """
+        if destino != natural or pedido != natural:
+            return None
+        closing_dt, _ = _statement_dates(card, *natural)
+        return (closing_dt.date() - local_day(transaction_date)).days
+
+    @staticmethod
+    def _shift_options(
+        db: Session, card: CreditCard, natural: tuple[int, int]
+    ) -> list[dict]:
+        """As faturas alcançáveis a partir do alvo natural, com o shift de cada.
+
+        `available=False` marca a fatura fechada/paga: ela aparece na lista de
+        propósito, com o motivo, em vez de sumir. Some-la deixaria a tela sem
+        explicação para a opção que o usuário procura e não encontra — e o caso
+        é frequente, porque a divergência costuma ser descoberta justamente
+        quando a fatura real chega, com o ciclo já fechado.
+        """
+        opcoes = []
+        for shift in range(STATEMENT_SHIFT_MIN, STATEMENT_SHIFT_MAX + 1):
+            year, month = _shift_month(*natural, shift)
+            statement = CreditCardService.find_statement(db, card, year, month)
+            closing_dt, due_dt = _statement_dates(card, year, month)
+            aberta = statement is None or statement.status == StatementStatus.open
+            opcoes.append({
+                "shift": shift,
+                "month": f"{year}-{month:02d}",
+                "closing_date": statement.closing_date if statement else closing_dt,
+                "due_date": statement.due_date if statement else due_dt,
+                "exists": statement is not None,
+                "available": aberta,
+                "status": statement.status if statement else None,
+            })
+        return opcoes
 
     @staticmethod
     def ensure_current_statement(db: Session, card: CreditCard, today: Optional[date] = None) -> CardStatement:

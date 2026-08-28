@@ -14,7 +14,14 @@ from app.models.recurring import (
     RecurringExpense,
     RecurringExpenseBase,
 )
-from app.models.transaction import Transaction, PaymentMethod, SplitMethod, TransactionStatus
+from app.models.transaction import (
+    STATEMENT_SHIFT_MAX,
+    STATEMENT_SHIFT_MIN,
+    Transaction,
+    PaymentMethod,
+    SplitMethod,
+    TransactionStatus,
+)
 from app.api.deps import get_workspace_membership, require_role
 from app.services.event_service import publish_event
 from app.services.recurring_service import (
@@ -61,6 +68,12 @@ class RecurringCreate(BaseModel):
     # ocorrência nasce liquidada e não entra em Contas a pagar.
     auto_settle: bool = False
     credit_card_id: Optional[int] = None
+    # Deslocamento de fatura do template (ADR 0032). Uma assinatura cobrada perto
+    # do fechamento cai na fatura seguinte TODO mês — é característica do
+    # cobrador, e declará-la uma vez evita corrigir cada ocorrência à mão.
+    statement_shift: int = Field(
+        default=0, ge=STATEMENT_SHIFT_MIN, le=STATEMENT_SHIFT_MAX
+    )
     category_id: Optional[int] = None
     payer_user_id: Optional[int] = None
     split_snapshot: Optional[List[RecurringSplitEntry]] = None
@@ -108,6 +121,9 @@ class RecurringUpdate(BaseModel):
     payment_method: Optional[PaymentMethod] = None
     auto_settle: Optional[bool] = None
     credit_card_id: Optional[int] = None
+    statement_shift: Optional[int] = Field(
+        default=None, ge=STATEMENT_SHIFT_MIN, le=STATEMENT_SHIFT_MAX
+    )
     category_id: Optional[int] = None
     payer_user_id: Optional[int] = None
     split_snapshot: Optional[List[RecurringSplitEntry]] = None
@@ -132,6 +148,7 @@ class RecurringRead(RecurringExpenseBase):
     payment_method: Optional[PaymentMethod] = None
     auto_settle: bool = False
     credit_card_id: Optional[int] = None
+    statement_shift: int = 0
     category_id: Optional[int] = None
     payer_user_id: Optional[int] = None
     split_snapshot: Optional[List[dict]] = None
@@ -198,6 +215,7 @@ def _validate_snapshot(
     payment_method: Optional[PaymentMethod] = None,
     *,
     actor_user_id: Optional[int] = None,
+    statement_shift: int = 0,
 ) -> None:
     if category_id is not None:
         category = session.get(Category, category_id)
@@ -217,6 +235,14 @@ def _validate_snapshot(
                 status_code=400,
                 detail="Cartão de crédito só se aplica à forma de pagamento 'credit_card'",
             )
+    elif statement_shift:
+        # Mesma guarda da despesa avulsa (`validate_statement_shift`): sem cartão
+        # não há fatura para deslocar, e aceitar o valor calado deixaria um
+        # deslocamento adormecido que acordaria ao vincular um cartão depois.
+        raise HTTPException(
+            status_code=400,
+            detail="Deslocamento de fatura exige uma recorrência no cartão (credit_card_id)",
+        )
     member_ids = set(session.exec(
         select(WorkspaceMembership.user_id).where(WorkspaceMembership.workspace_id == workspace_id)
     ).all())
@@ -307,6 +333,7 @@ def create_recurring(
         recurring_in.category_id, recurring_in.payer_user_id, recurring_in.split_snapshot,
         recurring_in.credit_card_id, recurring_in.payment_method,
         actor_user_id=membership.user_id,
+        statement_shift=recurring_in.statement_shift,
     )
     data = recurring_in.model_dump(exclude={"split_snapshot"})
     # Moeda ausente = a do workspace (nunca "BRL" fixo — ver resolve_currency)
@@ -451,8 +478,24 @@ def update_recurring(
     # o `setattr` abaixo gravaria um campo fantasma no objeto do ORM — aceito
     # pelo SQLModel, jamais persistido, e sem erro.
     quantas = update_data.pop("end_after_occurrences", None)
+    # `statement_shift` é NOT NULL e o campo de entrada é `Optional[int]` (para
+    # "não mexe" ser distinguível de "zera"). Um `null` explícito no corpo cairia
+    # no `setattr` abaixo e gravaria None na coluna — IntegrityError no commit,
+    # numa rota que só queria editar o título.
+    if update_data.get("statement_shift", 0) is None:
+        update_data.pop("statement_shift")
     for key, value in update_data.items():
         setattr(db_recurring, key, value)
+    # Tirou o cartão NESTA edição: o deslocamento perde o objeto e é zerado, em
+    # vez de reprovar em `_validate_snapshot`. A guarda existe contra
+    # deslocamento ÓRFÃO, não contra quem está justamente removendo o cartão.
+    #
+    # A condição é a TRANSIÇÃO (o campo veio no corpo), não "está sem cartão":
+    # zerar sempre que não há cartão faria um `statement_shift` enviado para um
+    # template sem cartão ser aceito e ignorado em silêncio — exatamente o que a
+    # guarda no `_validate_snapshot` existe para transformar em 400.
+    if "credit_card_id" in update_data and db_recurring.credit_card_id is None:
+        db_recurring.statement_shift = 0
     if snapshot_provided:
         db_recurring.split_snapshot = _snapshot_json(recurring_in.split_snapshot)
     if quantas is not None:
@@ -472,6 +515,10 @@ def update_recurring(
         db_recurring.category_id, db_recurring.payer_user_id, recurring_in.split_snapshot,
         db_recurring.credit_card_id, db_recurring.payment_method,
         actor_user_id=db_recurring.created_by_user_id or membership.user_id,
+        # Do TEMPLATE já atualizado (os `setattr` do PUT rodaram acima), e não do
+        # corpo: numa edição parcial que só tira o cartão, `recurring_in` não
+        # traz `statement_shift` e a guarda passaria por cima do valor herdado.
+        statement_shift=db_recurring.statement_shift,
     )
 
     session.add(db_recurring)

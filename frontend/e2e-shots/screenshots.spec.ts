@@ -37,6 +37,31 @@ function iso(daysAgo: number): string {
   return d.toISOString();
 }
 
+// Fechamento do primeiro cartão semeado. Vive aqui, e não solto no meio do
+// roteiro, porque três lugares dependem dele casar: a semeadura da compra
+// deslocada, a data que o formulário digita para o aviso aparecer, e o próprio
+// cadastro do cartão.
+const FECHAMENTO_DO_CARTAO = 28;
+
+/**
+ * Véspera do fechamento do primeiro cartão, no mês corrente — a janela em que o
+ * atraso de captura do estabelecimento decide em qual fatura a compra cai.
+ *
+ * Dia fixo do mês CORRENTE (não "hoje menos N"): o aviso da janela só existe
+ * antes do fechamento, e uma data relativa cairia dentro ou fora dele conforme o
+ * dia em que o roteiro rodasse — a mesma captura mostraria coisas diferentes em
+ * dias diferentes, que é o defeito que um catálogo não pode ter.
+ *
+ * Meio-dia pelo mesmo motivo do `iso` acima e do `civil_instant` do backend:
+ * meia-noite, lida em fuso negativo, é o dia anterior.
+ */
+const vesperaDoFechamento = (() => {
+  const d = new Date();
+  d.setDate(FECHAMENTO_DO_CARTAO - 1);
+  d.setHours(12, 0, 0, 0);
+  return d.toISOString();
+})();
+
 // Telas PÚBLICAS. Capturadas nos dois temas: são a primeira coisa que alguém vê
 // e, até esta rodada, só existiam em claro no catálogo.
 const AUTH_ROUTES: Array<{ path: string; slug: string }> = [
@@ -97,6 +122,21 @@ const appRoutes = (wsId: number): Array<{ path: string; slug: string }> => [
 
 test('seed data and capture all screens', async ({ page, playwright }) => {
   test.setTimeout(300_000);
+  /*
+   * Apaga as capturas antigas ANTES de capturar.
+   *
+   * Sem isto, renomear o slug de uma rota deixa o arquivo velho para trás para
+   * sempre: `mobile-inicio-light.png` sobreviveu duas semanas depois de a rota
+   * virar `inicio-global`, foi recomprimido para `docs/images` junto com as
+   * outras, e o catálogo continuou apontando para ele — uma tela de duas
+   * semanas atrás publicada como se fosse a atual. Ninguém tinha como notar:
+   * o arquivo existe, a imagem abre, e ela é uma tela plausível do aplicativo.
+   *
+   * Limpar aqui faz o conjunto de PNGs ser, por construção, exatamente o que
+   * ESTA execução produziu — e o `comprimir-shots.py`, que copia a pasta
+   * inteira, herda a garantia.
+   */
+  fs.rmSync(SHOTS, { recursive: true, force: true });
   fs.mkdirSync(SHOTS, { recursive: true });
 
   // ------------------------------------------------------------------ SEED
@@ -208,7 +248,7 @@ test('seed data and capture all screens', async ({ page, playwright }) => {
     // menor tem quatro dígitos, o maior seis.
     let card: { id: number } | null = null;
     for (const c of [
-      { name: 'Cartão Platinum Internacional — Banco do Brasil', limit: 250_000, closing_day: 28, due_day: 7 },
+      { name: 'Cartão Platinum Internacional — Banco do Brasil', limit: 250_000, closing_day: FECHAMENTO_DO_CARTAO, due_day: 7 },
       { name: 'Nubank Ultravioleta', limit: 38_000, closing_day: 15, due_day: 22 },
       { name: 'Itaú Personnalité Mastercard Black', limit: 120_000, closing_day: 5, due_day: 12 },
       { name: 'Cartão da loja de materiais de construção (parcelamento sem juros)', limit: 9_500, closing_day: 20, due_day: 28 },
@@ -470,7 +510,51 @@ test('seed data and capture all screens', async ({ page, playwright }) => {
       },
     });
     expect(multi.ok(), `múltiplos pagadores: ${multi.status()} ${await multi.text()}`).toBeTruthy();
+
+    // Compra JÁ MOVIDA de fatura (ADR 0032). O deslocamento é a única coisa no
+    // app que se vê apenas no detalhe de um lançamento, e sem uma linha assim o
+    // catálogo mostraria o seletor sempre no estado neutro — que é o estado que
+    // não precisa de explicação nenhuma.
+    const deslocada = await api.post(u(`/workspaces/${wsId}/transactions/`), {
+      data: {
+        title: 'Jantar no restaurante — o cartão só processou dois dias depois',
+        total_amount: 486.2,
+        // Véspera do fechamento do primeiro cartão (dia 28), que é exatamente a
+        // janela em que o atraso de captura decide a fatura.
+        transaction_date: vesperaDoFechamento,
+        payment_method: 'credit_card',
+        credit_card_id: card!.id,
+        statement_shift: 1,
+        payers: [{ user_id: uid, amount: 486.2 }],
+        splits: [{ user_id: uid, split_method: 'equal', input_value: 0 }],
+      },
+    });
+    expect(
+      deslocada.ok(),
+      `compra deslocada de fatura: ${deslocada.status()} ${await deslocada.text()}`,
+    ).toBeTruthy();
   }
+
+  /**
+   * Link de convite — a única rota do app que o catálogo nunca fotografou.
+   *
+   * Ela não aparece em menu nenhum (chega-se a ela por um link recebido), e é
+   * por isso que passou despercebida: ninguém a encontra navegando. É também a
+   * primeira tela que uma pessoa NOVA vê do produto, o que a torna das mais
+   * importantes para conferir visualmente.
+   *
+   * Um token de verdade, não um inválido: com token quebrado a tela mostraria só
+   * "convite não encontrado", e o que interessa ver é o convite legítimo — nome
+   * do espaço, papel oferecido e o botão de aceitar.
+   */
+  const linkConvite = await api.post(u(`/workspaces/${wsId}/invites/link`), {
+    data: { role: 'member', expires_days: 7, max_uses: 50 },
+  });
+  expect(
+    linkConvite.ok(),
+    `link de convite: ${linkConvite.status()} ${await linkConvite.text()}`,
+  ).toBeTruthy();
+  const tokenConvite: string = (await linkConvite.json()).token;
 
   // ----------------------------------------------------------- SCREENSHOTS
   await page.setViewportSize({ width: 1440, height: 900 });
@@ -547,6 +631,12 @@ test('seed data and capture all screens', async ({ page, playwright }) => {
       await shot(`${r.slug}-${theme}`);
     }
 
+    // Convite: fora da lista de rotas porque o caminho carrega um token gerado
+    // na semeadura — `appRoutes` só conhece caminhos estáticos.
+    await page.goto(`/invite/${tokenConvite}`);
+    await settle();
+    await shot(`convite-${theme}`);
+
     // Modal Nova Despesa (a partir do painel do workspace)
     await page.goto(`/w/${wsId}`);
     await settle();
@@ -557,6 +647,68 @@ test('seed data and capture all screens', async ({ page, playwright }) => {
       await page.waitForTimeout(600);
       await shot(`nova-despesa-modal-${theme}`);
       await page.keyboard.press('Escape').catch(() => {});
+    }
+
+    // Aviso da janela de fechamento + atalho para a fatura seguinte (ADR 0032).
+    //
+    // O aviso só existe com CARTÃO escolhido e data dentro dos três dias que
+    // antecedem o fechamento — é uma combinação que nenhuma captura de rota
+    // alcança, porque ela vive dentro do formulário e depende do que foi
+    // preenchido. Sem estas linhas, a única coisa nova visível no catálogo
+    // seria o seletor de fatura no detalhe.
+    await page.goto(`/w/${wsId}`);
+    await settle();
+    const paraFechamento = page.getByRole('button', { name: 'Nova Despesa' });
+    if (await paraFechamento.count()) {
+      await paraFechamento.first().click();
+      await page.getByRole('dialog').waitFor({ state: 'visible' }).catch(() => {});
+      await page.getByLabel('Título / Descrição').fill('Jantar de aniversário');
+      await page.getByLabel('Forma de pagamento').selectOption('credit_card');
+      // Pelo NOME, não por índice. A lista de cartões não sai na ordem em que
+      // foram semeados, e `{ index: 1 }` pegava o C6 Carbon (fecha dia 10):
+      // com a data no dia 27, o destino ficava a duas semanas do fechamento e o
+      // aviso — o objeto desta captura — simplesmente não aparecia. A captura
+      // saía "verde" mostrando o formulário sem a novidade.
+      const seletorDeCartao = page.getByLabel('Qual cartão?');
+      const platinum = await seletorDeCartao
+        .locator('option', { hasText: 'Platinum' })
+        .first()
+        .getAttribute('value');
+      expect(platinum, 'o cartão de fechamento 28 precisa estar na lista').toBeTruthy();
+      await seletorDeCartao.selectOption(platinum!);
+      await page.getByLabel('Data', { exact: true }).fill(vesperaDoFechamento.slice(0, 10));
+      // O aviso depende de uma ida ao servidor (`statement-for`): esperar o
+      // testid em vez de um timeout fixo evita capturar o instante anterior a
+      // ele, que é justamente a tela sem a novidade.
+      await page
+        .getByTestId('closing-window-warning')
+        .waitFor({ state: 'visible', timeout: 10_000 })
+        .catch(() => {});
+      await shot(`aviso-janela-de-fechamento-${theme}`);
+      await page.keyboard.press('Escape').catch(() => {});
+      await page.waitForTimeout(300);
+    }
+
+    // Seletor "em qual fatura esta compra entrou" no detalhe do lançamento.
+    // É a correção DEPOIS de lançada — a metade que resolve o problema, porque
+    // é quando a fatura real já chegou e a dúvida virou fato.
+    await page.goto(`/w/${wsId}/transactions`);
+    await settle();
+    const compraNoCartao = page.getByText(/o cartão só processou dois dias depois/i).first();
+    if (await compraNoCartao.count()) {
+      await compraNoCartao.click();
+      await page.getByRole('dialog').waitFor({ state: 'visible' }).catch(() => {});
+      await page
+        .getByLabel('Fatura desta compra')
+        .waitFor({ state: 'visible', timeout: 10_000 })
+        .catch(() => {});
+      // O `waitFor` acima garante que o seletor EXISTE, não que o fade-in do
+      // diálogo terminou: sem esta pausa a captura saía com o modal a meio
+      // caminho, translúcido e por cima da lista.
+      await page.waitForTimeout(600);
+      await shot(`detalhe-lancamento-fatura-${theme}`);
+      await page.keyboard.press('Escape').catch(() => {});
+      await page.waitForTimeout(300);
     }
 
     // Modal Nova Renda — verifica o switch "Renda recorrente" (contraste OFF/ON)
@@ -610,6 +762,9 @@ test('seed data and capture all screens', async ({ page, playwright }) => {
       await settle();
       await shot(`mobile-${r.slug}-${theme}`);
     }
+    await page.goto(`/invite/${tokenConvite}`);
+    await settle();
+    await shot(`mobile-convite-${theme}`);
 
     // A gaveta "Mais" e o seletor de escopo só existem no celular: são a
     // navegação inteira abaixo de `md`, e nunca tinham sido fotografados.

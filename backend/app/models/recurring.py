@@ -2,7 +2,7 @@ from datetime import datetime, date, UTC
 from enum import Enum
 from typing import Optional, List, TYPE_CHECKING
 from decimal import Decimal
-from sqlalchemy import JSON, Boolean, Column, false
+from sqlalchemy import JSON, Boolean, Column, Integer, false
 from sqlmodel import SQLModel, Field, Relationship
 
 from app.models.transaction import PaymentMethod
@@ -63,6 +63,16 @@ class RecurringExpense(RecurringExpenseBase, table=True):
     # entrava numa fatura — a materialização roteia a instância para o statement
     # do ciclo da ocorrência (CreditCardService.get_or_create_statement).
     credit_card_id: Optional[int] = Field(default=None, foreign_key="creditcard.id")
+    # Deslocamento de fatura do template (ADR 0032), herdado por toda ocorrência.
+    # Uma assinatura cobrada perto do fechamento cai na fatura seguinte TODO mês
+    # — é característica do cobrador, não acidente de um mês. Sem isto, a
+    # correção teria de ser refeita à mão em cada instância materializada, e a
+    # materialização é preguiçosa: a ocorrência do mês que vem nasceria errada de
+    # novo, sozinha, quando alguém abrisse uma tela de leitura.
+    statement_shift: int = Field(
+        default=0,
+        sa_column=Column(Integer, nullable=False, server_default="0"),
+    )
     category_id: Optional[int] = Field(default=None, foreign_key="category.id")
     payer_user_id: Optional[int] = Field(default=None, foreign_key="user.id")
     # Lista de {user_id, split_method, input_value}; None → divisão 100% ao pagador

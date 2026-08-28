@@ -142,7 +142,16 @@ def _statement_for(
     # `occ` direto: a ocorrência JÁ é um dia de calendário. Embrulhá-la em
     # meia-noite UTC a transformava num instante que, lido no fuso do app, é o
     # dia ANTERIOR — a ocorrência do dia de fechamento ia para a fatura errada.
-    statement, criada = CreditCardService.get_or_create_statement_tracked(db, card, occ)
+    #
+    # `strict_shift=False` (ADR 0032): esta função roda dentro da materialização
+    # PREGUIÇOSA, que é disparada por rotas de LEITURA. Um deslocamento
+    # inalcançável — a fatura de destino já fechou — não pode virar 409 num GET
+    # de extrato; a ocorrência cai no alvo natural, que é o mesmo tratamento que
+    # o cartão apagado já recebe logo acima. Quem escreve (formulário, edição)
+    # continua estrito e recebe o erro na cara.
+    statement, criada = CreditCardService.get_or_create_statement_tracked(
+        db, card, occ, shift=template.statement_shift, strict_shift=False
+    )
     return statement.id, criada
 
 
@@ -491,6 +500,11 @@ class RecurringService:
             payment_method=template.payment_method,
             credit_card_id=template.credit_card_id,
             statement_id=statement_id,
+            # A instância herda o deslocamento do template (ADR 0032) e o guarda
+            # na própria linha: sem isso, editar a data desta ocorrência pela
+            # tela de lançamentos rerrotearia a fatura com deslocamento zero e
+            # desfaria calada a correção que o template declara.
+            statement_shift=template.statement_shift if template.credit_card_id else 0,
             # `civil_instant`, não `datetime(y, m, d)`: a ocorrência é uma DATA
             # de calendário ("todo dia 1"), e meia-noite UTC a joga para o dia 31
             # do mês anterior em qualquer fuso negativo — a despesa do dia 1º
@@ -888,6 +902,7 @@ class RecurringService:
                 )
             # O flag de "nasceu agora" não interessa aqui: este é o caminho de
             # ESCRITA, a instância existe e nada será descartado.
+            tx.statement_shift = template.statement_shift if template.credit_card_id else 0
             tx.statement_id, _ = _statement_for(db, template, occ)
             tx.original_amount = template.base_amount if is_foreign else None
             tx.original_currency = template.currency if is_foreign else None

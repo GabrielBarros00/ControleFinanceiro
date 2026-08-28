@@ -23,7 +23,7 @@ from datetime import date, datetime, UTC
 from decimal import Decimal
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 from sqlmodel import Session, select
 
@@ -38,7 +38,11 @@ from app.models.credit_card import (
     StatementStatus,
 )
 from app.models.payment_account import PaymentAccount
-from app.models.transaction import Transaction
+from app.models.transaction import (
+    STATEMENT_SHIFT_MAX,
+    STATEMENT_SHIFT_MIN,
+    Transaction,
+)
 from app.models.user import User
 from app.schemas.common import DESCRIPTION_MAX, MAX_MONEY, NAME_MAX, OptionalCurrencyCode, StatusRead
 from app.schemas.credit_card import (
@@ -291,6 +295,12 @@ def statement_for_date(
     # anunciaria uma fatura e o POST gravaria em outra. Um preview que mente
     # sobre o destino é pior que preview nenhum.
     on: date,
+    shift: int = Query(
+        0,
+        ge=STATEMENT_SHIFT_MIN,
+        le=STATEMENT_SHIFT_MAX,
+        description="Deslocamento de fatura declarado (ADR 0032).",
+    ),
     session: Session = Depends(get_session),
     current_user: User = Depends(get_current_user),
 ):
@@ -300,9 +310,15 @@ def statement_for_date(
     fechamento a compra vai para o mês seguinte, e se essa fatura já estiver
     fechada/paga ela rola para frente. Somente LEITURA: não cria fatura (senão
     digitar no formulário criaria faturas vazias).
+
+    Devolve também `options` — as faturas vizinhas alcançáveis, cada uma com o
+    `shift` que a alcança — e `days_to_closing`, que é o que sustenta o aviso da
+    janela de fechamento (ADR 0032). Os dois saem daqui, e não de contas no
+    cliente, porque a regra de ciclo é do servidor: uma segunda implementação no
+    frontend divergiria da primeira na primeira mudança.
     """
     card = _get_card_or_404(session, card_id, current_user.id)
-    return CreditCardService.preview_statement_target(session, card, on)
+    return CreditCardService.preview_statement_target(session, card, on, shift=shift)
 
 
 @router.get("/{card_id}/statements", response_model=list[StatementListItemRead])
