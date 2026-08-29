@@ -1,7 +1,8 @@
 from datetime import datetime, UTC
 from enum import Enum
 from typing import Optional
-from sqlalchemy import Column, String
+from sqlalchemy import Boolean, Column, Integer, String
+from sqlalchemy.sql import expression
 from sqlmodel import SQLModel, Field
 from pydantic import EmailStr, ConfigDict
 
@@ -77,6 +78,30 @@ class User(UserBase, table=True):
     avatar_content_type: Optional[str] = Field(
         default=None, sa_column=Column(String(32), nullable=True)
     )
+    # --- Preferências do aviso de vencimento (ADR 0033) ---
+    #
+    # Quantos dias antes sai o primeiro aviso. O segundo é sempre no dia e o
+    # terceiro no dia seguinte ao vencimento; só a antecedência é escolha.
+    notify_days_before: int = Field(
+        default=3,
+        sa_column=Column(Integer, nullable=False, server_default="3"),
+    )
+    # E-mail DESLIGADO por padrão, e isso é decisão, não descuido: ninguém pediu
+    # e-mail, e ligá-lo sozinho é spam. Fica à mão porque é o único canal que
+    # alcança um iPhone sem o app instalado (ADR 0033, item 7).
+    notify_by_email: bool = Field(
+        default=False,
+        sa_column=Column(Boolean, nullable=False, server_default=expression.false()),
+    )
+    # O payload do push é cifrado ponta a ponta — o serviço de push não lê. A
+    # exposição real é a TELA DE BLOQUEIO, onde qualquer um que olhe o aparelho
+    # lê o que chegou. Num app cujos ADRs 0018 e 0021 tratam a vida financeira
+    # como privada, o padrão não pode ser gritar quanto se deve.
+    notify_show_amount: bool = Field(
+        default=False,
+        sa_column=Column(Boolean, nullable=False, server_default=expression.false()),
+    )
+
     created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
     updated_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
     deleted_at: Optional[datetime] = Field(default=None)

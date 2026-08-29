@@ -15,6 +15,7 @@ import { User, Shield, Users, Palette, LogOut, Globe, Moon, Sun, Laptop, Loader2
 import { useAuthStore } from '@/stores';
 import { useTheme } from '@/hooks/use-theme';
 import { InstallAppCard } from '@/components/pwa/InstallApp';
+import { PreferenciasDeAviso } from '@/components/notifications/PreferenciasDeAviso';
 import { useAuth } from '@/hooks/use-auth';
 import { useWorkspaces } from '@/hooks/use-workspaces';
 import { workspacePath } from '@/hooks/use-workspace-id';
@@ -1198,6 +1199,10 @@ function AppearanceTab() {
           superior: os dois compartilham a cópia dos passos do iPhone, que
           divergiria na primeira correção feita em um só dos lados. */}
       <InstallAppCard />
+
+      {/* Depois do cartão de instalar, e não antes: no iPhone o push depende de
+          o app estar instalado, então a ordem na tela é a ordem dos passos. */}
+      <PreferenciasDeAviso />
     </div>
   );
 }

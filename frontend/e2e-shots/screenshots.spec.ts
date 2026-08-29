@@ -615,8 +615,61 @@ test('seed data and capture all screens', async ({ page, playwright }) => {
   // Onboarding aparece para needs_onboarding=true
   await shot('onboarding-modal');
 
+  /*
+   * O convite de notificação (ADR 0033).
+   *
+   * Capturado ANTES de encerrar o onboarding não daria certo: ele se cala
+   * enquanto `needs_onboarding` for true, de propósito — dois modais na primeira
+   * tela é o caminho mais curto para a pessoa fechar os dois sem ler. Por isso
+   * a captura vem logo DEPOIS do flip do flag, mais abaixo.
+   */
+
   // Encerra o onboarding via API (flip do flag, sem criar renda/cartão) e recarrega
   await api.post(u('/auth/onboarding'), { data: { workspace_id: wsId, salary: 0 } });
+
+  const capturarAvisoDeVencimento = async (theme: 'light' | 'dark') => {
+    /*
+     * `Notification.permission` precisa ser forçada para `'default'`, e o
+     * motivo é uma limitação do navegador — não uma conveniência.
+     *
+     * No Chromium HEADLESS a permissão nasce `'denied'` e `grantPermissions()`
+     * NÃO a altera (medido: 'denied' antes, depois e após reload). O resultado
+     * é que a tela entra no estado "bloqueado": a faixa vira "Notificações
+     * bloqueadas" e o convite nem abre, porque ele só aparece para quem ainda
+     * PODE ativar. Foi exatamente assim que a primeira rodada saiu — duas telas
+     * fotografando um estado que quase ninguém encontra.
+     *
+     * Num navegador de verdade a primeira visita é `'default'`. É esse estado
+     * que o catálogo precisa mostrar, e no headless a única forma de alcançá-lo
+     * é esta. Nada além da leitura da permissão é simulado: o componente, o
+     * hook e a decisão de qual estado mostrar são os de produção.
+     */
+    await page.addInitScript(() => {
+      Object.defineProperty(Notification, 'permission', {
+        get: () => 'default',
+        configurable: true,
+      });
+    });
+
+    // O convite espera 1200ms antes de abrir (ver AtivarNotificacoes.tsx), e
+    // some por uma semana assim que alguém clica "Agora não" — então a chave do
+    // adiamento é limpa antes de cada captura.
+    await page.goto('/overview');
+    await page.evaluate((t) => {
+      localStorage.setItem('theme', t);
+      localStorage.removeItem('cf4:aviso-push-adiado-ate');
+    }, theme);
+    await page.reload();
+    await page.getByRole('dialog').waitFor({ state: 'visible', timeout: 5000 }).catch(() => {});
+    await page.waitForTimeout(600);
+    await shot(`aviso-convite-${theme}`);
+    await page.keyboard.press('Escape').catch(() => {});
+
+    // A faixa em Contas a pagar — onde a falta do aviso dói.
+    await page.goto('/me/payables');
+    await settle();
+    await shot(`aviso-contas-a-pagar-${theme}`);
+  };
 
   const captureAll = async (theme: 'light' | 'dark') => {
     // aplica o theme e recarrega (addInitScript re-seta só o workspace)
@@ -733,6 +786,9 @@ test('seed data and capture all screens', async ({ page, playwright }) => {
 
   await captureAll('light');
   await captureAll('dark');
+
+  await capturarAvisoDeVencimento('light');
+  await capturarAvisoDeVencimento('dark');
 
   // ---- Mobile (bottom-nav + responsivo), nos DOIS temas ----
   //

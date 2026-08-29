@@ -93,6 +93,18 @@ services:
       # STARTTLS, útil apenas para um relay confiável. SSL implícito (465/2465)
       # também é suportado — o modo vem da porta e do que o servidor anuncia.
       SMTP_TLS: ${SMTP_TLS:-True}
+      # Aviso de vencimento (ADR 0033). Sem o par VAPID a funcionalidade se
+      # desliga sozinha: a interface não oferece push, e o sino e o e-mail
+      # seguem funcionando. Gere com `python scripts/gerar_vapid.py`.
+      VAPID_PUBLIC_KEY: ${VAPID_PUBLIC_KEY:-}
+      VAPID_PRIVATE_KEY: ${VAPID_PRIVATE_KEY:-}
+      VAPID_SUBJECT: ${VAPID_SUBJECT:-mailto:admin@localhost}
+      # Quem usa esta hora é o serviço `cron`, não o backend — mas ela é campo
+      # do `Settings`, e o gate `test_compose_env` exige que TODO campo
+      # configurável chegue ao backend. A regra é boa: um campo que só existe
+      # num serviço vira configuração fantasma, que a pessoa muda no .env e não
+      # entende por que não teve efeito.
+      DUE_REMINDER_HOUR: ${DUE_REMINDER_HOUR:-9}
       # Primeiro superadministrador (ADR 0026). Obrigatório em produção: é a
       # única conta que se cadastra sem convite no primeiro acesso, e o backend
       # RECUSA subir sem ela.
@@ -177,6 +189,15 @@ services:
       # O `cron` carrega o mesmo `Settings` do backend, e a validação de deploy
       # exige esta variável — sem ela o serviço morre no import, em laço.
       SUPERADMIN_EMAIL: ${SUPERADMIN_EMAIL:?defina SUPERADMIN_EMAIL no .env}
+      # Quem ENVIA o push é este serviço, não o backend — então o par VAPID
+      # precisa chegar aqui. Sem ele o aviso ainda sai no sino; só o push é que
+      # não sobe.
+      VAPID_PUBLIC_KEY: ${VAPID_PUBLIC_KEY:-}
+      VAPID_PRIVATE_KEY: ${VAPID_PRIVATE_KEY:-}
+      VAPID_SUBJECT: ${VAPID_SUBJECT:-mailto:admin@localhost}
+      # Hora LOCAL do aviso. O script roda de hora em hora e sai sem tocar no
+      # banco fora dela.
+      DUE_REMINDER_HOUR: ${DUE_REMINDER_HOUR:-9}
       # Mesma configuração de anexos do backend. O expurgo de hoje não toca o
       # conteúdo, mas rodar com um ATTACHMENT_STORAGE_DIR diferente do serviço
       # que grava é uma armadilha esperando a primeira rotina que toque nele.
@@ -188,10 +209,18 @@ services:
         condition: service_healthy
     # Câmbio de hora em hora (barato e idempotente: pula o que já existe);
     # expurgo de auditoria/eventos/sessões uma vez por dia.
+    #
+    # O aviso de vencimento (ADR 0033) também é chamado de HORA em hora, e não
+    # no ramo diário: aquele ramo dispara "24h depois que o contêiner subiu", ou
+    # seja, numa hora que depende de quando houve o último deploy. Para expurgo
+    # tanto faz; para notificação não — "sua conta vence hoje" às 3 da manhã
+    # acorda a pessoa e queima o canal. Quem decide a hora é o script, que sai
+    # sem tocar no banco fora da `DUE_REMINDER_HOUR`.
     command: >
       sh -c 'horas=0;
       while true; do
         python scripts/backfill_rates.py 7 || true;
+        python scripts/avisar_vencimentos.py || true;
         horas=$$((horas + 1));
         if [ $$horas -ge 24 ]; then
           python scripts/purge_old_records.py 180 || true;

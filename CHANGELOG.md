@@ -11,66 +11,41 @@ segue [SemVer](https://semver.org/lang/pt-BR/).
 
 ## [Não lançado]
 
-### A compra que o banco processa depois do fechamento
+### O app passou a avisar antes de a conta vencer
 
-A fatura de um cartão **não é composta pela data da compra** — é composta pela
-data em que o emissor a processa. Restaurante, hotel e companhia aérea capturam
-com um a três dias de atraso; mercado captura na hora. Perto do fechamento isso
-decide em qual fatura a compra cai, e o app, que roteava pela data da compra,
-punha no ciclo errado: a fatura da tela não batia com a que chegava, o limite
-comprometido ficava errado, e o mês de saída do caixa saía errado junto.
+Ele sabia o que você deve e quando, e não contava. As telas de Contas a pagar e
+Compromissos são **puxadas**: só informam quem abre. Uma conta esquecida é a
+falha mais cara que este app pode deixar acontecer, e é justamente a que ele
+tinha todos os dados para evitar.
 
-Havia uma única alavanca para corrigir — mentir na data da compra —, e ela
-arrastava três coisas que não têm nada a ver com o pedido: a competência
-(`billing_month`), a cotação de câmbio de uma compra estrangeira (a edição
-completa reconverte pela `transaction_date`, então vinha a PTAX do dia errado) e
-a data exibida no extrato. Para acertar a fatura era preciso corromper a
-contabilidade.
+Agora avisa **três dias antes** (configurável), **no dia** e **uma vez** se
+passar — cobrindo as três obrigações com data: conta a pagar, fatura de cartão e
+parcela de financiamento. Notificar só conta a pagar entregaria algo que parece
+completo e não é: o `payables_service` exclui compra no cartão de propósito, e a
+fatura — a conta que mais dói esquecer — ficaria calada.
 
-Agora o lançamento tem `statement_shift`: quantas faturas à frente (ou atrás) a
-compra entrou, de `-1` a `+2`. **Relativo, não um mês absoluto** — é o que faz a
-correção valer para as N parcelas de um parcelamento (cada uma no seu ciclo),
-para toda ocorrência futura de uma recorrência, e sobreviver a uma edição de
-data. O ADR 0002 continua de pé: o cliente nunca manda `statement_id`, manda "uma
-para frente", e o servidor resolve qual fatura é.
+**Três marcos por conta é o teto.** Cada aviso a mais é fadiga, e fadiga
+transforma notificação em ruído que a pessoa desliga — perdendo junto o aviso que
+importava. Cinco contas vencendo viram **um** aviso, não cinco.
 
-O invariante que amarra tudo: **mover a fatura nunca move a competência.**
-`billing_month`, divisão, dívidas, relatórios e câmbio ficam onde estavam;
-limite comprometido e mês de caixa acertam sozinhos, porque derivam da fatura.
+**A permissão se pede uma vez, e só depois de explicar.** `requestPermission()` é
+irreversível na prática: negado, o navegador não pergunta de novo e o conserto
+vira um caminho nas configurações que ninguém acha sozinho. Então primeiro
+aparece um convite nosso, dizendo o que se ganha; o prompt do navegador só vem
+depois do clique em "Ativar". Quem diz "agora não" não some: fica um botão ao
+lado do sino e na tela de Contas a pagar, e o convite volta em uma semana.
 
-Na tela, duas metades com pesos diferentes. Nos **três dias** antes do
-fechamento, o formulário avisa que o processamento pode jogar a compra para a
-fatura seguinte — três e não cinco porque, num ciclo de 30 dias, cinco fariam o
-aviso aparecer em uma de cada seis compras, e aviso quase sempre falso fica
-invisível em duas semanas. E o detalhe do lançamento ganha **"em qual fatura esta
-compra entrou?"**, que é onde a correção realmente mora: na hora de lançar,
-marcar que a compra vai escorregar é palpite; quando a fatura real chega, é fato.
+**No iPhone, instalar deixou de ser opcional** — a Apple só entrega push para app
+da Tela de Início. O app detecta o caso e ensina a instalar, em vez de oferecer
+um botão que não pode funcionar.
 
-Pedir uma fatura já fechada responde **409** com o mês e o motivo — sem isso o
-pedido cairia na rolagem para frente e a compra voltaria calada ao alvo natural,
-com o app dizendo "ok" e fazendo outra coisa.
+O aviso **não mostra o valor** por padrão. O conteúdo trafega cifrado ponta a
+ponta; a exposição real é a tela de bloqueio, onde qualquer um que olhe o
+aparelho lê o que chegou (ADRs 0018 e 0021). Há preferência para incluir.
 
-Ver [ADR 0032](docs/adr/0032-deslocamento-de-fatura-declarado.md).
-
-**Junto vieram dois defeitos que só apareceram porque a tela ganhou captura.**
-O detalhe do lançamento **estourava o próprio diálogo**: `DialogContent` é um
-grid, item de grid nasce com `min-width: auto`, e o cabeçalho sem `min-w-0`
-esticava a coluna — medido, 592px dentro de um diálogo de 480. Resumo, fatura e
-os botões Excluir/Editar saíam cortados à direita, sem rolagem que os
-alcançasse, em qualquer lançamento de título longo. O `truncate` do título não
-tinha efeito nenhum contra isso. O portão de layout agora mede o diálogo, e não
-só o documento — o `overflow-y-auto` recortava o excesso, então a página não
-ganhava rolagem lateral e o gate passava verde com o conteúdo invisível.
-
-E o roteiro de capturas **não apagava a pasta de saída**: renomear o slug de uma
-rota deixava o arquivo velho para trás para sempre. `mobile-inicio-light.png`
-sobreviveu duas semanas depois de a rota virar `inicio-global`, foi recomprimido
-para `docs/images` junto com as outras, e o catálogo continuou apontando para
-ele — uma tela de duas semanas atrás publicada como se fosse a atual.
-
-O catálogo passou a cobrir **todas** as rotas: `/invite/:token` nunca tinha sido
-fotografada (não aparece em menu nenhum — chega-se a ela por um link), e Contas a
-pagar e as abas de Acertos estavam capturadas mas fora do índice.
+Sem chave VAPID configurada a funcionalidade **se desliga sozinha** em vez de
+quebrar: o sino continua avisando. Ver [SETUP.md](SETUP.md) e o
+[ADR 0033](docs/adr/0033-aviso-de-vencimento.md).
 
 ### Acertos: o saldo parou de parecer uma cobrança do mês
 

@@ -38,6 +38,7 @@ Cada ADR registra **uma decisão** relevante do projeto: o contexto, a decisão 
 | [0030](0030-recorrencia-revisada-e-com-fim.md) | Editar recorrência é planejar, revisar e aplicar por linha (a data acompanha); e a série pode ter `end_date` | Recorrência / UX |
 | [0031](0031-acerto-de-mes-e-acerto-de-acumulado.md) | Acerto fecha um mês ou abate o acumulado, e a tela diz qual; o saldo acumulado é a soma aberta dos meses e a conta fecha | Acertos / integridade |
 | [0032](0032-deslocamento-de-fatura-declarado.md) | A fatura é composta pela data em que o emissor PROCESSA a compra: `statement_shift` corrige o destino sem mover a competência | Cartões / integridade |
+| [0033](0033-aviso-de-vencimento.md) | Avisa conta a pagar, fatura e financiamento em D-3/no dia/D+1; sino sempre, push se ativado; a permissão se pede uma vez e só depois de explicar | Notificações / UX |
 
 ## Escrevendo um novo ADR
 

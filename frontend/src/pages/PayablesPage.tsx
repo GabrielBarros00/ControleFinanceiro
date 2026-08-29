@@ -1,4 +1,5 @@
 import { PageHeader } from '@/components/layout/PageHeader';
+import { BotaoAtivarNotificacoes } from '@/components/notifications/AtivarNotificacoes';
 import { PeriodPicker } from '@/components/layout/PeriodPicker';
 import { PayablesList } from '@/components/payables/PayablesList';
 import { useMyPayables } from '@/hooks/use-payables';
@@ -27,6 +28,10 @@ export function PayablesPage() {
         subtitle="O que ainda não saiu do seu caixa, em todos os seus espaços."
         period={<PeriodPicker value={month} onChange={setMonth} />}
       />
+      {/* Aqui, e não só na barra superior: esta é a tela em que a falta do
+          aviso dói, e é onde a oferta faz sentido sem precisar explicar nada.
+          Some sozinha quando já está ativado (ADR 0033). */}
+      <BotaoAtivarNotificacoes variante="faixa" />
       <PayablesList
         payables={payables}
         isLoading={isLoading}

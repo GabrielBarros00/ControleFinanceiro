@@ -167,6 +167,32 @@ class Settings(BaseSettings):
     # por isso fica configurável e é congelado por lançamento.
     IOF_INTERNATIONAL_CARD_RATE: Decimal = Decimal("0.035")
 
+    # --- Aviso de vencimento (ADR 0033) ---
+    #
+    # Chaves VAPID do Web Push. Um par por INSTALAÇÃO, gerado uma vez
+    # (`python -m scripts.gerar_vapid`) e guardado no `.env`.
+    #
+    # Girar a chave INVALIDA todas as inscrições existentes — cada navegador
+    # precisa se reinscrever —, então não é operação de rotina.
+    #
+    # Ausentes, a funcionalidade se desliga sozinha em vez de quebrar: o endpoint
+    # de configuração responde `enabled: false`, a interface não oferece nada e o
+    # job não tenta enviar push. Sino e e-mail seguem funcionando. É o que faz o
+    # ambiente de desenvolvimento (que não terá chave) continuar utilizável.
+    VAPID_PUBLIC_KEY: Optional[str] = None
+    VAPID_PRIVATE_KEY: Optional[str] = None
+    # Vai no JWT do VAPID como `sub`. O serviço de push usa isto para falar com o
+    # responsável se esta origem passar a se comportar mal — é contato, não
+    # autenticação. `mailto:` ou `https:`.
+    VAPID_SUBJECT: str = "mailto:admin@localhost"
+
+    # Hora LOCAL (APP_TIMEZONE) em que o aviso sai. O job roda de hora em hora e
+    # ele mesmo desiste quando não é a hora — o ramo diário do `cron` dispara
+    # "24h depois que o contêiner subiu", ou seja, numa hora que depende de
+    # quando houve o último deploy. Para expurgo tanto faz; para notificação não:
+    # "sua conta vence hoje" às 3 da manhã acorda a pessoa e queima o canal.
+    DUE_REMINDER_HOUR: int = 9
+
     @property
     def cors_origins_list(self) -> List[str]:
         return [o.strip() for o in self.CORS_ORIGINS.split(",") if o.strip()]

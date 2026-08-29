@@ -35,6 +35,7 @@ click==8.4.2
 cryptography==50.0.0
     # via
     #   -r requirements.in
+    #   http-ece
     #   pyjwt
 dnspython==2.8.0
     # via email-validator
@@ -48,6 +49,8 @@ h11==0.16.0
     # via
     #   httpcore
     #   uvicorn
+http-ece==1.2.1
+    # via -r requirements.in
 httpcore==1.0.9
     # via httpx
 httptools==0.8.0

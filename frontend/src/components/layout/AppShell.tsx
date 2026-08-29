@@ -8,6 +8,9 @@ import { TransactionDetailHost } from '@/components/dashboard/TransactionDetailH
 import { NotificationCenter } from '@/components/notifications/NotificationCenter';
 import { InstallAppButton } from '@/components/pwa/InstallApp';
 import { PendingInvitesModal } from '@/components/notifications/PendingInvitesModal';
+import {
+  BotaoAtivarNotificacoes, ConviteDeNotificacao,
+} from '@/components/notifications/AtivarNotificacoes';
 import { useWorkspaceEvents } from '@/hooks/use-workspace-events';
 import { useNewTxStore } from '@/stores';
 
@@ -60,6 +63,10 @@ export function AppShell({ children }: { children: ReactNode }) {
           <ScopeSwitcher className="md:hidden" />
           <div className="flex items-center gap-1">
             <InstallAppButton />
+            {/* Ao LADO do sino, e não dentro dele: o sino mostra o que já
+                chegou; este oferece o canal que ainda não existe. Some sozinho
+                quando não há o que oferecer (ADR 0033). */}
+            <BotaoAtivarNotificacoes />
             <NotificationCenter />
           </div>
         </div>
@@ -75,6 +82,9 @@ export function AppShell({ children }: { children: ReactNode }) {
       {/* Depois do onboarding (que termina em reload), o convite pendente é a
           primeira coisa a resolver — no sino ele passava batido. */}
       <PendingInvitesModal />
+      {/* Depois do onboarding e do convite pendente — ele mesmo se cala
+          enquanto qualquer um dos dois estiver na frente. */}
+      <ConviteDeNotificacao />
       <NewTransactionDialog open={open} onOpenChange={setOpen} />
       <TransactionDetailHost />
     </div>

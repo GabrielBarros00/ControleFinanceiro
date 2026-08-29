@@ -117,4 +117,23 @@ if (!sw.includes("startsWith('/api/')")) {
   );
 }
 
+// O aviso de vencimento (ADR 0033) VIVE aqui: o `push` é o único código do app
+// que roda sem nenhuma aba aberta, e é o que faz o aviso chegar com o celular no
+// bolso. Perdê-lo não quebra teste nenhum — a interface segue oferecendo
+// "ativar", o navegador segue aceitando a inscrição, o servidor segue enviando,
+// e a notificação simplesmente nunca aparece. É falha silenciosa de ponta a
+// ponta, e por isso o portão é no build.
+if (!sw.includes("addEventListener('push'")) {
+  throw new Error(
+    'sw.js sem handler de `push` — o aviso de vencimento não chega em aparelho nenhum (ADR 0033)',
+  );
+}
+// Sem `notificationclick` a notificação aparece e o toque não leva a lugar
+// nenhum: o Chrome apenas foca alguma janela, ou nada acontece.
+if (!sw.includes("addEventListener('notificationclick'")) {
+  throw new Error(
+    'sw.js sem handler de `notificationclick` — tocar no aviso não abriria a tela da conta',
+  );
+}
+
 console.log('[build] manifesto, service worker e ícones do PWA emitidos');
