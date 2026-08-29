@@ -38,6 +38,20 @@ export interface CreditCardSummary {
   next_due: CardNextDue | null;
 }
 
+/** Uma fatura para a qual a compra pode ser movida (ADR 0032). */
+export interface StatementShiftOption {
+  /** O deslocamento que alcança esta fatura. A tela devolve este número ao
+   *  backend em vez de calcular a aritmética de ciclo — ela é do servidor. */
+  shift: number;
+  month: string;
+  closing_date: string;
+  due_date: string;
+  exists: boolean;
+  /** false = fechada/paga. A opção aparece desabilitada, com o motivo. */
+  available: boolean;
+  status: string | null;
+}
+
 /** Destino de uma compra: em qual fatura ela cai (derivado no servidor). */
 export interface StatementTarget {
   month: string;
@@ -47,6 +61,36 @@ export interface StatementTarget {
   exists: boolean;
   /** true = rolou para frente porque a fatura do mês da compra já estava fechada. */
   rolled_forward: boolean;
+  /** O deslocamento em vigor nesta consulta. */
+  shift: number;
+  /** Dias entre a compra e o fechamento da fatura de destino; `null` quando a
+   *  pergunta não faz sentido (destino deslocado ou rolado). É o que sustenta o
+   *  aviso da janela de fechamento. */
+  days_to_closing: number | null;
+  options: StatementShiftOption[];
+}
+
+/**
+ * A janela em que vale avisar que a compra pode escorregar de fatura.
+ *
+ * TRÊS dias, não cinco. Num ciclo de ~30 dias, cinco fariam o aviso aparecer em
+ * uma de cada seis compras no cartão, e a captura da maioria dos
+ * estabelecimentos sai em até dois dias úteis — um aviso que quase sempre é
+ * falso alarme fica invisível em duas semanas, e aí falha justamente na compra
+ * em que importava.
+ */
+export const JANELA_DE_FECHAMENTO_DIAS = 3;
+
+/**
+ * "Esta compra pode cair na fatura seguinte."
+ *
+ * `days_to_closing` vem `null` quando o destino não é o ciclo natural da compra
+ * (o usuário já deslocou, ou a fatura rolou por estar fechada) — nos dois casos
+ * não há o que avisar, e é por isso que a checagem de nulo vem antes.
+ */
+export function naJanelaDeFechamento(target: StatementTarget | null): boolean {
+  const dias = target?.days_to_closing;
+  return dias != null && dias >= 1 && dias <= JANELA_DE_FECHAMENTO_DIAS;
 }
 
 /**
@@ -59,13 +103,20 @@ export interface StatementTarget {
  * Reimplementar a regra aqui seria uma segunda cópia dela, que divergiria na
  * primeira mudança; a rota é só leitura e não cria fatura nenhuma.
  */
-export function useStatementTarget(cardId?: number | null, date?: string | null) {
+export function useStatementTarget(
+  cardId?: number | null,
+  date?: string | null,
+  shift = 0,
+) {
   const query = useQuery({
-    queryKey: ['statement-target', cardId, date],
+    // `shift` na chave: sem ele, mudar o deslocamento devolvia a resposta
+    // cacheada do anterior e o destino anunciado ficava um passo atrás do que a
+    // pessoa acabou de marcar.
+    queryKey: ['statement-target', cardId, date, shift],
     queryFn: async (): Promise<StatementTarget> => {
       const response = await apiClient.get(
         `/me/credit-cards/${cardId}/statement-for`,
-        { params: { on: date } },
+        { params: { on: date, shift } },
       );
       return response.data;
     },

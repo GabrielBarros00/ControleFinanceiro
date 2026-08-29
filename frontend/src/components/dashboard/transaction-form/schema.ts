@@ -50,6 +50,11 @@ export const transactionFormSchema = z.object({
   payers: z.array(payerSchema).min(1, 'Adicione pelo menos um pagador'),
   payment_method: z.string(), // '' = não informado
   credit_card_id: z.string(), // '' = sem cartão
+  // Deslocamento de fatura (ADR 0032): em qual fatura a compra REALMENTE entrou,
+  // quando o emissor a processou noutro ciclo. `0` = vale a regra do fechamento.
+  // Os limites espelham `STATEMENT_SHIFT_MIN/MAX` do backend — estreitos porque
+  // isto corrige atraso de captura, não escolhe mês de despesa.
+  statement_shift: z.number().int().min(-1).max(2),
   installments: z.number().int().min(1).max(36),
   category_id: z.string(),    // modo transaction: item único p/ relatórios
   tag_ids: z.array(z.number()),
@@ -301,6 +306,11 @@ export function toApiPayload(v: TransactionFormValues) {
     currency: v.currency || 'BRL',
     payment_method: paymentMethod,
     credit_card_id: v.credit_card_id ? Number(v.credit_card_id) : null,
+    // Sem cartão o backend recusa qualquer deslocamento (ele exige um cartão
+    // para haver fatura), e o formulário pode carregar um valor residual de
+    // quando o método era crédito — trocar para Pix não limpa o campo. Zerar
+    // aqui, na fronteira, evita um 422 que a pessoa não teria como explicar.
+    statement_shift: v.credit_card_id ? v.statement_shift : 0,
     split_mode: v.split_mode,
     tag_ids: v.tag_ids,
     // Sempre explícito (ADR 0029): sem o campo, o backend cai no palpite pela
@@ -385,6 +395,10 @@ export function fromApiTransaction(tx: TransactionRead): TransactionFormValues {
     })),
     payment_method: tx.payment_method ?? (tx.credit_card_id ? 'credit_card' : ''),
     credit_card_id: tx.credit_card_id ? String(tx.credit_card_id) : '',
+    // O deslocamento REAL da linha, não `0`: abrir para corrigir o título uma
+    // compra já movida para a fatura seguinte e salvar a traria de volta para o
+    // ciclo natural — desfazendo, calada, a correção que alguém fez de propósito.
+    statement_shift: tx.statement_shift ?? 0,
     installments: 1, // reparcelar não existe na edição
     tag_ids: (tx.tags ?? []).map((t) => t.id),
     split_mode: tx.split_mode ?? 'transaction',

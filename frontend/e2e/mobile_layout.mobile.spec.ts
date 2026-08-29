@@ -567,6 +567,44 @@ test.describe('Layout mobile — nenhuma tela estoura a largura', () => {
 
     await context.close();
   });
+
+  /**
+   * O detalhe do lançamento — o diálogo que o portão não media, e que estava
+   * quebrado.
+   *
+   * `DialogContent` é um GRID, e item de grid nasce com `min-width: auto`: ele
+   * se recusa a encolher abaixo do próprio conteúdo. O `DialogHeader` não tinha
+   * `min-w-0`, então um título longo — e lançamento com título longo é a regra —
+   * esticava a coluna inteira: medido a 1440px, o cabeçalho ficava com 592px
+   * dentro de um diálogo de 480, e resumo, fatura e botões saíam todos cortados
+   * à direita. O `truncate` do span não tinha efeito nenhum contra isso.
+   *
+   * A medida aqui é a do DIÁLOGO, não a do documento: o `overflow-y-auto` do
+   * `DialogContent` recorta o excesso horizontal, então a página NÃO ganha
+   * rolagem lateral e `semRolagemHorizontal` passa verde com o conteúdo
+   * invisível. Era exatamente por isso que o defeito atravessou o portão.
+   */
+  test('o detalhe do lançamento não estoura o próprio diálogo', async ({ browser }) => {
+    test.setTimeout(120_000);
+    const { context, wsId } = await contaComDados(browser);
+    const page = await context.newPage();
+    await page.setViewportSize({ width: LARGURA, height: 780 });
+
+    await page.goto(`/w/${wsId}/transactions`);
+    await page.waitForLoadState('networkidle').catch(() => {});
+    await page.getByText(/escola bilíngue das crianças/i).first().click();
+    await expect(page.getByRole('dialog')).toBeVisible();
+    await esperarAssentar(page);
+
+    const excesso = await page.evaluate(() => {
+      const d = document.querySelector('[role="dialog"]') as HTMLElement;
+      return d.scrollWidth - d.clientWidth;
+    });
+    expect(excesso, 'o detalhe do lançamento estoura o próprio diálogo').toBeLessThanOrEqual(1);
+
+    await semRolagemHorizontal(page, 'detalhe do lançamento');
+    await context.close();
+  });
 });
 
 test.describe('Escopo no celular — pessoal × compartilhado', () => {

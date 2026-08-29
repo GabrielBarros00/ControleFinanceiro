@@ -2,7 +2,7 @@ from datetime import datetime, date, UTC
 from enum import Enum
 from typing import Optional, List, TYPE_CHECKING
 from decimal import Decimal
-from sqlalchemy import event, Index, text
+from sqlalchemy import Column, Integer, event, Index, text
 from sqlalchemy.orm import attributes
 from sqlmodel import SQLModel, Field, Relationship, UniqueConstraint
 
@@ -35,6 +35,20 @@ class PaymentMethod(str, Enum):
     bank_transfer = "bank_transfer"
     boleto = "boleto"
     other = "other"
+
+# Limites do deslocamento de fatura (ADR 0032). Vivem aqui, ao lado da coluna,
+# porque tanto o schema de entrada quanto o serviço de roteamento precisam deles
+# e `models` é a folha da árvore de imports — de qualquer outro lugar isto seria
+# ciclo ou uma segunda cópia do intervalo.
+#
+# O intervalo é estreito DE PROPÓSITO. Atraso de captura é de 1 a 3 dias e nunca
+# atravessa mais de um ciclo; −1 existe para o caso oposto (o emissor manteve na
+# fatura que fechou no dia). Um campo livre transformaria um ajuste de borda numa
+# forma de jogar despesa para qualquer mês do futuro — que é contabilidade
+# criativa, não correção de processamento.
+STATEMENT_SHIFT_MIN = -1
+STATEMENT_SHIFT_MAX = 2
+
 
 class AdjustmentType(str, Enum):
     discount = "discount"    # desconto/cupom (negativo)
@@ -125,6 +139,33 @@ class Transaction(TransactionBase, table=True):
     # Credit Card links
     credit_card_id: Optional[int] = Field(default=None, foreign_key="creditcard.id", index=True)
     statement_id: Optional[int] = Field(default=None, foreign_key="cardstatement.id", index=True)
+
+    # DESLOCAMENTO DE CICLO DECLARADO (ADR 0032). Quantas faturas à frente (ou
+    # atrás) esta compra entrou em relação ao que a regra do dia de fechamento
+    # diz. `0` = a regra vale, que é o comportamento de sempre.
+    #
+    # Existe porque a fatura real é composta pela data de PROCESSAMENTO do
+    # emissor, não pela data da compra: uma compra de 27/07 capturada pelo
+    # estabelecimento em 30/07 entra na fatura de agosto, e o atraso é do
+    # estabelecimento — o cartão não tem como prevê-lo. Antes disto a única
+    # forma de mover uma compra de fatura era MENTIR na `transaction_date`, o
+    # que arrastava junto a competência (`billing_month`), a data da cotação de
+    # câmbio e a data exibida no extrato.
+    #
+    # RELATIVO, não absoluto (não é "a fatura de setembro"), por dois motivos que
+    # um mês fixo não atende: numa compra parcelada o deslocamento vale para as N
+    # parcelas, cada uma no seu ciclo; e numa recorrência ele vale para toda
+    # ocorrência futura, que ainda nem tem mês. É também o que faz a correção
+    # SOBREVIVER a uma edição de data — a fatura é rederivada e o deslocamento
+    # se reaplica sobre o alvo novo.
+    #
+    # NOT NULL com default 0: é operando de soma em todo caminho de roteamento, e
+    # um `None` obrigaria um `or 0` em cada um deles — a primeira omissão
+    # devolveria um TypeError em produção, na criação de despesa.
+    statement_shift: int = Field(
+        default=0,
+        sa_column=Column(Integer, nullable=False, server_default="0"),
+    )
 
     # Parcelamento: N transações irmãs compartilham o mesmo group_id
     installment_no: Optional[int] = Field(default=None)

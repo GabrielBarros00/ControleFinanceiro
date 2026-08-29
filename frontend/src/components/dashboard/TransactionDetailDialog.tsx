@@ -11,6 +11,7 @@ import { Calendar, Pencil, Trash2 } from 'lucide-react';
 import type { TransactionRead, TransactionStatus } from '@/types/transaction';
 import { MoneyText } from '@/components/money/MoneyText';
 import { TransactionSummary } from './TransactionSummary';
+import { StatementMover } from './StatementMover';
 import { useCategories } from '@/hooks/use-categories';
 import { paymentMethodLabel } from '@/lib/payment-methods';
 import { formatCurrency } from '@/lib/money';
@@ -31,6 +32,8 @@ interface TransactionDetailDialogProps {
   canWrite?: boolean;
   onEdit?: () => void;
   onDelete?: (id: number) => void;
+  /** Move a compra de fatura (ADR 0032). Ausente = o seletor não aparece. */
+  onMoveStatement?: (shift: number) => Promise<unknown>;
 }
 
 // Preview read-only do lançamento — abre rápido de qualquer lugar que o
@@ -45,6 +48,7 @@ export function TransactionDetailDialog({
   canWrite = false,
   onEdit,
   onDelete,
+  onMoveStatement,
 }: TransactionDetailDialogProps) {
   const { categories } = useCategories();
   if (!transaction) return null;
@@ -64,8 +68,17 @@ export function TransactionDetailDialog({
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-[480px] max-h-[90vh] overflow-y-auto bg-card border-border shadow-2xl">
-        <DialogHeader>
-          <DialogTitle className="flex items-start justify-between gap-3">
+        {/* `min-w-0` no CABEÇALHO, que é quem precisa dele: o `DialogContent` é
+            um grid, e item de grid nasce com `min-width: auto` — recusa-se a
+            encolher abaixo do conteúdo. O `truncate` do span não tinha efeito
+            nenhum contra isso: medido, este header ficava com 592px dentro de um
+            diálogo de 480 e ESTICAVA a coluna do grid, então o resumo, o bloco
+            de fatura e os botões saíam todos cortados à direita, sem rolagem que
+            os alcançasse.
+            Defeito antigo — qualquer lançamento de título longo o reproduzia —,
+            invisível até esta tela ganhar uma captura no catálogo. */}
+        <DialogHeader className="min-w-0">
+          <DialogTitle className="flex min-w-0 items-start justify-between gap-3">
             <span className="min-w-0 truncate">{transaction.title}</span>
             <MoneyText value={amount} kind={kind} currency={transaction.currency} className="shrink-0 text-lg font-bold" />
           </DialogTitle>
@@ -101,6 +114,19 @@ export function TransactionDetailDialog({
             {transaction.rate_source === 'ptax' && ' · PTAX oficial'}
             {transaction.rate_source === 'market' && ' · câmbio de mercado (referência)'}
           </div>
+        )}
+
+        {/* Antes do resumo da divisão: a pergunta "esta compra está na fatura
+            certa?" é sobre o lançamento, e quem abre este preview vindo da tela
+            da fatura está justamente conferindo isso. Uma despesa paga fica de
+            fora — o `status = paid` congela o lançamento (ADR 0029), e mover
+            aceitaria uma escrita que a rota recusaria. */}
+        {onMoveStatement && !isPaid && (
+          <StatementMover
+            transaction={transaction}
+            canWrite={canWrite}
+            onMove={onMoveStatement}
+          />
         )}
 
         <TransactionSummary transaction={transaction} />

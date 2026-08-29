@@ -11,6 +11,67 @@ segue [SemVer](https://semver.org/lang/pt-BR/).
 
 ## [Não lançado]
 
+### A compra que o banco processa depois do fechamento
+
+A fatura de um cartão **não é composta pela data da compra** — é composta pela
+data em que o emissor a processa. Restaurante, hotel e companhia aérea capturam
+com um a três dias de atraso; mercado captura na hora. Perto do fechamento isso
+decide em qual fatura a compra cai, e o app, que roteava pela data da compra,
+punha no ciclo errado: a fatura da tela não batia com a que chegava, o limite
+comprometido ficava errado, e o mês de saída do caixa saía errado junto.
+
+Havia uma única alavanca para corrigir — mentir na data da compra —, e ela
+arrastava três coisas que não têm nada a ver com o pedido: a competência
+(`billing_month`), a cotação de câmbio de uma compra estrangeira (a edição
+completa reconverte pela `transaction_date`, então vinha a PTAX do dia errado) e
+a data exibida no extrato. Para acertar a fatura era preciso corromper a
+contabilidade.
+
+Agora o lançamento tem `statement_shift`: quantas faturas à frente (ou atrás) a
+compra entrou, de `-1` a `+2`. **Relativo, não um mês absoluto** — é o que faz a
+correção valer para as N parcelas de um parcelamento (cada uma no seu ciclo),
+para toda ocorrência futura de uma recorrência, e sobreviver a uma edição de
+data. O ADR 0002 continua de pé: o cliente nunca manda `statement_id`, manda "uma
+para frente", e o servidor resolve qual fatura é.
+
+O invariante que amarra tudo: **mover a fatura nunca move a competência.**
+`billing_month`, divisão, dívidas, relatórios e câmbio ficam onde estavam;
+limite comprometido e mês de caixa acertam sozinhos, porque derivam da fatura.
+
+Na tela, duas metades com pesos diferentes. Nos **três dias** antes do
+fechamento, o formulário avisa que o processamento pode jogar a compra para a
+fatura seguinte — três e não cinco porque, num ciclo de 30 dias, cinco fariam o
+aviso aparecer em uma de cada seis compras, e aviso quase sempre falso fica
+invisível em duas semanas. E o detalhe do lançamento ganha **"em qual fatura esta
+compra entrou?"**, que é onde a correção realmente mora: na hora de lançar,
+marcar que a compra vai escorregar é palpite; quando a fatura real chega, é fato.
+
+Pedir uma fatura já fechada responde **409** com o mês e o motivo — sem isso o
+pedido cairia na rolagem para frente e a compra voltaria calada ao alvo natural,
+com o app dizendo "ok" e fazendo outra coisa.
+
+Ver [ADR 0032](docs/adr/0032-deslocamento-de-fatura-declarado.md).
+
+**Junto vieram dois defeitos que só apareceram porque a tela ganhou captura.**
+O detalhe do lançamento **estourava o próprio diálogo**: `DialogContent` é um
+grid, item de grid nasce com `min-width: auto`, e o cabeçalho sem `min-w-0`
+esticava a coluna — medido, 592px dentro de um diálogo de 480. Resumo, fatura e
+os botões Excluir/Editar saíam cortados à direita, sem rolagem que os
+alcançasse, em qualquer lançamento de título longo. O `truncate` do título não
+tinha efeito nenhum contra isso. O portão de layout agora mede o diálogo, e não
+só o documento — o `overflow-y-auto` recortava o excesso, então a página não
+ganhava rolagem lateral e o gate passava verde com o conteúdo invisível.
+
+E o roteiro de capturas **não apagava a pasta de saída**: renomear o slug de uma
+rota deixava o arquivo velho para trás para sempre. `mobile-inicio-light.png`
+sobreviveu duas semanas depois de a rota virar `inicio-global`, foi recomprimido
+para `docs/images` junto com as outras, e o catálogo continuou apontando para
+ele — uma tela de duas semanas atrás publicada como se fosse a atual.
+
+O catálogo passou a cobrir **todas** as rotas: `/invite/:token` nunca tinha sido
+fotografada (não aparece em menu nenhum — chega-se a ela por um link), e Contas a
+pagar e as abas de Acertos estavam capturadas mas fora do índice.
+
 ### Acertos: o saldo parou de parecer uma cobrança do mês
 
 A tela de Acertos empilhava quatro coisas na mesma rolagem — o acumulado de

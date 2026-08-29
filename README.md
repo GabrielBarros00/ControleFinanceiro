@@ -25,7 +25,7 @@ Aplicação full-stack para controlar gastos, **dividir despesas entre pessoas**
 - **Despesas com divisão** — pela despesa (igual/%/fixo) ou **por item** (quantidade × valor unitário, com participantes por item); ajustes de total (desconto, frete, gorjeta, imposto, cashback).
 - **Origem do pagamento por pagador** — cada pagador informa método e conta/carteira; vários pagadores por despesa.
 - **Dívidas e acertos** — saldo líquido consolidado entre pessoas; acertos validados contra a dívida (sem sobrepagamento). Em **duas camadas**: a da casa e a sua (“Seus acertos”), que soma todos os workspaces agrupando por casa — nunca compensando entre elas.
-- **Cartões e faturas** — ciclo `aberta → fechada → paga` (+ reabertura), total congelado no fechamento, limite comprometido/disponível, parcelamento coeso.
+- **Cartões e faturas** — ciclo `aberta → fechada → paga` (+ reabertura), total congelado no fechamento, limite comprometido/disponível, parcelamento coeso. A fatura é composta pela data em que o **emissor processa** a compra: perto do fechamento o app avisa que ela pode escorregar, e a compra pode ser movida de fatura **sem mudar o mês do gasto** ([ADR 0032](docs/adr/0032-deslocamento-de-fatura-declarado.md)).
 - **Recorrências** — diária/semanal/mensal/anual; materializa a despesa **completa** (pagador + divisão + categoria); escopos de edição (só esta / esta e futuras / todas).
 - **Financiamentos** — cronograma SAC/PRICE por mês de calendário; quitação antecipada simulada; pagar parcela vira despesa real.
 - **Importação de CSV** — mapeamento de colunas, decisão por linha (importar/ignorar) e **idempotência** (reimportar não duplica).
@@ -42,8 +42,9 @@ Aplicação full-stack para controlar gastos, **dividir despesas entre pessoas**
 | **Relatórios — tema escuro** | **Acertos — quem deve para quem** |
 | [![Relatórios](docs/images/relatorios-dark.png)](docs/images/relatorios-dark.png) | [![Acertos](docs/images/acertos-light.png)](docs/images/acertos-light.png) |
 
-**[Catálogo completo →](docs/SCREENSHOTS.md)** — todas as 24 telas do aplicativo
-em tema claro e escuro, incluindo mobile, modais e a área administrativa.
+**[Catálogo completo →](docs/SCREENSHOTS.md)** — 121 capturas: toda rota do
+aplicativo em desktop e celular, nos dois temas, mais os modais e a área
+administrativa.
 
 ## Início rápido
 
@@ -91,7 +92,7 @@ A referência de cada variável está em **[SETUP.md](SETUP.md)**.
 | **[docs/runbook-deploy.md](docs/runbook-deploy.md)** | Atualizar um deploy existente: backup, ensaio da migração, rollback |
 | **[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)** | Arquitetura: camadas, modelo de dados, tempo real, autenticação, migrações, topologia de deploy |
 | **[docs/API.md](docs/API.md)** | Referência da API: convenções, autenticação, envelope de erro, endpoints por recurso, WebSocket |
-| **[docs/adr/](docs/adr/README.md)** | Architecture Decision Records — as 16 decisões-chave e o porquê de cada uma |
+| **[docs/adr/](docs/adr/README.md)** | Architecture Decision Records — as 32 decisões-chave e o porquê de cada uma |
 | **[CONTRIBUTING.md](CONTRIBUTING.md)** | Ambiente de dev, testes, lint, migrações Alembic, geração de tipos, convenções |
 | **[SECURITY.md](SECURITY.md)** | Como reportar vulnerabilidades e o modelo de segurança |
 | **[CHANGELOG.md](CHANGELOG.md)** | Histórico de versões |
@@ -145,7 +146,7 @@ Dinheiro não admite “quase certo”. O projeto garante, por design e por test
 - **Alocação em centavos** — divisões nunca geram parcela negativa e sempre somam o total exato (ADR 0001).
 - **Uma definição de “total do mês”** — dívidas, relatórios, forecast e faturas usam a **mesma** política de status e moeda (ADR 0003/0006).
 - **Atomicidade** — um único `commit` por requisição; falha em qualquer parte descarta tudo (ADR 0010).
-- **Fatura derivada no servidor** — o cliente nunca escolhe a fatura de uma compra (ADR 0002).
+- **Fatura derivada no servidor** — o cliente nunca escolhe a fatura de uma compra (ADR 0002); quando o emissor processa a compra noutro ciclo, ele declara um **deslocamento** (`-1..+2`), e mover a fatura nunca move a competência (ADR 0032).
 - **Máquina de estados da despesa** — `draft → pending → confirmed → paid`, paga é imutável até reabrir (ADR 0003).
 
 As decisões estão registradas em [docs/adr/](docs/adr/README.md).

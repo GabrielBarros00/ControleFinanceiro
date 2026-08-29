@@ -41,6 +41,7 @@ export function NewTransactionDialog({ open, onOpenChange }: NewTransactionDialo
     payers: user ? [{ user_id: String(user.id), amount: 0, payment_method: '', account_id: '' }] : [],
     payment_method: '',
     credit_card_id: '',
+    statement_shift: 0,
     installments: 1,
     category_id: '',
     tag_ids: [],

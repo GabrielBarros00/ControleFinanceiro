@@ -43,6 +43,7 @@ from app.schemas.transaction import (
     normalize_payment_method,
     validate_payer_origins,
     validate_split_structure,
+    validate_statement_shift,
 )
 from app.api.deps import get_workspace_membership, require_role
 from app.core.config import settings
@@ -70,7 +71,7 @@ from app.services.transaction_service import (
     persist_transaction_children,
     validate_status_transition,
 )
-from app.services.credit_card_service import CreditCardService
+from app.services.credit_card_service import CreditCardService, StatementStateError
 from app.services.recurring_service import RecurringMaterializationService
 from app.models.credit_card import CreditCard
 
@@ -236,6 +237,20 @@ def _statement_leg(session: Session, card, transaction_in) -> dict:
     )
 
 
+def _rotear_fatura(session: Session, card, when, shift: int):
+    """`get_or_create_statement` com o deslocamento inalcançável virando 409.
+
+    Ponto único de tradução para os QUATRO caminhos de roteamento desta rota
+    (criação, parcelamento, edição e edição do grupo). Espalhar o `try` por cada
+    um deles deixaria o primeiro caminho novo respondendo 500 a um erro que é do
+    cliente — pedir uma fatura já fechada.
+    """
+    try:
+        return CreditCardService.get_or_create_statement(session, card, when, shift=shift)
+    except StatementStateError as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
+
+
 def _convert_create_to_base(
     session: Session, workspace_id: int, transaction_in: TransactionCreate
 ):
@@ -315,7 +330,9 @@ def create_transaction(
         return first_tx
 
     if card:
-        statement = CreditCardService.get_or_create_statement(session, card, transaction_in.transaction_date)
+        statement = _rotear_fatura(
+            session, card, transaction_in.transaction_date, transaction_in.statement_shift
+        )
         statement_id = statement.id
 
     # Create Transaction
@@ -520,7 +537,14 @@ def _create_installments(
 
             statement_id = None
             if card:
-                statement = CreditCardService.get_or_create_statement(session, card, inst_date)
+                # O deslocamento vale para TODAS as parcelas, cada uma medida a
+                # partir do ciclo natural DELA. É o comportamento correto e o
+                # motivo de a coluna ser relativa: se o emissor processou a
+                # compra já no ciclo seguinte, ele processou a compra inteira —
+                # o cronograma inteiro desliza junto, não só a primeira parcela.
+                statement = _rotear_fatura(
+                    session, card, inst_date, transaction_in.statement_shift
+                )
                 statement_id = statement.id
 
             inst_meta = {}
@@ -826,17 +850,44 @@ def update_transaction(
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc))
 
-    # Reroteamento da fatura (ADR 0002): mudou data ou cartão, a fatura é
-    # rederivada no servidor; sem cartão, o vínculo é removido
-    if "transaction_date" in update_data or "credit_card_id" in update_data:
+    # Reroteamento da fatura (ADR 0002): mudou data, cartão ou o deslocamento
+    # declarado (ADR 0032), a fatura é rederivada no servidor; sem cartão, o
+    # vínculo é removido.
+    #
+    # `statement_shift` entra na condição porque é a ÚNICA forma de mover uma
+    # compra de fatura depois de lançada. Sem ele aqui, a coluna seria gravada e
+    # o `statement_id` continuaria apontando para a fatura antiga: a tela diria
+    # "movida para setembro" e a fatura de agosto seguiria cobrando o valor.
+    # `statement_shift` é NOT NULL e o campo de entrada é `Optional[int]` (para
+    # "não mexe" ser distinguível de "zera"). Um `null` explícito no corpo cairia
+    # no `setattr` genérico e gravaria None na coluna — IntegrityError no commit.
+    if update_data.get("statement_shift", 0) is None:
+        update_data.pop("statement_shift")
+
+    if {"transaction_date", "credit_card_id", "statement_shift"} & update_data.keys():
         effective_card_id = update_data.get("credit_card_id", db_transaction.credit_card_id)
+        effective_shift = update_data.get("statement_shift", db_transaction.statement_shift)
+        # A guarda vale para o deslocamento PEDIDO nesta requisição, não para o
+        # herdado da linha: tirar o cartão de uma compra que já estava deslocada
+        # é uma edição legítima — e o `else` abaixo zera o valor órfão. Validar o
+        # herdado transformava "mudei para Pix" num 400 sem saída, porque a única
+        # forma de zerar o deslocamento seria mandá-lo junto de um cartão.
+        if "statement_shift" in update_data:
+            try:
+                validate_statement_shift(effective_shift, effective_card_id)
+            except ValueError as exc:
+                raise HTTPException(status_code=400, detail=str(exc))
         if effective_card_id is not None:
             card = session.get(CreditCard, effective_card_id)
             # Cartão é pessoal (ADR 0021): tem de ser de quem está editando.
             if not card or card.deleted_at or card.owner_user_id != membership.user_id:
                 raise HTTPException(status_code=400, detail="Cartão de crédito inválido")
             effective_date = update_data.get("transaction_date", db_transaction.transaction_date)
-            statement = CreditCardService.get_or_create_statement(session, card, effective_date)
+            # O deslocamento é RELATIVO, então sobrevive à edição de data de
+            # graça: o alvo natural é recalculado da data nova e a correção se
+            # reaplica sobre ele. Um mês absoluto gravado teria de ser
+            # invalidado aqui, e a compra voltaria calada para o alvo natural.
+            statement = _rotear_fatura(session, card, effective_date, effective_shift)
             update_data["statement_id"] = statement.id
             # Virou compra no cartão: a liquidação própria deixa de existir
             # (ADR 0029). Quem paga é a FATURA, e manter `settled_at` aqui somaria
@@ -845,6 +896,11 @@ def update_transaction(
             update_data["settled_at"] = None
         else:
             update_data["statement_id"] = None
+            # Sem cartão não há fatura para deslocar. Zerar é o par do
+            # `validate_statement_shift`: deixar o valor antigo na linha o faria
+            # acordar se o lançamento voltasse para um cartão depois, mandando a
+            # compra para uma fatura que ninguém pediu naquele momento.
+            update_data["statement_shift"] = 0
             # SAIU do cartão (tinha, deixou de ter): volta a ter liquidação
             # própria. Sem isto a compra ficava com `settled_at` nulo para
             # sempre — fora do caixa, e sem aparecer em Contas a pagar.
@@ -1376,9 +1432,17 @@ def _recompute_open_installments(
             sib.exchange_rate = None
             sib.iof_rate = None
             sib.rate_source = None
-        # Fatura re-derivada por data/cartão (ADR 0002)
+        # Fatura re-derivada por data/cartão/deslocamento (ADR 0002 e 0032)
         if card:
-            statement = CreditCardService.get_or_create_statement(session, card, sib.transaction_date)
+            # `transaction_in.statement_shift` (o valor NOVO vindo do
+            # formulário), não o da parcela: esta rotina existe para reescrever
+            # as parcelas em aberto com a definição nova da compra, e o
+            # deslocamento é parte dela. Ler o da parcela congelaria a correção
+            # antiga e a edição do grupo nunca conseguiria desfazê-la.
+            sib.statement_shift = transaction_in.statement_shift
+            statement = _rotear_fatura(
+                session, card, sib.transaction_date, transaction_in.statement_shift
+            )
             sib.statement_id = statement.id
             # A perna de fatura acompanha o novo valor da parcela. Sem isto ela
             # ficaria com o valor ANTIGO e o total da fatura deixaria de bater
@@ -1400,6 +1464,7 @@ def _recompute_open_installments(
             sib.statement_exchange_rate = taxa
         else:
             sib.statement_id = None
+            sib.statement_shift = 0
             sib.statement_amount = None
             sib.statement_currency = None
             sib.statement_exchange_rate = None

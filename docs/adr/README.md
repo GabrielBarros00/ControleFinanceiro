@@ -37,6 +37,7 @@ Cada ADR registra **uma decisão** relevante do projeto: o contexto, a decisão 
 | [0029](0029-liquidacao-competencia-e-caixa.md) | `settled_at` é quando o dinheiro saiu; o lançamento só vira caixa ao ser pago, e o que falta pagar vive em Contas a pagar | Caixa / integridade |
 | [0030](0030-recorrencia-revisada-e-com-fim.md) | Editar recorrência é planejar, revisar e aplicar por linha (a data acompanha); e a série pode ter `end_date` | Recorrência / UX |
 | [0031](0031-acerto-de-mes-e-acerto-de-acumulado.md) | Acerto fecha um mês ou abate o acumulado, e a tela diz qual; o saldo acumulado é a soma aberta dos meses e a conta fecha | Acertos / integridade |
+| [0032](0032-deslocamento-de-fatura-declarado.md) | A fatura é composta pela data em que o emissor PROCESSA a compra: `statement_shift` corrige o destino sem mover a competência | Cartões / integridade |
 
 ## Escrevendo um novo ADR
 
