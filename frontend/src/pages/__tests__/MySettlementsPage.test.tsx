@@ -427,6 +427,23 @@ describe('Seus acertos', () => {
     expect(screen.getByText(/1 · R\$ 200,00 · 1 em aberto/)).toBeInTheDocument();
   });
 
+  /*
+   * A queixa: num mês de despesas rateadas, a primeira coisa da aba era "TOTAL
+   * DO MÊS / PAGO / EM ABERTO" — o valor CHEIO dos lançamentos —, e só depois
+   * "fulano deve R$ X a você". Aqui a coisa é pior que na tela da casa, porque
+   * se repete uma vez por espaço.
+   */
+  it('cada espaço abre pela sua parte, não pelo total dos lançamentos', () => {
+    renderPage();
+    abrirAba('Por mês');
+    expect(screen.getAllByText('Sua parte').length).toBeGreaterThan(0);
+    expect(screen.getByText('Você pagou')).toBeInTheDocument();
+    // Devo 100 dos 200 do Mercado — é esse o número, não os 200.
+    expect(screen.getByText('Você deve')).toBeInTheDocument();
+    expect(screen.queryByText('Total do mês')).not.toBeInTheDocument();
+    expect(screen.getByText(/somam R\$ 200,00 no espaço/)).toBeInTheDocument();
+  });
+
   it('a aba escolhida vai para a URL, para o link poder ser compartilhado', () => {
     renderPage();
     abrirAba('Histórico');

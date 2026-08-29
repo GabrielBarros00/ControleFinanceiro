@@ -16,6 +16,7 @@ import { getApiErrorMessage } from '@/lib/api-error';
 import { useSettlements } from '@/hooks/use-settlements';
 import { useBaseCurrency } from '@/hooks/use-base-currency';
 import { currencySymbol } from '@/lib/money';
+import { monthLabel } from '@/lib/date';
 import type { Member } from '@/hooks/use-members';
 import { nativeSelectClass as selectClass } from '@/components/ui/native-select';
 
@@ -105,7 +106,15 @@ export function SettlementDialog({ open, onOpenChange, draft, members }: Settlem
               // Na tela global há várias casas na mesma página: dizer em qual o
               // acerto vai cair é o que impede o registro na casa errada.
               ? `O valor é abatido do balanço de ${draft.workspace_name}.`
-              : 'O valor registrado é abatido do balanço de dívidas deste espaço.'}
+              : 'O valor registrado é abatido do balanço de dívidas deste espaço.'}{' '}
+            {/* Os dois tipos de acerto (ADR 0009): o que FECHA um mês e o que só
+                abate o acumulado. A distinção estava escrita na tela de Acertos,
+                mas não aqui — onde a escolha realmente acontece —, e o histórico
+                depois marcava um "jul/2026" e outro "sem mês" sem que se pudesse
+                saber onde aquilo tinha sido decidido. */}
+            {draft?.billing_month
+              ? `Fecha o mês de ${monthLabel(draft.billing_month)}.`
+              : 'Abate o saldo acumulado, sem fechar mês nenhum.'}
           </DialogDescription>
         </DialogHeader>
 

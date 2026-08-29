@@ -124,7 +124,11 @@ function AbaPorMes({
                   Abrir a casa <ArrowRight className="h-3 w-3" />
                 </Link>
               </div>
-              <MonthlyLedgerTotals ledger={ws} currency={ws.base_currency} />
+              <MonthlyLedgerTotals
+                ledger={ws}
+                currency={ws.base_currency}
+                currentUserId={currentUserId}
+              />
             </CardHeader>
             <CardContent className="space-y-4">
               <MonthlyLedgerBody

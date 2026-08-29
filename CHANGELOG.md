@@ -11,6 +11,40 @@ segue [SemVer](https://semver.org/lang/pt-BR/).
 
 ## [Não lançado]
 
+### O número em destaque passou a ser o seu, não o valor cheio do lançamento
+
+Em Seus acertos › Por mês, a primeira coisa à vista era **"TOTAL DO MÊS
+R$ 231,47 / EM ABERTO R$ 231,47"** — e logo abaixo, em letra menor, "Maria deve
+R$ 115,73 a você". Os dois números grandes não eram de ninguém: eram o valor
+cheio dos lançamentos do espaço. Num app cuja pergunta é *quanto eu devo*, isso
+sempre erra para mais.
+
+O quadro do mês agora fala de quem está olhando: **sua parte**, **você pagou** e
+**você deve / você tem a receber** — este último derivado das mesmas linhas
+"fulano deve X a você" logo abaixo, para os dois nunca se contradizerem. O total
+do espaço continua na tela, em uma linha que diz o que ele é.
+
+A mesma regra desceu para o resto da tela e para os vizinhos que ficaram para
+trás quando o Painel e os Relatórios já a aplicavam:
+
+- **Cada despesa do mês** mostra a sua fatia em destaque e o valor cheio abaixo
+  (`R$ 115,74` · *de R$ 231,47*). A coluna chamava-se "Valor" e trazia o total.
+- **O detalhe do lançamento** ganhou "Sua parte" nas despesas divididas, e a
+  divisão deixou de dizer que cada pessoa **deve** a própria fatia — o rateio diz
+  de quem é o consumo, e quem pagou a conta inteira tem a *receber*.
+- **O diálogo de registrar acerto** diz se fecha um mês ou se abate o acumulado.
+  A distinção existe desde o ADR 0009, estava explicada na tela de Acertos e não
+  no lugar onde a escolha acontece.
+- **Contas a pagar do espaço** parou de rotular como "seu caixa" um total que
+  soma todos os pagadores.
+- **Relatórios › Categorias** ganhou o seletor *Espaço / Sua parte*: a pizza
+  sempre foi do espaço inteiro, sob um cabeçalho cujo primeiro número é "Seu
+  gasto (mês)".
+
+Quem tem acesso completo e abre um mês em que não entrou continua vendo o
+retrato da casa — três zeros verdadeiros seriam piores que o número que ali faz
+sentido.
+
 ### O app passou a avisar antes de a conta vencer
 
 Ele sabia o que você deve e quando, e não contava. As telas de Contas a pagar e

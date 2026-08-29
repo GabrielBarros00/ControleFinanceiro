@@ -36,6 +36,16 @@ interface PayablesListProps {
   onRetry: () => void;
   /** Mostra de que espaço é cada conta — só faz sentido na camada pessoal. */
   showWorkspace?: boolean;
+  /**
+   * De quem é este caixa. `'pessoa'` soma o que EU assumi (o valor do meu
+   * `TransactionPayer`); `'espaco'` soma a conta inteira, de quem quer que vá
+   * pagá-la.
+   *
+   * A distinção só existia no serviço. Na tela, as duas camadas mostravam o
+   * mesmo "Sai do caixa quando você marcar como pago" — e no espaço isso é
+   * falso para toda conta que outra pessoa vai pagar.
+   */
+  escopo?: 'pessoa' | 'espaco';
 }
 
 type Grupo = { chave: string; titulo: string; itens: PayableEntry[] };
@@ -55,6 +65,7 @@ export function PayablesList({
   isError,
   onRetry,
   showWorkspace = false,
+  escopo = 'pessoa',
 }: PayablesListProps) {
   const { settle, isSettling } = useSettlePayables();
   const [selecionadas, setSelecionadas] = React.useState<number[]>([]);
@@ -149,7 +160,11 @@ export function PayablesList({
           kind="neutral"
           icon={Wallet}
           currency={moeda}
-          hint="Sai do caixa quando você marcar como pago"
+          hint={
+            escopo === 'pessoa'
+              ? 'O que você assumiu e ainda não pagou'
+              : 'A conta cheia do espaço — inclui o que outra pessoa vai pagar'
+          }
         />
         <StatTile
           label="Vencido"

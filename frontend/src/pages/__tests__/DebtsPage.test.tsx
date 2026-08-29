@@ -221,6 +221,37 @@ describe('Acertos do espaço', () => {
   });
 
   /*
+   * O quadro do mês trazia "Total do mês / Pago / Em aberto" — os três o valor
+   * CHEIO dos lançamentos do espaço. Numa tela cuja pergunta é "quanto eu devo",
+   * o primeiro número à vista não era de ninguém.
+   */
+  it('o mês abre pelos números de quem olha, não pelo total do espaço', () => {
+    montar();
+    abrirAba('Por mês');
+    // "Sua parte" também é o cabeçalho da coluna de valor, logo abaixo.
+    expect(screen.getAllByText('Sua parte').length).toBeGreaterThan(0);
+    expect(screen.getByText('Você pagou')).toBeInTheDocument();
+    expect(screen.queryByText('Total do mês')).not.toBeInTheDocument();
+    // O valor cheio continua na tela, dito pelo que é.
+    expect(screen.getByText(/somam R\$ 400,00 no espaço/)).toBeInTheDocument();
+  });
+
+  /*
+   * Dentro do detalhe, a coluna "Valor" trazia os R$ 400 da despesa e a fatia de
+   * quem olha era um chip de 10px no meio dos outros — o jantar rateado a dois
+   * aparecia como 400 para quem consumiu 200.
+   */
+  it('cada despesa mostra a sua parte, com o valor cheio como referência', () => {
+    montar();
+    abrirAba('Por mês');
+    // O `<details>` mantém o conteúdo no DOM; jsdom não tem layout.
+    const bloco = screen.getByText('Despesas do mês').closest('details')!;
+    expect(within(bloco).getAllByText('R$ 200,00').length).toBeGreaterThan(0);
+    expect(within(bloco).getAllByText('de R$ 400,00').length).toBeGreaterThan(0);
+    expect(within(bloco).getByRole('columnheader', { name: 'Sua parte' })).toBeInTheDocument();
+  });
+
+  /*
    * `billing_month` sempre existiu na resposta e nunca apareceu na tela — por
    * isso o acerto que fecha um mês era indistinguível do que só abate o
    * acumulado, e o saldo parecia cair sozinho.
