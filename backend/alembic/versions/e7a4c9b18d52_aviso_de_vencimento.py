@@ -15,14 +15,21 @@ com `invalid input value for enum`. E não há gate que pegue isso: no SQLite en
 não valores de enum.
 
 Revision ID: e7a4c9b18d52
-Revises: b3d9f21c74e8
+Revises: c4f8b12e7a09
 Create Date: 2026-08-28
 """
 import sqlalchemy as sa
 from alembic import op
 
 revision = 'e7a4c9b18d52'
-down_revision = 'b3d9f21c74e8'
+# `c4f8b12e7a09` (deslocamento de fatura) e não `b3d9f21c74e8`: as duas migrações
+# nasceram IRMÃS, cada uma numa branch aberta a partir do mesmo ponto. Ao entrar
+# a primeira na main, o Alembic passou a ver DUAS cabeças e o `upgrade head`
+# recusa escolher — derrubando migração, testes, e2e e a subida da stack de uma
+# vez. Reancorar nela devolve a cadeia linear.
+#
+# Não há dependência de conteúdo entre as duas; a ordem é só cronológica.
+down_revision = 'c4f8b12e7a09'
 branch_labels = None
 depends_on = None
 
