@@ -16,6 +16,7 @@ const baseValues: TransactionFormValues = {
   payers: [{ user_id: '1', amount: 0, payment_method: '', account_id: '' }],
   payment_method: '',
   credit_card_id: '',
+  statement_shift: 0,
   installments: 1,
   category_id: '',
   tag_ids: [],
@@ -235,6 +236,35 @@ describe('toApiPayload', () => {
     const payload = toApiPayload({ ...baseValues, transaction_date: '2026-01-31' });
     expect(payload.billing_month).toBe('2026-01');
   });
+
+  it('deslocar a fatura NÃO desloca a competência (ADR 0032)', () => {
+    // O invariante central da feature, medido na fronteira em que o payload é
+    // montado: a compra vai para a fatura seguinte e continua sendo despesa do
+    // mês em que aconteceu. Uma implementação que movesse os dois passaria por
+    // qualquer teste que olhasse só a fatura.
+    const payload = toApiPayload({
+      ...baseValues,
+      transaction_date: '2026-07-27',
+      credit_card_id: '3',
+      statement_shift: 1,
+    });
+    expect(payload.statement_shift).toBe(1);
+    expect(payload.billing_month).toBe('2026-07');
+    expect(payload.transaction_date.slice(0, 10)).toBe('2026-07-27');
+  });
+
+  it('sem cartão o deslocamento é zerado na fronteira', () => {
+    // O formulário pode carregar um valor residual de quando o método era
+    // crédito — trocar para Pix não limpa o campo. O backend recusaria com 422,
+    // e a pessoa não teria como relacionar o erro com a troca de método.
+    const payload = toApiPayload({
+      ...baseValues,
+      credit_card_id: '',
+      payment_method: 'pix',
+      statement_shift: 1,
+    });
+    expect(payload.statement_shift).toBe(0);
+  });
 });
 
 describe('fromApiTransaction — round-trip', () => {
@@ -285,6 +315,16 @@ describe('fromApiTransaction — round-trip', () => {
     expect(values.items[1].quantity).toBe(3);
     expect(values.items[1].unit_amount).toBe(10);
     expect(values.items[0].share_method).toBe('equal');
+  });
+
+  it('o round-trip preserva um deslocamento já aplicado', () => {
+    // Abrir uma compra já movida para corrigir o TÍTULO e salvar não pode
+    // trazê-la de volta ao ciclo natural — desfazendo, calada, uma correção que
+    // alguém fez de propósito olhando a fatura real.
+    const payload = toApiPayload(
+      fromApiTransaction({ ...apiTx, statement_shift: 1 })
+    );
+    expect(payload.statement_shift).toBe(1);
   });
 
   it('round-trip preserva os dados essenciais do payload', () => {

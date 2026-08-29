@@ -265,6 +265,7 @@ export function CreditCardList({ selectedCardId, onSelectCard }: CreditCardListP
                 <Input
                   id="closing-day"
                   type="number"
+                  inputMode="numeric"
                   min={1}
                   max={31}
                   value={closingDay}
@@ -276,6 +277,7 @@ export function CreditCardList({ selectedCardId, onSelectCard }: CreditCardListP
                 <Input
                   id="due-day"
                   type="number"
+                  inputMode="numeric"
                   min={1}
                   max={31}
                   value={dueDay}

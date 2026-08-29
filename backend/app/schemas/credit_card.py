@@ -147,6 +147,28 @@ class CreditCardRead(BaseModel):
     next_due: Optional[CardNextDueRead] = None
 
 
+class StatementShiftOptionRead(BaseModel):
+    """Uma fatura para a qual a compra PODE ser movida (ADR 0032).
+
+    O `shift` viaja junto com o mês exatamente para o cliente não precisar
+    calculá-lo: quem escolhe "Setembro" devolve o `shift` que veio na opção, e a
+    aritmética de ciclo continua inteira no servidor. É o que mantém a promessa
+    do ADR 0002 (o cliente nunca aponta uma fatura) enquanto lhe dá controle
+    sobre o destino.
+    """
+    shift: int
+    month: str
+    closing_date: datetime
+    due_date: datetime
+    exists: bool
+    #: `False` = fechada ou paga; a opção aparece, desabilitada e com o motivo.
+    #: Escondê-la deixaria a tela sem explicação para a fatura que o usuário
+    #: procura e não acha — e é o caso frequente, porque a divergência costuma
+    #: ser descoberta quando a fatura real chega, com o ciclo já fechado.
+    available: bool
+    status: Optional[StatementStatus] = None
+
+
 class StatementTargetRead(BaseModel):
     """Em qual fatura cairia uma compra neste dia (ADR 0002) — somente leitura.
 
@@ -161,4 +183,17 @@ class StatementTargetRead(BaseModel):
     #: `False` = a fatura ainda não existe (nasce no primeiro lançamento). Este
     #: preview NÃO a cria: digitar no formulário criaria faturas vazias.
     exists: bool
+    #: Rolou por a fatura pedida estar fechada — NUNCA por deslocamento
+    #: declarado. Medir contra o alvo natural marcaria todo `shift != 0` como
+    #: rolagem, e a tela avisaria "a fatura do mês já está fechada" sobre uma
+    #: compra que o próprio usuário mandou para frente.
     rolled_forward: bool
+    #: O deslocamento em vigor nesta consulta (ADR 0032).
+    shift: int = 0
+    #: Dias entre a compra e o fechamento da fatura de destino. `None` quando a
+    #: pergunta não faz sentido — destino deslocado ou rolado, ou compra já
+    #: depois do fechamento. Sustenta o aviso da janela de fechamento: perto do
+    #: fechamento, a chance de o emissor processar a compra já no ciclo seguinte
+    #: é real, e este é o único momento em que dá para avisar ANTES do fato.
+    days_to_closing: Optional[int] = None
+    options: List[StatementShiftOptionRead] = []

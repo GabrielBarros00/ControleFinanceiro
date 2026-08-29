@@ -90,6 +90,15 @@ export interface TransactionRead {
   settled_at?: string | null;
   credit_card_id?: number | null;
   statement_id?: number | null;
+  /**
+   * Quantas faturas à frente (ou atrás) a compra entrou em relação à regra do
+   * dia de fechamento (ADR 0032). `0` = a regra vale.
+   *
+   * Existe porque a fatura real é composta pela data em que o EMISSOR processa
+   * a compra, e o atraso é do estabelecimento — não há regra que o preveja. É
+   * ortogonal ao `billing_month`: mover a fatura nunca move a competência.
+   */
+  statement_shift?: number;
   split_mode: SplitMode;
   payment_method?: PaymentMethod | null;
   installment_no?: number | null;

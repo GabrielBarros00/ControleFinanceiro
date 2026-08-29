@@ -151,7 +151,9 @@ export function RegisterPage() {
                 : 'Comece sua jornada financeira hoje mesmo.'}
           </CardDescription>
         </CardHeader>
-        <form onSubmit={handleSubmit(onSubmit)}>
+        {/* `noValidate`: o `type="email"` serve ao teclado do celular, não à
+            validação — quem valida é o zod, que já mostra a mensagem estilizada. */}
+        <form onSubmit={handleSubmit(onSubmit)} noValidate>
           <CardContent className="space-y-4">
             {/* Dizer QUAL e-mail é esperado poupa a rodada de tentativa e erro:
                 sem isto a pessoa preenche o formulário com o endereço de sempre,
@@ -191,6 +193,7 @@ export function RegisterPage() {
                 <Mail className="absolute left-3 top-2.5 h-4 w-4 text-muted-foreground group-focus-within:text-primary transition-colors" />
                 <Input
                   id="email"
+                  type="email"
                   autoComplete="email"
                   placeholder="exemplo@email.com"
                   {...register('email')}

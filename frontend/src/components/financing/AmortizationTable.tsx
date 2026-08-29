@@ -242,7 +242,7 @@ function CreateFinancingDialog({ open, onOpenChange }: { open: boolean; onOpenCh
           <div className={`grid grid-cols-1 gap-4 ${semJuros ? 'sm:grid-cols-2' : 'sm:grid-cols-3'}`}>
             <div className="space-y-2">
               <Label>Parcelas</Label>
-              <Input type="number" min={1} max={600} value={installments} onChange={(e) => setInstallments(Number(e.target.value))} className="bg-background/50" />
+              <Input type="number" inputMode="numeric" min={1} max={600} value={installments} onChange={(e) => setInstallments(Number(e.target.value))} className="bg-background/50" />
               {semJuros && totalAmount > 0 && installments > 0 && (
                 <p className="text-[11px] text-muted-foreground">
                   {installments}× de{' '}

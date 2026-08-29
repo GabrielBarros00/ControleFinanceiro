@@ -3,6 +3,8 @@ from datetime import datetime
 from decimal import Decimal, ROUND_HALF_UP
 from pydantic import BaseModel, Field, model_validator
 from app.models.transaction import (
+    STATEMENT_SHIFT_MAX,
+    STATEMENT_SHIFT_MIN,
     AdjustmentType,
     TransactionStatus,
     SplitMethod,
@@ -101,6 +103,17 @@ class TransactionBase(BaseModel):
     billing_month: Optional[str] = None
     status: TransactionStatus = TransactionStatus.confirmed
     credit_card_id: Optional[int] = None
+    # Deslocamento de fatura declarado (ADR 0032): quantas faturas à frente (ou
+    # atrás) a compra realmente entrou, porque o emissor a processou noutro
+    # ciclo. `0` = vale a regra do dia de fechamento.
+    #
+    # É a ÚNICA entrada do cliente que influencia o destino da fatura, e não
+    # afrouxa o ADR 0002: continua sendo o servidor que resolve qual fatura é —
+    # o cliente diz "uma para frente", nunca `statement_id`, então não há
+    # como apontar para a fatura de outro cartão ou de outra pessoa.
+    statement_shift: int = Field(
+        default=0, ge=STATEMENT_SHIFT_MIN, le=STATEMENT_SHIFT_MAX
+    )
     split_mode: SplitMode = SplitMode.transaction
     payment_method: Optional[PaymentMethod] = None
 
@@ -198,6 +211,27 @@ def normalize_payment_method(
     return payment_method
 
 
+def validate_statement_shift(
+    statement_shift: int,
+    credit_card_id: Optional[int],
+) -> None:
+    """Deslocar a fatura só faz sentido numa compra no cartão (ADR 0032).
+
+    Compartilhada entre create (validator) e edição (rota, onde o cartão efetivo
+    só é conhecido depois de mesclar o corpo parcial com a linha do banco).
+
+    Sem esta guarda o campo seria aceito e ignorado num Pix — a API responderia
+    200 e a coluna guardaria um deslocamento que nenhum roteamento leria. E o
+    silêncio teria consequência real: ao converter esse lançamento para cartão
+    mais tarde, o deslocamento esquecido acordaria e mandaria a compra para uma
+    fatura que ninguém pediu.
+    """
+    if statement_shift and credit_card_id is None:
+        raise ValueError(
+            "Deslocamento de fatura exige uma compra no cartão (credit_card_id)"
+        )
+
+
 def validate_payer_origins(
     payers: List[TransactionPayerBase],
     credit_card_id: Optional[int],
@@ -246,6 +280,7 @@ class TransactionCreate(TransactionBase):
         validate_split_structure(self.split_mode, self.splits, self.items)
         self.payment_method = normalize_payment_method(self.payment_method, self.credit_card_id)
         validate_payer_origins(self.payers, self.credit_card_id)
+        validate_statement_shift(self.statement_shift, self.credit_card_id)
 
         if self.adjustments and not self.items:
             raise ValueError(
@@ -317,6 +352,12 @@ class TransactionUpdate(BaseModel):
     billing_month: Optional[str] = None
     status: Optional[TransactionStatus] = None
     credit_card_id: Optional[int] = None
+    # Mover a compra de fatura (ADR 0032). `None` = não mexe: um PUT que reenvia
+    # o formulário inteiro para corrigir o título não pode rerrotear a fatura
+    # sem querer — o mesmo cuidado que `settled` já tem logo abaixo.
+    statement_shift: Optional[int] = Field(
+        default=None, ge=STATEMENT_SHIFT_MIN, le=STATEMENT_SHIFT_MAX
+    )
     payment_method: Optional[PaymentMethod] = None
     # Marcar/desmarcar como paga (ADR 0029). Ausente = não mexe — é um fato de
     # caixa, e uma edição de valor ou de divisão não pode ressuscitar nem apagar

@@ -221,7 +221,7 @@ function ProfileTab() {
             </div>
             <div className="space-y-2">
               <Label htmlFor="email">E-mail</Label>
-              <Input id="email" defaultValue={user?.email} disabled className="bg-background/50 opacity-50 border-border" />
+              <Input id="email" type="email" defaultValue={user?.email} disabled className="bg-background/50 opacity-50 border-border" />
             </div>
           </div>
         </CardContent>
@@ -815,6 +815,7 @@ function MembersTab() {
                   como nome do campo. Os seletores ao lado já tinham `aria-label`;
                   o e-mail, que é o campo principal do formulário, não tinha. */}
               <Input
+                type="email"
                 aria-label="E-mail de quem você quer convidar"
                 placeholder="email@exemplo.com"
                 value={inviteEmail}

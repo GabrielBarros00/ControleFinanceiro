@@ -100,13 +100,20 @@ export function CurrencyCombobox({
 
       {open && (
         <div className="absolute right-0 z-50 mt-1 w-64 overflow-hidden rounded-md border border-border bg-card shadow-xl">
+          {/* `text-base md:text-sm`, não `text-sm`: o Safari do iPhone dá zoom
+              na página ao focar campo com fonte MENOR que 16px e não desfaz ao
+              sair. É o mesmo defeito que `ui/native-select.tsx` documenta ter
+              corrigido nos treze `<select>` do app — este campo escapou da
+              varredura por ser um `<input>` cru, sem passar pelo `ui/input.tsx`
+              (que já nasce com esse par de tamanhos). */}
           <input
             autoFocus
+            type="search"
             value={query}
             onChange={(e) => { setQuery(e.target.value); setHighlight(0); }}
             onKeyDown={onKeyDown}
             placeholder="Buscar moeda..."
-            className="w-full border-b border-border bg-background px-3 py-2 text-sm outline-hidden"
+            className="w-full border-b border-border bg-background px-3 py-2 text-base outline-hidden md:text-sm"
           />
           <div ref={listRef} role="listbox" className="max-h-56 overflow-auto py-1">
             {filtered.length === 0 ? (

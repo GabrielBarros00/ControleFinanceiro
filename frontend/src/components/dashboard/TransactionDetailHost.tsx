@@ -53,6 +53,30 @@ export function TransactionDetailHost() {
     }
   };
 
+  /**
+   * Move a compra de fatura (ADR 0032) sem passar pelo formulário completo.
+   *
+   * `update` parcial de propósito: o PUT com apenas `statement_shift` rerroteia
+   * a fatura e não toca em mais nada. Mandar o formulário inteiro cairia na
+   * edição COMPLETA da divisão (`FULL_EDIT_KEYS`), que recria payers e splits —
+   * um efeito colateral enorme para o que é, para quem clica, só "esta compra
+   * entrou na fatura de setembro".
+   *
+   * Numa compra parcelada o backend desloca o cronograma inteiro, cada parcela
+   * no ciclo dela — é o mesmo `statement_shift`, aplicado ao grupo.
+   */
+  const handleMoveStatement = async (shift: number) => {
+    if (txId == null) return;
+    try {
+      await update({ id: txId, data: { statement_shift: shift } });
+    } catch (err) {
+      // A fatura de destino pode ter fechado entre a tela e o clique: o backend
+      // responde 409 com o mês e o motivo, e é essa mensagem que serve.
+      toast.error(getApiErrorMessage(err, 'Não foi possível mover a compra de fatura'));
+      throw err;
+    }
+  };
+
   const handleSave = async (data: TransactionApiPayload | { status: 'confirmed' }) => {
     if (txId == null) return;
 
@@ -93,6 +117,7 @@ export function TransactionDetailHost() {
         canWrite={canWrite}
         onEdit={() => setMode('edit')}
         onDelete={handleDelete}
+        onMoveStatement={handleMoveStatement}
       />
       <TransactionDialog
         transaction={mode === 'edit' ? transaction : null}

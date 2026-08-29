@@ -170,6 +170,7 @@ function ItemRow({ index, participants, onRemove }: ItemRowProps) {
           <Label className="text-[11px] font-semibold text-muted-foreground">Qtd</Label>
           <Input
             type="number"
+            inputMode="decimal"
             step="0.001"
             min="0"
             aria-label="Quantidade"
@@ -310,6 +311,7 @@ function ItemRow({ index, participants, onRemove }: ItemRowProps) {
                 {shareMethod === 'percentage' ? (
                   <Input
                     type="number"
+                    inputMode="decimal"
                     step="0.01"
                     placeholder="%"
                     aria-label={`Percentual do item ${index + 1}`}

@@ -1233,6 +1233,12 @@ export interface paths {
          *     fechamento a compra vai para o mês seguinte, e se essa fatura já estiver
          *     fechada/paga ela rola para frente. Somente LEITURA: não cria fatura (senão
          *     digitar no formulário criaria faturas vazias).
+         *
+         *     Devolve também `options` — as faturas vizinhas alcançáveis, cada uma com o
+         *     `shift` que a alcança — e `days_to_closing`, que é o que sustenta o aviso da
+         *     janela de fechamento (ADR 0032). Os dois saem daqui, e não de contas no
+         *     cliente, porque a regra de ciclo é do servidor: uma segunda implementação no
+         *     frontend divergiria da primeira na primeira mudança.
          */
         get: operations["statement_for_date_api_v1_me_credit_cards__card_id__statement_for_get"];
         put?: never;
@@ -4374,6 +4380,11 @@ export interface components {
             auto_settle: boolean;
             /** Credit Card Id */
             credit_card_id?: number | null;
+            /**
+             * Statement Shift
+             * @default 0
+             */
+            statement_shift: number;
             /** Category Id */
             category_id?: number | null;
             /** Payer User Id */
@@ -4622,6 +4633,11 @@ export interface components {
             auto_settle: boolean;
             /** Credit Card Id */
             credit_card_id?: number | null;
+            /**
+             * Statement Shift
+             * @default 0
+             */
+            statement_shift: number;
             /** Category Id */
             category_id?: number | null;
             /** Payer User Id */
@@ -4689,6 +4705,8 @@ export interface components {
             auto_settle?: boolean | null;
             /** Credit Card Id */
             credit_card_id?: number | null;
+            /** Statement Shift */
+            statement_shift?: number | null;
             /** Category Id */
             category_id?: number | null;
             /** Payer User Id */
@@ -5144,6 +5162,37 @@ export interface components {
             excluded_from_total_count: number;
         };
         /**
+         * StatementShiftOptionRead
+         * @description Uma fatura para a qual a compra PODE ser movida (ADR 0032).
+         *
+         *     O `shift` viaja junto com o mês exatamente para o cliente não precisar
+         *     calculá-lo: quem escolhe "Setembro" devolve o `shift` que veio na opção, e a
+         *     aritmética de ciclo continua inteira no servidor. É o que mantém a promessa
+         *     do ADR 0002 (o cliente nunca aponta uma fatura) enquanto lhe dá controle
+         *     sobre o destino.
+         */
+        StatementShiftOptionRead: {
+            /** Shift */
+            shift: number;
+            /** Month */
+            month: string;
+            /**
+             * Closing Date
+             * Format: date-time
+             */
+            closing_date: string;
+            /**
+             * Due Date
+             * Format: date-time
+             */
+            due_date: string;
+            /** Exists */
+            exists: boolean;
+            /** Available */
+            available: boolean;
+            status?: components["schemas"]["StatementStatus"] | null;
+        };
+        /**
          * StatementStatus
          * @enum {string}
          */
@@ -5174,6 +5223,18 @@ export interface components {
             exists: boolean;
             /** Rolled Forward */
             rolled_forward: boolean;
+            /**
+             * Shift
+             * @default 0
+             */
+            shift: number;
+            /** Days To Closing */
+            days_to_closing?: number | null;
+            /**
+             * Options
+             * @default []
+             */
+            options: components["schemas"]["StatementShiftOptionRead"][];
         };
         /**
          * StatementTransactionRead
@@ -5355,6 +5416,11 @@ export interface components {
             status: components["schemas"]["TransactionStatus"];
             /** Credit Card Id */
             credit_card_id?: number | null;
+            /**
+             * Statement Shift
+             * @default 0
+             */
+            statement_shift: number;
             /** @default transaction */
             split_mode: components["schemas"]["SplitMode"];
             payment_method?: components["schemas"]["PaymentMethod"] | null;
@@ -5562,6 +5628,11 @@ export interface components {
             status: components["schemas"]["TransactionStatus"];
             /** Credit Card Id */
             credit_card_id?: number | null;
+            /**
+             * Statement Shift
+             * @default 0
+             */
+            statement_shift: number;
             /** @default transaction */
             split_mode: components["schemas"]["SplitMode"];
             payment_method?: components["schemas"]["PaymentMethod"] | null;
@@ -5672,6 +5743,8 @@ export interface components {
             status?: components["schemas"]["TransactionStatus"] | null;
             /** Credit Card Id */
             credit_card_id?: number | null;
+            /** Statement Shift */
+            statement_shift?: number | null;
             payment_method?: components["schemas"]["PaymentMethod"] | null;
             /** Settled */
             settled?: boolean | null;
@@ -9070,6 +9143,8 @@ export interface operations {
         parameters: {
             query: {
                 on: string;
+                /** @description Deslocamento de fatura declarado (ADR 0032). */
+                shift?: number;
             };
             header?: never;
             path: {
