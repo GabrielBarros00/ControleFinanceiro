@@ -31,6 +31,10 @@ export function WorkspacePayablesPage() {
         isLoading={isLoading}
         isError={isError}
         onRetry={() => refetch()}
+        // O total daqui é a conta CHEIA de cada despesa, somando os pagadores
+        // dela (ver `_por_lancamento`) — não o que sai do meu bolso. As duas
+        // telas mostravam o mesmo rótulo sobre números de donos diferentes.
+        escopo="espaco"
       />
     </div>
   );

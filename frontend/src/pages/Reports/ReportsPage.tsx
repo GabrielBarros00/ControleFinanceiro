@@ -12,6 +12,7 @@ import {
   LineChart,
   Line
 } from 'recharts';
+import * as React from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { BarChart3, TrendingUp, PieChart as PieChartIcon } from 'lucide-react';
@@ -27,12 +28,23 @@ import { PageHeader } from '@/components/layout/PageHeader';
 import { PeriodPicker } from '@/components/layout/PeriodPicker';
 import { monthShortLabel } from '@/lib/date';
 import { useMonthParam } from '@/hooks/use-month-param';
+import { cn } from '@/lib/utils';
 
 
 export function ReportsPage() {
   // Relatórios seguem o mesmo período das outras telas — antes ficavam presos
   // no mês corrente, sem como olhar o passado.
   const [month, setMonth] = useMonthParam();
+  /**
+   * De quem é a composição por categoria que a aba mostra.
+   *
+   * A pizza e o ranking sempre foram do ESPAÇO para quem tem acesso completo, e
+   * nada na tela dizia isso — ficavam sob um cabeçalho cujo primeiro número é
+   * "Seu gasto (mês)". Quem divide o aluguel via "Moradia R$ 8.450" e lia como
+   * seu. `my_categories` já vinha no mesmo payload (é o que a tela usa quando o
+   * acesso é restrito); faltava poder escolher.
+   */
+  const [comporPor, setComporPor] = React.useState<'espaco' | 'minha'>('espaco');
   const { data, isLoading, isError } = useReports(month);
   const baseCurrency = useBaseCurrency();
   // Cores lidas do tema atual (claro/escuro) — nunca hardcoded (corrige B3)
@@ -115,7 +127,13 @@ export function ReportsPage() {
   // mostrar a SUA parte (`my_categories`, que o backend continua devolvendo). É
   // melhor que uma tela vazia — e é o número que a pessoa pode conferir.
   const temVisaoDaCasa = currentSummary.total_expenses != null;
-  const categoryData = temVisaoDaCasa ? categoryDataCasa : myCategoryData;
+  // Sem acesso completo não HÁ o que escolher: só a sua parte existe.
+  const porEspaco = temVisaoDaCasa && comporPor === 'espaco';
+  const categoryData = porEspaco ? categoryDataCasa : myCategoryData;
+  const totalDaComposicao = categoryData.reduce(
+    (acc: number, c: { value: number }) => acc + Number(c.value || 0),
+    0,
+  );
 
   return (
     <div className="space-y-8 animate-in fade-in duration-700">
@@ -212,13 +230,53 @@ export function ReportsPage() {
           </Card>
         </TabsContent>
 
-        <TabsContent value="categories" className="animate-in slide-in-from-bottom-4 duration-500">
+        <TabsContent value="categories" className="animate-in slide-in-from-bottom-4 duration-500 space-y-4">
+          {/* Sem o seletor, a composição era do espaço e não se anunciava. Ele
+              some para quem só tem a própria visão — dois botões em que um
+              nunca pode ser clicado ensinam a coisa errada sobre o acesso. */}
+          {temVisaoDaCasa && (
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <p className="text-sm text-muted-foreground">
+                {porEspaco
+                  ? 'Composição do espaço inteiro — inclui o que é das outras pessoas.'
+                  : 'Só a sua fatia de cada despesa.'}{' '}
+                <span className="font-medium text-foreground">
+                  Total: {formatMoney(totalDaComposicao, { currency: baseCurrency })}
+                </span>
+              </p>
+              <div
+                role="group"
+                aria-label="De quem é a composição"
+                className="inline-flex shrink-0 rounded-lg border border-border bg-background p-0.5"
+              >
+                {([
+                  ['espaco', 'Espaço'],
+                  ['minha', 'Sua parte'],
+                ] as const).map(([valor, texto]) => (
+                  <button
+                    key={valor}
+                    type="button"
+                    aria-pressed={comporPor === valor}
+                    onClick={() => setComporPor(valor)}
+                    className={cn(
+                      'rounded-md px-3 py-1.5 text-sm font-semibold transition-colors',
+                      comporPor === valor
+                        ? 'bg-brand text-primary-foreground'
+                        : 'text-muted-foreground hover:bg-muted',
+                    )}
+                  >
+                    {texto}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
           <div className="grid gap-4 md:grid-cols-2">
             <Card className="bg-card border-border shadow-xl">
               <CardHeader>
                 <CardTitle className="flex items-center gap-2">
                   <PieChartIcon className="h-5 w-5 text-primary" />
-                  {temVisaoDaCasa ? 'Distribuição por Categoria' : 'Sua distribuição por categoria'}
+                  {porEspaco ? 'Distribuição do espaço' : 'Sua distribuição por categoria'}
                 </CardTitle>
               </CardHeader>
               <CardContent className="h-[240px] sm:h-[350px]">
@@ -250,7 +308,7 @@ export function ReportsPage() {
             </Card>
             <Card className="bg-card border-border shadow-xl">
               <CardHeader>
-                <CardTitle>Detalhamento de Gastos</CardTitle>
+                <CardTitle>{porEspaco ? 'Gastos do espaço' : 'Gastos da sua parte'}</CardTitle>
               </CardHeader>
               <CardContent>
                 <div className="space-y-3.5">

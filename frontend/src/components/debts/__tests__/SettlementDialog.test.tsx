@@ -106,6 +106,26 @@ describe('SettlementDialog', () => {
     await waitFor(() => expect(alvo).toBe('/api/v1/workspaces/2/settlements'));
   });
 
+  /*
+   * Os dois tipos de acerto do ADR 0009 — o que FECHA um mês e o que só abate o
+   * acumulado — só se distinguiam pelo lugar de onde a pessoa tinha clicado. A
+   * tela de Acertos explica a diferença num parágrafo; o diálogo, que é onde a
+   * escolha se efetiva, não dizia nada. Depois, no histórico, uma linha saía
+   * marcada "jul/2026" e outra "sem mês" sem que se pudesse saber por quê.
+   */
+  it('diz qual mês o acerto fecha', () => {
+    renderDialog(() => {}, {
+      from_user_id: 2, to_user_id: 1, amount: 45, billing_month: '2026-08',
+    });
+    expect(screen.getByText(/Fecha o mês de Agosto de 2026/)).toBeInTheDocument();
+  });
+
+  it('sem mês, avisa que só abate o acumulado', () => {
+    renderDialog();
+    expect(screen.getByText(/Abate o saldo acumulado, sem fechar mês nenhum/)).toBeInTheDocument();
+    expect(screen.queryByText(/Fecha o mês de/)).not.toBeInTheDocument();
+  });
+
   it('valida pagador == recebedor localmente', async () => {
     renderDialog();
     fireEvent.change(screen.getByLabelText('Quem recebeu'), { target: { value: '2' } });

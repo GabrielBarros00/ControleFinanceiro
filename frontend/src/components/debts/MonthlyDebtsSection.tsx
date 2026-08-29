@@ -43,7 +43,7 @@ export function MonthlyDebtsSection({
 
   return (
     <div className="space-y-4">
-      <MonthlyLedgerTotals ledger={ledger} currency={baseCurrency} />
+      <MonthlyLedgerTotals ledger={ledger} currency={baseCurrency} currentUserId={currentUserId} />
       <MonthlyLedgerBody
         ledger={ledger}
         members={members}

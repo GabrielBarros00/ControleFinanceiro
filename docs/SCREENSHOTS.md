@@ -4,7 +4,7 @@ Catálogo completo da interface, **em tema claro e escuro**. Gerado por
 `npm run shots` (ver [como regerar](#como-regerar)), com dados semeados via API —
 nada aqui é montagem ou protótipo: são as telas do aplicativo rodando.
 
-São **121 capturas**: toda rota do `App.tsx` em desktop (1440×900) e celular
+São **125 capturas**: toda rota do `App.tsx` em desktop (1440×900) e celular
 (390×844), nos dois temas, mais os modais e os estados que só existem dentro
 deles. O catálogo é conferido contra as rotas: uma tela sem captura aqui é um
 buraco, não uma escolha.

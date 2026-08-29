@@ -3,7 +3,7 @@ import { Button } from "@/components/ui/button";
 import { ChevronRight, HandCoins, Loader2 } from 'lucide-react';
 import { useTxDetailStore } from '@/stores';
 import type { SettlementDraft } from '@/components/debts/SettlementDialog';
-import { formatMoney } from '@/lib/money';
+import { formatMoney, sameMoney } from '@/lib/money';
 import { CardsOrTable, DataCard } from '@/components/ui/data-card';
 import { StatusPill } from '@/components/ui/status-pill';
 import { Avatar } from '@/components/ui/avatar';
@@ -37,6 +37,9 @@ export interface MemberLike {
 type Money = string | number;
 
 export interface LedgerLike {
+  /** Quanto CADA pessoa pagou e consumiu no mês. Sem acesso completo vem só a
+   *  linha de quem pediu — que é justamente a que esta tela usa. */
+  members: { user_id: number; paid: Money; owed: Money }[];
   net_debts: { debtor_id: number; creditor_id: number; amount: Money }[];
   expenses: {
     id: number;
@@ -79,40 +82,154 @@ interface Props {
   onOpenHistory?: () => void;
 }
 
-/** Os três totais do mês. Fica separado do corpo porque a tela da casa os
- *  desenha no cabeçalho do card, acima do navegador de mês. */
+/** A minha parte no mês: o que consumi, o que assumi e o que sobra a acertar. */
+interface LeituraPessoal {
+  /** Minha fatia das despesas do mês (soma dos meus rateios). */
+  parte: number;
+  /** O que eu assumi das despesas — não é o que eu devo. */
+  pago: number;
+  /** `> 0` tenho a receber, `< 0` devo. Já descontados os acertos deste mês. */
+  saldo: number;
+}
+
+/**
+ * O mês pelos olhos de quem está olhando.
+ *
+ * O saldo NÃO sai de `members[].balance`, embora ele exista no payload: aquele é
+ * `pago − parte` calculado ANTES de os acertos do mês entrarem (ver
+ * `DebtService.get_monthly_ledger`), enquanto `net_debts` já os desconta. Como as
+ * linhas "fulano deve X a você" logo abaixo vêm de `net_debts`, usar o outro
+ * campo poria dois números que se contradizem na mesma dobra — e num mês quitado
+ * o quadro diria "você tem a receber R$ 115,73" ao lado de "Tudo acertado ✅".
+ */
+function leituraPessoal(
+  ledger: LedgerLike | null | undefined,
+  currentUserId?: number,
+): LeituraPessoal | null {
+  if (!ledger || currentUserId == null) return null;
+  const eu = ledger.members.find((m) => m.user_id === currentUserId);
+  const saldo = ledger.net_debts.reduce(
+    (acc, d) =>
+      acc
+      + (d.creditor_id === currentUserId ? Number(d.amount) : 0)
+      - (d.debtor_id === currentUserId ? Number(d.amount) : 0),
+    0,
+  );
+  // `?? 0` aqui não inventa nada: quem não aparece em `members` não pagou nem
+  // consumiu nada no mês, e zero é a resposta certa.
+  return { parte: Number(eu?.owed ?? 0), pago: Number(eu?.paid ?? 0), saldo };
+}
+
+/**
+ * O quadro do mês — **do ponto de vista de quem olha**, não da casa.
+ *
+ * Aqui ficava "Total do mês / Pago / Em aberto": os três eram o valor CHEIO dos
+ * lançamentos do espaço. Numa tela cuja pergunta é "quanto eu devo", a primeira
+ * coisa à vista era um número que não é de ninguém — num mês de R$ 231,47
+ * rateado a dois, "EM ABERTO R$ 231,47" aparecia em destaque logo acima de
+ * "Maria deve R$ 115,73 a você", e o que se lê é que há 231 a acertar.
+ *
+ * Os três números agora são meus: minha fatia, o que eu assumi e o que sobra
+ * entre mim e as outras pessoas. O total da casa continua na tela — em uma linha
+ * abaixo, dizendo o que ele é —, porque ele responde outra pergunta legítima
+ * ("quanto essa casa gastou no mês") e sumir com ele faria a soma das despesas
+ * logo abaixo não ter de onde sair.
+ *
+ * Fica separado do corpo porque a tela da casa o desenha no cabeçalho do card,
+ * acima do navegador de mês.
+ */
 export function MonthlyLedgerTotals({
   ledger,
   currency,
+  currentUserId,
 }: {
   ledger: LedgerLike | null | undefined;
   currency: string;
+  /** Sem ele não há "sua parte": o quadro cai no retrato da casa em vez de
+   *  anunciar R$ 0,00 como se fosse a fatia de alguém. */
+  currentUserId?: number;
 }) {
   if (!ledger) return null;
   const fmt = (v: Money) => formatMoney(v, { currency });
+  const eu = leituraPessoal(ledger, currentUserId);
+
+  /*
+   * Três colunas mesmo no celular — mas com folga.
+   *
+   * A cada 390px de tela sobram ~110px por célula, e um valor como
+   * "R$ 561.582,54" precisa de ~100px a 14px. Cabia por um fio, e qualquer
+   * saldo na casa dos milhões estourava. `text-xs` no celular e `min-w-0` +
+   * `break-words` dão a margem; a comparação lado a lado é o ponto do bloco e
+   * empilhar destruiria isso.
+   */
+  const grade = 'grid grid-cols-3 gap-1.5 text-center sm:gap-2';
+  const celula = 'min-w-0 rounded-lg p-1.5 sm:p-2';
+  const rotulo = 'text-[10px] font-semibold uppercase text-muted-foreground';
+  const valor = 'break-words text-xs font-semibold sm:text-sm';
+
+  /*
+   * Retrato da CASA em dois casos, e o segundo é o que importa aqui.
+   *
+   * Sem `currentUserId` (a sessão ainda carregando) não há de quem falar. E quem
+   * tem acesso financeiro completo pode abrir o mês de uma casa em que não
+   * entrou em despesa nenhuma: `members` não tem a linha dele, `net_debts` só
+   * pareia terceiros, e o quadro pessoal viraria "R$ 0,00 / R$ 0,00 / R$ 0,00"
+   * — três zeros verdadeiros e inúteis, com o único número relevante (o da
+   * casa) rebaixado à legenda. Os três zeros só acontecem nesse caso: `parte` é
+   * consumo, e acerto nenhum a reduz.
+   */
+  const foraDoMes = !eu || (eu.parte === 0 && eu.pago === 0 && eu.saldo === 0);
+
+  if (foraDoMes) {
+    return (
+      <div className={grade}>
+        <div className={`${celula} bg-accent/20`}>
+          <p className={rotulo}>Total do mês</p>
+          <p className={`${valor} text-foreground`}>{fmt(ledger.totals.total)}</p>
+        </div>
+        <div className={`${celula} bg-income-subtle`}>
+          <p className={rotulo}>Pago</p>
+          <p className={`${valor} text-income`}>{fmt(ledger.totals.paid)}</p>
+        </div>
+        <div className={`${celula} bg-warning-subtle`}>
+          <p className={rotulo}>Em aberto</p>
+          <p className={`${valor} text-warning`}>{fmt(ledger.totals.open)}</p>
+        </div>
+      </div>
+    );
+  }
+
+  // O rótulo do terceiro quadro É a resposta da tela — "Seu saldo" obrigaria a
+  // decifrar o sinal, que a versão anterior nem mostrava.
+  const saldo =
+    eu.saldo > 0
+      ? { rotulo: 'Você tem a receber', classe: 'text-income', fundo: 'bg-income-subtle' }
+      : eu.saldo < 0
+        ? { rotulo: 'Você deve', classe: 'text-expense', fundo: 'bg-expense-subtle' }
+        : { rotulo: 'A acertar', classe: 'text-muted-foreground', fundo: 'bg-accent/20' };
+
   return (
-    /*
-     * Três colunas mesmo no celular — mas com folga.
-     *
-     * A cada 390px de tela sobram ~110px por célula, e um valor como
-     * "R$ 561.582,54" precisa de ~100px a 14px. Cabia por um fio, e qualquer
-     * saldo na casa dos milhões estourava. `text-xs` no celular e `min-w-0` +
-     * `break-words` dão a margem; a comparação lado a lado (total × pago × em
-     * aberto) é o ponto do bloco e empilhar destruiria isso.
-     */
-    <div className="grid grid-cols-3 gap-1.5 text-center sm:gap-2">
-      <div className="min-w-0 rounded-lg bg-accent/20 p-1.5 sm:p-2">
-        <p className="text-[10px] font-semibold uppercase text-muted-foreground">Total do mês</p>
-        <p className="break-words text-xs font-semibold text-foreground sm:text-sm">{fmt(ledger.totals.total)}</p>
+    <div className="space-y-1.5">
+      <div className={grade}>
+        <div className={`${celula} bg-accent/20`}>
+          <p className={rotulo}>Sua parte</p>
+          <p className={`${valor} text-foreground`}>{fmt(eu.parte)}</p>
+        </div>
+        <div className={`${celula} bg-accent/20`}>
+          <p className={rotulo}>Você pagou</p>
+          <p className={`${valor} text-foreground`}>{fmt(eu.pago)}</p>
+        </div>
+        <div className={`${celula} ${saldo.fundo}`}>
+          <p className={rotulo}>{saldo.rotulo}</p>
+          <p className={`${valor} ${saldo.classe}`}>{fmt(Math.abs(eu.saldo))}</p>
+        </div>
       </div>
-      <div className="min-w-0 rounded-lg bg-emerald-500/10 p-1.5 sm:p-2">
-        <p className="text-[10px] font-semibold uppercase text-muted-foreground">Pago</p>
-        <p className="break-words text-xs font-semibold text-emerald-500 sm:text-sm">{fmt(ledger.totals.paid)}</p>
-      </div>
-      <div className="min-w-0 rounded-lg bg-warning-subtle p-1.5 sm:p-2">
-        <p className="text-[10px] font-semibold uppercase text-muted-foreground">Em aberto</p>
-        <p className="break-words text-xs font-semibold text-warning sm:text-sm">{fmt(ledger.totals.open)}</p>
-      </div>
+      {/* O número que ficava em destaque, agora nomeado. Sem esta linha ele
+          simplesmente desapareceria, e quem já o conhecia procuraria por ele. */}
+      <p className="text-center text-[11px] leading-snug text-muted-foreground">
+        As despesas deste mês somam {fmt(ledger.totals.total)} no espaço — é o valor cheio dos
+        lançamentos, não o que você deve.
+      </p>
     </div>
   );
 }
@@ -153,6 +270,49 @@ export function MonthlyLedgerBody({
 
   const acertado = Number(ledger.settled_total);
   const emAberto = ledger.expenses.filter((e) => !e.is_paid).length;
+
+  /** Quanto DESTA despesa é meu. Zero é resposta legítima — a despesa existe no
+   *  mês da casa sem me envolver. Sem saber quem olha, não há parte a calcular e
+   *  a linha volta a mostrar só o valor cheio. */
+  const minhaParte = (exp: LedgerLike['expenses'][number]): number | null => {
+    if (currentUserId == null) return null;
+    return exp.splits.reduce(
+      (acc, s) => acc + (s.user_id === currentUserId ? Number(s.computed_amount) : 0),
+      0,
+    );
+  };
+
+  /**
+   * O valor de UMA despesa como esta tela precisa que ele seja lido.
+   *
+   * A coluna mostrava `total_amount` em negrito, e a fatia de quem olha era um
+   * chip de 10px no meio dos outros. Numa tela de acerto isso inverte a
+   * hierarquia: o jantar de R$ 200 rateado a dois aparecia como R$ 200 para quem
+   * consumiu R$ 100. É o mesmo par que o Início já desenha em "Onde você está
+   * envolvido" — a parte em cima, o total abaixo, como referência.
+   */
+  const valorDaDespesa = (exp: LedgerLike['expenses'][number]) => {
+    const parte = minhaParte(exp);
+    const total = Number(exp.total_amount);
+    if (parte === null) {
+      return <span className="block font-semibold whitespace-nowrap text-foreground">{fmt(total)}</span>;
+    }
+    return (
+      <>
+        <span className="block font-semibold whitespace-nowrap text-foreground">{fmt(parte)}</span>
+        {/* Só quando os dois diferem: numa despesa 100% minha, "de R$ 40,00"
+            embaixo de "R$ 40,00" é ruído que faz duvidar de qual é qual.
+            `sameMoney` e não `!==`: a comparação é em centavos, senão uma soma
+            de rateios que dá 100.00000000000001 imprime "de" um valor idêntico
+            ao de cima. */}
+        {!sameMoney(parte, total) && (
+          <span className="block text-[11px] whitespace-nowrap text-muted-foreground">
+            de {fmt(total)}
+          </span>
+        )}
+      </>
+    );
+  };
 
   return (
     <>
@@ -256,7 +416,7 @@ export function MonthlyLedgerBody({
               meta={exp.payers.map((p) => `${memberName(p.user_id)} pagou ${fmt(p.amount)}`).join(' · ')}
               value={
                 <>
-                  <span className="block font-semibold whitespace-nowrap text-foreground">{fmt(exp.total_amount)}</span>
+                  {valorDaDespesa(exp)}
                   <span className={`mt-1 inline-block rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase whitespace-nowrap ${
                     exp.is_paid ? 'bg-emerald-500/10 text-emerald-500' : 'bg-warning-subtle text-warning'
                   }`}>
@@ -304,7 +464,11 @@ export function MonthlyLedgerBody({
               <TableHead className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Quem pagou</TableHead>
               <TableHead className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Divisão</TableHead>
               <TableHead className="w-28 text-center text-[10px] font-semibold uppercase tracking-wider whitespace-nowrap text-muted-foreground">Status</TableHead>
-              <TableHead className="w-32 text-right text-[10px] font-semibold uppercase tracking-wider whitespace-nowrap text-muted-foreground">Valor</TableHead>
+              {/* "Valor" não dizia de quem: a coluna trazia o total da despesa
+                  numa tela sobre o que EU devo. */}
+              <TableHead className="w-32 text-right text-[10px] font-semibold uppercase tracking-wider whitespace-nowrap text-muted-foreground">
+                {currentUserId == null ? 'Valor' : 'Sua parte'}
+              </TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -376,7 +540,9 @@ export function MonthlyLedgerBody({
                     <span className="inline-block rounded-full bg-warning-subtle px-2 py-0.5 text-[10px] font-semibold uppercase whitespace-nowrap text-warning">Em aberto</span>
                   )}
                 </TableCell>
-                <TableCell className="text-right font-semibold whitespace-nowrap text-foreground">{fmt(exp.total_amount)}</TableCell>
+                <TableCell className="text-right whitespace-nowrap">
+                  {valorDaDespesa(exp)}
+                </TableCell>
               </TableRow>
             ))}
           </TableBody>

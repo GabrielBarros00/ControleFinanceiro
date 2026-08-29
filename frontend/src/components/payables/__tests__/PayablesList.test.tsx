@@ -109,6 +109,24 @@ describe('Contas a pagar — a fila', () => {
     expect(screen.queryByText(/·\s*Casa/)).not.toBeInTheDocument();
   });
 
+  /*
+   * O total das duas camadas sai da mesma consulta, mas não é o mesmo número: a
+   * pessoal soma o meu `TransactionPayer`, a do espaço soma os pagadores todos
+   * (`_por_lancamento`). As duas telas mostravam "Sai do caixa quando VOCÊ
+   * marcar como pago" sobre valores de donos diferentes — e no espaço isso é
+   * falso para toda conta que outra pessoa vai pagar.
+   */
+  it('diz de quem é o caixa que o total representa', () => {
+    const { unmount } = renderLista();
+    expect(screen.getByText('O que você assumiu e ainda não pagou')).toBeInTheDocument();
+    unmount();
+
+    renderLista({ escopo: 'espaco', showWorkspace: false });
+    expect(
+      screen.getByText('A conta cheia do espaço — inclui o que outra pessoa vai pagar'),
+    ).toBeInTheDocument();
+  });
+
   it('não anuncia "nada a pagar" quando a consulta falhou', () => {
     // Um zero é uma informação financeira, e seria falsa (ERR-001).
     renderLista({ payables: undefined, isError: true });
