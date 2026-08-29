@@ -91,7 +91,11 @@ export function LoginPage() {
             Entre com suas credenciais para acessar o painel.
           </CardDescription>
         </CardHeader>
-        <form onSubmit={handleSubmit(onSubmit)}>
+        {/* `noValidate` acompanha o `type="email"` do campo abaixo: o `type` é o
+            que faz o celular abrir o teclado com a tecla `@`, mas ele também
+            liga a validação nativa, que barra o submit com um balão do SISTEMA
+            e atropela o "E-mail inválido" do zod. Aqui quem valida é o schema. */}
+        <form onSubmit={handleSubmit(onSubmit)} noValidate>
           <CardContent className="space-y-4">
             {error && (
               <div className="p-3 rounded-lg bg-destructive/10 border border-destructive/20 flex items-center gap-3 text-destructive text-sm font-medium animate-in fade-in duration-300">
@@ -108,6 +112,7 @@ export function LoginPage() {
                     grava junto com `current-password` abaixo. */}
                 <Input
                   id="email"
+                  type="email"
                   autoComplete="username"
                   placeholder="exemplo@email.com"
                   {...register('email')}

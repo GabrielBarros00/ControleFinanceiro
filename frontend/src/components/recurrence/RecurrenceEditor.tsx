@@ -70,6 +70,7 @@ export function RecurrenceEditor({ value, onChange, idPrefix = 'rec' }: Recurren
             <Input
               id={`${idPrefix}-dom`}
               type="number"
+              inputMode="numeric"
               min={1}
               max={31}
               value={value.day_of_month}
@@ -123,6 +124,7 @@ export function RecurrenceEditor({ value, onChange, idPrefix = 'rec' }: Recurren
               <Input
                 id={`${idPrefix}-interval`}
                 type="number"
+                inputMode="numeric"
                 min={1}
                 value={value.interval}
                 onChange={(e) => onChange({ interval: Math.max(1, Number(e.target.value) || 1) })}
@@ -185,6 +187,7 @@ export function RecurrenceEditor({ value, onChange, idPrefix = 'rec' }: Recurren
             <Input
               aria-label="Número de ocorrências"
               type="number"
+              inputMode="numeric"
               min={1}
               max={600}
               value={value.end_after}

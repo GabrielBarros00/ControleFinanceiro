@@ -56,16 +56,21 @@ export function ForgotPasswordPage() {
         </CardHeader>
         
         {!submitted ? (
-          <form onSubmit={handleSubmit(onSubmit)}>
+          // `noValidate`: o `type="email"` do campo serve ao teclado do celular,
+          // não à validação — quem valida é o zod, que já mostra a mensagem
+          // estilizada. Sem isto o navegador barra o submit com um balão nativo.
+          <form onSubmit={handleSubmit(onSubmit)} noValidate>
             <CardContent className="space-y-4">
               <div className="space-y-2">
                 <Label htmlFor="email">E-mail</Label>
                 <div className="relative group">
                   <Mail className="absolute left-3 top-2.5 h-4 w-4 text-muted-foreground group-focus-within:text-primary transition-colors" />
-                  <Input 
-                    id="email" 
-                    placeholder="exemplo@email.com" 
-                    {...register('email')} 
+                  <Input
+                    id="email"
+                    type="email"
+                    autoComplete="email"
+                    placeholder="exemplo@email.com"
+                    {...register('email')}
                     className="pl-10 bg-background/50 border-border focus-visible:ring-primary/20"
                   />
                 </div>
