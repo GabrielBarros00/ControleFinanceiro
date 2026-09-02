@@ -33,6 +33,7 @@ from typing import Callable, List, Optional
 import pytest
 from sqlmodel import Session, SQLModel, create_engine, func, select
 
+from app.domain.dates import HORIZONTE_MESES
 from app.models.category import Category
 from app.models.credit_card import (
     CardStatement,
@@ -241,7 +242,16 @@ def test_renda_recorrente_nao_duplica_sob_concorrencia(base):
 
     with Session(engine) as session:
         rendas = session.exec(select(Income)).all()
-    assert len(rendas) == 1, f"salário materializado {len(rendas)}x — deveria ser 1"
+
+    # Uma ocorrência POR MÊS do horizonte (ADR 0034) e nenhuma a mais. Com o
+    # horizonte, o teste ficou mais forte: são 8 threads disputando dois meses ao
+    # mesmo tempo, e a unique `uq_recurring_income_occurrence` tem de segurar os
+    # dois — o dedup em Python não sobrevive a nenhum deles.
+    meses = [r.billing_month for r in rendas]
+    assert len(rendas) == HORIZONTE_MESES + 1, (
+        f"salário materializado {len(rendas)}x em {meses} — deveria ser um por mês"
+    )
+    assert len(set(meses)) == len(meses), "dois salários no mesmo mês"
 
 
 # --- A2: membership ---------------------------------------------------------

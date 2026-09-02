@@ -56,7 +56,7 @@ def test_recorrencia_renda_estrangeira_converte_sem_iof(db_session, seed_ws):
     db_session.commit()
     db_session.refresh(tmpl)
 
-    created = RecurringIncomeService.generate_due_income(db_session, user.id, date(2026, 3, 10))
+    created = RecurringIncomeService.generate_due_income(db_session, user.id, date(2026, 3, 10), horizonte_meses=0)
     db_session.commit()
     assert created == 1
     inc = db_session.exec(select(Income).where(Income.recurring_income_id == tmpl.id)).first()

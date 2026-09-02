@@ -82,6 +82,9 @@ export const GLOBAIS = new Set([
   // workspace na chave — ao contrário de `debts`/`debts-monthly`/`settlements`,
   // que são as famílias equivalentes do workspace e ficam de fora deste conjunto.
   'me-debts', 'me-debts-monthly', 'me-debts-by-month', 'me-settlements',
+  // Saldo por conta e extrato da conta (ADR 0034). Pessoais como o resto do
+  // `/me/*`: a conta acompanha o dono e não mora em workspace nenhum.
+  'me-balance', 'account-statement', 'transfers',
 ]);
 
 /**
@@ -102,9 +105,17 @@ const BY_PREFIX: Record<string, string[]> = {
     // Criar, editar, excluir ou LIQUIDAR um lançamento muda a fila do que falta
     // pagar (ADR 0029) — nas duas camadas.
     'payables', 'me-payables',
+    // Liquidar um lançamento tira dinheiro de uma CONTA (ADR 0034).
+    'me-balance', 'account-statement',
     ...AUDIT,
   ],
-  income: ['income', 'reports', 'analytics-forecast', 'me-overview', 'me-ledger', 'me-reports', ...AUDIT],
+  income: [
+    'income', 'reports', 'analytics-forecast', 'me-overview', 'me-ledger', 'me-reports',
+    // Confirmar o recebimento credita uma conta; cadastrar renda prevista muda
+    // o 'a receber' da projeção.
+    'me-balance', 'account-statement',
+    ...AUDIT,
+  ],
   // Recorrente materializa lançamentos (possivelmente numa fatura de cartão)
   recurring: [
     'recurring', 'transactions', 'reports', 'analytics-forecast', 'debts', 'debts-monthly', 'debts-by-month',
@@ -113,10 +124,12 @@ const BY_PREFIX: Record<string, string[]> = {
     // A recorrência materializa lançamentos, e eles nascem A PAGAR quando o
     // template não tem débito automático — é a origem que mais alimenta a fila.
     'payables', 'me-payables',
+    'me-balance', 'account-statement',
     ...AUDIT,
   ],
   recurring_income: [
-    'recurring-income', 'income', 'reports', 'analytics-forecast', 'me-overview', 'me-ledger', 'me-reports', ...AUDIT,
+    'recurring-income', 'income', 'reports', 'analytics-forecast', 'me-overview',
+    'me-ledger', 'me-reports', 'me-balance', ...AUDIT,
   ],
   // Fechar/pagar/reabrir fatura muda limite comprometido, compromissos e — desde
   // o ADR 0022 — o caixa efetivo do mês em que a fatura foi paga.
@@ -127,13 +140,22 @@ const BY_PREFIX: Record<string, string[]> = {
     // isto o aviso ficava com a regra ANTIGA em cache, e ele existe
     // justamente porque ninguém adivinha a regra olhando a tela.
     'statement-target',
+    // Pagar a fatura tira dinheiro de uma conta.
+    'me-balance', 'account-statement',
     'me-reports', ...AUDIT,
   ],
   category: ['categories', 'reports', 'transactions', ...AUDIT],
   tag: ['tags', 'transactions', ...AUDIT],
   estimate: ['estimates', 'analytics-forecast', 'reports', ...AUDIT],
-  financing: ['financing', 'me-commitments', 'me-overview', 'me-ledger', 'me-reports', ...AUDIT],
-  payment_account: ['payment-accounts', 'transactions', 'credit-cards', ...AUDIT],
+  financing: [
+    'financing', 'me-commitments', 'me-overview', 'me-ledger', 'me-reports',
+    // Pagar uma parcela tira dinheiro de uma conta.
+    'me-balance', 'account-statement', ...AUDIT,
+  ],
+  payment_account: [
+    'payment-accounts', 'transactions', 'credit-cards',
+    'me-balance', 'account-statement', 'transfers', ...AUDIT,
+  ],
   attachment: ['attachments', 'transactions', ...AUDIT],
   // O acerto mexe no saldo a pagar/receber E no caixa (é dinheiro que muda de mão)
   settlement: [
@@ -142,6 +164,8 @@ const BY_PREFIX: Record<string, string[]> = {
     // lá precisa ver o saldo cair na hora, sem depender do evento voltar pela
     // rede (o WebSocket é por sala de workspace).
     'me-debts', 'me-debts-monthly', 'me-debts-by-month', 'me-settlements',
+    // Acerto é dinheiro que muda de mão — e de conta, quando declarada.
+    'me-balance', 'account-statement',
     ...AUDIT,
   ],
   // Entrar/sair muda o RATEIO — e o rateio é a base dos relatórios (totais por

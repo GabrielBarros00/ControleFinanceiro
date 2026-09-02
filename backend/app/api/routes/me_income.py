@@ -27,21 +27,25 @@ from sqlmodel import Session, select
 from app.api.routes.auth import get_current_user
 from app.db.session import get_session
 from app.domain.access_policy import assert_owns, personal_scope
+from app.domain.account_policy import AccountCurrencyMismatch, assert_conta_na_moeda
 from app.domain.dates import (
     InvalidMonth,
+    civil_instant,
     local_day,
     month_bounds_utc,
     month_key,
     parse_month,
     today_local,
 )
+from app.domain.income_settlement import resolve_income_settled_at
 from app.domain.query_policy import resolve_personal_currency, user_report_currency
 from app.domain.recurrence_rules import validate_frequency_fields as _validate_frequency_fields
 from app.models.income import Income
+from app.models.payment_account import PaymentAccount
 from app.models.recurring import RecurrenceFrequency, RecurringIncome
 from app.models.user import User
 from app.schemas.common import CreatedCountRead, DESCRIPTION_MAX, MAX_MONEY, NAME_MAX, OptionalCurrencyCode, StatusRead, TITLE_MAX
-from app.schemas.income import IncomeCreate, IncomeRead, IncomeUpdate
+from app.schemas.income import IncomeCreate, IncomeReceiveRequest, IncomeRead, IncomeUpdate
 from app.services.currency_service import ExchangeRateUnavailable
 from app.services.exchange_rate_store import ExchangeRateStore
 from app.services.recurring_service import (
@@ -107,6 +111,27 @@ def _get_income_or_404(session: Session, income_id: int, user_id: int) -> Income
     return income
 
 
+def _valida_conta(
+    session: Session, user_id: int, account_id: Optional[int], currency: str
+) -> None:
+    """A conta de destino tem de ser DA PESSOA, viva, ativa e na mesma moeda.
+
+    Os mesmos gates de `_validate_payer_accounts` do lado da despesa, menos o de
+    "quem declara": renda é estritamente pessoal, então quem declara é sempre o dono.
+    """
+    if account_id is None:
+        return
+    conta = session.get(PaymentAccount, account_id)
+    if not conta or conta.deleted_at or conta.owner_user_id != user_id:
+        raise HTTPException(status_code=400, detail="Conta inválida")
+    if not conta.active:
+        raise HTTPException(status_code=400, detail=f"Conta '{conta.name}' está desativada")
+    try:
+        assert_conta_na_moeda(conta, currency)
+    except AccountCurrencyMismatch as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
 # ---------------------------------------------------------------------------
 # Renda avulsa
 # ---------------------------------------------------------------------------
@@ -118,14 +143,23 @@ def create_income(
     income_in: IncomeCreate,
     current_user: User = Depends(get_current_user),
 ):
-    data = income_in.model_dump()
+    data = income_in.model_dump(exclude={"received"})
     data["currency"] = resolve_personal_currency(session, current_user.id, income_in.currency)
     data.update(
         _convert_income_fields(
             session, current_user.id, income_in.amount, data["currency"], income_in.received_at
         )
     )
-    db_income = Income(**data, user_id=current_user.id)
+    _valida_conta(session, current_user.id, data.get("account_id"), data["currency"])
+    db_income = Income(
+        **data,
+        user_id=current_user.id,
+        # Caixa (ADR 0034): quando o dinheiro caiu. `resolve_income_settled_at` é o
+        # ponto ÚNICO que decide — ver `app/domain/income_settlement.py`.
+        settled_at=resolve_income_settled_at(
+            received_at=income_in.received_at, explicit=income_in.received
+        ),
+    )
     session.add(db_income)
     session.commit()
     session.refresh(db_income)
@@ -154,7 +188,12 @@ def list_income(
         personal_scope(Income.user_id, current_user.id),
     )
 
-    # Filtro por DATA DE RECEBIMENTO — mesma competência de `/me/overview`.
+    # Filtro por COMPETÊNCIA (`received_at`), e é de propósito que ele NÃO seja o
+    # mesmo recorte do `cash_in` de `/me/overview`, que desde o ADR 0034 usa
+    # `settled_at`. As duas telas respondem perguntas diferentes: aqui é "quais
+    # rendas são deste mês" — inclusive as previstas e as que ainda não caíram —,
+    # lá é "quanto dinheiro entrou". É o mesmo par que Contas a pagar
+    # (`billing_month`) e caixa (`settled_at`) já formam do lado da despesa.
     if month:
         # Mês inválido é ERRO, não "sem filtro". Antes o except engolia e a rota
         # devolvia o histórico INTEIRO como se fosse o mês pedido.
@@ -184,6 +223,8 @@ def update_income(
     income = _get_income_or_404(session, income_id, current_user.id)
 
     fields_set = income_in.model_dump(exclude_unset=True)
+    if "account_id" in fields_set:
+        _valida_conta(session, current_user.id, fields_set["account_id"], income.currency)
     # A moeda/valor ORIGINAIS antes de o PUT sobrescrever os campos: uma renda
     # estrangeira já gravada tem `currency == destino` (a conversão acontece na
     # entrada) e guarda a proveniência em `original_*`. Sem ler isso ANTES, um
@@ -227,6 +268,87 @@ def update_income(
     return income
 
 
+@router.post("/income/{income_id}/receive", response_model=IncomeRead)
+def receive_income(
+    income_id: int,
+    body: IncomeReceiveRequest,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+):
+    """"Recebi": a renda prevista vira caixa, na data e na conta informadas.
+
+    Idempotente por natureza — confirmar duas vezes reescreve a mesma data. O que
+    ela NÃO faz é mexer em `received_at`: a competência da renda é de setembro
+    mesmo que o salário caia em 2 de outubro, e mover a data de competência para
+    "fazer bater" jogaria o resultado de setembro para outubro.
+    """
+    income = _get_income_or_404(session, income_id, current_user.id)
+    if income.cancelled_at is not None:
+        raise HTTPException(
+            status_code=409,
+            detail="Renda cancelada não pode ser recebida — reative-a antes",
+        )
+    conta = body.account_id if body.account_id is not None else income.account_id
+    _valida_conta(session, current_user.id, conta, income.currency)
+
+    # Data CIVIL — "recebi no dia 2" — então vira instante por `civil_instant`, e
+    # não por `datetime.combine`: meia-noite local ancorada em UTC jogaria o
+    # recebimento do dia 1º para o caixa do mês anterior.
+    income.settled_at = civil_instant(body.received_on or today_local())
+    income.account_id = conta
+    income.updated_at = datetime.now(UTC)
+    session.add(income)
+    session.commit()
+    session.refresh(income)
+    return income
+
+
+@router.post("/income/{income_id}/unreceive", response_model=IncomeRead)
+def unreceive_income(
+    income_id: int,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+):
+    """Desfaz a confirmação: a renda volta a ser prevista.
+
+    Existe pelo mesmo motivo que "reabrir despesa": confirmar a linha errada é um
+    erro comum, e sem a volta a única saída seria excluir e recadastrar — o que
+    perde a ligação com a recorrência e libera a vaga do tombstone.
+    """
+    income = _get_income_or_404(session, income_id, current_user.id)
+    income.settled_at = None
+    income.updated_at = datetime.now(UTC)
+    session.add(income)
+    session.commit()
+    session.refresh(income)
+    return income
+
+
+@router.post("/income/{income_id}/cancel", response_model=IncomeRead)
+def cancel_income(
+    income_id: int,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+):
+    """A renda prevista que não veio — e não virá.
+
+    Diferente de excluir: a linha continua visível como "cancelada" e continua
+    ocupando a vaga da unique de ocorrência, então a materialização não recria o
+    salário do mês em que a pessoa disse que ele não vem. Excluir também seguraria
+    a vaga, mas some da tela — e uma renda que desaparece sem explicação é
+    exatamente a experiência que esta onda existe para eliminar.
+    """
+    income = _get_income_or_404(session, income_id, current_user.id)
+    income.cancelled_at = datetime.now(UTC)
+    # Cancelada não é caixa: se estava confirmada, a entrada sai do saldo junto.
+    income.settled_at = None
+    income.updated_at = datetime.now(UTC)
+    session.add(income)
+    session.commit()
+    session.refresh(income)
+    return income
+
+
 @router.delete("/income/{income_id}", response_model=StatusRead)
 def delete_income(
     income_id: int,
@@ -262,6 +384,11 @@ class RecurringIncomeCreate(BaseModel):
     day_of_week: Optional[int] = Field(default=None, ge=0, le=6)
     month_of_year: Optional[int] = Field(default=None, ge=1, le=12)
     is_active: bool = True
+    # Ligado por padrão (ADR 0034): renda recorrente é tipicamente salário, e o
+    # comportamento de sempre foi "chegou a data, entrou". Desligue para renda
+    # incerta — freela, aluguel recebido —, que aí a ocorrência fica em "A receber".
+    auto_confirm: bool = True
+    account_id: Optional[int] = None
 
 
 class RecurringIncomeUpdate(BaseModel):
@@ -278,6 +405,8 @@ class RecurringIncomeUpdate(BaseModel):
     day_of_week: Optional[int] = Field(default=None, ge=0, le=6)
     month_of_year: Optional[int] = Field(default=None, ge=1, le=12)
     is_active: Optional[bool] = None
+    auto_confirm: Optional[bool] = None
+    account_id: Optional[int] = None
 
 
 def _get_template_or_404(session: Session, recurring_id: int, user_id: int) -> RecurringIncome:
@@ -312,6 +441,7 @@ def create_recurring_income(
     )
     data = recurring_in.model_dump()
     data["currency"] = resolve_personal_currency(session, current_user.id, recurring_in.currency)
+    _valida_conta(session, current_user.id, data.get("account_id"), data["currency"])
     db_rec = RecurringIncome(**data, user_id=current_user.id)
     session.add(db_rec)
     session.flush()
@@ -368,6 +498,7 @@ def update_recurring_income(
         db_rec.frequency, db_rec.day_of_week, db_rec.month_of_year,
         db_rec.interval, db_rec.start_date, db_rec.end_date,
     )
+    _valida_conta(session, current_user.id, db_rec.account_id, db_rec.currency)
     db_rec.updated_at = datetime.now(UTC)
     session.add(db_rec)
     session.flush()

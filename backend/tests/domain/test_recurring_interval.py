@@ -118,10 +118,10 @@ def test_generate_income_respects_interval(db_session: Session):
     db_session.commit()
 
     # fevereiro está fora do ciclo (a cada 2 meses a partir de janeiro)
-    assert RecurringIncomeService.generate_due_income(db_session, u.id, date(2026, 2, 15)) == 0
+    assert RecurringIncomeService.generate_due_income(db_session, u.id, date(2026, 2, 15), horizonte_meses=0) == 0
     db_session.commit()
     # março está no ciclo
-    assert RecurringIncomeService.generate_due_income(db_session, u.id, date(2026, 3, 15)) == 1
+    assert RecurringIncomeService.generate_due_income(db_session, u.id, date(2026, 3, 15), horizonte_meses=0) == 1
     db_session.commit()
 
     incomes = db_session.exec(select(Income).where(Income.user_id == u.id)).all()

@@ -24,6 +24,7 @@ from app.models.workspace import (
     InviteStatus,
     role_level,
 )
+from app.domain.income_settlement import resolve_income_settled_at
 from app.domain.query_policy import resolve_personal_currency
 from app.schemas.admin import RegistrationPolicyRead
 from app.schemas.user import UserResponse
@@ -407,12 +408,19 @@ async def finish_onboarding(
 
     # 1. Create Income (Salary) — pular a etapa não cria renda de valor zero
     if data.salary and data.salary > 0:
+        # `received_at` explícito porque `settled_at` deriva dele (ADR 0034): o
+        # salário do onboarding é de HOJE e nasce recebido, que é o que a pessoa
+        # acabou de declarar ter. Deixar a coluna no default e o caixa em `None`
+        # faria o primeiro acesso mostrar renda cadastrada e caixa zerado.
+        agora = datetime.now(UTC)
         db.add(Income(
             title="Salário Mensal",
             amount=data.salary,
             currency=moeda,
             category="Salary",
             user_id=current_user.id,
+            received_at=agora,
+            settled_at=resolve_income_settled_at(received_at=agora),
         ))
 
     # 2. Create Credit Card (Optional)

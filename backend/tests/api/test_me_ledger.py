@@ -43,7 +43,10 @@ def cena_fixture(db_session: Session, override_get_session):
     # Renda (entrada)
     db_session.add(Income(
         title="Salário", amount=Decimal("5000.00"), currency="BRL",
-        received_at=DIA_10, user_id=user.id,
+        # `settled_at` é o que torna a renda um movimento de CAIXA (ADR 0034);
+        # `received_at` sozinho é competência, e renda prevista não entra no
+        # extrato porque nada se moveu ainda.
+        received_at=DIA_10, settled_at=DIA_10, user_id=user.id,
     ))
     # Pagamento de fatura (saída)
     card = CreditCard(
@@ -156,7 +159,7 @@ def test_extrato_de_outra_pessoa_nao_vaza(cena, db_session):
     """O recorte é `user_id`, nunca workspace: a renda do vizinho não aparece."""
     db_session.add(Income(
         title="Salário do vizinho", amount=Decimal("9000.00"), currency="BRL",
-        received_at=DIA_10, user_id=cena["outro_id"],
+        received_at=DIA_10, settled_at=DIA_10, user_id=cena["outro_id"],
     ))
     db_session.commit()
 
@@ -178,6 +181,7 @@ def test_data_efetiva_respeita_o_mes_local(db_session, cena):
     db_session.add(Income(
         title="Renda da virada", amount=Decimal("10.00"), currency="BRL",
         received_at=datetime(2026, 8, 1, 1, 0, tzinfo=UTC).replace(tzinfo=None),
+        settled_at=datetime(2026, 8, 1, 1, 0, tzinfo=UTC).replace(tzinfo=None),
         user_id=cena["user_id"],
     ))
     db_session.commit()

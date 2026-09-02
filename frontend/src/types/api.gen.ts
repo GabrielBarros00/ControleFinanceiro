@@ -710,10 +710,15 @@ export interface paths {
          * Settle Payables
          * @description Marca as contas como pagas (ou desfaz), gravando `settled_at`.
          *
-         *     É a única porta que move dinheiro para o caixa sem editar o lançamento — e
-         *     por isso ela **não** mexe em `status`: competência e caixa são eixos
-         *     separados (ADR 0022/0029), e marcar um boleto como pago não pode congelar a
-         *     despesa como o status `paid` congela.
+         *     É a única porta que move dinheiro para o caixa sem editar o lançamento. Ela
+         *     **não** promove a despesa a `paid`: esse estado congela o lançamento inteiro
+         *     ("reabra antes de alterar"), e confirmar o pagamento de um boleto não pode
+         *     impedir a correção do valor. Competência e caixa seguem ortogonais (ADR
+         *     0022/0029).
+         *
+         *     O que ela mexe em `status` é `pending → confirmed` (ADR 0034), e só isso: a
+         *     ocorrência ainda não vencida é obrigação mas não é realizada, e sem a promoção
+         *     ela sairia de Contas a pagar sem entrar no caixa.
          *
          *     Linha que não pode ser liquidada (cancelada, no cartão, de outra pessoa) é
          *     PULADA e contada, nunca recusada: quem confirma cinco contas não pode ver a
@@ -1126,6 +1131,81 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/me/income/{income_id}/receive": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Receive Income
+         * @description "Recebi": a renda prevista vira caixa, na data e na conta informadas.
+         *
+         *     Idempotente por natureza — confirmar duas vezes reescreve a mesma data. O que
+         *     ela NÃO faz é mexer em `received_at`: a competência da renda é de setembro
+         *     mesmo que o salário caia em 2 de outubro, e mover a data de competência para
+         *     "fazer bater" jogaria o resultado de setembro para outubro.
+         */
+        post: operations["receive_income_api_v1_me_income__income_id__receive_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/me/income/{income_id}/unreceive": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Unreceive Income
+         * @description Desfaz a confirmação: a renda volta a ser prevista.
+         *
+         *     Existe pelo mesmo motivo que "reabrir despesa": confirmar a linha errada é um
+         *     erro comum, e sem a volta a única saída seria excluir e recadastrar — o que
+         *     perde a ligação com a recorrência e libera a vaga do tombstone.
+         */
+        post: operations["unreceive_income_api_v1_me_income__income_id__unreceive_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/me/income/{income_id}/cancel": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Cancel Income
+         * @description A renda prevista que não veio — e não virá.
+         *
+         *     Diferente de excluir: a linha continua visível como "cancelada" e continua
+         *     ocupando a vaga da unique de ocorrência, então a materialização não recria o
+         *     salário do mês em que a pessoa disse que ele não vem. Excluir também seguraria
+         *     a vaga, mas some da tela — e uma renda que desaparece sem explicação é
+         *     exatamente a experiência que esta onda existe para eliminar.
+         */
+        post: operations["cancel_income_api_v1_me_income__income_id__cancel_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/me/recurring-income": {
         parameters: {
             query?: never;
@@ -1384,8 +1464,165 @@ export interface paths {
          * Delete Payment Account
          * @description Soft delete: pagamentos antigos continuam apontando para a conta
          *     (histórico explicável); para sumir do formulário basta desativar.
+         *
+         *     **Conta com saldo diferente de zero é recusada (ADR 0034).** Antes do saldo,
+         *     excluir era só tirar da lista de origens; agora seria fazer um dinheiro que
+         *     existe desaparecer da tela sem nenhum movimento que explicasse — e o total do
+         *     topo mudaria sozinho. Mesmo desenho do 409 que impede excluir financiamento em
+         *     aberto. Para zerar de forma explicável há o ajuste e a transferência.
          */
         delete: operations["delete_payment_account_api_v1_me_payment_accounts__account_id__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/me/payment-accounts/{account_id}/opening-balance": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Set Opening Balance
+         * @description "Em tal dia eu tinha tanto" — o ponto de partida contábil da conta.
+         *
+         *     Não é renda, não é despesa, não entra em resultado de mês nenhum. A DATA é o
+         *     que mais importa: o que aconteceu antes dela já está dentro do número
+         *     informado, e por isso os movimentos anteriores deixam de contar (contá-los
+         *     dobraria cada um).
+         */
+        put: operations["set_opening_balance_api_v1_me_payment_accounts__account_id__opening_balance_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/me/payment-accounts/{account_id}/adjustment": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Adjust Balance
+         * @description Conciliação: o app diz 4.821,53 e o banco diz 4.900,00.
+         *
+         *     O corpo traz o saldo REAL — é o número que a pessoa tem à mão —, e o servidor
+         *     calcula a diferença. Pedir o delta faria as duas pontas divergirem na primeira
+         *     conta feita de cabeça.
+         *
+         *     O ajuste vira uma LINHA DATADA no extrato, com motivo. Ele não reescreve valor
+         *     nenhum do passado: "se o usuário ajustar saldo hoje, não reescreva valores
+         *     antigos para fazer o saldo fechar" (§29 do pedido). E não é renda nem despesa —
+         *     não aparece em `cash_in`/`cash_out`, não muda consumo e não muda o resultado do
+         *     mês.
+         */
+        post: operations["adjust_balance_api_v1_me_payment_accounts__account_id__adjustment_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/me/payment-accounts/{account_id}/statement": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Account Statement
+         * @description O extrato da conta com SALDO CORRENTE linha a linha.
+         *
+         *     É a resposta da última pergunta do pedido — *"por que o saldo atual é
+         *     exatamente esse valor?"* —, e ela nunca é "porque alguém digitou": cada linha
+         *     aponta para a sua origem (lançamento, fatura, acerto, parcela, ajuste,
+         *     transferência), e o saldo do topo é a soma delas a partir da abertura.
+         */
+        get: operations["account_statement_api_v1_me_payment_accounts__account_id__statement_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/me/balance": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Balance
+         * @description Saldo atual por conta + a projeção até o fim do mês pedido.
+         */
+        get: operations["get_balance_api_v1_me_balance_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/me/transfers": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Transfers */
+        get: operations["list_transfers_api_v1_me_transfers_get"];
+        put?: never;
+        /**
+         * Create Transfer
+         * @description Move dinheiro de uma conta para outra. Não é renda, não é despesa.
+         *
+         *     **Uma linha com as duas pernas.** Duas linhas ligadas por um id comum
+         *     dependeriam de a aplicação lembrar de gravar as duas; assim, meia transferência
+         *     não é representável — a atomicidade é do esquema, não do cuidado de quem
+         *     programa. O `CHECK` de contas distintas fecha o outro caso degenerado.
+         *
+         *     **Moedas diferentes exigem os dois valores.** Nada é convertido em silêncio
+         *     (ADR 0006/0015): quem transfere informa quanto saiu e quanto entrou, e a taxa
+         *     é derivada e conferida contra os dois. Três números que podem discordar dariam
+         *     um saldo que depende de qual deles se lê.
+         */
+        post: operations["create_transfer_api_v1_me_transfers_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/me/transfers/{transfer_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Delete Transfer
+         * @description Soft delete: as duas pernas somem juntas, porque são a mesma linha.
+         */
+        delete: operations["delete_transfer_api_v1_me_transfers__transfer_id__delete"];
         options?: never;
         head?: never;
         patch?: never;
@@ -1683,6 +1920,37 @@ export interface paths {
          */
         get: operations["list_personal_settlements_api_v1_me_settlements_get"];
         put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/me/settlements/{settlement_id}/account": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Set Settlement Account
+         * @description A única ESCRITA deste módulo, e ela existe por uma razão de privacidade.
+         *
+         *     Quem registra um acerto é o pagador (`/workspaces/{ws}/settlements`), e a
+         *     conta do credor é invisível para ele — `personal_scope` não a alcança, e
+         *     declará-la violaria a regra que o projeto já escreveu em
+         *     `_validate_payer_accounts`: *"você não pode declarar de qual conta de outra
+         *     pessoa saiu o dinheiro"*.
+         *
+         *     Sem esta porta, o acerto recebido seria para sempre um movimento sem conta no
+         *     saldo de quem recebeu — visível no contador de anomalia da tela de Contas e
+         *     sem nenhuma forma de corrigir. O gate é `to_user_id == eu`: só o credor
+         *     declara o lado dele.
+         */
+        put: operations["set_settlement_account_api_v1_me_settlements__settlement_id__account_put"];
         post?: never;
         delete?: never;
         options?: never;
@@ -2318,6 +2586,54 @@ export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
         /**
+         * AccountBalanceRead
+         * @description O saldo de uma conta, com o rastro de como ele foi calculado.
+         */
+        AccountBalanceRead: {
+            /** Account Id */
+            account_id: number;
+            /** Name */
+            name: string;
+            type: components["schemas"]["PaymentAccountType"];
+            /** Currency */
+            currency: string;
+            /** Active */
+            active: boolean;
+            /** Is Default */
+            is_default: boolean;
+            /** Opening Amount */
+            opening_amount?: string | null;
+            /** Opening On */
+            opening_on?: string | null;
+            /** Balance */
+            balance?: string | null;
+            /**
+             * Movements Counted
+             * @default 0
+             */
+            movements_counted: number;
+        };
+        /** AccountStatementRead */
+        AccountStatementRead: {
+            /** Account Id */
+            account_id: number;
+            /** Account Name */
+            account_name: string;
+            /** Currency */
+            currency: string;
+            /** Opening Amount */
+            opening_amount?: string | null;
+            /** Opening On */
+            opening_on?: string | null;
+            /** Balance */
+            balance?: string | null;
+            /**
+             * Entries
+             * @default []
+             */
+            entries: components["schemas"]["StatementLine"][];
+        };
+        /**
          * ActionType
          * @enum {string}
          */
@@ -2348,6 +2664,41 @@ export interface components {
             transaction_date: string;
             /** Status */
             status: string;
+        };
+        /** AdjustmentRead */
+        AdjustmentRead: {
+            /** Id */
+            id: number;
+            /** Account Id */
+            account_id: number;
+            /** Amount */
+            amount: string;
+            /**
+             * Occurred On
+             * Format: date
+             */
+            occurred_on: string;
+            /** Description */
+            description?: string | null;
+            /** Previous Balance */
+            previous_balance: string;
+            /** New Balance */
+            new_balance: string;
+        };
+        /**
+         * AdjustmentRequest
+         * @description Conciliação: "o banco mostra outro número".
+         *
+         *     O corpo traz o saldo REAL, não a diferença — é o que a pessoa tem à mão. O
+         *     servidor calcula o delta e grava o movimento, para os dois nunca discordarem.
+         */
+        AdjustmentRequest: {
+            /** Real Balance */
+            real_balance: number | string;
+            /** Occurred On */
+            occurred_on?: string | null;
+            /** Note */
+            note?: string | null;
         };
         /**
          * AdjustmentType
@@ -2502,6 +2853,8 @@ export interface components {
             financing_id: number;
             /** Paid At */
             paid_at?: string | null;
+            /** Account Id */
+            account_id?: number | null;
         };
         /**
          * AmortizationMethod
@@ -2569,6 +2922,60 @@ export interface components {
             created_at: string;
         };
         /**
+         * BalanceRead
+         * @description Saldo atual + projeção até o fim do mês (ADR 0034).
+         */
+        BalanceRead: {
+            /** Currency */
+            currency: string;
+            /** Total */
+            total?: string | null;
+            /**
+             * Accounts
+             * @default []
+             */
+            accounts: components["schemas"]["AccountBalanceRead"][];
+            /** Month */
+            month: string;
+            /**
+             * Receivable Total
+             * @default 0
+             */
+            receivable_total: string;
+            /**
+             * Payable Total
+             * @default 0
+             */
+            payable_total: string;
+            /** Projected Balance */
+            projected_balance?: string | null;
+            /**
+             * Breakdown
+             * @default []
+             */
+            breakdown: components["schemas"]["ProjectionLine"][];
+            /**
+             * Unassigned Movements
+             * @default 0
+             */
+            unassigned_movements: number;
+            /**
+             * Movements Before Opening
+             * @default 0
+             */
+            movements_before_opening: number;
+            /**
+             * Accounts Without Opening
+             * @default 0
+             */
+            accounts_without_opening: number;
+            /**
+             * Excluded Foreign Count
+             * @default 0
+             */
+            excluded_foreign_count: number;
+        };
+        /**
          * BaseCurrencyPreviewRead
          * @description Dry-run da troca de moeda-base: o tamanho da reescrita, antes de confirmar.
          *
@@ -2601,6 +3008,11 @@ export interface components {
             recurring: number;
             /** Missing Rates */
             missing_rates: string[];
+            /**
+             * Accounts Blocking
+             * @default 0
+             */
+            accounts_blocking: number;
         };
         /** Body_parse_csv_api_v1_workspaces__workspace_id__imports_parse_post */
         Body_parse_csv_api_v1_workspaces__workspace_id__imports_parse_post: {
@@ -3327,6 +3739,10 @@ export interface components {
             received_at: string;
             /** Category */
             category?: string | null;
+            /** Account Id */
+            account_id?: number | null;
+            /** Received */
+            received?: boolean | null;
         };
         /** IncomeRead */
         IncomeRead: {
@@ -3364,6 +3780,17 @@ export interface components {
             exchange_rate?: string | null;
             /** Rate Source */
             rate_source?: string | null;
+            /** Settled At */
+            settled_at?: string | null;
+            /** Cancelled At */
+            cancelled_at?: string | null;
+            /** Account Id */
+            account_id?: number | null;
+            /**
+             * Status
+             * @default received
+             */
+            status: string;
             /**
              * Created At
              * Format: date-time
@@ -3374,6 +3801,16 @@ export interface components {
              * Format: date-time
              */
             updated_at: string;
+        };
+        /**
+         * IncomeReceiveRequest
+         * @description Confirmação de recebimento: quando caiu e em qual conta (ADR 0034).
+         */
+        IncomeReceiveRequest: {
+            /** Received On */
+            received_on?: string | null;
+            /** Account Id */
+            account_id?: number | null;
         };
         /** IncomeUpdate */
         IncomeUpdate: {
@@ -3389,6 +3826,8 @@ export interface components {
             received_at?: string | null;
             /** Category */
             category?: string | null;
+            /** Account Id */
+            account_id?: number | null;
         };
         /**
          * InstallmentGroupCancelResult
@@ -3462,6 +3901,8 @@ export interface components {
             workspace_id?: number | null;
             /** Paid At */
             paid_at?: string | null;
+            /** Account Id */
+            account_id?: number | null;
         };
         /**
          * InviteAcceptedRead
@@ -3966,6 +4407,21 @@ export interface components {
             credit_card_closing_day?: number | null;
         };
         /**
+         * OpeningBalanceRequest
+         * @description "Em tal dia eu tinha tanto" — o ponto de partida contábil da conta.
+         *
+         *     Não é renda, não é despesa e não entra em resultado de mês nenhum.
+         */
+        OpeningBalanceRequest: {
+            /** Amount */
+            amount: number | string;
+            /**
+             * As Of
+             * Format: date
+             */
+            as_of: string;
+        };
+        /**
          * OverviewRead
          * @description O mês da pessoa somando todos os workspaces (ADR 0020 + 0022).
          */
@@ -4083,6 +4539,16 @@ export interface components {
             payment_method?: string | null;
             /** Is Overdue */
             is_overdue: boolean;
+            /**
+             * Due State
+             * @default upcoming
+             */
+            due_state: string;
+            /**
+             * Days Until Due
+             * @default 0
+             */
+            days_until_due: number;
             /** Recurring Expense Id */
             recurring_expense_id?: number | null;
             /** Installment No */
@@ -4115,6 +4581,11 @@ export interface components {
             due_this_month_total: string;
             /** Entries */
             entries: components["schemas"]["PayableEntry"][];
+            /**
+             * Upcoming
+             * @default []
+             */
+            upcoming: components["schemas"]["PayableEntry"][];
             /** Excluded Foreign Count */
             excluded_foreign_count: number;
         };
@@ -4140,6 +4611,11 @@ export interface components {
             active: boolean;
             /** Owner User Id */
             owner_user_id: number;
+            /**
+             * Is Default
+             * @default false
+             */
+            is_default: boolean;
         };
         /**
          * PaymentAccountType
@@ -4153,6 +4629,8 @@ export interface components {
             type?: components["schemas"]["PaymentAccountType"] | null;
             /** Active */
             active?: boolean | null;
+            /** Is Default */
+            is_default?: boolean | null;
         };
         /**
          * PaymentMethod
@@ -4310,6 +4788,24 @@ export interface components {
             /** Name */
             name?: string | null;
         };
+        /**
+         * ProjectionLine
+         * @description Uma parcela da projeção, nomeada — "a pagar: 4.380" sem detalhe não é
+         *     auditável pela pessoa, que não teria como saber se a fatura entrou ou não.
+         */
+        ProjectionLine: {
+            /** Kind */
+            kind: string;
+            /** Label */
+            label: string;
+            /** Amount */
+            amount: string;
+            /**
+             * Count
+             * @default 0
+             */
+            count: number;
+        };
         /** PushConfigRead */
         PushConfigRead: {
             /** Enabled */
@@ -4442,6 +4938,13 @@ export interface components {
             /** User Id */
             user_id: number;
             /**
+             * Auto Confirm
+             * @default true
+             */
+            auto_confirm: boolean;
+            /** Account Id */
+            account_id?: number | null;
+            /**
              * Created At
              * Format: date-time
              */
@@ -4489,6 +4992,13 @@ export interface components {
              * @default true
              */
             is_active: boolean;
+            /**
+             * Auto Confirm
+             * @default true
+             */
+            auto_confirm: boolean;
+            /** Account Id */
+            account_id?: number | null;
         };
         /** RecurringIncomeUpdate */
         RecurringIncomeUpdate: {
@@ -4517,6 +5027,10 @@ export interface components {
             month_of_year?: number | null;
             /** Is Active */
             is_active?: boolean | null;
+            /** Auto Confirm */
+            auto_confirm?: boolean | null;
+            /** Account Id */
+            account_id?: number | null;
         };
         /**
          * RecurringPlanItem
@@ -4881,6 +5395,8 @@ export interface components {
             settled: boolean;
             /** Settled On */
             settled_on?: string | null;
+            /** Account Id */
+            account_id?: number | null;
         };
         /**
          * SettleResult
@@ -4898,6 +5414,14 @@ export interface components {
             /** Skipped */
             skipped: number;
         };
+        /**
+         * SettlementAccountRequest
+         * @description Em qual conta o acerto RECEBIDO caiu (ADR 0034).
+         */
+        SettlementAccountRequest: {
+            /** Account Id */
+            account_id?: number | null;
+        };
         /** SettlementCreate */
         SettlementCreate: {
             /** From User Id */
@@ -4912,6 +5436,8 @@ export interface components {
             billing_month?: string | null;
             /** Settled At */
             settled_at?: string | null;
+            /** From Account Id */
+            from_account_id?: number | null;
         };
         /** SettlementRead */
         SettlementRead: {
@@ -5013,6 +5539,26 @@ export interface components {
              * @default []
              */
             transactions: components["schemas"]["StatementTransactionRead"][];
+        };
+        /** StatementLine */
+        StatementLine: {
+            /**
+             * Occurred On
+             * Format: date
+             */
+            occurred_on: string;
+            /** Source */
+            source: string;
+            /** Title */
+            title?: string | null;
+            /** Amount */
+            amount: string;
+            /** Running Balance */
+            running_balance?: string | null;
+            /** Reference Id */
+            reference_id?: number | null;
+            /** Workspace Id */
+            workspace_id?: number | null;
         };
         /** StatementListItemRead */
         StatementListItemRead: {
@@ -5761,6 +6307,53 @@ export interface components {
             items?: components["schemas"]["TransactionItemCreate"][] | null;
             /** Adjustments */
             adjustments?: components["schemas"]["TransactionAdjustmentCreate"][] | null;
+        };
+        /** TransferCreate */
+        TransferCreate: {
+            /** From Account Id */
+            from_account_id: number;
+            /** To Account Id */
+            to_account_id: number;
+            /** From Amount */
+            from_amount: number | string;
+            /** To Amount */
+            to_amount?: number | string | null;
+            /** Occurred On */
+            occurred_on?: string | null;
+            /** Note */
+            note?: string | null;
+        };
+        /** TransferRead */
+        TransferRead: {
+            /** Id */
+            id: number;
+            /** From Account Id */
+            from_account_id: number;
+            /** To Account Id */
+            to_account_id: number;
+            /**
+             * From Account Name
+             * @default
+             */
+            from_account_name: string;
+            /**
+             * To Account Name
+             * @default
+             */
+            to_account_name: string;
+            /** From Amount */
+            from_amount: string;
+            /** To Amount */
+            to_amount: string;
+            /** Exchange Rate */
+            exchange_rate?: string | null;
+            /**
+             * Occurred At
+             * Format: date-time
+             */
+            occurred_at: string;
+            /** Note */
+            note?: string | null;
         };
         /** UserPatch */
         UserPatch: {
@@ -8830,6 +9423,109 @@ export interface operations {
             };
         };
     };
+    receive_income_api_v1_me_income__income_id__receive_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                income_id: number;
+            };
+            cookie?: {
+                access_token?: string | null;
+            };
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["IncomeReceiveRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IncomeRead"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    unreceive_income_api_v1_me_income__income_id__unreceive_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                income_id: number;
+            };
+            cookie?: {
+                access_token?: string | null;
+            };
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IncomeRead"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    cancel_income_api_v1_me_income__income_id__cancel_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                income_id: number;
+            };
+            cookie?: {
+                access_token?: string | null;
+            };
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IncomeRead"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     list_recurring_income_api_v1_me_recurring_income_get: {
         parameters: {
             query?: never;
@@ -9485,6 +10181,249 @@ export interface operations {
             };
         };
     };
+    set_opening_balance_api_v1_me_payment_accounts__account_id__opening_balance_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                account_id: number;
+            };
+            cookie?: {
+                access_token?: string | null;
+            };
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["OpeningBalanceRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PaymentAccountRead"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    adjust_balance_api_v1_me_payment_accounts__account_id__adjustment_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                account_id: number;
+            };
+            cookie?: {
+                access_token?: string | null;
+            };
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AdjustmentRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdjustmentRead"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    account_statement_api_v1_me_payment_accounts__account_id__statement_get: {
+        parameters: {
+            query?: {
+                month?: string | null;
+            };
+            header?: never;
+            path: {
+                account_id: number;
+            };
+            cookie?: {
+                access_token?: string | null;
+            };
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AccountStatementRead"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_balance_api_v1_me_balance_get: {
+        parameters: {
+            query?: {
+                month?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: {
+                access_token?: string | null;
+            };
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BalanceRead"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_transfers_api_v1_me_transfers_get: {
+        parameters: {
+            query?: {
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: {
+                access_token?: string | null;
+            };
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TransferRead"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    create_transfer_api_v1_me_transfers_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: {
+                access_token?: string | null;
+            };
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TransferCreate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TransferRead"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_transfer_api_v1_me_transfers__transfer_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                transfer_id: number;
+            };
+            cookie?: {
+                access_token?: string | null;
+            };
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StatusRead"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     list_financing_api_v1_me_financing_get: {
         parameters: {
             query?: never;
@@ -10081,6 +11020,43 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["PersonalSettlementsRead"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    set_settlement_account_api_v1_me_settlements__settlement_id__account_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                settlement_id: number;
+            };
+            cookie?: {
+                access_token?: string | null;
+            };
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SettlementAccountRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StatusRead"];
                 };
             };
             /** @description Validation Error */

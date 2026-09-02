@@ -16,6 +16,15 @@ export default defineConfig({
   fullyParallel: false,
   workers: 1,
   reporter: 'line',
+  // O roteiro inteiro é UM teste que fotografa ~120 telas em dois temas mais o
+  // celular, com uma pausa por tela para as animações terminarem. O padrão de 30s
+  // do Playwright nunca serviu, e os 5 minutos anteriores já estavam no limite:
+  // o catálogo morria por timeout no meio da captura mobile e deixava metade das
+  // telas do dia anterior no diretório, sem nada avisando que eram antigas.
+  //
+  // Aumentar é o certo aqui: isto não é gate de correção, é geração de artefato.
+  // O que ele precisa é TERMINAR — uma captura pela metade é pior que nenhuma.
+  timeout: 900_000,
   use: {
     baseURL: 'http://localhost:5173',
     viewport: { width: 1440, height: 900 },

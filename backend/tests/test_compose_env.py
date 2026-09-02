@@ -274,3 +274,44 @@ def test_cron_carrega_o_mesmo_settings_e_precisa_das_mesmas_obrigatorias():
         assert obrigatoria in ambiente, (
             f"o serviço `cron` valida {obrigatoria} no import e reiniciaria em laço"
         )
+
+
+def test_todo_script_do_cron_existe():
+    """O laço do `cron` chama scripts por NOME — e um rename passa em silêncio.
+
+    O serviço não é um `cron` de verdade: é um `while true; sleep 3600` que roda
+    `python scripts/X.py || true`. O `|| true` existe para uma falha não derrubar
+    o laço, e é justamente ele que esconde o script que não existe mais: o
+    container segue de pé, o log não acusa nada, e a materialização (ou o aviso de
+    vencimento, ou o expurgo) simplesmente deixa de acontecer.
+
+    Nenhuma outra rede pega isto: a suíte não sobe container, o lint não lê YAML e
+    o smoke só olha o comportamento da API.
+    """
+    texto = COMPOSE.read_text(encoding="utf-8")
+    # Só o bloco do serviço `cron` — o backend também menciona scripts.
+    referenciados = set(re.findall(r"python\s+(scripts/[\w./-]+\.py)", texto))
+    assert referenciados, "nenhum script encontrado no compose — a regex quebrou?"
+
+    raiz = Path(__file__).resolve().parents[1]
+    faltando = sorted(s for s in referenciados if not (raiz / s).is_file())
+    assert not faltando, (
+        f"o compose chama script(s) que não existem: {faltando}. "
+        "Com o `|| true` do laço, isso falha em silêncio para sempre."
+    )
+
+
+def test_a_materializacao_roda_antes_do_aviso_de_vencimento():
+    """Ordem no laço do cron (ADR 0034): avisar exige que a conta exista.
+
+    `materializar_ocorrencias.py` é quem cria a ocorrência do mês; invertida a
+    ordem, a conta do dia 1º só seria avisada no dia 2 — e a de 1º de janeiro,
+    nunca, porque o aviso do dia 31 de dezembro não a encontraria.
+    """
+    texto = COMPOSE.read_text(encoding="utf-8")
+    materializa = texto.find("scripts/materializar_ocorrencias.py")
+    avisa = texto.find("scripts/avisar_vencimentos.py")
+    assert materializa != -1 and avisa != -1
+    assert materializa < avisa, (
+        "o cron avisa sobre vencimento ANTES de materializar as ocorrências"
+    )

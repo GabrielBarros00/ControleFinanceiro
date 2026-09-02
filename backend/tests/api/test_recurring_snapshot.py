@@ -34,7 +34,7 @@ def _instance(db, template_id):
 def test_instancia_nasce_completa(db_session, setup_data):
     ws, u1 = setup_data["ws1"], setup_data["u1"]
     t = _template(db_session, ws.id, u1.id)
-    created = RecurringService.generate_due_instances(db_session, ws.id, date(2026, 3, 10))
+    created = RecurringService.generate_due_instances(db_session, ws.id, date(2026, 3, 10), horizonte_meses=0)
     db_session.commit()
 
     assert created == 1
@@ -58,7 +58,7 @@ def test_split_snapshot_entra_nas_dividas(db_session, setup_data):
             {"user_id": u2.id, "split_method": "percentage", "input_value": "50"},
         ],
     )
-    RecurringService.generate_due_instances(db_session, ws.id, date(2026, 3, 10))
+    RecurringService.generate_due_instances(db_session, ws.id, date(2026, 3, 10), horizonte_meses=0)
     db_session.commit()
 
     debts = DebtService.get_workspace_debts(db_session, ws.id)
@@ -71,11 +71,11 @@ def test_split_snapshot_entra_nas_dividas(db_session, setup_data):
 def test_frequencia_diaria(db_session, setup_data):
     ws, u1 = setup_data["ws1"], setup_data["u1"]
     _template(db_session, ws.id, u1.id, frequency=RecurrenceFrequency.daily)
-    created = RecurringService.generate_due_instances(db_session, ws.id, date(2026, 3, 4))
+    created = RecurringService.generate_due_instances(db_session, ws.id, date(2026, 3, 4), horizonte_meses=0)
     db_session.commit()
     assert created == 31  # março inteiro
     # Re-rodar é idempotente (dedup por occurrence_date)
-    again = RecurringService.generate_due_instances(db_session, ws.id, date(2026, 3, 4))
+    again = RecurringService.generate_due_instances(db_session, ws.id, date(2026, 3, 4), horizonte_meses=0)
     db_session.commit()
     assert again == 0
 
@@ -88,7 +88,7 @@ def test_frequencia_diaria(db_session, setup_data):
 def test_escopo_all_reaplica_valor_e_divisao(db_session, setup_data):
     ws, u1 = setup_data["ws1"], setup_data["u1"]
     t = _template(db_session, ws.id, u1.id)
-    RecurringService.generate_due_instances(db_session, ws.id, date(2026, 3, 10))
+    RecurringService.generate_due_instances(db_session, ws.id, date(2026, 3, 10), horizonte_meses=0)
     db_session.commit()
 
     t.base_amount = Decimal("200.00")
@@ -107,7 +107,7 @@ def test_escopo_all_reaplica_valor_e_divisao(db_session, setup_data):
 def test_escopo_none_nao_altera(db_session, setup_data):
     ws, u1 = setup_data["ws1"], setup_data["u1"]
     t = _template(db_session, ws.id, u1.id)
-    RecurringService.generate_due_instances(db_session, ws.id, date(2026, 3, 10))
+    RecurringService.generate_due_instances(db_session, ws.id, date(2026, 3, 10), horizonte_meses=0)
     db_session.commit()
 
     t.base_amount = Decimal("999.00")
@@ -124,7 +124,7 @@ def test_escopo_none_nao_altera(db_session, setup_data):
 def test_tombstone_nao_ressuscita(db_session, setup_data):
     ws, u1 = setup_data["ws1"], setup_data["u1"]
     t = _template(db_session, ws.id, u1.id, frequency=RecurrenceFrequency.daily)
-    RecurringService.generate_due_instances(db_session, ws.id, date(2026, 3, 3))
+    RecurringService.generate_due_instances(db_session, ws.id, date(2026, 3, 3), horizonte_meses=0)
     db_session.commit()
 
     # Exclui uma ocorrência (tombstone): a linha permanece com deleted_at
@@ -134,6 +134,6 @@ def test_tombstone_nao_ressuscita(db_session, setup_data):
     db_session.add(tx)
     db_session.commit()
 
-    again = RecurringService.generate_due_instances(db_session, ws.id, date(2026, 3, 3))
+    again = RecurringService.generate_due_instances(db_session, ws.id, date(2026, 3, 3), horizonte_meses=0)
     db_session.commit()
     assert again == 0  # nenhuma ressuscita (dedup inclui excluídas)

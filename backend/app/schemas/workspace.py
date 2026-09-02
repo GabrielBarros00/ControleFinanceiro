@@ -156,6 +156,10 @@ class BaseCurrencyPreviewRead(BaseModel):
     recurring: int
     #: Datas sem cotação. Não vazia = a troca é abortada inteira (ADR 0006).
     missing_rates: List[str]
+    #: Pagamentos que declaram conta fora da moeda nova. Maior que zero = a troca
+    #: é recusada com 409 (ADR 0034): reescrever esses valores mudaria o saldo
+    #: bancário pessoal de quem os declarou, sem movimento que explicasse.
+    accounts_blocking: int = 0
 
 
 class InviteSentRead(BaseModel):

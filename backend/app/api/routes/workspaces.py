@@ -22,7 +22,11 @@ from app.schemas.workspace import (
 from app.api.routes.auth import get_current_user
 from app.api.deps import get_workspace_membership, require_role
 from app.domain.query_policy import InvalidCurrencyCode, normalize_currency_code
-from app.services.base_currency_service import BaseCurrencyService, MissingRates
+from app.services.base_currency_service import (
+    AccountsInOldCurrency,
+    BaseCurrencyService,
+    MissingRates,
+)
 from app.services.category_service import seed_default_categories
 from app.services.event_service import publish_event
 
@@ -240,6 +244,12 @@ def update_workspace(
             BaseCurrencyService.convert_workspace(
                 session, workspace_id, update_data["base_currency"]
             )
+        except AccountsInOldCurrency as exc:
+            # 409, e não 422: o pedido está bem formado e a cotação existe — o
+            # estado atual é que não permite. É a mesma leitura do 409 que impede
+            # deixar um espaço órfão de dono (ADR 0028).
+            session.rollback()
+            raise HTTPException(status_code=409, detail=str(exc))
         except MissingRates as exc:
             session.rollback()
             raise HTTPException(

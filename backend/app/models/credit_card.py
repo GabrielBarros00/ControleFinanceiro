@@ -2,6 +2,7 @@ from datetime import datetime, UTC
 from enum import Enum
 from typing import Optional, List
 from decimal import Decimal
+from sqlalchemy import Index, text
 from sqlmodel import SQLModel, Field, Relationship, UniqueConstraint
 
 class StatementStatus(str, Enum):
@@ -87,11 +88,23 @@ class StatementPayment(SQLModel, table=True):
     faria contagem dobrada — exatamente o defeito que a auditoria combate. Aqui
     ele apenas registra origem/valor/data e libera o limite comprometido.
     """
+    __table_args__ = (
+        # Saldo por conta (ADR 0034). Parcial pelo mesmo motivo do índice irmão em
+        # `TransactionPayer`: quase toda linha tem `account_id` nulo.
+        Index(
+            "ix_statementpayment_conta",
+            "account_id",
+            "paid_at",
+            sqlite_where=text("account_id IS NOT NULL AND deleted_at IS NULL"),
+            postgresql_where=text("account_id IS NOT NULL AND deleted_at IS NULL"),
+        ),
+    )
+
     id: Optional[int] = Field(default=None, primary_key=True)
     # Sem `workspace_id`: pagar a própria fatura é ato pessoal, e a conta de
     # origem também é do dono (ADR 0021).
     statement_id: int = Field(foreign_key="cardstatement.id", index=True)
-    account_id: Optional[int] = Field(default=None, foreign_key="paymentaccount.id", index=True)
+    account_id: Optional[int] = Field(default=None, foreign_key="paymentaccount.id")
     amount: Decimal = Field(decimal_places=2, max_digits=20)
     paid_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
     note: Optional[str] = None

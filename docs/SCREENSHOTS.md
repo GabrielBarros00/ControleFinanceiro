@@ -4,7 +4,7 @@ Catálogo completo da interface, **em tema claro e escuro**. Gerado por
 `npm run shots` (ver [como regerar](#como-regerar)), com dados semeados via API —
 nada aqui é montagem ou protótipo: são as telas do aplicativo rodando.
 
-São **125 capturas**: toda rota do `App.tsx` em desktop (1440×900) e celular
+São **129 capturas**: toda rota do `App.tsx` em desktop (1440×900) e celular
 (390×844), nos dois temas, mais os modais e os estados que só existem dentro
 deles. O catálogo é conferido contra as rotas: uma tela sem captura aqui é um
 buraco, não uma escolha.
@@ -19,6 +19,7 @@ o site ([ADR 0026](adr/0026-papel-de-plataforma-e-cadastro-por-convite.md)).
 | Tela | Claro | Escuro |
 |---|:---:|:---:|
 | **Início** — o mês somando todos os workspaces | [![](images/inicio-global-light.png)](images/inicio-global-light.png) | [![](images/inicio-global-dark.png)](images/inicio-global-dark.png) |
+| **Contas** — onde está o seu dinheiro: saldo, extrato e transferências | [![](images/contas-light.png)](images/contas-light.png) | [![](images/contas-dark.png)](images/contas-dark.png) |
 | **Contas a pagar** — o que ainda não saiu do bolso | [![](images/contas-a-pagar-light.png)](images/contas-a-pagar-light.png) | [![](images/contas-a-pagar-dark.png)](images/contas-a-pagar-dark.png) |
 | **Rendas** — entradas do mês e recorrentes | [![](images/rendas-light.png)](images/rendas-light.png) | [![](images/rendas-dark.png)](images/rendas-dark.png) |
 | **Cartões** — limite, fatura e ciclo | [![](images/cartoes-light.png)](images/cartoes-light.png) | [![](images/cartoes-dark.png)](images/cartoes-dark.png) |
@@ -99,6 +100,7 @@ estar bom não descobre nada.
 | Tela | Claro | Escuro |
 |---|:---:|:---:|
 | **Início** | [![](images/mobile-inicio-global-light.png)](images/mobile-inicio-global-light.png) | [![](images/mobile-inicio-global-dark.png)](images/mobile-inicio-global-dark.png) |
+| **Contas** | [![](images/mobile-contas-light.png)](images/mobile-contas-light.png) | [![](images/mobile-contas-dark.png)](images/mobile-contas-dark.png) |
 | **Contas a pagar** | [![](images/mobile-contas-a-pagar-light.png)](images/mobile-contas-a-pagar-light.png) | [![](images/mobile-contas-a-pagar-dark.png)](images/mobile-contas-a-pagar-dark.png) |
 | **Rendas** | [![](images/mobile-rendas-light.png)](images/mobile-rendas-light.png) | [![](images/mobile-rendas-dark.png)](images/mobile-rendas-dark.png) |
 | **Cartões** | [![](images/mobile-cartoes-light.png)](images/mobile-cartoes-light.png) | [![](images/mobile-cartoes-dark.png)](images/mobile-cartoes-dark.png) |

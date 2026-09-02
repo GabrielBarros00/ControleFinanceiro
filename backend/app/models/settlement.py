@@ -21,6 +21,21 @@ class Settlement(SQLModel, table=True):
     # mensal ("Dívidas do mês"). None = acerto global (só afeta o balanço geral).
     billing_month: Optional[str] = Field(default=None, index=True)
     settled_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+
+    # De/para qual CONTA o acerto se moveu (ADR 0034). Duas colunas, e não uma,
+    # porque **cada lado só pode ser preenchido pelo seu dono**: quem registra o
+    # acerto é o pagador (`can_write(from_user_id, …)`), a conta do credor é
+    # invisível para ele (`personal_scope`), e declará-la violaria a regra que o
+    # projeto já escreveu em `_validate_payer_accounts` — "você não pode declarar de
+    # qual conta de outra pessoa saiu o dinheiro".
+    #
+    # Por isso `to_account_id` tem porta própria: `PUT /me/settlements/{id}/account`,
+    # onde o gate é `to_user_id == current_user.id`. Enquanto ninguém preenche, o
+    # movimento existe no caixa e aparece no contador de "sem conta" — que é a
+    # resposta honesta, e não um palpite sobre a conta alheia.
+    from_account_id: Optional[int] = Field(default=None, foreign_key="paymentaccount.id")
+    to_account_id: Optional[int] = Field(default=None, foreign_key="paymentaccount.id")
+
     created_by_user_id: Optional[int] = Field(default=None, foreign_key="user.id")
 
     created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))

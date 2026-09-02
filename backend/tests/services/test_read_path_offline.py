@@ -16,7 +16,7 @@ from decimal import Decimal
 import pytest
 from sqlmodel import Session, select
 
-from app.domain.dates import civil_instant
+from app.domain.dates import HORIZONTE_MESES, civil_instant
 from app.models.exchange_rate import ExchangeRate
 from app.models.income import Income
 from app.models.recurring import RecurringIncome
@@ -196,13 +196,17 @@ def test_ocorrencia_descartada_nao_deixa_fatura_vazia(db_session: Session, no_ne
     )
     db_session.commit()
 
-    assert result["expenses"] == 1, "só a válida materializa"
+    assert result["expenses"] == HORIZONTE_MESES + 1, (
+        "uma ocorrência por mês do horizonte (ADR 0034), e nenhuma da quebrada"
+    )
     titulos = [
         t.title for t in db_session.exec(
             select(Transaction).where(Transaction.workspace_id == ws.id)
         ).all()
     ]
-    assert titulos == ["Aluguel"]
+    # Uma por mês do horizonte, todas do template que funciona.
+    assert set(titulos) == {"Aluguel"}
+    assert len(titulos) == HORIZONTE_MESES + 1
     assert db_session.exec(
         select(CardStatement).where(CardStatement.card_id == card.id)
     ).all() == [], "a fatura da ocorrência descartada não pode sobreviver ao commit"
@@ -252,7 +256,7 @@ def test_ocorrencia_com_snapshot_invalido_tambem_leva_a_fatura(db_session: Sessi
     )
     db_session.commit()
 
-    assert result["expenses"] == 1
+    assert result["expenses"] == HORIZONTE_MESES + 1, "uma por mês do horizonte"
     assert db_session.exec(
         select(CardStatement).where(CardStatement.card_id == card.id)
     ).all() == []
@@ -324,7 +328,7 @@ def test_descarte_nao_apaga_fatura_de_lancamento_excluido(db_session: Session, n
 
     # O lote inteiro chega ao fim: a recorrência válida não paga pelo descarte
     # da outra.
-    assert result["expenses"] == 1
+    assert result["expenses"] == HORIZONTE_MESES + 1, "uma por mês do horizonte"
     assert db_session.exec(
         select(CardStatement).where(CardStatement.id == fatura.id)
     ).first() is not None, "a fatura da compra excluída não pode ser apagada"
@@ -378,7 +382,7 @@ def test_descarte_nao_apaga_fatura_do_ciclo_corrente(db_session: Session, no_net
     )
     db_session.commit()
 
-    assert result["expenses"] == 1
+    assert result["expenses"] == HORIZONTE_MESES + 1, "uma por mês do horizonte"
     assert db_session.exec(
         select(CardStatement).where(CardStatement.id == fatura_id)
     ).first() is not None, "a fatura do ciclo corrente é de quem abriu a tela do cartão"

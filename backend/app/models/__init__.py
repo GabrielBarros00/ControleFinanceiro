@@ -16,6 +16,7 @@ Ou seja: ao criar um model novo, adicione-o aqui — é o único lugar que preci
 saber da lista.
 """
 from app.models import (  # noqa: F401
+    account_ledger,
     app_setting,
     attachment,
     audit,

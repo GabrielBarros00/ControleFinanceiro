@@ -37,6 +37,7 @@ const InviteAcceptPage = React.lazy(() => import('./pages/InviteAcceptPage').the
 const WorkspaceHome = React.lazy(() => import('./pages/Home').then(m => ({ default: m.Home })));
 const CommitmentsPage = React.lazy(() => import('./pages/CommitmentsPage').then(m => ({ default: m.CommitmentsPage })));
 const PayablesPage = React.lazy(() => import('./pages/PayablesPage').then(m => ({ default: m.PayablesPage })));
+const AccountsPage = React.lazy(() => import('./pages/AccountsPage'));
 const WorkspacePayablesPage = React.lazy(() => import('./pages/WorkspacePayablesPage').then(m => ({ default: m.WorkspacePayablesPage })));
 // Área administrativa: lazy como as demais. É a rota que menos gente visita —
 // não faz sentido pagar o custo dela no bundle inicial de todo mundo.
@@ -183,6 +184,9 @@ function AppContent() {
           {/* Contas a pagar (ADR 0029): o que ainda não saiu do caixa. Eixo
               diferente de `/me/commitments`, que é fatura e financiamento — a
               instituição, não a conta do mês. */}
+          <Route path="/me/accounts" element={
+            <ProtectedRoute><Layout><AccountsPage /></Layout></ProtectedRoute>
+          } />
           <Route path="/me/payables" element={
             <ProtectedRoute><Layout><PayablesPage /></Layout></ProtectedRoute>
           } />

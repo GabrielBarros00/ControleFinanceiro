@@ -2,8 +2,9 @@ import * as React from 'react';
 import { Card, CardContent } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Button } from "@/components/ui/button";
-import { Plus, Edit2, Trash2, Calendar, Loader2, Wallet, Repeat } from 'lucide-react';
-import { useIncome, type Income } from '@/hooks/use-income';
+import { Plus, Edit2, Trash2, Calendar, Check, Loader2, Wallet, Repeat } from 'lucide-react';
+import { INCOME_STATUS_LABEL, useIncome, type Income } from '@/hooks/use-income';
+import { StatusPill } from '@/components/ui/status-pill';
 import { useRecurringIncome, type RecurringIncome } from '@/hooks/use-recurring-income';
 import {
   Dialog,
@@ -40,11 +41,45 @@ import { MoneyText } from '@/components/money/MoneyText';
 import { parseApiDate, todayLocalISO } from '@/lib/date';
 import { useMonthParam } from '@/hooks/use-month-param';
 import { CardsOrTable, DataCard } from '@/components/ui/data-card';
+import { NativeSelect } from '@/components/ui/native-select';
+import { usePaymentAccounts } from '@/hooks/use-payment-accounts';
 
+
+/**
+ * A pílula de estado da renda (ADR 0034).
+ *
+ * `status` vem do SERVIDOR, derivado de `settled_at`/`cancelled_at`/`received_at`.
+ * Nunca recalcule aqui: "atrasada" depende de qual é hoje, e o fuso do navegador
+ * dá outra resposta perto da meia-noite.
+ */
+function IncomeStatusPill({ status }: { status?: string | null }) {
+  if (status === 'received' || !status) return null;
+  const tom =
+    status === 'overdue' ? 'warning' : status === 'cancelled' ? 'neutral' : 'brand';
+  return (
+    <StatusPill tone={tom as 'warning' | 'neutral' | 'brand'}>
+      {INCOME_STATUS_LABEL[status] ?? status}
+    </StatusPill>
+  );
+}
+
+/** "Recebida em 30/09" × "prevista para 30/09" — a data é a mesma, o fato não. */
+function rotuloDeData(income: Income): string {
+  const dia = parseApiDate(income.settled_at ?? income.received_at).toLocaleDateString('pt-BR');
+  if (income.status === 'received') return `Recebida em ${dia}`;
+  if (income.status === 'cancelled') return `Cancelada — era para ${dia}`;
+  if (income.status === 'overdue') return `Era para entrar em ${dia}`;
+  return `Prevista para ${dia}`;
+}
 
 export function IncomePage() {
   const [month, setMonth] = useMonthParam();
-  const { incomes, isLoading, create, update, remove } = useIncome(month);
+  const { incomes, isLoading, create, update, remove, receive, unreceive, cancel } =
+    useIncome(month);
+  // A conta em que a renda cai — opcional, como no pagamento de conta: registrar
+  // o recebimento sem dizer onde caiu continua valendo, só não move saldo.
+  const { activeAccounts } = usePaymentAccounts();
+  const [recebendo, setRecebendo] = React.useState<Income | null>(null);
   // Renda é PESSOAL (ADR 0021): a moeda é a de relatório do usuário, não a
   // moeda-base do workspace aberto. Somar `amount` e formatar com a base do
   // workspace fazia a MESMA renda ser exibida em moedas diferentes conforme a
@@ -265,15 +300,28 @@ export function IncomePage() {
           <DataCard
             key={income.id}
             title={income.title}
-            badge={income.recurring_income_id != null ? (
-              <span className="inline-flex items-center gap-1 rounded-full bg-primary/10 px-1.5 py-0.5 text-[9px] font-semibold uppercase text-primary">
-                <Repeat className="h-2.5 w-2.5" /> Recorrente
+            badge={
+              <span className="inline-flex items-center gap-1">
+                <IncomeStatusPill status={income.status} />
+                {income.recurring_income_id != null && (
+                  <span className="inline-flex items-center gap-1 rounded-full bg-primary/10 px-1.5 py-0.5 text-[9px] font-semibold uppercase text-primary">
+                    <Repeat className="h-2.5 w-2.5" /> Recorrente
+                  </span>
+                )}
               </span>
-            ) : undefined}
-            meta={`Recebida em ${parseApiDate(income.received_at).toLocaleDateString('pt-BR')}`}
+            }
+            meta={rotuloDeData(income)}
             value={
               <>
-                <MoneyText value={income.amount} kind="income" className="font-semibold" />
+                {/* Prevista em tom secundário: ela é renda do mês (competência),
+                    e não dinheiro em mãos. Mostrá-la com o mesmo peso da recebida
+                    é o que fazia o app afirmar em 01/09 que os R$ 6.000 do dia 30
+                    já tinham entrado. */}
+                <MoneyText
+                  value={income.amount}
+                  kind="income"
+                  className={income.status === 'received' ? 'font-semibold' : 'font-semibold opacity-60'}
+                />
                 {income.original_currency && income.original_amount && (
                   <div className="text-[11px] text-muted-foreground">
                     {formatCurrency(parseFloat(income.original_amount), income.original_currency)}
@@ -283,6 +331,16 @@ export function IncomePage() {
             }
             actions={
               <>
+                {income.status !== 'received' && income.status !== 'cancelled' && (
+                  <Button
+                    size="sm"
+                    aria-label={`Confirmar o recebimento de ${income.title}`}
+                    onClick={() => setRecebendo(income)}
+                    className="h-10 flex-1 gap-2"
+                  >
+                    <Check className="h-4 w-4" /> Recebi
+                  </Button>
+                )}
                 <Button
                   variant="outline"
                   size="sm"
@@ -314,7 +372,7 @@ export function IncomePage() {
             <TableHeader>
               <TableRow className="border-border hover:bg-transparent">
                 <TableHead className="w-[300px] text-muted-foreground font-semibold text-xs">Título</TableHead>
-                <TableHead className="text-muted-foreground font-semibold text-xs">Recebida em</TableHead>
+                <TableHead className="text-muted-foreground font-semibold text-xs">Quando</TableHead>
                 <TableHead className="text-right text-muted-foreground font-semibold text-xs">Valor</TableHead>
                 <TableHead className="text-center text-muted-foreground font-semibold text-xs">Ações</TableHead>
               </TableRow>
@@ -332,6 +390,7 @@ export function IncomePage() {
                     <div className="flex items-center gap-2">
                       <Wallet className="h-4 w-4 text-emerald-500 shrink-0" />
                       <span className="font-bold text-foreground">{income.title}</span>
+                      <IncomeStatusPill status={income.status} />
                       {income.recurring_income_id != null && (
                         <span className="inline-flex items-center gap-1 rounded-full bg-primary/10 px-1.5 py-0.5 text-[9px] font-semibold uppercase text-primary">
                           <Repeat className="h-2.5 w-2.5" /> Recorrente
@@ -342,11 +401,15 @@ export function IncomePage() {
                   <TableCell>
                     <div className="flex items-center gap-1.5 text-sm font-medium">
                       <Calendar className="h-3.5 w-3.5 text-primary" />
-                      {parseApiDate(income.received_at).toLocaleDateString('pt-BR')}
+                      {rotuloDeData(income)}
                     </div>
                   </TableCell>
                   <TableCell className="text-right">
-                    <MoneyText value={income.amount} kind="income" className="font-semibold" />
+                    <MoneyText
+                      value={income.amount}
+                      kind="income"
+                      className={income.status === 'received' ? 'font-semibold' : 'font-semibold opacity-60'}
+                    />
                     {income.original_currency && income.original_amount && (
                       <div className="text-[11px] text-muted-foreground">
                         {formatCurrency(parseFloat(income.original_amount), income.original_currency)}
@@ -355,6 +418,53 @@ export function IncomePage() {
                   </TableCell>
                   <TableCell>
                     <div className="flex items-center justify-center gap-2 transition-opacity sm:opacity-0 sm:group-hover:opacity-100 sm:group-focus-within:opacity-100">
+                      {income.status !== 'received' && income.status !== 'cancelled' && (
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          aria-label={`Confirmar o recebimento de ${income.title}`}
+                          onClick={() => setRecebendo(income)}
+                          className="h-8 gap-1 text-xs"
+                        >
+                          <Check className="h-3.5 w-3.5" /> Recebi
+                        </Button>
+                      )}
+                      {income.status === 'received' && income.recurring_income_id != null && (
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          aria-label={`Desfazer o recebimento de ${income.title}`}
+                          onClick={async () => {
+                            try {
+                              await unreceive(income.id);
+                              toast.success('Recebimento desfeito.');
+                            } catch (err) {
+                              toast.error(getApiErrorMessage(err, 'Erro ao desfazer.'));
+                            }
+                          }}
+                          className="h-8 text-xs"
+                        >
+                          Desfazer
+                        </Button>
+                      )}
+                      {income.status !== 'cancelled' && income.recurring_income_id != null && (
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          aria-label={`Cancelar a renda ${income.title}`}
+                          onClick={async () => {
+                            try {
+                              await cancel(income.id);
+                              toast.success('Renda cancelada — ela continua visível no mês.');
+                            } catch (err) {
+                              toast.error(getApiErrorMessage(err, 'Erro ao cancelar.'));
+                            }
+                          }}
+                          className="h-8 text-xs"
+                        >
+                          Cancelar
+                        </Button>
+                      )}
                       <Button
                         variant="ghost"
                         size="sm"
@@ -615,6 +725,105 @@ export function IncomePage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {recebendo && (
+        <ConfirmarRecebimentoDialog
+          income={recebendo}
+          contas={activeAccounts.filter((c) => c.currency === (recebendo.currency ?? baseCurrency))}
+          onClose={() => setRecebendo(null)}
+          onConfirm={async (receivedOn, accountId) => {
+            await receive({ id: recebendo.id, receivedOn, accountId });
+          }}
+        />
+      )}
     </div>
+  );
+}
+
+/**
+ * "Recebi" — a confirmação que transforma renda prevista em caixa (ADR 0034).
+ *
+ * Pergunta DUAS coisas, e as duas importam: **quando** caiu (é a data que decide
+ * em que mês a entrada aparece no caixa) e **em qual conta** (é o que faz o saldo
+ * se mexer). A competência não é tocada: o salário de setembro que cai em 2 de
+ * outubro continua sendo renda de setembro.
+ */
+function ConfirmarRecebimentoDialog({
+  income,
+  contas,
+  onClose,
+  onConfirm,
+}: {
+  income: Income;
+  contas: { id: number; name: string }[];
+  onClose: () => void;
+  onConfirm: (receivedOn: string, accountId?: number) => Promise<void>;
+}) {
+  // O padrão é a data PREVISTA, não hoje: o caso comum é confirmar o que caiu no
+  // dia certo, e datar tudo com "hoje" moveria a entrada de mês toda vez que
+  // alguém confirmasse com atraso.
+  const [quando, setQuando] = React.useState(income.received_at.slice(0, 10));
+  const [conta, setConta] = React.useState<number | ''>(
+    (income.account_id as number | null) ?? contas[0]?.id ?? '',
+  );
+  const [salvando, setSalvando] = React.useState(false);
+
+  return (
+    <Dialog open onOpenChange={onClose}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Confirmar recebimento</DialogTitle>
+          <DialogDescription>
+            {income.title} — {formatCurrency(parseFloat(income.amount), income.currency ?? 'BRL')}
+          </DialogDescription>
+        </DialogHeader>
+        <div className="space-y-3">
+          <div>
+            <Label htmlFor="receb-data">Recebi em</Label>
+            <Input
+              id="receb-data" type="date" value={quando}
+              onChange={(e) => setQuando(e.target.value)}
+            />
+            <p className="mt-1 text-xs text-muted-foreground">
+              A renda continua sendo do mês de competência — só o caixa usa esta data.
+            </p>
+          </div>
+          {contas.length > 0 && (
+            <div>
+              <Label htmlFor="receb-conta">Caiu na conta</Label>
+              <NativeSelect
+                id="receb-conta" value={String(conta)}
+                onChange={(e) => setConta(e.target.value ? Number(e.target.value) : '')}
+              >
+                <option value="">Não informar</option>
+                {contas.map((c) => (
+                  <option key={c.id} value={c.id}>{c.name}</option>
+                ))}
+              </NativeSelect>
+            </div>
+          )}
+        </div>
+        <DialogFooter>
+          <Button variant="outline" onClick={onClose}>Cancelar</Button>
+          <Button
+            pending={salvando}
+            onClick={async () => {
+              setSalvando(true);
+              try {
+                await onConfirm(quando, conta === '' ? undefined : conta);
+                toast.success('Recebimento confirmado.');
+                onClose();
+              } catch (err) {
+                toast.error(getApiErrorMessage(err, 'Erro ao confirmar o recebimento.'));
+              } finally {
+                setSalvando(false);
+              }
+            }}
+          >
+            Confirmar
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }

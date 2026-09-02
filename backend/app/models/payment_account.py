@@ -1,6 +1,7 @@
 from datetime import datetime, UTC
 from enum import Enum
 from typing import Optional
+from sqlalchemy import Boolean, Column, false
 from sqlmodel import SQLModel, Field, UniqueConstraint
 
 
@@ -15,6 +16,10 @@ class PaymentAccountType(str, Enum):
 class PaymentAccountBase(SQLModel):
     name: str = Field(index=True)
     type: PaymentAccountType = Field(default=PaymentAccountType.checking)
+    #: A UNIDADE DE CONTA do saldo (ADR 0034). Deixou de ser rótulo no dia em que o
+    #: saldo passou a ser a soma dos movimentos atribuídos: todo movimento tem de
+    #: estar nesta moeda, e `AccountTransfer` é o único lugar onde duas moedas se
+    #: encontram — ver `domain/account_policy.py`.
     currency: str = Field(default="BRL")
     active: bool = Field(default=True)
 
@@ -39,6 +44,16 @@ class PaymentAccount(PaymentAccountBase, table=True):
 
     id: Optional[int] = Field(default=None, primary_key=True)
     owner_user_id: int = Field(foreign_key="user.id", index=True)
+
+    # A conta que o formulário já vem preenchendo (ADR 0034). Não é enfeite: o saldo
+    # só existe para o movimento que declara conta, e o que não declara vira uma
+    # linha no contador de "sem conta". Um padrão bom é o que impede esse contador
+    # de crescer sozinho. Sem unicidade no banco: duas contas marcadas como padrão
+    # é uma escolha ruim, não uma corrupção — a rota mantém uma só por dono.
+    is_default: bool = Field(
+        default=False,
+        sa_column=Column(Boolean, nullable=False, server_default=false()),
+    )
 
     created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
     updated_at: datetime = Field(default_factory=lambda: datetime.now(UTC))

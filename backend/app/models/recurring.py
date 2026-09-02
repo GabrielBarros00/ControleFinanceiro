@@ -2,7 +2,7 @@ from datetime import datetime, date, UTC
 from enum import Enum
 from typing import Optional, List, TYPE_CHECKING
 from decimal import Decimal
-from sqlalchemy import JSON, Boolean, Column, Integer, false
+from sqlalchemy import JSON, Boolean, Column, Integer, false, true
 from sqlmodel import SQLModel, Field, Relationship
 
 from app.models.transaction import PaymentMethod
@@ -75,6 +75,12 @@ class RecurringExpense(RecurringExpenseBase, table=True):
     )
     category_id: Optional[int] = Field(default=None, foreign_key="category.id")
     payer_user_id: Optional[int] = Field(default=None, foreign_key="user.id")
+    # De qual conta a ocorrência sai (ADR 0034). O `split_snapshot` guarda só
+    # user_id/método/valor, então sem esta coluna toda instância materializada
+    # nascia sem conta e o débito automático não movia saldo nenhum — justamente
+    # o caso em que a pessoa MENOS vai abrir o lançamento para declarar a conta.
+    # Vale só quando `payer_user_id` é o dono da conta, e é validado na escrita.
+    account_id: Optional[int] = Field(default=None, foreign_key="paymentaccount.id")
     # Lista de {user_id, split_method, input_value}; None → divisão 100% ao pagador
     split_snapshot: Optional[list] = Field(default=None, sa_column=Column(JSON))
 
@@ -108,6 +114,23 @@ class RecurringIncome(RecurringIncomeBase, table=True):
     # Sem workspace (ADR 0021): o salário é da pessoa e o template vale em todos
     # os workspaces dela. Cada ocorrência materializada nasce igualmente pessoal.
     user_id: int = Field(foreign_key="user.id", index=True)
+
+    # Espelho do `auto_settle` da despesa, com o padrão INVERTIDO — e de propósito
+    # (ADR 0034). Renda recorrente é tipicamente salário: chegou a data, entrou. Com
+    # o padrão em falso, atualizar o app faria todo mundo ter de confirmar à mão o
+    # que sempre contou sozinho, e o `cash_in` de quem não confirmasse iria a zero.
+    #
+    # Desligar é para renda INCERTA — freelance, aluguel recebido, comissão: aí a
+    # ocorrência fica em "A receber" e vira "atrasada" quando a data passa, até
+    # alguém apertar "Recebi". Ligado ou não, a ocorrência NUNCA nasce recebida
+    # antes da data: `resolve_income_settled_at` é o ponto único que decide.
+    auto_confirm: bool = Field(
+        default=True,
+        sa_column=Column(Boolean, nullable=False, server_default=true()),
+    )
+    # Conta em que a ocorrência cai quando é confirmada (ADR 0034). `None` = não
+    # declarada: a renda conta no caixa, mas não move saldo de conta nenhuma.
+    account_id: Optional[int] = Field(default=None, foreign_key="paymentaccount.id")
 
     created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
     updated_at: datetime = Field(default_factory=lambda: datetime.now(UTC))

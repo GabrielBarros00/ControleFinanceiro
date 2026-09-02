@@ -11,7 +11,9 @@ from sqlmodel import Session, select
 from app.db.locks import trava_workspace
 from app.db.session import get_session
 from app.domain.access_policy import assert_can_write, can_write, participant_scope
+from app.domain.account_policy import AccountCurrencyMismatch, assert_conta_na_moeda
 from app.domain.query_policy import workspace_base_currency
+from app.models.payment_account import PaymentAccount
 from app.models.settlement import Settlement
 from app.models.workspace import WorkspaceMembership, WorkspaceRole
 from app.api.deps import get_workspace_membership, require_role
@@ -29,6 +31,12 @@ class SettlementCreate(BaseModel):
     # YYYY-MM: quando vem do ledger mensal, quita a dívida daquele mês
     billing_month: Optional[str] = None
     settled_at: Optional[datetime] = None
+    #: De qual conta o PAGADOR tirou o dinheiro (ADR 0034). Só o lado dele — a
+    #: conta do credor é invisível para quem registra, e declará-la violaria a
+    #: regra de `_validate_payer_accounts`: "você não pode declarar de qual conta
+    #: de outra pessoa saiu o dinheiro". O credor tem porta própria em
+    #: `PUT /me/settlements/{id}/account`.
+    from_account_id: Optional[int] = None
 
 
 class SettlementRead(BaseModel):
@@ -74,6 +82,35 @@ def create_settlement(
             status_code=403,
             detail="Você só pode registrar acertos em que você é o pagador",
         )
+
+    # A conta é do PAGADOR e só pode ser declarada por ELE (ADR 0004/0034): um
+    # `admin` pode registrar o acerto de outra pessoa, mas não afirmar de qual
+    # conta bancária dela o dinheiro saiu.
+    #
+    # AQUI, junto do gate de autoria e ANTES da trava e da checagem de dívida:
+    # é autorização, e não depende de haver o que acertar. Depois da checagem,
+    # a recusa por conta alheia chegava mascarada de 'não há dívida'.
+    conta_id = None
+    if settlement_in.from_account_id is not None:
+        if settlement_in.from_user_id != membership.user_id:
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    "Você não pode declarar de qual conta de outra pessoa saiu o "
+                    "dinheiro — deixe a conta em branco"
+                ),
+            )
+        conta = session.get(PaymentAccount, settlement_in.from_account_id)
+        if not conta or conta.deleted_at or conta.owner_user_id != membership.user_id:
+            raise HTTPException(status_code=400, detail="Conta inválida")
+        # O acerto vale na moeda-base do espaço — é assim que
+        # `CashFlowService._acertos` o expressa.
+        try:
+            assert_conta_na_moeda(conta, workspace_base_currency(session, workspace_id))
+        except AccountCurrencyMismatch as exc:
+            raise HTTPException(status_code=400, detail=str(exc))
+        conta_id = conta.id
+
 
     # ANTES de ler o saldo (ver `db/locks.py`): o teto abaixo é uma soma sobre
     # várias linhas conferida por um `if`, e sem trava duas quitações simultâneas
@@ -131,6 +168,7 @@ def create_settlement(
         note=settlement_in.note,
         billing_month=settlement_in.billing_month,
         settled_at=settlement_in.settled_at or datetime.now(UTC),
+        from_account_id=conta_id,
         created_by_user_id=membership.user_id,
     )
     session.add(db_settlement)

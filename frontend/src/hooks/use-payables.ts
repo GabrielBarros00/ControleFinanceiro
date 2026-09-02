@@ -70,6 +70,12 @@ interface SettleArgs {
   settled: boolean;
   /** Dia em que o dinheiro saiu (YYYY-MM-DD). Ausente = hoje. */
   settledOn?: string;
+  /**
+   * De qual conta saiu (ADR 0034). Opcional — pagar sem declarar a conta continua
+   * valendo, o movimento só não move saldo nenhum. Vale para o pagador que está
+   * confirmando: declarar a conta de outra pessoa é informação que não é dele.
+   */
+  accountId?: number;
 }
 
 /** Marcar (ou desmarcar) o pagamento de várias contas de uma vez. */
@@ -77,11 +83,14 @@ export function useSettlePayables() {
   const queryClient = useQueryClient();
 
   const mutation = useMutation({
-    mutationFn: async ({ workspaceId, transactionIds, settled, settledOn }: SettleArgs) => {
+    mutationFn: async ({
+      workspaceId, transactionIds, settled, settledOn, accountId,
+    }: SettleArgs) => {
       const res = await apiClient.post(`/workspaces/${workspaceId}/payables/settle`, {
         transaction_ids: transactionIds,
         settled,
         ...(settledOn ? { settled_on: settledOn } : {}),
+        ...(accountId ? { account_id: accountId } : {}),
       });
       return res.data as components['schemas']['SettleResult'];
     },

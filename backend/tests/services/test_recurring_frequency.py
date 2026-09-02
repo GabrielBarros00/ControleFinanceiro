@@ -56,7 +56,7 @@ def test_generate_creates_due_and_is_idempotent(db_session, seed_ws):
     db_session.add_all([monthly, weekly, yearly])
     db_session.commit()
 
-    created = RecurringService.generate_due_instances(db_session, ws.id, today)
+    created = RecurringService.generate_due_instances(db_session, ws.id, today, horizonte_meses=0)
     db_session.commit()
     # Mês INTEIRO: aluguel 10/07 + feira 06, 13, 20 e 27/07
     assert created == 5
@@ -76,7 +76,7 @@ def test_generate_creates_due_and_is_idempotent(db_session, seed_ws):
     assert pending == {date(2026, 7, 20), date(2026, 7, 27)}
 
     # Idempotente
-    created = RecurringService.generate_due_instances(db_session, ws.id, today)
+    created = RecurringService.generate_due_instances(db_session, ws.id, today, horizonte_meses=0)
     db_session.commit()
     assert created == 0
 
@@ -88,7 +88,7 @@ def test_pendente_vira_confirmada_quando_a_data_chega(db_session, seed_ws):
     db_session.add(_template(ws.id, title="Aluguel", day_of_month=25))
     db_session.commit()
 
-    RecurringService.generate_due_instances(db_session, ws.id, date(2026, 7, 10))
+    RecurringService.generate_due_instances(db_session, ws.id, date(2026, 7, 10), horizonte_meses=0)
     db_session.commit()
     tx = db_session.exec(select(Transaction).where(Transaction.workspace_id == ws.id)).one()
     assert tx.status == TransactionStatus.pending
@@ -111,7 +111,7 @@ def test_generate_respects_tombstone(db_session, seed_ws):
     db_session.add(monthly)
     db_session.commit()
 
-    assert RecurringService.generate_due_instances(db_session, ws.id, today) == 1
+    assert RecurringService.generate_due_instances(db_session, ws.id, today, horizonte_meses=0) == 1
     db_session.commit()
 
     # Usuária excluiu a instância do mês: não ressuscita
@@ -120,4 +120,4 @@ def test_generate_respects_tombstone(db_session, seed_ws):
     db_session.add(tx)
     db_session.commit()
 
-    assert RecurringService.generate_due_instances(db_session, ws.id, today) == 0
+    assert RecurringService.generate_due_instances(db_session, ws.id, today, horizonte_meses=0) == 0

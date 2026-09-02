@@ -11,6 +11,7 @@ import {
   Settings,
   ShieldCheck,
   Wallet,
+  PiggyBank,
   Scale,
   type LucideIcon,
 } from 'lucide-react';
@@ -73,6 +74,12 @@ export const GLOBAL_SECTION: NavSection = {
     // "Visão global" era o pior rótulo do app: para quem lê, "global" sugere "de
     // todos" — e significa o contrário, "só meu, somando meus espaços".
     { icon: LayoutDashboard, label: 'Seu mês', to: '/overview' },
+    // Onde o dinheiro ESTÁ (ADR 0034). Segundo item porque é a outra metade da
+    // pergunta que o Seu mês abre: lá está o que entrou e saiu no período, aqui
+    // está quanto existe agora. Era uma aba dentro de Configurações, e cabia lá
+    // enquanto a conta era só um rótulo de origem de pagamento — com saldo,
+    // extrato e conciliação ela deixou de ser configuração.
+    { icon: PiggyBank, label: 'Contas', to: '/me/accounts' },
     // Logo abaixo do Seu mês porque é a continuação dele: lá está o que já saiu
     // do caixa, aqui o que ainda vai sair (ADR 0029). "Contas a pagar" e não "A
     // pagar": este último já é o rótulo de um número do Seu mês — o saldo com

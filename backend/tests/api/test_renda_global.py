@@ -25,7 +25,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app.core.jwt import create_access_token
-from app.domain.dates import today_local
+from app.domain.dates import HORIZONTE_MESES, today_local
 from app.main import app
 from app.models.income import Income
 from app.models.user import User
@@ -261,5 +261,9 @@ def test_salario_recorrente_materializa_sem_passar_por_workspace(pessoa):
     assert res.status_code == 200, res.text
 
     lista = client.get("/api/v1/me/income", headers=pessoa["headers"]).json()
-    assert [i["title"] for i in lista] == ["Salário mensal"]
+    # Uma ocorrência por mês do horizonte (ADR 0034) — a do mês seguinte existe
+    # para a projeção ter de onde sair, e é a competência que separa as duas.
+    assert set(i["title"] for i in lista) == {"Salário mensal"}
+    assert len(lista) == HORIZONTE_MESES + 1
+    # O total do MÊS continua sendo o de um salário: competência é por mês.
     assert Decimal(str(_overview(pessoa)["income"])) == Decimal("9000.00")

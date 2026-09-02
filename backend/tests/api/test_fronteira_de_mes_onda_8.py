@@ -86,7 +86,10 @@ def test_extrato_mostra_a_data_local_do_movimento(db_session, cena):
     de agosto, que é como o usuário descobre que o sistema não fecha."""
     db_session.add(Income(
         title="Salário", amount=Decimal("5000.00"), currency="BRL",
-        received_at=INSTANTE_NAIVE, user_id=cena["user_id"],
+        # `settled_at` é a data de CAIXA (ADR 0034) e é ela que o extrato usa —
+        # aqui vale o mesmo instante da virada, que é o ponto do teste.
+        received_at=INSTANTE_NAIVE, settled_at=INSTANTE_NAIVE,
+        user_id=cena["user_id"],
     ))
     db_session.commit()
 

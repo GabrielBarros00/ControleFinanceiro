@@ -58,6 +58,30 @@ class MissingRates(Exception):
         )
 
 
+class AccountsInOldCurrency(Exception):
+    """Há pagamentos atribuídos a conta na moeda antiga (ADR 0034).
+
+    A troca reescreve `TransactionPayer.amount` para a moeda nova, e esses valores
+    são somados ao SALDO das contas que os pagadores declaram. Sem esta barreira, um
+    ato de workspace mudaria retroativamente o saldo bancário PESSOAL de cada membro
+    — inclusive de quem não trocou nada, e depois do ADR 0028 a troca pode ser feita
+    por outro dono. O saldo mudaria sem nenhuma linha nova no extrato para explicar.
+
+    A saída para o operador é desfazer a atribuição desses pagamentos (ou criar
+    contas na moeda nova) antes de trocar a base.
+    """
+
+    def __init__(self, count: int, new_currency: str):
+        self.count = count
+        self.new_currency = new_currency
+        super().__init__(
+            f"{count} pagamento(s) deste espaço declaram uma conta que não é em "
+            f"{new_currency}. Trocar a base mudaria o saldo dessas contas sem "
+            "nenhum movimento que explique a mudança — remova a conta desses "
+            f"pagamentos ou use contas em {new_currency} antes de trocar."
+        )
+
+
 @dataclass
 class ConversionReport:
     """O que a troca converteu (ou converteria, no dry-run).
@@ -75,6 +99,10 @@ class ConversionReport:
     estimates: int = 0
     recurring: int = 0
     missing_rates: List[str] = field(default_factory=list)
+    #: Pagamentos que declaram conta fora da moeda nova (ADR 0034). No dry-run é
+    #: aviso; na aplicação é `AccountsInOldCurrency`. Sem reportá-lo aqui, a UI
+    #: confirmaria a troca e só descobriria a recusa no PUT.
+    accounts_blocking: int = 0
 
     def as_dict(self) -> Dict:
         return {
@@ -85,6 +113,7 @@ class ConversionReport:
             "estimates": self.estimates,
             "recurring": self.recurring,
             "missing_rates": self.missing_rates,
+            "accounts_blocking": self.accounts_blocking,
         }
 
 
@@ -187,6 +216,27 @@ class BaseCurrencyService:
     # ---- implementação -----------------------------------------------------
 
     @staticmethod
+    def _contas_bloqueando(db: Session, workspace_id: int, new_currency: str) -> int:
+        """Quantos pagamentos VIVOS deste espaço apontam para conta fora da moeda nova.
+
+        Conta soft-deletada entra na contagem: o histórico continua apontando para
+        ela e o saldo dela continua sendo somado (arquivar não reescreve o passado —
+        o mesmo princípio do `CashFlowService`).
+        """
+        from sqlalchemy import func
+
+        from app.models.payment_account import PaymentAccount
+
+        return db.exec(
+            select(func.count(TransactionPayer.id))
+            .join(Transaction, Transaction.id == TransactionPayer.transaction_id)
+            .join(PaymentAccount, PaymentAccount.id == TransactionPayer.account_id)
+            .where(Transaction.workspace_id == workspace_id)
+            .where(Transaction.deleted_at.is_(None))
+            .where(PaymentAccount.currency != new_currency.upper())
+        ).one() or 0
+
+    @staticmethod
     def _run(db: Session, workspace_id: int, new_currency: str, *, apply: bool) -> ConversionReport:
         from app.models.workspace import Workspace
 
@@ -204,6 +254,16 @@ class BaseCurrencyService:
         # o operador roda `scripts/backfill_rates.py` antes de tentar de novo.
         resolver = _FactorResolver(db, old_currency, new_currency, allow_fetch=False)
         today = today_local()
+
+        # Passo 0: contas atribuídas na moeda ERRADA (ADR 0034). Antes de resolver
+        # taxa nenhuma, porque isto não é problema de cotação e sim de integridade
+        # do saldo alheio — e porque abortar tarde depois de resolver mil datas é
+        # trabalho jogado fora.
+        report.accounts_blocking = BaseCurrencyService._contas_bloqueando(
+            db, workspace_id, new_currency
+        )
+        if apply and report.accounts_blocking:
+            raise AccountsInOldCurrency(report.accounts_blocking, new_currency)
 
         # Passo 1: resolver TODOS os fatores primeiro. Se faltar taxa, nada é
         # escrito — meia conversão deixaria o workspace sem interpretação.
