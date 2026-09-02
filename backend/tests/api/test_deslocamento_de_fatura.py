@@ -420,7 +420,7 @@ def test_ocorrencia_herda_o_deslocamento_do_template(cena):
     """Uma assinatura cobrada perto do fechamento cai na fatura seguinte TODO
     mês: é característica do cobrador, declarada uma vez."""
     _template(cena, shift=1)
-    RecurringService.generate_due_instances(cena["db"], cena["ws_id"], date(2026, 7, 28))
+    RecurringService.generate_due_instances(cena["db"], cena["ws_id"], date(2026, 7, 28), horizonte_meses=0)
     cena["db"].commit()
 
     tx = cena["db"].exec(
@@ -442,7 +442,7 @@ def test_materializacao_preguicosa_nao_quebra_com_alvo_fechado(cena):
     _template(cena, shift=1)
     _fechar(cena, "2026-08")
 
-    RecurringService.generate_due_instances(cena["db"], cena["ws_id"], date(2026, 7, 28))
+    RecurringService.generate_due_instances(cena["db"], cena["ws_id"], date(2026, 7, 28), horizonte_meses=0)
     cena["db"].commit()
 
     r = client.get(

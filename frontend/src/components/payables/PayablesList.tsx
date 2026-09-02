@@ -9,6 +9,7 @@ import { StatusPill } from '@/components/ui/status-pill';
 import { ExcludedForeignNotice } from '@/components/money/ExcludedForeignNotice';
 import { nativeSelectClass } from '@/components/ui/native-select';
 import { useSettlePayables, type PayableEntry, type Payables } from '@/hooks/use-payables';
+import { usePaymentAccounts } from '@/hooks/use-payment-accounts';
 import { getApiErrorMessage } from '@/lib/api-error';
 import { formatMoney } from '@/lib/money';
 import { paymentMethodLabel } from '@/lib/payment-methods';
@@ -51,12 +52,29 @@ interface PayablesListProps {
 type Grupo = { chave: string; titulo: string; itens: PayableEntry[] };
 
 function agrupa(entries: PayableEntry[]): Grupo[] {
-  const vencidas = entries.filter((e) => e.is_overdue);
-  const restantes = entries.filter((e) => !e.is_overdue);
+  // "Vence hoje" sai do meio de "a vencer" (ADR 0034): é o grupo que pede ação
+  // AGORA, e diluí-lo entre as contas do dia 28 fazia justamente a de hoje passar
+  // despercebida. `due_state` vem do servidor porque o fuso do navegador dá outra
+  // resposta perto da meia-noite.
+  const vencidas = entries.filter((e) => e.due_state === 'overdue');
+  const hoje = entries.filter((e) => e.due_state === 'due_today');
+  const restantes = entries.filter(
+    (e) => e.due_state !== 'overdue' && e.due_state !== 'due_today',
+  );
   return [
     { chave: 'overdue', titulo: 'Vencidas', itens: vencidas },
+    { chave: 'hoje', titulo: 'Vencem hoje', itens: hoje },
     { chave: 'aberto', titulo: 'A vencer', itens: restantes },
   ].filter((g) => g.itens.length > 0);
+}
+
+/** "vence em 3 dias" / "venceu há 2 dias" — calculado no SERVIDOR. */
+function prazo(dias: number): string {
+  if (dias === 0) return 'vence hoje';
+  if (dias === 1) return 'vence amanhã';
+  if (dias === -1) return 'venceu ontem';
+  if (dias > 1) return `vence em ${dias} dias`;
+  return `venceu há ${Math.abs(dias)} dias`;
 }
 
 export function PayablesList({
@@ -70,9 +88,17 @@ export function PayablesList({
   const { settle, isSettling } = useSettlePayables();
   const [selecionadas, setSelecionadas] = React.useState<number[]>([]);
   const [pagoEm, setPagoEm] = React.useState(todayLocalISO);
+  const [contaId, setContaId] = React.useState<number | null>(null);
+  const { activeAccounts } = usePaymentAccounts();
 
   const entries = React.useMemo(() => payables?.entries ?? [], [payables]);
   const moeda = payables?.currency ?? 'BRL';
+  // A conta tem de estar na MESMA moeda do lançamento (ADR 0034) — o saldo dela
+  // soma os valores como estão, sem converter.
+  const contasCompativeis = React.useMemo(
+    () => activeAccounts.filter((c) => c.currency === moeda),
+    [activeAccounts, moeda],
+  );
   const fmt = (v: unknown) => formatMoney(Number(v ?? 0), { currency: moeda });
 
   // O espaço de cada conta selecionada: a escrita é POR espaço, e a lista global
@@ -112,6 +138,7 @@ export function PayablesList({
           transactionIds: ids,
           settled: true,
           settledOn: pagoEm,
+          accountId: contaId ?? undefined,
         });
         total += r.updated;
       }
@@ -233,8 +260,13 @@ export function PayablesList({
                             <span className="min-w-0 break-words text-sm font-medium text-foreground">
                               {item.title}
                             </span>
-                            {item.is_overdue && (
-                              <StatusPill tone="danger">vencida</StatusPill>
+                            {item.due_state === 'overdue' && (
+                              <StatusPill tone="danger">
+                                {prazo(item.days_until_due)}
+                              </StatusPill>
+                            )}
+                            {item.due_state === 'due_today' && (
+                              <StatusPill tone="warning">vence hoje</StatusPill>
                             )}
                             {item.recurring_expense_id != null && (
                               <StatusPill tone="neutral">
@@ -247,6 +279,9 @@ export function PayablesList({
                               /* parseApiDay: vencimento é DIA de calendário, não
                                  instante — parseApiDate voltaria um dia. */
                               `vence ${parseApiDay(item.due_date).toLocaleDateString('pt-BR')}`,
+                              item.due_state === 'upcoming' && item.days_until_due <= 7
+                                ? prazo(item.days_until_due)
+                                : null,
                               showWorkspace ? item.workspace_name : null,
                               paymentMethodLabel(item.payment_method),
                               item.installments_of
@@ -276,6 +311,66 @@ export function PayablesList({
         </div>
       )}
 
+      {/* PRÓXIMAS: competência do mês que vem, vencimento dentro do horizonte
+          (ADR 0034). Fora da lista principal e fora dos totais de propósito — os
+          números do topo respondem "quanto ainda sai NESTE mês", e somar o
+          aluguel do dia 1º do mês seguinte inflaria justamente o número que a
+          pessoa usa para decidir se o dinheiro fecha.
+
+          Sem caixa de seleção: pagar antecipadamente uma conta do mês que vem é
+          possível pelo lançamento, e oferecê-lo aqui misturaria os dois meses na
+          mesma ação. */}
+      {(payables?.upcoming?.length ?? 0) > 0 && (
+        <section className="rounded-xl border border-dashed border-border bg-card">
+          <div className="flex items-center justify-between gap-2 border-b border-border px-4 py-3">
+            <div>
+              <h2 className="text-base font-semibold text-foreground">Próximas contas</h2>
+              <p className="text-sm text-muted-foreground">
+                Já conhecidas, mas do mês que vem — não entram nos totais acima.
+              </p>
+            </div>
+            <span className="shrink-0 text-sm text-muted-foreground">
+              {payables?.upcoming?.length}
+            </span>
+          </div>
+          <ul className="divide-y divide-border">
+            {(payables?.upcoming ?? []).map((item) => (
+              <li
+                key={item.transaction_id}
+                className="flex items-start justify-between gap-3 px-4 py-3"
+              >
+                <span className="min-w-0">
+                  <span className="flex min-w-0 flex-wrap items-center gap-1.5">
+                    <span className="min-w-0 break-words text-sm font-medium text-foreground">
+                      {item.title}
+                    </span>
+                    {item.recurring_expense_id != null && (
+                      <StatusPill tone="neutral">
+                        <Repeat className="h-3 w-3" aria-hidden="true" /> fixa
+                      </StatusPill>
+                    )}
+                  </span>
+                  <span className="mt-0.5 block text-xs text-muted-foreground">
+                    {[
+                      `vence ${parseApiDay(item.due_date).toLocaleDateString('pt-BR')}`,
+                      prazo(item.days_until_due),
+                      showWorkspace ? item.workspace_name : null,
+                    ]
+                      .filter(Boolean)
+                      .join(' · ')}
+                  </span>
+                </span>
+                <span className="shrink-0 tabular-nums text-sm text-muted-foreground">
+                  {item.converted_amount != null
+                    ? fmt(item.converted_amount)
+                    : formatMoney(Number(item.amount), { currency: item.currency })}
+                </span>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
+
       {selecionadas.length > 0 && (
         /* Barra fixa no rodapé: a lista pode ser longa, e o botão de confirmar
            não pode depender de rolar até o fim para ser alcançado. */
@@ -290,6 +385,29 @@ export function PayablesList({
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
+            {/* De qual conta saiu (ADR 0034). É AQUI que a pessoa sabe disso, e
+                até esta onda não havia onde dizer — o saldo por conta não tinha
+                como se alimentar do gesto mais comum do app. Só contas na moeda
+                do destino: o servidor recusa as outras, e oferecer uma opção que
+                vira erro é pior do que não oferecer. */}
+            {contasCompativeis.length > 0 && (
+              <>
+                <label htmlFor="conta-origem" className="text-xs text-muted-foreground">
+                  Saiu de
+                </label>
+                <select
+                  id="conta-origem"
+                  value={contaId ?? ''}
+                  onChange={(e) => setContaId(e.target.value ? Number(e.target.value) : null)}
+                  className={`${nativeSelectClass} w-auto`}
+                >
+                  <option value="">Não informar</option>
+                  {contasCompativeis.map((c) => (
+                    <option key={c.id} value={c.id}>{c.name}</option>
+                  ))}
+                </select>
+              </>
+            )}
             <label htmlFor="pago-em" className="text-xs text-muted-foreground">
               Pago em
             </label>

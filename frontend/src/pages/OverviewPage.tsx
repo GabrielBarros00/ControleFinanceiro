@@ -15,6 +15,7 @@ import { StatTile } from '@/components/ui/stat-tile';
 import { EmptyState } from '@/components/ui/empty-state';
 import { ErrorState } from '@/components/ui/error-state';
 import { ExcludedForeignNotice } from '@/components/money/ExcludedForeignNotice';
+import { SaldoEProjecao } from '@/components/dashboard/SaldoEProjecao';
 import { useOverview, useMyActivity } from '@/hooks/use-overview';
 import { useAuth } from '@/hooks/use-auth';
 import { useMonthParam } from '@/hooks/use-month-param';
@@ -41,6 +42,17 @@ import { parseApiDate } from '@/lib/date';
  * - **A pagar / a receber**: a diferença, por casa.
  * - **Resultado do mês**: renda − consumo. (Era o que se chamava "Seu saldo",
  *   que sugeria saldo bancário e nunca foi isso.)
+ *
+ * Desde o ADR 0034 há um bloco a mais, e ele vem PRIMEIRO: **saldo** ("quanto eu
+ * tenho, e em quais contas") e **projeção** ("quanto devo ter no fim do mês").
+ * São as duas perguntas que o app não sabia responder, e a ordem é deliberada —
+ * quem abre a tela quer saber quanto tem antes de saber de qual mês é o gasto.
+ * Agora as quatro perguntas do §42 do pedido têm cada uma o seu quadro:
+ *
+ *     Seu dinheiro       → saldo
+ *     Até o fim do mês   → previsão
+ *     Resultado do mês   → competência
+ *     Caixa do mês       → caixa
  */
 export function OverviewPage() {
   const { user } = useAuth();
@@ -118,7 +130,21 @@ export function OverviewPage() {
         />
       ) : (
         <>
-          <div className="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-4">
+          {/* SALDO e PREVISÃO (ADR 0034). Vêm antes dos números de competência
+              porque respondem as perguntas que a pessoa faz primeiro: "quanto eu
+              tenho" e "quanto vou ter". Rota própria (`/me/balance`) para não
+              encarecer o `/me/overview`, que é o caminho mais chamado do app. */}
+          <SaldoEProjecao month={month} />
+
+          <section className="rounded-xl border border-border bg-card">
+            <div className="border-b border-border px-4 py-3">
+              <h2 className="text-base font-semibold text-foreground">Resultado do mês</h2>
+              <p className="text-sm text-muted-foreground">
+                De qual mês é cada renda e cada gasto — independentemente de quando
+                o dinheiro se move. Saldo é outra pergunta, e está acima.
+              </p>
+            </div>
+            <div className="grid grid-cols-2 gap-3 p-4 sm:gap-4 lg:grid-cols-4">
             <StatTile
               label="Renda"
               value={n(overview?.income)}
@@ -154,14 +180,15 @@ export function OverviewPage() {
               hint="Valor que você assumiu nos lançamentos; não é gasto nem saída de caixa"
             />
             <StatTile
-              label="Resultado do mês"
+              label="Resultado"
               value={result}
               kind={result >= 0 ? 'income' : 'expense'}
               icon={Wallet}
               currency={moeda}
               hint="Renda menos consumo"
             />
-          </div>
+            </div>
+          </section>
 
           {/* CAIXA — dinheiro que se moveu de verdade (ADR 0022). Separado dos
               números de competência acima porque responde outra pergunta: a

@@ -4,23 +4,38 @@ O par global de `/{ws}/debts` e `/{ws}/settlements`. Mesmo gate das outras rotas
 pessoais — só `get_current_user` —, porque não há workspace de que ser membro: o
 recorte é o próprio usuário, e cada linha devolvida tem ele como uma das pontas.
 
-**Só leitura.** Registrar e desfazer acerto continua em
+**Quase só leitura.** Registrar e desfazer acerto continua em
 `/workspaces/{ws}/settlements`, onde moram a direção e o teto do ADR 0009, o
 `trava_workspace` contra sobrepagamento concorrente e o `publish_event`. A tela
 global manda o `workspace_id` da linha em que a pessoa clicou — o que a distingue
 do "Nova despesa" ausente na Visão global (ADR 0020): lá o workspace seria
 ambíguo, aqui ele vem da própria linha.
+
+A exceção é `PUT /settlements/{id}/account` (ADR 0034): a conta em que o acerto
+RECEBIDO caiu só pode ser declarada pelo credor, e ele não é quem registra o
+acerto. É a única escrita que não caberia do outro lado.
 """
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlmodel import Session
 
+from pydantic import BaseModel
+
 from app.api.routes.auth import get_current_user
 from app.db.session import get_session
+from app.domain.access_policy import assert_owns
+from app.domain.account_policy import AccountCurrencyMismatch, assert_conta_na_moeda
 from app.domain.dates import InvalidMonth, parse_month
-from app.domain.query_policy import InvalidCurrencyCode, normalize_currency_code
+from app.domain.query_policy import (
+    InvalidCurrencyCode,
+    normalize_currency_code,
+    workspace_base_currency,
+)
+from app.models.payment_account import PaymentAccount
+from app.models.settlement import Settlement
 from app.models.user import User
+from app.schemas.common import StatusRead
 from app.schemas.overview import (
     PersonalDebtsByMonthRead,
     PersonalDebtsRead,
@@ -135,3 +150,57 @@ def list_personal_settlements(
     return PersonalDebtService.list_personal_settlements(
         session, current_user.id, limit=limit, offset=offset
     )
+
+
+class SettlementAccountRequest(BaseModel):
+    """Em qual conta o acerto RECEBIDO caiu (ADR 0034)."""
+    #: `None` desfaz a atribuição — o movimento volta a ser "sem conta".
+    account_id: Optional[int] = None
+
+
+@router.put("/settlements/{settlement_id}/account", response_model=StatusRead)
+def set_settlement_account(
+    settlement_id: int,
+    body: SettlementAccountRequest,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+):
+    """A única ESCRITA deste módulo, e ela existe por uma razão de privacidade.
+
+    Quem registra um acerto é o pagador (`/workspaces/{ws}/settlements`), e a
+    conta do credor é invisível para ele — `personal_scope` não a alcança, e
+    declará-la violaria a regra que o projeto já escreveu em
+    `_validate_payer_accounts`: *"você não pode declarar de qual conta de outra
+    pessoa saiu o dinheiro"*.
+
+    Sem esta porta, o acerto recebido seria para sempre um movimento sem conta no
+    saldo de quem recebeu — visível no contador de anomalia da tela de Contas e
+    sem nenhuma forma de corrigir. O gate é `to_user_id == eu`: só o credor
+    declara o lado dele.
+    """
+    acerto = session.get(Settlement, settlement_id)
+    if not acerto or acerto.deleted_at:
+        raise HTTPException(status_code=404, detail="Acerto não encontrado")
+    # 404 e não 403 (anti-enumeração): quem não é o credor não fica sabendo nem
+    # que o acerto existe.
+    assert_owns(acerto.to_user_id, current_user.id, detail="Acerto não encontrado")
+
+    conta_id = None
+    if body.account_id is not None:
+        conta = session.get(PaymentAccount, body.account_id)
+        if not conta or conta.deleted_at or conta.owner_user_id != current_user.id:
+            raise HTTPException(status_code=400, detail="Conta inválida")
+        try:
+            # O acerto vale na moeda-base do espaço em que foi registrado — é
+            # assim que `CashFlowService._acertos` o expressa.
+            assert_conta_na_moeda(
+                conta, workspace_base_currency(session, acerto.workspace_id)
+            )
+        except AccountCurrencyMismatch as exc:
+            raise HTTPException(status_code=400, detail=str(exc))
+        conta_id = conta.id
+
+    acerto.to_account_id = conta_id
+    session.add(acerto)
+    session.commit()
+    return {"status": "ok"}

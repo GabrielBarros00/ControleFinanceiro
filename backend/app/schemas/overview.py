@@ -55,7 +55,13 @@ class OverviewRead(BaseModel):
     month: str
     currency: str
 
-    # --- Competência: de quem é o gasto ---------------------------------------
+    # --- Competência: de quem é o gasto, de que mês é a renda -----------------
+    #: A renda DO MÊS — recebida **ou ainda prevista** (ADR 0034). Era o `income`
+    #: do caixa, e enquanto `Income` tinha uma data só os dois coincidiam; com
+    #: renda prevista, `result = income − consumption` passaria a subtrair um
+    #: consumo de competência de uma renda de caixa, e o salário do dia 30 zerava
+    #: o resultado do mês até cair na conta. Quanto de fato ENTROU é
+    #: `cash_in_breakdown.income`.
     income: Decimal
     consumption: Decimal
     paid_in_transactions: Decimal
@@ -112,6 +118,12 @@ class PayableEntry(BaseModel):
     converted_amount: Optional[Decimal] = None
     payment_method: Optional[str] = None
     is_overdue: bool
+    #: `overdue | due_today | upcoming` — derivado, nunca armazenado. Distingue
+    #: "vence hoje" de "vence em 12 dias", que `is_overdue` sozinho não faz.
+    due_state: str = "upcoming"
+    #: Negativo = já venceu. Calculado no servidor porque o fuso do navegador dá
+    #: outra resposta perto da meia-noite.
+    days_until_due: int = 0
     #: De onde a conta veio. Saber que a linha é automática muda o que se faz com
     #: ela: confirmar o pagamento, ou ir atrás de quem deveria ter pago.
     recurring_expense_id: Optional[int] = None
@@ -133,6 +145,11 @@ class PayablesRead(BaseModel):
     overdue_total: Decimal
     due_this_month_total: Decimal
     entries: List[PayableEntry]
+    #: O que vence até o fim do MÊS SEGUINTE e ainda não é competência deste mês
+    #: (ADR 0034). Lista separada de propósito: os totais acima respondem "quanto
+    #: ainda sai neste mês", e somar o aluguel do dia 1º do mês que vem inflaria o
+    #: número que a pessoa usa para decidir se o dinheiro fecha.
+    upcoming: List[PayableEntry] = []
     excluded_foreign_count: int
 
 

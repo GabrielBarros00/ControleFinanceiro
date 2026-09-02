@@ -1,10 +1,11 @@
 import calendar
-from datetime import date, timedelta
+from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal, ROUND_HALF_UP
 from types import SimpleNamespace
 from typing import List, Optional, Tuple
 
 import structlog
+from sqlalchemy import update
 from sqlalchemy.exc import IntegrityError
 from sqlmodel import Session, func, select
 
@@ -20,6 +21,7 @@ from app.models.credit_card import (
     StatementStatus,
 )
 from app.models.income import Income
+from app.models.payment_account import PaymentAccount
 from app.models.recurring import (
     RecurrenceFrequency,
     RecurringExpense,
@@ -44,7 +46,15 @@ from app.services.transaction_service import (
 )
 from app.services.currency_service import ExchangeRateUnavailable
 from app.services.exchange_rate_store import ExchangeRateStore
-from app.domain.dates import civil_instant, local_day, today_local
+from app.domain.dates import (
+    HORIZONTE_MESES,
+    civil_instant,
+    local_day,
+    meses_do_horizonte,
+    month_key,
+    today_local,
+)
+from app.domain.income_settlement import resolve_income_settled_at
 from app.domain.settlement import resolve_settled_at
 
 logger = structlog.get_logger("app.recurring")
@@ -454,6 +464,31 @@ class RecurringService:
         return payer_user, splits
 
     @staticmethod
+    def _conta_do_template(
+        db: Session, template: RecurringExpense, payer_user: Optional[int]
+    ) -> Optional[int]:
+        """A conta da ocorrência, se ela ainda for válida (ADR 0034).
+
+        Revalidada a cada materialização, e não copiada às cegas: entre o cadastro
+        do template e a ocorrência do mês que vem a conta pode ter sido excluída,
+        desativada, ou ter deixado de ser do pagador (o template pode trocar de
+        `payer_user_id`). Uma conta inválida aqui derrubaria o lote inteiro no gate
+        de `_validate_payer_accounts` — e o certo é a ocorrência nascer sem conta,
+        entrando no contador de "movimentos sem conta", e não deixar de nascer.
+
+        A moeda não é conferida aqui: `persist_transaction_children` já a valida
+        contra a moeda GRAVADA do lançamento, que é a definitiva.
+        """
+        if template.account_id is None or payer_user is None:
+            return None
+        conta = db.get(PaymentAccount, template.account_id)
+        if not conta or conta.deleted_at or not conta.active:
+            return None
+        if conta.owner_user_id != payer_user:
+            return None
+        return conta.id
+
+    @staticmethod
     def _create_instance(
         db: Session,
         template: RecurringExpense,
@@ -567,7 +602,13 @@ class RecurringService:
             # Legado: sem pagador não dá para montar divisão — instância "nua"
             return tx
 
-        payers = [TransactionPayerBase(user_id=payer_user, amount=converted)]
+        # `account_id` do template (ADR 0034): sem ele, a ocorrência de um débito
+        # automático nascia sem conta e não movia saldo nenhum — justamente o caso
+        # em que a pessoa MENOS vai abrir o lançamento para declarar a conta.
+        payers = [TransactionPayerBase(
+            user_id=payer_user, amount=converted,
+            account_id=RecurringService._conta_do_template(db, template, payer_user),
+        )]
         if is_foreign:
             div = convert_division_to_base(factor=factor, base_total=converted, payers=payers, splits=splits, items=None, adjustments=None)
             payers, splits = div["payers"], div["splits"]
@@ -657,19 +698,45 @@ class RecurringService:
     def generate_due_instances(
         db: Session, workspace_id: int, today: date, *,
         allow_fetch: bool = True, template_id: Optional[int] = None,
+        horizonte_meses: int = HORIZONTE_MESES,
     ) -> int:
-        """Materializa as instâncias do MÊS CORRENTE INTEIRO.
+        """Materializa as instâncias do mês corrente **e dos meses do horizonte**.
 
         Ocorrência já vencida (<= hoje) nasce `confirmed`; ocorrência ainda por
-        vir no mês nasce `pending` — assim a conta do dia 30 já aparece como "a
-        pagar" no dia 1, sem entrar em nenhum total realizado (`pending` está
-        fora de REALIZED_STATUSES, então dívidas, relatórios e fatura não mudam).
+        vir nasce `pending` — assim a conta do dia 18 já aparece como "a pagar"
+        no dia 1º, sem entrar em nenhum total realizado (`pending` está fora de
+        REALIZED_STATUSES, então dívidas, relatórios e fatura não mudam; está
+        DENTRO de PAYABLE_STATUSES, que é o que a torna obrigação).
         `promote_due_instances` vira para `confirmed` quando a data chega.
+
+        **O horizonte é regra de calendário (ADR 0034)**, e não "hoje + N dias":
+        em 28/08 vai até 30/09; em 1º/09 passa a ir até 31/10. Antes ele era o mês
+        corrente e nada mais, e o aluguel do dia 1º de setembro só existia quando
+        setembro chegasse — tarde demais para uma conta que vence naquele dia.
+
+        `horizonte_meses=0` restringe ao mês corrente. É o que a edição de um
+        template usa: reaplicar a mudança já tem escopo próprio (`apply_to`), e
+        materializar o mês seguinte de carona criaria ocorrência que ninguém pediu.
 
         Dedup por (recurring, occurrence_date) — a instância excluída deixa
         tombstone e não ressuscita. Não faz commit (ADR 0010).
         """
-        billing_month = f"{today.year:04d}-{today.month:02d}"
+        return sum(
+            RecurringService._gera_do_mes(
+                db, workspace_id, today, mes,
+                allow_fetch=allow_fetch, template_id=template_id,
+            )
+            for mes in meses_do_horizonte(today, horizonte_meses)
+        )
+
+    @staticmethod
+    def _gera_do_mes(
+        db: Session, workspace_id: int, today: date, mes: date, *,
+        allow_fetch: bool = True, template_id: Optional[int] = None,
+    ) -> int:
+        """Um mês do horizonte. `today` continua sendo HOJE — é ele que decide se a
+        ocorrência nasce `confirmed` ou `pending`, e não o mês sendo materializado."""
+        billing_month = month_key(mes)
 
         stmt = (
             select(RecurringExpense)
@@ -705,7 +772,7 @@ class RecurringService:
 
         created = 0
         for template in templates:
-            for occ in RecurringService.occurrences_in_month(template, today.year, today.month):
+            for occ in RecurringService.occurrences_in_month(template, mes.year, mes.month):
                 if template.frequency in per_occurrence:
                     if (template.id, occ) in existing_dates:
                         continue
@@ -931,7 +998,14 @@ class RecurringService:
             # Recria os filhos no valor novo (senão payer/split divergem do total)
             if payer_user is not None and splits:
                 delete_transaction_children(db, tx.id)
-                p = [TransactionPayerBase(user_id=payer_user, amount=converted)]
+                # A conta VOLTA junto (ADR 0034). Este caminho apaga os filhos e
+                # os recria: sem repassá-la, editar o template de uma recorrente
+                # apagava em silêncio a conta da instância, e o saldo mudava sem
+                # ninguém ter tocado no saldo.
+                p = [TransactionPayerBase(
+                    user_id=payer_user, amount=converted,
+                    account_id=RecurringService._conta_do_template(db, template, payer_user),
+                )]
                 s = splits
                 if is_foreign:
                     div = convert_division_to_base(factor=factor, base_total=converted, payers=p, splits=s, items=None, adjustments=None)
@@ -1296,28 +1370,65 @@ class RecurringIncomeService:
         month: Optional[int] = None,
         template_id: Optional[int] = None,
         allow_fetch: bool = True,
+        horizonte_meses: int = HORIZONTE_MESES,
     ) -> int:
         """Cria as rendas recorrentes do MÊS INTEIRO (não só as já vencidas).
 
         A renda de julho é renda de julho mesmo que o salário caia no dia 30:
         o app é de competência (billing_month), então esperar a data chegar fazia
-        a receita do mês aparecer zerada até o fim do mês. Diferente da despesa,
-        Income não tem status — a data futura em `received_at` já se explica
-        sozinha na lista ("recebe 30/07").
+        a receita do mês aparecer zerada até o fim do mês.
+
+        **A ocorrência futura nasce PREVISTA (ADR 0034)**, com `settled_at` nulo:
+        ela aparece na lista, participa da projeção e não entra no saldo nem no
+        `cash_in`. Antes desta separação `Income` não tinha estado de caixa, e a
+        ocorrência de 30/07 materializada no dia 1º já contava como dinheiro em
+        mãos desde o começo do mês. Quem decide é `resolve_income_settled_at`, e
+        ele nunca liquida uma data futura — nem com `auto_confirm` ligado.
 
         O recorte é o DONO e mais nada (ADR 0021): renda não tem workspace, então
         não há um "workspace de origem" a partir do qual materializar. Antes o
         escopo era `workspace OU (pessoal E meu)`, e a metade `workspace` só existia
         para a renda da casa que deixou de existir.
 
-        year/month materializam um mês específico (backfill retroativo);
-        template_id restringe a um template. Dedup por (recurring_income,
-        occurrence) — instância excluída deixa tombstone e não ressuscita.
-        Não faz commit (ADR 0010).
+        **O horizonte é o mesmo da despesa (ADR 0034)**: mês corrente mais os do
+        `horizonte_meses`, por regra de calendário. Assim o salário do dia 30 de
+        setembro já é conhecido em 28 de agosto, e a projeção do mês seguinte tem
+        de onde sair.
+
+        `year`/`month` materializam UM mês específico (backfill retroativo) e
+        desligam o horizonte — pedir um mês e receber dois seria surpresa numa
+        operação que o usuário disparou de propósito. `template_id` restringe a um
+        template. Dedup por (recurring_income, occurrence) — instância excluída
+        deixa tombstone e não ressuscita. Não faz commit (ADR 0010).
         """
-        year = year or today.year
-        month = month or today.month
-        billing_month = f"{year:04d}-{month:02d}"
+        if year is not None or month is not None:
+            return RecurringIncomeService._gera_do_mes(
+                db, user_id, today,
+                date(year or today.year, month or today.month, 1),
+                template_id=template_id, allow_fetch=allow_fetch,
+            )
+        return sum(
+            RecurringIncomeService._gera_do_mes(
+                db, user_id, today, mes,
+                template_id=template_id, allow_fetch=allow_fetch,
+            )
+            for mes in meses_do_horizonte(today, horizonte_meses)
+        )
+
+    @staticmethod
+    def _gera_do_mes(
+        db: Session,
+        user_id: int,
+        today: date,
+        mes: date,
+        *,
+        template_id: Optional[int] = None,
+        allow_fetch: bool = True,
+    ) -> int:
+        """Um mês do horizonte. `today` segue sendo HOJE: é ele que decide, via
+        `resolve_income_settled_at`, se a ocorrência já é caixa ou é previsão."""
+        year, month = mes.year, mes.month
+        billing_month = month_key(mes)
 
         stmt = select(RecurringIncome).where(RecurringIncome.is_active.is_(True))
         if template_id is not None:
@@ -1392,6 +1503,20 @@ class RecurringIncomeService:
                             # `month_bounds_utc` — devolvia a renda de agosto
                             # dentro de julho, e o mês de agosto vinha vazio.
                             received_at=civil_instant(occ),
+                            # Caixa (ADR 0034). `auto_confirm` é o "cai sozinho na
+                            # conta" do salário; `resolve_income_settled_at` o
+                            # respeita SÓ depois de a data chegar, então a
+                            # ocorrência do dia 30 materializada no dia 1º nasce
+                            # prevista de qualquer forma.
+                            settled_at=resolve_income_settled_at(
+                                received_at=civil_instant(occ),
+                                explicit=template.auto_confirm,
+                                # `today` do chamador, e não o relógio: uma
+                                # segunda leitura do "hoje" dentro da mesma
+                                # operação discorda da primeira na virada do dia.
+                                hoje=today,
+                            ),
+                            account_id=template.account_id,
                             user_id=template.user_id,
                             recurring_income_id=template.id,
                             billing_month=billing_month,
@@ -1403,11 +1528,57 @@ class RecurringIncomeService:
         return created
 
     @staticmethod
+    def promote_due_income(db: Session, user_id: int, today: date) -> int:
+        """Renda PREVISTA cuja data chegou vira RECEBIDA — só onde `auto_confirm`.
+
+        O par de `promote_due_instances` do lado da despesa. Devolve quantas foram
+        promovidas. Não faz commit (ADR 0010).
+
+        `UPDATE` condicional em vez de ler-decidir-escrever: o cron e o fallback
+        preguiçoso podem rodar ao mesmo tempo, e o `WHERE settled_at IS NULL` faz o
+        banco decidir quem promoveu — quem perder a corrida atualiza zero linhas em
+        vez de sobrescrever a data que o outro acabou de gravar.
+
+        `settled_at = received_at`, e não "agora": a renda de 30/09 confirmada pelo
+        cron da madrugada de 1º/10 entrou no dia 30, e datá-la com o instante da
+        execução moveria o caixa de mês. O `received_at` já é o instante civil da
+        ocorrência (meio-dia local), então não há armadilha de fuso aqui.
+        """
+        # O teto é o instante civil de HOJE (meio-dia local). Toda ocorrência
+        # materializada tem `received_at = civil_instant(occ)`, então `<=` pega a de
+        # hoje e nenhuma de amanhã — sem depender do fuso, que é justamente o que
+        # uma comparação com meia-noite crua não garantiria.
+        limite = civil_instant(today)
+
+        resultado = db.execute(
+            update(Income)
+            .where(Income.user_id == user_id)
+            .where(Income.settled_at.is_(None))
+            .where(Income.cancelled_at.is_(None))
+            .where(Income.deleted_at.is_(None))
+            .where(Income.received_at <= limite)
+            .where(
+                Income.recurring_income_id.in_(
+                    select(RecurringIncome.id).where(
+                        RecurringIncome.user_id == user_id,
+                        RecurringIncome.auto_confirm.is_(True),
+                    )
+                )
+            )
+            .values(settled_at=Income.received_at, updated_at=datetime.now(UTC))
+        )
+        return resultado.rowcount or 0
+
+    @staticmethod
     def sync_current_month_income(db: Session, template: RecurringIncome, today: date) -> None:
         """Reaplica título/valor/moeda/categoria à(s) entrada(s) Income do mês
         CORRENTE geradas por este template. Meses anteriores (fechados) ficam
         congelados — só o mês visualizado pra frente acompanha a edição. Não
-        faz commit (ADR 0010)."""
+        faz commit (ADR 0010).
+
+        **Não toca em `settled_at` nem em `cancelled_at`**: editar o valor do salário
+        não é afirmar nem desmentir que ele caiu. Mexer no caixa aqui reescreveria um
+        fato que a pessoa registrou à mão."""
         billing_month = f"{today.year:04d}-{today.month:02d}"
         rows = db.exec(
             select(Income)
@@ -1436,15 +1607,30 @@ class RecurringIncomeService:
             inc.original_currency = template.currency if estrangeira else None
             inc.exchange_rate = rate if estrangeira else None
             inc.rate_source = source if estrangeira else None
+            # A conta de destino só acompanha o template enquanto o dinheiro NÃO
+            # caiu. Trocar a conta do salário não pode remendar em qual conta a
+            # parcela do mês passado entrou — isso mudaria dois saldos de uma vez,
+            # sem nenhum movimento no extrato que explicasse.
+            if inc.settled_at is None:
+                inc.account_id = template.account_id
             db.add(inc)
 
 
 class RecurringMaterializationService:
-    """Materialização preguiçosa (lazy accrual) das recorrências vencidas do mês
-    corrente. Chamada nas rotas de LEITURA (Início, Rendas, Lançamentos) para que
-    tudo que é recorrente apareça sozinho, sem depender do botão "Lançar
-    pendentes". Idempotente (dedup por tombstone) e restrita ao mês de `today`,
-    então nunca cria retroativo em mês fechado."""
+    """Materialização preguiçosa (lazy accrual) das recorrências do horizonte.
+
+    Chamada nas rotas de LEITURA (Início, Rendas, Lançamentos) para que tudo que é
+    recorrente apareça sozinho, sem depender do botão "Lançar pendentes".
+    Idempotente (dedup por tombstone) e limitada de `today` para a frente, então
+    nunca cria retroativo em mês fechado.
+
+    **É a rede de segurança, não o mecanismo principal (ADR 0034).** Quem
+    materializa de verdade é o cron (`scripts/materializar_ocorrencias.py`), de
+    hora em hora: depender de alguém abrir uma tela para a conta do mês existir
+    significa que o aviso de vencimento não tem sobre o que avisar. O horizonte
+    aqui é o MESMO do cron de propósito — um app que se comporta diferente
+    conforme o cron esteja rodando é impossível de depurar.
+    """
 
     @staticmethod
     def ensure_current_month(db: Session, workspace_id: int, today: date) -> dict:
@@ -1507,8 +1693,13 @@ class RecurringMaterializationService:
                     year=year, month=month, template_id=template.id,
                 )
             elif (year, month) == (today.year, today.month):
+                # `horizonte_meses=0`: o escopo se chama "current" e é isso que a
+                # pessoa escolheu. Materializar o mês seguinte de carona criaria
+                # ocorrência que ninguém pediu numa tela de confirmação — e ela
+                # aparece sozinha na primeira leitura, pelo caminho preguiçoso.
                 created += RecurringService.generate_due_instances(
-                    db, workspace_id, today, template_id=template.id
+                    db, workspace_id, today, template_id=template.id,
+                    horizonte_meses=0,
                 )
             else:
                 created += RecurringService.backfill_month(db, template.id, year, month)
@@ -1567,7 +1758,11 @@ class RecurringMaterializationService:
             criadas = RecurringIncomeService.generate_due_income(
                 db, user_id, today, allow_fetch=False
             )
-            if criadas:
+            # A promoção anda junto com a materialização, e não só no cron: sem
+            # ela, quem não tem o cron rodando (desenvolvimento, instalação nova)
+            # veria o salário do dia 30 preso em "a receber" para sempre.
+            promovidas = RecurringIncomeService.promote_due_income(db, user_id, today)
+            if criadas or promovidas:
                 db.commit()
             return criadas
         except Exception:

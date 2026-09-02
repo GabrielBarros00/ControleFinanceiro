@@ -26,7 +26,9 @@ from sqlmodel import Session, select
 from app.api.routes.auth import get_current_user
 from app.db.session import get_session
 from app.domain.access_policy import assert_owns, personal_scope
+from app.domain.account_policy import AccountCurrencyMismatch, assert_conta_na_moeda
 from app.domain.query_policy import resolve_personal_currency
+from app.models.payment_account import PaymentAccount
 from app.domain.settlement import resolve_settled_at
 from app.models.financing import (
     AmortizationInstallment,
@@ -133,6 +135,9 @@ class InstallmentPayRequest(BaseModel):
     """
     workspace_id: Optional[int] = None
     paid_at: Optional[datetime] = None
+    #: De qual conta a parcela saiu (ADR 0034). Opcional, como no pagamento de
+    #: conta: sem ela o movimento continua sendo caixa, só não move saldo.
+    account_id: Optional[int] = None
 
 
 # Campos cuja mudança obriga a recalcular o cronograma inteiro
@@ -348,6 +353,25 @@ def pay_installment(
 
     pago_em = body.paid_at or datetime.now(UTC)
 
+    # A conta é validada ANTES da reivindicação: recusar depois deixaria a parcela
+    # marcada como paga por uma requisição que termina em 400.
+    conta_id = None
+    if body.account_id is not None:
+        conta = session.get(PaymentAccount, body.account_id)
+        if not conta or conta.deleted_at or conta.owner_user_id != current_user.id:
+            raise HTTPException(status_code=400, detail="Conta inválida")
+        if not conta.active:
+            raise HTTPException(
+                status_code=400, detail=f"Conta '{conta.name}' está desativada"
+            )
+        try:
+            # A parcela é somada ao saldo na moeda do FINANCIAMENTO — é assim que
+            # `CashFlowService._parcelas` a expressa (ADR 0034).
+            assert_conta_na_moeda(conta, financing.currency)
+        except AccountCurrencyMismatch as exc:
+            raise HTTPException(status_code=400, detail=str(exc))
+        conta_id = conta.id
+
     # REIVINDICA a parcela antes de qualquer outra escrita. A checagem acima
     # sozinha é lê-depois-escreve: duas requisições simultâneas liam
     # `is_paid=False`, ambas passavam e cada uma criava a sua despesa — a mesma
@@ -360,7 +384,10 @@ def pay_installment(
         update(AmortizationInstallment)
         .where(AmortizationInstallment.id == installment.id)
         .where(AmortizationInstallment.is_paid.is_(False))
-        .values(is_paid=True, paid_at=pago_em)
+        # `account_id` no MESMO `UPDATE` que reivindica a parcela (ADR 0034): uma
+        # escrita ORM separada correria com a concorrente, e a conta poderia ser
+        # gravada por quem perdeu a corrida sobre a parcela do vencedor.
+        .values(is_paid=True, paid_at=pago_em, account_id=conta_id)
     ).rowcount
     if not reivindicou:
         # 409, não 400: quem chamou não errou nada — perdeu a corrida.
@@ -432,6 +459,12 @@ def pay_installment(
         session.add(TransactionPayer(
             transaction_id=payment_tx.id, user_id=current_user.id,
             amount=valor,
+            # A conta é COPIADA da parcela, não uma segunda fonte (ADR 0034):
+            # enquanto esta despesa existe, a dedup do `CashFlowService` suprime
+            # a parcela e é o pagador que conta. Guardá-la nos dois como fontes
+            # independentes faria, ao desmarcar o pagamento da despesa, a parcela
+            # voltar carregando uma conta congelada que pode não ser a atual.
+            account_id=conta_id,
         ))
         session.add(TransactionSplit(
             transaction_id=payment_tx.id, user_id=current_user.id,

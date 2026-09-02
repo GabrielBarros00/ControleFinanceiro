@@ -33,14 +33,14 @@ no rateio da viagem não é o mesmo que estar quitado: são pessoas e acordos
 diferentes. Os saldos são agrupados POR workspace, e o total é informativo.
 """
 import calendar
-from datetime import date
+from datetime import date, datetime
 from decimal import Decimal
 from typing import Any, Dict, List, Optional
 
 from sqlmodel import Session, func, select
 
 from app.domain.access_policy import involvement_filter
-from app.domain.dates import month_bounds_utc, month_key, today_local
+from app.domain.dates import local_day, month_bounds_utc, month_key, today_local
 from app.domain.query_policy import (
     REALIZED_STATUSES,
     workspace_base_currency,
@@ -48,12 +48,13 @@ from app.domain.query_policy import (
 )
 from app.models.credit_card import CreditCard, StatementStatus
 from app.models.financing import AmortizationInstallment, Financing, FinancingStatus
+from app.models.income import Income
 from app.models.transaction import Transaction, TransactionPayer, TransactionSplit
 from app.models.user import User
 from app.services.cashflow_service import CashFlowService
 from app.services.credit_card_service import CreditCardService
 from app.services.debt_service import DebtService
-from app.services.money_conversion import ZERO, converte
+from app.services.money_conversion import ZERO, ConversorPorData, converte
 from app.services.payables_service import PayablesService
 
 
@@ -160,6 +161,42 @@ class OverviewService:
 
     # ------------------------------------------------------------------
     @staticmethod
+    def _renda_de_competencia(
+        db: Session, user_id: int, destino: str, inicio: datetime, fim: datetime
+    ) -> tuple:
+        """Renda DO MÊS na moeda de destino: `(total, quantas ficaram de fora)`.
+
+        Competência, não caixa (ADR 0034): entra tudo que era para entrar no mês,
+        recebido ou não. Cancelada não entra — a pessoa já disse que não vem.
+
+        A janela é sobre `received_at`, que é a data de competência, e é a MESMA de
+        `GET /me/income?month=`: se as duas divergissem, a soma do topo do Seu mês
+        não fecharia com a lista que ela abre.
+
+        Conversão pela data de competência de cada linha, e o que não converte não
+        vira zero (ADR 0006) — vira contagem.
+        """
+        linhas = db.exec(
+            select(Income.amount, Income.currency, Income.received_at)
+            .where(Income.user_id == user_id)
+            .where(Income.deleted_at.is_(None))
+            .where(Income.cancelled_at.is_(None))
+            .where(Income.received_at >= inicio)
+            .where(Income.received_at <= fim)
+        ).all()
+        conv = ConversorPorData(db, destino)
+        total = ZERO
+        excluidas = 0
+        for valor, moeda, quando in linhas:
+            convertido = conv(valor or ZERO, moeda, local_day(quando))
+            if convertido is None:
+                excluidas += 1
+            else:
+                total += convertido
+        return total, excluidas
+
+    # ------------------------------------------------------------------
+    @staticmethod
     def get_overview(
         db: Session,
         user_id: int,
@@ -190,13 +227,24 @@ class OverviewService:
 
         workspaces = workspaces_do_usuario(db, user_id)
 
-        # --- Caixa efetivo e renda (ADR 0022) ----------------------------------
-        # Renda sai daqui junto com o caixa porque é uma das seis fontes do
-        # ledger: manter a mesma consulta em dois lugares era o caminho curto para
-        # os dois números discordarem.
+        # --- Caixa efetivo (ADR 0022) ------------------------------------------
         fluxo = CashFlowService.get_month(db, user_id, target_month, destino, inicio, fim)
-        renda_total = fluxo["income"]
         excluidos = fluxo["excluded_foreign_count"]
+
+        # --- Renda por COMPETÊNCIA (ADR 0034) ----------------------------------
+        # `income` era o `income` do `CashFlowService`, ou seja, caixa. Enquanto
+        # `Income` tinha uma data só isso não se notava; com renda prevista, notava
+        # muito: `result = income − consumption` passaria a subtrair um consumo de
+        # competência de uma renda de caixa, e o salário do dia 30 zerava o
+        # resultado do mês inteiro até cair na conta.
+        #
+        # Aqui `income` é a renda DO MÊS — recebida ou ainda prevista, cancelada
+        # não —, o mesmo recorte da tela de Rendas. Quanto de fato entrou continua
+        # respondido, e agora só, por `cash_in_breakdown.income`.
+        renda_total, renda_excluida = OverviewService._renda_de_competencia(
+            db, user_id, destino, inicio, fim
+        )
+        excluidos += renda_excluida
 
         # --- Consumo, adiantamento e acertos, workspace a workspace ------------
         consumo_total = ZERO
@@ -311,7 +359,10 @@ class OverviewService:
         return {
             "month": mes,
             "currency": destino,
-            # --- Competência: de quem é o gasto ---------------------------------
+            # --- Competência: de quem é o gasto, de que mês é a renda ------------
+            # `income` é a renda DO MÊS — recebida ou prevista (ADR 0034). Quanto
+            # de fato entrou está em `cash_in_breakdown.income`, logo abaixo, e os
+            # dois números divergem de propósito enquanto o salário não cai.
             "income": renda_total,
             "consumption": consumo_total,
             # O que eu assumi nos lançamentos. Era `cash_out` e não era caixa

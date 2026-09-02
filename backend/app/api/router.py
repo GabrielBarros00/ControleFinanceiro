@@ -8,8 +8,9 @@ from app.core.config import settings
 from app.db.session import get_session
 from app.api.routes import (
     admin, analytics, attachments, audit, auth, categories, debts, imports, me,
-    me_accounts, me_cards, me_financing, me_income, me_push, me_settlements, members,
-    notifications, payables, recurring, settlements, tags, transactions, workspaces,
+    me_accounts, me_balance, me_cards, me_financing, me_income, me_push,
+    me_settlements, members, notifications, payables, recurring, settlements, tags,
+    transactions, workspaces,
 )
 from app.ws import routes as ws_routes
 
@@ -42,6 +43,10 @@ router.include_router(me.router)
 router.include_router(me_income.router)
 router.include_router(me_cards.router)
 router.include_router(me_accounts.router)
+# Saldo e transferência entre contas (ADR 0034). Roteador próprio, e não dentro de
+# `me_accounts`, porque o prefixo é outro: `/me/balance` e `/me/transfers` não são
+# sub-recursos de uma conta específica.
+router.include_router(me_balance.router)
 router.include_router(me_financing.router)
 router.include_router(me_push.router)
 # Acerto entre pessoas atravessa as casas (ADR 0027): só leitura aqui, porque

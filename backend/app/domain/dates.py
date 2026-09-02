@@ -196,6 +196,41 @@ def month_key(reference: date) -> str:
 # convidar o próximo caminho de leitura a reintroduzir o bug da virada do mês.
 
 
+#: Quantos meses ALÉM do corrente a materialização cobre (ADR 0034).
+#:
+#: Regra de calendário, não "hoje + N dias": em 28/08 o horizonte vai até 30/09; em
+#: 1º/09 ele passa a ir até 31/10. É o que faz a conta do começo do mês seguinte —
+#: aluguel do dia 1º, mensalidade do dia 5 — ser conhecida ANTES da virada, em vez
+#: de aparecer só quando o mês já começou e ela já venceu.
+#:
+#: Um mês, e não três: o horizonte é também o que a tela promete em "Próximas
+#: contas", e prometer mais do que se materializa mostraria uma lista que às vezes
+#: existe e às vezes não.
+HORIZONTE_MESES = 1
+
+
+def meses_do_horizonte(reference: date, meses: int = HORIZONTE_MESES) -> list[date]:
+    """`[1º do mês de reference, 1º do próximo, ...]` — `meses` além do corrente.
+
+    Devolve o PRIMEIRO DIA de cada mês porque é o que `month_key` e
+    `occurrences_in_month` esperam; a aritmética passa por `add_months`, que anda
+    por mês de calendário e não por 30 dias.
+    """
+    primeiro = date(reference.year, reference.month, 1)
+    return [add_months(primeiro, i) for i in range(meses + 1)]
+
+
+def fim_do_horizonte(reference: date, meses: int = HORIZONTE_MESES) -> date:
+    """O ÚLTIMO dia do último mês do horizonte.
+
+    O teto de "Próximas contas" e da projeção: o mesmo limite que a materialização
+    usa, para as duas nunca discordarem sobre até onde o futuro é conhecido.
+    """
+    ultimo_mes = meses_do_horizonte(reference, meses)[-1]
+    ultimo_dia = calendar.monthrange(ultimo_mes.year, ultimo_mes.month)[1]
+    return date(ultimo_mes.year, ultimo_mes.month, ultimo_dia)
+
+
 def add_months(when: D, months: int) -> D:
     """Avança `months` meses preservando o dia (limitado ao último do mês alvo).
 

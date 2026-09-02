@@ -138,7 +138,11 @@ test.describe('Revisão da recorrência', () => {
       hasText: 'Aplicar a quais lançamentos?',
     });
     await expect(revisao).toBeVisible();
-    await expect(revisao.getByText('muda de data')).toBeVisible();
+    // `.first()`: o horizonte materializa o mês corrente E o seguinte (ADR 0034),
+    // então a revisão lista DUAS ocorrências para mover. O que o teste afirma é
+    // que a mudança de data aparece na revisão — antes do ADR 0030 ela não
+    // aparecia em lugar nenhum.
+    await expect(revisao.getByText('muda de data').first()).toBeVisible();
 
     await revisao.getByRole('button', { name: 'Confirmar' }).click();
     await expect(revisao).toBeHidden();
@@ -148,8 +152,14 @@ test.describe('Revisão da recorrência', () => {
     const lancamentos = await (
       await context.request.get(`${API}/workspaces/${ws.id}/transactions/?limit=50`)
     ).json();
-    const aluguel = lancamentos.items.find((t: { title: string }) => t.title === 'Aluguel');
-    expect(aluguel.occurrence_date ?? aluguel.transaction_date).toContain('-20');
+    const alugueis = lancamentos.items.filter(
+      (t: { title: string }) => t.title === 'Aluguel',
+    );
+    expect(alugueis.length).toBeGreaterThan(0);
+    // TODAS mudaram de dia — inclusive a do mês seguinte, que o horizonte criou.
+    for (const aluguel of alugueis) {
+      expect(aluguel.occurrence_date ?? aluguel.transaction_date).toContain('-20');
+    }
 
     await context.close();
   });

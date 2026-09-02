@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { useLocation, useNavigate } from 'react-router-dom';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -1078,6 +1078,15 @@ function AccountsTab() {
           <CardDescription>
             De onde sai o dinheiro: contas bancárias, carteiras digitais e dinheiro vivo.
             Cada pagador de uma despesa pode informar a origem do pagamento.
+          </CardDescription>
+          {/* Saldo, extrato, saldo inicial, conciliação e transferência moram na
+              página Contas desde o ADR 0034 — aqui ficou só o cadastro, que é o
+              que ainda é configuração. Sem este link a pessoa procuraria o saldo
+              onde ele estava. */}
+          <CardDescription>
+            <Link to="/me/accounts" className="font-medium text-primary underline-offset-4 hover:underline">
+              Ver saldos, extrato e transferências →
+            </Link>
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">

@@ -116,7 +116,7 @@ def test_materializacao_absorve_colisao_e_segue_o_lote(db_session: Session):
     ))
     db_session.commit()
 
-    created = RecurringIncomeService.generate_due_income(db_session, user.id, date(2026, 7, 15))
+    created = RecurringIncomeService.generate_due_income(db_session, user.id, date(2026, 7, 15), horizonte_meses=0)
     db_session.commit()
 
     # A ocorrência em colisão é pulada; a outra é criada normalmente

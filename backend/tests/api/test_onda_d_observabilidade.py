@@ -1,7 +1,7 @@
 """Observabilidade e desempenho da Onda D."""
 from datetime import date, datetime, UTC
 
-from app.domain.dates import civil_instant
+from app.domain.dates import HORIZONTE_MESES, civil_instant
 from decimal import Decimal
 
 import pytest
@@ -138,7 +138,10 @@ def test_viewer_nao_materializa_na_leitura(db_session: Session, ws):
     criadas = RecurringMaterializationService.ensure_and_commit(
         db_session, ws["ws"].id, role=WorkspaceRole.member
     )
-    assert criadas["expenses"] == 1
+    # Uma ocorrência por mês do horizonte (ADR 0034): a materialização deixou
+    # de ser só do mês corrente para a conta do dia 1º do mês seguinte ser
+    # conhecida antes da virada.
+    assert criadas["expenses"] == HORIZONTE_MESES + 1
 
 
 def test_sem_template_ativo_nao_comita(db_session: Session, ws, monkeypatch):
@@ -180,7 +183,7 @@ def test_generate_due_instances_aceita_template_id(db_session: Session, ws):
     )
     db_session.commit()
 
-    assert criadas == 1
+    assert criadas == HORIZONTE_MESES + 1
     titulos = {
         t.title for t in db_session.exec(
             select(Transaction).where(Transaction.workspace_id == ws["ws"].id)

@@ -216,10 +216,19 @@ services:
     # tanto faz; para notificação não — "sua conta vence hoje" às 3 da manhã
     # acorda a pessoa e queima o canal. Quem decide a hora é o script, que sai
     # sem tocar no banco fora da `DUE_REMINDER_HOUR`.
+    # A ORDEM dentro do laço importa em dois pontos:
+    #
+    # 1. o câmbio vem primeiro porque a materialização de um template em moeda
+    #    estrangeira precisa da cotação do dia — sem ela a ocorrência é pulada e
+    #    espera a próxima volta;
+    # 2. a materialização vem ANTES do aviso de vencimento (ADR 0034): avisar
+    #    sobre uma conta exige que ela exista, e quem a cria é o script abaixo.
+    #    Invertida, a conta do dia 1º só seria avisada no dia 2.
     command: >
       sh -c 'horas=0;
       while true; do
         python scripts/backfill_rates.py 7 || true;
+        python scripts/materializar_ocorrencias.py || true;
         python scripts/avisar_vencimentos.py || true;
         horas=$$((horas + 1));
         if [ $$horas -ge 24 ]; then

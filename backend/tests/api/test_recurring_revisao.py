@@ -41,9 +41,14 @@ def cena_fixture(db_session: Session, override_get_session):
     db_session.add(
         WorkspaceMembership(workspace_id=ws.id, user_id=user.id, role=WorkspaceRole.owner)
     )
+    # Dia 1, e não dia 5: a ocorrência precisa estar SEMPRE no passado. Com o dia
+    # 5, este arquivo inteiro ficava vermelho nos quatro primeiros dias de cada mês
+    # — a ocorrência nascia `pending` (ainda não venceu) e o consumo, que só conta
+    # o realizado, dava zero. O teste falhava por causa do calendário, não do
+    # código, e num dia em que ninguém estava olhando.
     template = RecurringExpense(
         title="Aluguel", base_amount=Decimal("1000.00"), currency="BRL",
-        frequency=RecurrenceFrequency.monthly, day_of_month=5,
+        frequency=RecurrenceFrequency.monthly, day_of_month=1,
         workspace_id=ws.id, created_by_user_id=user.id, payer_user_id=user.id,
     )
     db_session.add(template)
@@ -103,7 +108,7 @@ def test_mudar_o_dia_planeja_um_MOVE(cena):
     do_mes = [i for i in itens if i["billing_month"] == _mes_atual()]
     assert len(do_mes) == 1
     assert do_mes[0]["action"] == "move"
-    assert do_mes[0]["occurrence_date"] == f"{hoje.year:04d}-{hoje.month:02d}-05"
+    assert do_mes[0]["occurrence_date"] == f"{hoje.year:04d}-{hoje.month:02d}-01"
     assert do_mes[0]["new_occurrence_date"] == f"{hoje.year:04d}-{hoje.month:02d}-20"
     assert do_mes[0]["changes"]["date"]["to"] == f"{hoje.year:04d}-{hoje.month:02d}-20"
 
@@ -164,7 +169,7 @@ def test_preview_nao_escreve_nada(cena):
 
     assert [(t.id, t.occurrence_date, t.total_amount) for t in _instancias(cena)] == antes
     template = cena["db"].get(RecurringExpense, cena["template_id"])
-    assert template.day_of_month == 5, "o preview alterou o próprio template"
+    assert template.day_of_month == 1, "o preview alterou o próprio template"
 
 
 # --- 2. O apply faz só o que foi escolhido ---------------------------------
@@ -314,5 +319,8 @@ def test_seu_mes_materializa_a_recorrencia(cena):
     assert r.status_code == 200, r.text
 
     cena["db"].expire_all()
-    assert len(_instancias(cena)) == 1
+    # Do MÊS pedido: o horizonte também materializa o mês seguinte (ADR 0034), e
+    # o que este teste afirma é que abrir o Seu mês faz a recorrência aparecer.
+    do_mes = [t for t in _instancias(cena) if t.billing_month == _mes_atual()]
+    assert len(do_mes) == 1
     assert Decimal(r.json()["consumption"]) == Decimal("1000.00")

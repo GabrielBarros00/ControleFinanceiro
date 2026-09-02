@@ -26,6 +26,24 @@ FORECAST_STATUSES = (
     TransactionStatus.paid,
 )
 
+# Obrigação: o que ainda vai sair do caixa (ADR 0034).
+#
+# Inclui `pending`, e é essa a diferença que faz a tela de Contas a pagar existir:
+# a ocorrência que a recorrência materializou para o dia 18 JÁ é uma conta a pagar
+# no dia 1º, mesmo sem ser gasto realizado. Com `REALIZED_STATUSES` ela era
+# invisível como obrigação — e a saída era acrescentar `pending` ao conjunto do
+# realizado, o que contaminaria relatório, dívida entre membros, fatura e o
+# resultado do mês com despesa que ainda não aconteceu.
+#
+# Deliberadamente separado de `FORECAST_STATUSES` apesar de coincidirem hoje: um
+# responde "o que eu devo", o outro "quanto eu vou gastar". Se um dia um `draft`
+# passar a projetar, ele não vira dívida por tabela.
+PAYABLE_STATUSES = (
+    TransactionStatus.pending,
+    TransactionStatus.confirmed,
+    TransactionStatus.paid,
+)
+
 # Moeda-base PADRÃO. Desde a Onda 5 é configurável por workspace
 # (Workspace.base_currency); este valor é só o fallback. Transações em outra
 # moeda ficam FORA das agregações até existir taxa histórica congelada (ADR 0006).

@@ -21,7 +21,6 @@ um workspace BRL isso não casava com linha nenhuma. Some sem erro:
 O ADR 0024 separou as duas pernas do lançamento. Estes testes fixam que elas
 coexistem sem se contaminar.
 """
-from datetime import date
 from decimal import Decimal
 
 import pytest
@@ -29,7 +28,7 @@ from fastapi.testclient import TestClient
 from sqlmodel import Session, select
 
 from app.core.jwt import create_access_token
-from app.domain.dates import civil_instant
+from app.domain.dates import civil_instant, today_local
 from app.main import app
 from app.models.credit_card import CreditCard
 from app.models.exchange_rate import ExchangeRate
@@ -40,7 +39,20 @@ from app.services.credit_card_service import CreditCardService
 
 client = TestClient(app)
 
-DIA = date(2026, 8, 10)
+# Dia 1 do mês CORRENTE, e não uma data fixa. Duas armadilhas de calendário de
+# uma vez, as duas encontradas com a suíte vermelha:
+#
+# 1. A materialização só cobre o mês de HOJE (`generate_due_instances` deriva o
+#    `billing_month` de `today_local()`, e a rota `/recurring/generate` ignora os
+#    parâmetros `year`/`month` que este arquivo passa). Uma data fixa em agosto
+#    parou de materializar coisa alguma no dia em que agosto acabou.
+# 2. Ocorrência com data FUTURA nasce `pending`, e `compute_statement_total` só
+#    soma `REALIZED_STATUSES` — então "dia 10" deixava o total da fatura em zero
+#    nos nove primeiros dias de cada mês.
+#
+# O dia 1 é o único que está sempre no passado (ou é hoje), e fica confortavelmente
+# antes do `closing_day=20`, então a compra cai no ciclo corrente em qualquer mês.
+DIA = today_local().replace(day=1)
 QUANDO = civil_instant(DIA)
 # USD→BRL a 5,00: R$ 100 são US$ 20 antes do IOF.
 TAXA_USD = Decimal("5.000000")

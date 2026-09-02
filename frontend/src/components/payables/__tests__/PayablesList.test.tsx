@@ -1,5 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, screen, waitFor } from '@testing-library/react';
+// `render` de `@/test/utils`, e não do testing-library cru: a lista passou a
+// consultar as contas de pagamento (para oferecer 'saiu de qual conta'), e isso
+// exige o QueryClientProvider que o utilitário do projeto já monta.
+import { render } from '@/test/utils';
 import { PayablesList } from '../PayablesList';
 import type { Payables } from '@/hooks/use-payables';
 
@@ -32,6 +36,11 @@ const CONTAS: Payables = {
       converted_amount: '300.00',
       payment_method: 'boleto',
       is_overdue: true,
+      // `due_state`/`days_until_due` vêm do SERVIDOR (ADR 0034): "vence hoje" e
+      // "vence em 3 dias" dependem de qual é hoje, e o fuso do navegador dá outra
+      // resposta perto da meia-noite.
+      due_state: 'overdue',
+      days_until_due: -12,
       recurring_expense_id: 4,
       installment_no: null,
       installments_of: null,
@@ -49,12 +58,15 @@ const CONTAS: Payables = {
       converted_amount: '1200.00',
       payment_method: 'pix',
       is_overdue: false,
+      due_state: 'upcoming',
+      days_until_due: 11,
       recurring_expense_id: null,
       installment_no: null,
       installments_of: null,
       from_past_month: false,
     },
   ],
+  upcoming: [],
   excluded_foreign_count: 0,
 };
 
@@ -88,7 +100,9 @@ describe('Contas a pagar — a fila', () => {
     renderLista();
     expect(screen.getByText('Vencidas')).toBeInTheDocument();
     expect(screen.getByText('A vencer')).toBeInTheDocument();
-    expect(screen.getByText('vencida')).toBeInTheDocument();
+    // A pílula diz HÁ QUANTO TEMPO venceu (ADR 0034) — "vencida" sozinho não
+    // distingue a conta de ontem da de três meses atrás.
+    expect(screen.getByText('venceu há 12 dias')).toBeInTheDocument();
   });
 
   it('marca a conta que veio de recorrência', () => {

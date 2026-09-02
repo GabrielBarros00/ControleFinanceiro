@@ -22,7 +22,11 @@ from app.models.user import User
 client = TestClient(app)
 
 MES = datetime.now(UTC).strftime("%Y-%m")
-QUANDO = datetime.now(UTC).replace(day=10, hour=12, minute=0, second=0, microsecond=0)
+# Dia 1, e não dia 10: a data precisa estar SEMPRE no passado dentro do mês corrente.
+# Com o dia 10, `resolve_settled_at` devolvia `None` nos nove primeiros dias de cada
+# mês (a despesa ainda não venceu, então não saiu do caixa) e os testes de caixa
+# falhavam por causa do calendário, não do código.
+QUANDO = datetime.now(UTC).replace(day=1, hour=12, minute=0, second=0, microsecond=0)
 
 
 def _h(user: User) -> dict:

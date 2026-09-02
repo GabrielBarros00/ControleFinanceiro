@@ -30,6 +30,7 @@ from sqlmodel import Session, select
 from app.api.routes.auth import get_current_user
 from app.db.session import get_session
 from app.domain.access_policy import assert_owns, personal_scope
+from app.domain.account_policy import AccountCurrencyMismatch, assert_conta_na_moeda
 from app.domain.query_policy import resolve_personal_currency
 from app.models.credit_card import (
     CardStatement,
@@ -446,6 +447,15 @@ def pay_statement(
             raise HTTPException(status_code=400, detail="Conta inválida")
         if not account.active:
             raise HTTPException(status_code=400, detail="Conta inativa não pode originar pagamento")
+        # O pagamento é somado ao saldo da conta na moeda do CARTÃO (é assim que
+        # `CashFlowService._pagamentos_de_fatura` o expressa). Conta em outra moeda
+        # somaria moedas diferentes no saldo, em silêncio (ADR 0034).
+        try:
+            assert_conta_na_moeda(account, card.currency)
+        except AccountCurrencyMismatch as exc:
+            # 400 como os dois gates de conta logo acima, e não o 422 de validação:
+            # o corpo é válido, a combinação é que não é.
+            raise HTTPException(status_code=400, detail=str(exc))
 
     try:
         CreditCardService.pay_statement(

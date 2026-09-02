@@ -93,8 +93,19 @@ def test_frontend_nao_lista_evento_inexistente():
 # `me_push.py` é o caso mais extremo da regra: uma inscrição de push é de uma
 # pessoa E de um NAVEGADOR dela. Não há sala para transmitir, e transmitir seria
 # contar a outras pessoas em que aparelhos alguém recebe aviso (ADR 0018/0033).
+#
+# `me_balance.py` é o caso mais forte da regra depois do `me_push`: saldo,
+# extrato, ajuste e transferência são o dado mais sensível que o app guarda
+# (ADR 0034/§38). Transmiti-los para a sala de um workspace entregaria o extrato
+# bancário de uma pessoa a quem apenas divide despesa com ela.
+#
+# `me_settlements.py` é leitura, com UMA exceção: o credor declarando em qual
+# conta o acerto caiu (ADR 0034). Isso não muda nada do acerto que os outros
+# membros veem — o valor, a direção e a data seguem iguais —, e transmiti-lo
+# entregaria à sala do espaço a conta bancária de quem recebeu.
 MODULOS_PESSOAIS = {
-    "me_income.py", "me_cards.py", "me_accounts.py", "me_financing.py", "me_push.py",
+    "me_income.py", "me_cards.py", "me_accounts.py", "me_balance.py",
+    "me_financing.py", "me_push.py", "me_settlements.py",
 }
 
 # Módulo de PLATAFORMA (ADR 0026): mesma razão dos pessoais, num terceiro eixo.

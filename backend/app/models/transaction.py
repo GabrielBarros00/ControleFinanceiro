@@ -291,13 +291,30 @@ class TransactionPayer(SQLModel, table=True):
     payment_method/account_id por pagador: dois pagadores podem usar meios
     diferentes. Sem método próprio, herda o da transação (resumo/filtro).
     """
+    __table_args__ = (
+        # Saldo por conta (ADR 0034): a varredura é "os pagamentos DESTA conta", e
+        # ela roda sobre o histórico inteiro, não sobre um mês. Parcial e composto
+        # porque a esmagadora maioria das linhas tem `account_id` nulo — o índice
+        # cheio de coluna única que existia aqui era lido quase todo para nada.
+        #
+        # Sem data: ela mora em `Transaction.settled_at`, não no pagador. É a única
+        # fonte em que o corte "desde o saldo inicial" não cabe no índice.
+        Index(
+            "ix_transactionpayer_conta",
+            "account_id",
+            "transaction_id",
+            sqlite_where=text("account_id IS NOT NULL"),
+            postgresql_where=text("account_id IS NOT NULL"),
+        ),
+    )
+
     id: Optional[int] = Field(default=None, primary_key=True)
     transaction_id: int = Field(foreign_key="transaction.id", index=True)
     # Indexado pelo predicado de envolvimento (ADR 0018)
     user_id: int = Field(foreign_key="user.id", index=True)
     amount: Decimal = Field(decimal_places=2, max_digits=20)
     payment_method: Optional[PaymentMethod] = Field(default=None)
-    account_id: Optional[int] = Field(default=None, foreign_key="paymentaccount.id", index=True)
+    account_id: Optional[int] = Field(default=None, foreign_key="paymentaccount.id")
 
     created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
     updated_at: datetime = Field(default_factory=lambda: datetime.now(UTC))

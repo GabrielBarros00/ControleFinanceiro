@@ -3,6 +3,7 @@ from typing import Any, Dict, List, Optional
 
 from sqlmodel import Session, select
 
+from app.domain.account_policy import assert_conta_na_moeda
 from app.domain.money import Money, MoneyError
 from app.models.category import Category
 from app.models.payment_account import PaymentAccount
@@ -91,13 +92,15 @@ def _validate_payer_accounts(
     workspace_id: int,
     payers: List[TransactionPayerBase],
     actor_user_id: Optional[int] = None,
+    currency: Optional[str] = None,
 ) -> None:
-    """A conta informada por um pagador tem de existir, estar ativa, ser **dele** e
-    ser declarável por **quem está lançando** (ADR 0004 + ADR 0021).
+    """A conta informada por um pagador tem de existir, estar ativa, ser **dele**,
+    ser declarável por **quem está lançando** e estar na **mesma moeda** do
+    lançamento (ADR 0004 + ADR 0021 + ADR 0034).
 
     Cartão de crédito não usa conta — validado no schema (validate_payer_origins).
 
-    Três gates, cada um consertando um furo diferente:
+    Quatro gates, cada um consertando um furo diferente:
 
     1. O gate original era `account.workspace_id == workspace_id`, que num modelo
        de conta pessoal não quer dizer nada — e era o que impedia usar, no
@@ -110,6 +113,13 @@ def _validate_payer_accounts(
        afirmar que saiu da conta X do Bob é informação que só o Bob tem, e ela
        aparece no extrato pessoal dele. Sem conta declarada o lançamento continua
        válido — o campo é opcional.
+
+    4. O gate de MOEDA (ADR 0034). Enquanto a conta era só um rótulo, declarar que
+       USD 500 saíram de uma conta em reais não tinha consequência nenhuma; agora o
+       saldo dela é a soma literal dos movimentos atribuídos, e a divergência somava
+       moedas diferentes em silêncio. `currency=None` desliga o gate — é o preview,
+       que roda ANTES da conversão para a moeda-base e por isso não conhece ainda a
+       moeda com que o lançamento vai nascer.
 
     `actor_user_id=None` desliga o gate 3: é a materialização de recorrência, que
     não tem ator humano e cujos pagadores nem carregam conta (o `split_snapshot`
@@ -130,6 +140,7 @@ def _validate_payer_accounts(
             )
         if not account.active:
             raise ValueError(f"Conta '{account.name}' está desativada")
+        assert_conta_na_moeda(account, currency)
 
 
 def _cents(value: Decimal) -> int:
@@ -241,6 +252,7 @@ def compute_transaction_breakdown(
     items: Optional[List[TransactionItemCreate]],
     adjustments: Optional[List[TransactionAdjustmentCreate]] = None,
     actor_user_id: Optional[int] = None,
+    currency: Optional[str] = None,
 ) -> Dict[str, Any]:
     """Valida invariantes e calcula a divisão SEM persistir nada.
 
@@ -282,8 +294,8 @@ def compute_transaction_breakdown(
         involved |= {sh.user_id for sh in item.shares or []}
     _ensure_members(session, workspace_id, involved)
 
-    # 3b) Origem do dinheiro por pagador (ADR 0004)
-    _validate_payer_accounts(session, workspace_id, payers, actor_user_id)
+    # 3b) Origem do dinheiro por pagador (ADR 0004) + moeda da conta (ADR 0034)
+    _validate_payer_accounts(session, workspace_id, payers, actor_user_id, currency)
 
     result: Dict[str, Any] = {
         "payers": [p.model_dump() for p in payers],
@@ -413,6 +425,12 @@ def persist_transaction_children(
     Pressupõe db_transaction já com id (flush prévio) e a estrutura já
     validada (validate_split_structure). O chamador converte ValueError em
     400 e faz rollback — criação/edição atômica (ADR 0010).
+
+    A moeda do gate de conta (ADR 0034) sai de `db_transaction.currency`, e não de
+    um parâmetro: aqui ela já é a definitiva. O que o cliente mandou pode ter sido
+    substituído pela moeda-base na conversão de entrada (`_convert_create_to_base`),
+    e é a moeda GRAVADA que o saldo vai somar — validar a outra deixaria passar
+    exatamente o caso que o gate existe para barrar.
     """
     breakdown = compute_transaction_breakdown(
         session,
@@ -424,6 +442,7 @@ def persist_transaction_children(
         items=items,
         adjustments=adjustments,
         actor_user_id=actor_user_id,
+        currency=db_transaction.currency,
     )
 
     for p in breakdown["payers"]:

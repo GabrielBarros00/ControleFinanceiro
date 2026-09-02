@@ -11,6 +11,63 @@ segue [SemVer](https://semver.org/lang/pt-BR/).
 
 ## [Não lançado]
 
+### O app passou a saber quanto dinheiro você tem, e onde
+
+Antes ele respondia duas perguntas e achava que eram quatro. Sabia **de quem é o
+gasto** e **quando o dinheiro se moveu** — e não sabia **quanto existe** nem
+**quanto vai existir**. Faltavam as duas que a gente faz primeiro ao abrir um app
+de dinheiro.
+
+**Contas** virou uma tela, com o saldo de cada conta e o total. Cada uma tem
+extrato com **saldo corrente linha a linha**, então a pergunta "por que o saldo é
+exatamente esse valor?" tem resposta: cada linha aponta para a sua origem, e a
+soma vai até o saldo inicial. Nada de número sobrescrito sem rastro.
+
+Junto vieram **saldo inicial** ("em tal dia eu tinha tanto" — não é renda),
+**ajustar saldo** (o banco mostra outro número; a diferença vira um movimento
+datado, sem reescrever o passado) e **transferência entre contas** (o dinheiro
+muda de lugar, o seu total não se mexe — e entre moedas diferentes você informa
+os dois valores, porque o app não converte por conta própria).
+
+No **Seu mês** há agora quatro quadros, um por pergunta: *Seu dinheiro* (saldo),
+*Até o fim do mês* (saldo atual + a receber − a pagar), *Resultado do mês*
+(competência) e *Caixa do mês* (movimento). Eles não compartilham número por
+acaso — e o app já chamou de "Seu saldo" algo que era renda menos consumo.
+
+**Conta sem saldo informado mostra um travessão, não R$ 0,00.** A atualização não
+inventa saldo nenhum: a tela pede o número. "Não sei quanto você tem" e "você não
+tem nada" são coisas diferentes.
+
+### A conta do mês que vem aparece antes de o mês virar
+
+Cadastrar em 28/08 uma despesa recorrente do dia 18 não fazia a conta de setembro
+existir: ela só nascia quando setembro chegasse. Agora o app materializa o **mês
+corrente e o próximo inteiros**, e Contas a pagar ganhou uma seção **Próximas
+contas** — em 28 de agosto você já vê o aluguel do dia 1º de setembro.
+
+A fila também ficou mais legível: **vencidas**, **vencem hoje** e **a vencer**,
+com "vence em 3 dias" / "venceu há 2 dias". E ao marcar como paga dá para dizer
+**de qual conta saiu**, que é o momento em que você sabe disso.
+
+Quem faz esse trabalho passou a ser uma rotina de hora em hora, não o acaso de
+alguém abrir uma tela — o aviso de vencimento não tem sobre o que avisar se a
+conta ainda não existe.
+
+### Renda prevista deixou de virar dinheiro em mãos
+
+O salário do dia 30 ou não existia até o dia 30, ou já contava como recebido no
+dia 1º. Não havia terceira opção, e o app fazia a segunda.
+
+Agora a renda tem estado: **prevista**, **recebida**, **atrasada** ou
+**cancelada**. A prevista aparece na lista, conta como renda **do mês** e entra
+na projeção — e **não** entra no saldo nem no "quanto entrou". Quando o dinheiro
+cai, o botão **Recebi** pergunta a data e a conta. Salário recorrente se confirma
+sozinho na data (dá para desligar por renda incerta), mas **nunca antes dela**.
+
+E a renda de setembro recebida em setembro continua sendo de setembro mesmo que
+o dinheiro só apareça na conta em outubro: é ele que financia outubro, e o app
+parou de precisar mentir sobre a competência para isso funcionar.
+
 ### O número em destaque passou a ser o seu, não o valor cheio do lançamento
 
 Em Seus acertos › Por mês, a primeira coisa à vista era **"TOTAL DO MÊS

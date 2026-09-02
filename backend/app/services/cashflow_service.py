@@ -127,6 +127,12 @@ class CashMovement:
     card_id: Optional[int] = None
     financing_id: Optional[int] = None
     counterparty_id: Optional[int] = None
+    #: De/para qual `PaymentAccount` o dinheiro se moveu (ADR 0034). `None` = não
+    #: declarada — o movimento continua sendo caixa e continua no extrato, mas não
+    #: move saldo de conta nenhuma. Não é falha: registrar a despesa sem dizer de
+    #: onde saiu sempre foi legítimo. O que não pode é o buraco ser mudo, e por isso
+    #: a tela de Contas mostra quantos movimentos estão assim.
+    account_id: Optional[int] = None
 
 
 def _dia(momento: Optional[datetime]) -> date:
@@ -159,6 +165,7 @@ class CashFlowService:
         *,
         sources: Optional[List[str]] = None,
         workspace_id: Optional[int] = None,
+        converter: bool = True,
     ) -> List[CashMovement]:
         """Os movimentos de caixa da pessoa na janela, já convertidos para
         `destino` pela data efetiva de cada um.
@@ -166,8 +173,14 @@ class CashFlowService:
         `sources`/`workspace_id` existem para o extrato global; `get_month` chama
         sem filtro e agrega. Uma implementação só para as duas telas — o detalhe
         que não fecha com o total é o defeito clássico deste tipo de relatório.
+
+        `converter=False` devolve `converted=None` em toda linha e não toca no
+        store de câmbio. É para o SALDO POR CONTA (ADR 0034), que soma `amount`
+        direto: pela invariante de moeda, todo movimento atribuído a uma conta já
+        está na moeda dela, e converter para um destino qualquer seria trabalho
+        jogado fora — sobre o histórico INTEIRO, que é a janela do saldo.
         """
-        conv = ConversorPorData(db, destino)
+        conv = ConversorPorData(db, destino) if converter else None
         pedidas = set(sources) if sources else set(CASH_SOURCES)
         movimentos: List[CashMovement] = []
 
@@ -188,8 +201,9 @@ class CashFlowService:
         if SOURCE_INCOME in pedidas and workspace_id is None:
             movimentos += CashFlowService._rendas(db, user_id, inicio, fim)
 
-        for mov in movimentos:
-            mov.converted = conv(mov.amount or ZERO, mov.currency, mov.occurred_on)
+        if conv is not None:
+            for mov in movimentos:
+                mov.converted = conv(mov.amount or ZERO, mov.currency, mov.occurred_on)
 
         movimentos.sort(key=lambda m: (m.occurred_on, m.source, m.reference_id or 0))
         return movimentos
@@ -298,6 +312,7 @@ class CashFlowService:
                 Transaction.id,
                 Transaction.title,
                 Transaction.workspace_id,
+                TransactionPayer.account_id,
             )
             .join(Transaction, Transaction.id == TransactionPayer.transaction_id)
             .where(TransactionPayer.user_id == user_id)
@@ -321,8 +336,9 @@ class CashFlowService:
                 reference_id=tx_id,
                 title=titulo,
                 workspace_id=ws_id,
+                account_id=conta_id,
             )
-            for valor, moeda, quando, tx_id, titulo, ws_id in db.exec(consulta).all()
+            for valor, moeda, quando, tx_id, titulo, ws_id, conta_id in db.exec(consulta).all()
         ]
 
     @staticmethod
@@ -344,6 +360,7 @@ class CashFlowService:
                 CreditCard.id,
                 CreditCard.name,
                 CardStatement.month,
+                StatementPayment.account_id,
             )
             .join(CardStatement, CardStatement.id == StatementPayment.statement_id)
             .join(CreditCard, CreditCard.id == CardStatement.card_id)
@@ -363,8 +380,9 @@ class CashFlowService:
                 reference_id=pag_id,
                 title=f"{nome} — fatura de {mes}",
                 card_id=card_id,
+                account_id=conta_id,
             )
-            for valor, moeda, quando, pag_id, card_id, nome, mes in linhas
+            for valor, moeda, quando, pag_id, card_id, nome, mes, conta_id in linhas
         ]
 
     @staticmethod
@@ -384,6 +402,10 @@ class CashFlowService:
         """
         coluna = Settlement.from_user_id if enviados else Settlement.to_user_id
         outro = Settlement.to_user_id if enviados else Settlement.from_user_id
+        # Cada lado carrega a SUA conta. A do credor só ele pode declarar — quem
+        # registra o acerto é o devedor, e a conta bancária alheia não é informação
+        # dele (a mesma regra do gate 3 de `_validate_payer_accounts`).
+        conta = Settlement.from_account_id if enviados else Settlement.to_account_id
         consulta = (
             select(
                 Settlement.amount,
@@ -391,6 +413,7 @@ class CashFlowService:
                 Settlement.settled_at,
                 Settlement.id,
                 outro,
+                conta,
             )
             .where(coluna == user_id)
             .where(Settlement.settled_at >= inicio)
@@ -402,7 +425,7 @@ class CashFlowService:
 
         moedas: Dict[int, str] = {}
         movimentos = []
-        for valor, ws_id, quando, acerto_id, outro_id in db.exec(consulta).all():
+        for valor, ws_id, quando, acerto_id, outro_id, conta_id in db.exec(consulta).all():
             if ws_id not in moedas:
                 moedas[ws_id] = workspace_base_currency(db, ws_id)
             movimentos.append(
@@ -417,6 +440,7 @@ class CashFlowService:
                     title="Acerto enviado" if enviados else "Acerto recebido",
                     workspace_id=ws_id,
                     counterparty_id=outro_id,
+                    account_id=conta_id,
                 )
             )
         return movimentos
@@ -454,6 +478,7 @@ class CashFlowService:
                 AmortizationInstallment.installment_number,
                 Financing.id,
                 Financing.title,
+                AmortizationInstallment.account_id,
             )
             .join(Financing, Financing.id == AmortizationInstallment.financing_id)
             .where(Financing.owner_user_id == user_id)
@@ -473,20 +498,45 @@ class CashFlowService:
                 reference_id=parcela_id,
                 title=f"{titulo} — parcela {numero}",
                 financing_id=fin_id,
+                account_id=conta_id,
             )
-            for valor, moeda, quando, parcela_id, numero, fin_id, titulo in linhas
+            for valor, moeda, quando, parcela_id, numero, fin_id, titulo, conta_id in linhas
         ]
 
     @staticmethod
     def _rendas(
         db: Session, user_id: int, inicio: datetime, fim: datetime
     ) -> List[CashMovement]:
-        """Entrada 1: renda. Sem workspace — renda é pessoal (ADR 0021)."""
+        """Entrada 1: renda RECEBIDA. Sem workspace — renda é pessoal (ADR 0021).
+
+        **A data é `settled_at`, não `received_at` (ADR 0034).** Enquanto havia uma
+        data só, o salário do dia 30 materializado no dia 1º já contava como caixa
+        do dia 30 desde o começo do mês — e uma renda que nunca chegou continuava
+        contada. `received_at` virou a COMPETÊNCIA ("quando era para entrar") e
+        `settled_at` é o caixa ("quando entrou"); `NULL` é a renda prevista, que
+        aparece em "A receber" e na projeção.
+
+        A JANELA muda junto, e tinha de mudar — é a mesma razão da fonte 1: filtrar
+        por uma data e exibir outra produziria um extrato de outubro sem a linha e
+        um de setembro com uma linha datada de outubro. E como `occurred_on`
+        alimenta o `ConversorPorData`, a cotação passa a ser a do dia em que o
+        dinheiro de fato virou moeda.
+
+        Cancelada não entra por construção: cancelar deixa `settled_at` nulo.
+        """
         linhas = db.exec(
-            select(Income.amount, Income.currency, Income.received_at, Income.id, Income.title)
+            select(
+                Income.amount,
+                Income.currency,
+                Income.settled_at,
+                Income.id,
+                Income.title,
+                Income.account_id,
+            )
             .where(Income.user_id == user_id)
-            .where(Income.received_at >= inicio)
-            .where(Income.received_at <= fim)
+            .where(Income.settled_at.is_not(None))
+            .where(Income.settled_at >= inicio)
+            .where(Income.settled_at <= fim)
             .where(Income.deleted_at.is_(None))
         ).all()
         return [
@@ -499,8 +549,9 @@ class CashFlowService:
                 converted=None,
                 reference_id=renda_id,
                 title=titulo,
+                account_id=conta_id,
             )
-            for valor, moeda, quando, renda_id, titulo in linhas
+            for valor, moeda, quando, renda_id, titulo, conta_id in linhas
         ]
 
     # ---- Rótulos ------------------------------------------------------------

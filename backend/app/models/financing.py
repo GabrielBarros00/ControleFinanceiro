@@ -2,6 +2,7 @@ from datetime import datetime, UTC, date
 from enum import Enum
 from typing import Optional, List
 from decimal import Decimal
+from sqlalchemy import Index, text
 from sqlmodel import SQLModel, Field, Relationship, UniqueConstraint
 
 class AmortizationMethod(str, Enum):
@@ -54,10 +55,24 @@ class AmortizationInstallmentBase(SQLModel):
 class AmortizationInstallment(AmortizationInstallmentBase, table=True):
     __table_args__ = (
         UniqueConstraint("financing_id", "installment_number", name="uq_amortization_financing_number"),
+        Index(
+            "ix_amortizationinstallment_conta",
+            "account_id",
+            "paid_at",
+            sqlite_where=text("account_id IS NOT NULL AND is_paid"),
+            postgresql_where=text("account_id IS NOT NULL AND is_paid"),
+        ),
     )
 
     id: Optional[int] = Field(default=None, primary_key=True)
     financing_id: int = Field(foreign_key="financing.id", index=True)
     paid_at: Optional[datetime] = None
-    
+    # De qual conta a parcela saiu (ADR 0034). Mora AQUI e só aqui, mesmo quando o
+    # pagamento também vira uma `Transaction` no workspace: nesse caso a rota COPIA
+    # o valor para `TransactionPayer.account_id`, e a parcela deixa de ser fonte de
+    # caixa (a dedup `~ja_lancada` a suprime). Gravar nos dois lugares como fontes
+    # independentes daria duas verdades — e ao desmarcar o pagamento da despesa a
+    # parcela voltaria carregando uma conta congelada que pode não ser a atual.
+    account_id: Optional[int] = Field(default=None, foreign_key="paymentaccount.id")
+
     financing: Financing = Relationship(back_populates="schedule")

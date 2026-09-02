@@ -43,6 +43,11 @@ class SettleRequest(BaseModel):
     transaction_ids: List[int] = Field(min_length=1, max_length=200)
     settled: bool = True
     settled_on: Optional[date] = None
+    #: De qual conta o dinheiro saiu (ADR 0034). É aqui que a pessoa sabe disso —
+    #: até esta onda não havia onde dizer, e o saldo por conta não tinha como se
+    #: alimentar do gesto mais comum do app. Vale só para o pagador que está
+    #: confirmando; declarar a conta de outro pagador é informação que não é dele.
+    account_id: Optional[int] = None
 
 
 def _mes(month: Optional[str]) -> date:
@@ -96,19 +101,33 @@ def settle_payables(
 ):
     """Marca as contas como pagas (ou desfaz), gravando `settled_at`.
 
-    É a única porta que move dinheiro para o caixa sem editar o lançamento — e
-    por isso ela **não** mexe em `status`: competência e caixa são eixos
-    separados (ADR 0022/0029), e marcar um boleto como pago não pode congelar a
-    despesa como o status `paid` congela.
+    É a única porta que move dinheiro para o caixa sem editar o lançamento. Ela
+    **não** promove a despesa a `paid`: esse estado congela o lançamento inteiro
+    ("reabra antes de alterar"), e confirmar o pagamento de um boleto não pode
+    impedir a correção do valor. Competência e caixa seguem ortogonais (ADR
+    0022/0029).
+
+    O que ela mexe em `status` é `pending → confirmed` (ADR 0034), e só isso: a
+    ocorrência ainda não vencida é obrigação mas não é realizada, e sem a promoção
+    ela sairia de Contas a pagar sem entrar no caixa.
 
     Linha que não pode ser liquidada (cancelada, no cartão, de outra pessoa) é
     PULADA e contada, nunca recusada: quem confirma cinco contas não pode ver a
     operação inteira falhar por causa de uma.
     """
-    resultado = PayablesService.settle(
-        session, workspace_id, membership, body.transaction_ids,
-        settled=body.settled, settled_on=body.settled_on,
-    )
+    try:
+        resultado = PayablesService.settle(
+            session, workspace_id, membership, body.transaction_ids,
+            settled=body.settled, settled_on=body.settled_on,
+            account_id=body.account_id,
+        )
+    except ValueError as exc:
+        # Conta inválida/desativada/em outra moeda. Aqui SIM a operação inteira
+        # falha, e não é incoerência com o "pular" acima: pular uma linha que
+        # outra pessoa cancelou preserva a intenção de quem clicou; gravar a
+        # metade de um lote com a conta errada corromperia saldo.
+        session.rollback()
+        raise HTTPException(status_code=400, detail=str(exc))
     if resultado["updated"]:
         # Um evento agregado, não N: marcar dez contas não pode virar dez
         # rodadas de refetch em todo mundo que está com a tela aberta.

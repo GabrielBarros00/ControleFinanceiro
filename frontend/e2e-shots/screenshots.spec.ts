@@ -88,6 +88,11 @@ const AUTH_ROUTES: Array<{ path: string; slug: string }> = [
 const appRoutes = (wsId: number): Array<{ path: string; slug: string }> => [
   // --- Pessoal: o que é da pessoa e a acompanha ---
   { path: '/overview', slug: 'inicio-global' },
+  // Saldo por conta (ADR 0034). Está no catálogo porque foi a screenshot que
+  // revelou o "R$ 0,00" que a tela mostrava embaixo de "saldo não configurado" —
+  // um zero apresentado com a confiança de um número certo, que nenhum teste
+  // pegou porque nenhum teste olha para duas afirmações lado a lado.
+  { path: '/me/accounts', slug: 'contas' },
   { path: '/me/payables', slug: 'contas-a-pagar' },
   { path: '/me/income', slug: 'rendas' },
   { path: '/me/cards', slug: 'cartoes' },
@@ -121,7 +126,11 @@ const appRoutes = (wsId: number): Array<{ path: string; slug: string }> => [
 ];
 
 test('seed data and capture all screens', async ({ page, playwright }) => {
-  test.setTimeout(300_000);
+  // 15 min: os 5 anteriores já estouravam com o catálogo cheio, e o roteiro morria
+  // no meio da captura MOBILE — deixando metade das telas do dia anterior no
+  // diretório, sem nada avisando que eram antigas. Uma captura pela metade é pior
+  // que nenhuma, e isto é geração de artefato, não gate de correção.
+  test.setTimeout(900_000);
   /*
    * Apaga as capturas antigas ANTES de capturar.
    *

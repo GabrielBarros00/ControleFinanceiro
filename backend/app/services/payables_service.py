@@ -1,4 +1,18 @@
-"""Contas a pagar: o lançamento que ainda não virou saída de caixa (ADR 0029).
+"""Contas a pagar: o lançamento que ainda não virou saída de caixa (ADR 0029/0034).
+
+**Obrigação e caixa usam conjuntos de status DIFERENTES, e essa é a mudança do ADR
+0034.** Aqui vale `PAYABLE_STATUSES`, que inclui `pending`; o caixa usa
+`REALIZED_STATUSES`, que não. A conta de luz que a recorrência materializou para o
+dia 18 é obrigação no dia 1º e não é gasto realizado — as duas coisas ao mesmo
+tempo. A partição com o caixa continua de pé porque **liquidar promove `pending`
+para `confirmed`** (ver `settle`): sem essa promoção a despesa paga sairia daqui e
+não entraria no caixa, e o dinheiro sumiria dos dois lados.
+
+**O mês pedido não é o horizonte.** `entries` traz o mês e o atrasado; `upcoming`
+traz o que vence até o fim do MÊS SEGUINTE. Sem a segunda lista, o aluguel de 1º de
+setembro só aparecia quando setembro chegasse — e quem olha a tela em 28 de agosto
+precisa saber que ele vem.
+
 
 **É a fonte 1 do `CashFlowService` com o filtro invertido.** Aquela consulta soma
 o `TransactionPayer` da pessoa em lançamento vivo, realizado, fora do cartão e
@@ -31,14 +45,17 @@ from sqlmodel import Session, select
 
 from app.domain.dates import (
     civil_instant,
+    fim_do_horizonte,
     local_day,
     month_bounds_utc,
     month_key,
     today_local,
 )
 from app.domain.access_policy import can_write, involvement_filter, scope_transactions
-from app.domain.query_policy import REALIZED_STATUSES, workspaces_do_usuario
-from app.models.transaction import Transaction, TransactionPayer
+from app.domain.account_policy import assert_conta_na_moeda
+from app.domain.query_policy import PAYABLE_STATUSES, workspaces_do_usuario
+from app.models.payment_account import PaymentAccount
+from app.models.transaction import Transaction, TransactionPayer, TransactionStatus
 from app.models.workspace import Workspace
 from app.services.money_conversion import ZERO, ConversorPorData
 
@@ -61,7 +78,9 @@ def _consulta_base():
         select(Transaction, TransactionPayer.amount)
         .join(TransactionPayer, TransactionPayer.transaction_id == Transaction.id)
         .where(Transaction.deleted_at.is_(None))
-        .where(Transaction.status.in_(REALIZED_STATUSES))
+        # `PAYABLE_STATUSES` e não `REALIZED_STATUSES` (ADR 0034): a ocorrência
+        # futura nasce `pending` e é obrigação hoje, sem ser gasto realizado.
+        .where(Transaction.status.in_(PAYABLE_STATUSES))
         .where(Transaction.credit_card_id.is_(None))
         .where(Transaction.settled_at.is_(None))
     )
@@ -87,6 +106,61 @@ def _por_lancamento(linhas) -> List[tuple]:
         anterior = agrupado.get(tx.id)
         agrupado[tx.id] = (tx, (anterior[1] if anterior else ZERO) + (valor or ZERO))
     return list(agrupado.values())
+
+
+def _estado(vence: date, hoje: date) -> str:
+    """`overdue | due_today | upcoming` — DERIVADO, nunca armazenado.
+
+    A tela precisa distinguir "vence hoje" de "vence em 12 dias": as duas são
+    `is_overdue: false` e pedem ações diferentes. Guardar o estado numa coluna
+    exigiria reescrevê-lo todo dia à meia-noite.
+    """
+    if vence < hoje:
+        return "overdue"
+    if vence == hoje:
+        return "due_today"
+    return "upcoming"
+
+
+def _entrada(
+    tx: Transaction,
+    valor,
+    convertido,
+    vence: date,
+    hoje: date,
+    *,
+    nomes: Dict[int, str],
+    mes_pedido: str,
+) -> Dict[str, Any]:
+    """A linha da tela. Uma função só para a lista do mês e a de próximas não
+    divergirem em campo nenhum — foram escritas juntas justamente por isso."""
+    return {
+        "transaction_id": tx.id,
+        "workspace_id": tx.workspace_id,
+        "workspace_name": nomes.get(tx.workspace_id, ""),
+        "title": tx.title,
+        "due_date": vence,
+        "billing_month": tx.billing_month,
+        "amount": valor or ZERO,
+        "currency": tx.currency,
+        "converted_amount": convertido,
+        "payment_method": tx.payment_method,
+        "is_overdue": vence < hoje,
+        "due_state": _estado(vence, hoje),
+        #: Negativo = já venceu. É o número que a tela transforma em "vence em 3
+        #: dias" / "venceu há 2 dias" sem ter de refazer a conta no cliente, onde
+        #: o fuso do navegador daria outra resposta perto da meia-noite.
+        "days_until_due": (vence - hoje).days,
+        # De onde a conta veio. A recorrência é a origem que mais aparece aqui —
+        # e saber que a linha é automática muda o que a pessoa faz com ela
+        # (marcar como paga vs. ir cobrar alguém).
+        "recurring_expense_id": tx.recurring_expense_id,
+        "installment_no": tx.installment_no,
+        "installments_of": tx.installments_of,
+        # Competência anterior ao mês pedido: a conta é arrastada de um mês
+        # fechado. A tela agrupa por isso.
+        "from_past_month": (tx.billing_month or mes_pedido) < mes_pedido,
+    }
 
 
 def _vencimento(tx: Transaction) -> date:
@@ -129,7 +203,7 @@ class PayablesService:
             return PayablesService._vazio(destino, target_month)
 
         mes = month_key(target_month)
-        consulta = (
+        do_usuario = (
             _consulta_base()
             .where(TransactionPayer.user_id == user_id)
             .where(Transaction.workspace_id.in_(ids))
@@ -137,16 +211,21 @@ class PayablesService:
         # `billing_month` e não a janela por `transaction_date`: é a definição
         # ÚNICA de mês das agregações (ver `domain/dates.month_key`), e a tela põe
         # a conta ao lado do consumo do mesmo mês.
-        consulta = consulta.where(
+        consulta = do_usuario.where(
             Transaction.billing_month <= mes
             if incluir_atrasadas
             else Transaction.billing_month == mes
         )
+        nomes = {ws.id: ws.name for ws in espacos}
 
-        return PayablesService._monta(
+        resultado = PayablesService._monta(
             db, destino, target_month, db.exec(consulta).all(),
-            nomes={ws.id: ws.name for ws in espacos}, mes_pedido=mes,
+            nomes=nomes, mes_pedido=mes,
         )
+        resultado["upcoming"] = PayablesService._proximas(
+            db, destino, target_month, do_usuario, nomes=nomes, mes_pedido=mes
+        )
+        return resultado
 
     # ---- Camada do espaço ----------------------------------------------------
 
@@ -170,20 +249,25 @@ class PayablesService:
         esconde — e vazaria justamente o que cada um deve pagar.
         """
         mes = month_key(target_month)
-        consulta = _consulta_base().where(Transaction.workspace_id == workspace_id)
+        do_espaco = _consulta_base().where(Transaction.workspace_id == workspace_id)
         if viewer_user_id is not None:
-            consulta = consulta.where(involvement_filter(viewer_user_id))
-        consulta = consulta.where(
+            do_espaco = do_espaco.where(involvement_filter(viewer_user_id))
+        consulta = do_espaco.where(
             Transaction.billing_month <= mes
             if incluir_atrasadas
             else Transaction.billing_month == mes
         )
 
         ws = db.get(Workspace, workspace_id)
-        return PayablesService._monta(
+        nomes = {workspace_id: ws.name if ws else ""}
+        resultado = PayablesService._monta(
             db, destino, target_month, db.exec(consulta).all(),
-            nomes={workspace_id: ws.name if ws else ""}, mes_pedido=mes,
+            nomes=nomes, mes_pedido=mes,
         )
+        resultado["upcoming"] = PayablesService._proximas(
+            db, destino, target_month, do_espaco, nomes=nomes, mes_pedido=mes
+        )
+        return resultado
 
     # ---- O número que o Seu mês mostra --------------------------------------
 
@@ -215,8 +299,54 @@ class PayablesService:
             "overdue_total": ZERO,
             "due_this_month_total": ZERO,
             "entries": [],
+            "upcoming": [],
             "excluded_foreign_count": 0,
         }
+
+    @staticmethod
+    def _proximas(
+        db: Session,
+        destino: str,
+        target_month: date,
+        consulta_sem_mes,
+        *,
+        nomes: Dict[int, str],
+        mes_pedido: str,
+    ) -> List[Dict[str, Any]]:
+        """As obrigações de competência FUTURA que vencem até o fim do mês seguinte.
+
+        Existe por causa do caso que abre o ADR 0034: em 28 de agosto, o aluguel de
+        1º de setembro tem `billing_month = "2026-09"` e por isso ficava fora da
+        lista de agosto — a pessoa só descobria a conta quando o mês virasse, que é
+        tarde demais para uma conta que vence no dia 1º.
+
+        Lista separada, e não misturada em `entries`, porque os totais do topo
+        respondem "quanto ainda sai NESTE mês". Somar setembro ali inflaria o número
+        que a pessoa usa para decidir se o dinheiro do mês fecha.
+
+        O teto é `fim_do_horizonte` — a MESMA constante que a materialização usa.
+        Mostrar mais do que se materializa prometeria uma lista que às vezes existe
+        e às vezes não, conforme o cron tivesse rodado.
+        """
+        limite = fim_do_horizonte(target_month)
+
+        linhas = db.exec(
+            consulta_sem_mes.where(Transaction.billing_month > mes_pedido)
+        ).all()
+
+        entradas = []
+        conv = ConversorPorData(db, destino)
+        hoje = today_local()
+        for tx, valor in _por_lancamento(linhas):
+            vence = _vencimento(tx)
+            if vence > limite:
+                continue
+            entradas.append(
+                _entrada(tx, valor, conv(valor or ZERO, tx.currency, vence), vence, hoje,
+                         nomes=nomes, mes_pedido=mes_pedido)
+            )
+        entradas.sort(key=lambda e: (e["due_date"], e["transaction_id"]))
+        return entradas
 
     @staticmethod
     def _monta(
@@ -253,28 +383,10 @@ class PayablesService:
                     atrasado += convertido
                 elif vence <= fim_do_mes:
                     no_mes += convertido
-            entradas.append({
-                "transaction_id": tx.id,
-                "workspace_id": tx.workspace_id,
-                "workspace_name": nomes.get(tx.workspace_id, ""),
-                "title": tx.title,
-                "due_date": vence,
-                "billing_month": tx.billing_month,
-                "amount": valor or ZERO,
-                "currency": tx.currency,
-                "converted_amount": convertido,
-                "payment_method": tx.payment_method,
-                "is_overdue": atrasada,
-                # De onde a conta veio. A recorrência é a origem que mais
-                # aparece aqui — e saber que a linha é automática muda o que a
-                # pessoa faz com ela (marcar como paga vs. ir cobrar alguém).
-                "recurring_expense_id": tx.recurring_expense_id,
-                "installment_no": tx.installment_no,
-                "installments_of": tx.installments_of,
-                # Competência anterior ao mês pedido: a conta é arrastada de um
-                # mês fechado. A tela agrupa por isso.
-                "from_past_month": (tx.billing_month or mes_pedido) < mes_pedido,
-            })
+            entradas.append(
+                _entrada(tx, valor, convertido, vence, hoje,
+                         nomes=nomes, mes_pedido=mes_pedido)
+            )
 
         # Mais antigas primeiro: a fila de pagamento se lê por vencimento, ao
         # contrário do extrato (que é histórico e se lê do mais recente).
@@ -287,6 +399,9 @@ class PayablesService:
             "overdue_total": atrasado,
             "due_this_month_total": no_mes,
             "entries": entradas,
+            # Preenchida por quem chama (`list_payables` / `list_workspace_payables`)
+            # — `_monta` não conhece a consulta sem recorte de mês.
+            "upcoming": [],
             "excluded_foreign_count": excluidos,
         }
 
@@ -301,6 +416,7 @@ class PayablesService:
         *,
         settled: bool,
         settled_on: Optional[date] = None,
+        account_id: Optional[int] = None,
     ) -> Dict[str, int]:
         """Marca (ou desmarca) o pagamento de vários lançamentos de uma vez.
 
@@ -312,6 +428,18 @@ class PayablesService:
         `settled_on` é uma data CIVIL — "paguei no dia 14" —, então vira instante
         por `civil_instant`, não por `datetime.combine`. Meia-noite local ancorada
         em UTC jogaria o pagamento do dia 1º para o caixa do mês anterior.
+
+        **Liquidar PROMOVE `pending` para `confirmed` (ADR 0034)**, e este é o
+        ponto mais perigoso da onda inteira. A lista usa `PAYABLE_STATUSES` (que
+        inclui `pending`) e o caixa usa `REALIZED_STATUSES` (que não): sem a
+        promoção, confirmar o pagamento de uma ocorrência ainda não vencida a
+        tiraria daqui **e** não a colocaria no caixa. O dinheiro sumiria dos dois
+        lados, em silêncio, e o único sinal seria um saldo que não fecha.
+
+        `account_id` diz de qual conta o dinheiro saiu — é aqui que a pessoa sabe
+        disso, e até o ADR 0034 não havia onde dizer. É gravado na linha de
+        `TransactionPayer` de quem está liquidando, e só nela: declarar a conta de
+        outro pagador é informação que não é de quem clicou (ADR 0004).
         """
         if not transaction_ids:
             return {"updated": 0, "skipped": 0}
@@ -332,11 +460,11 @@ class PayablesService:
 
         atualizados = 0
         for tx in alvos:
-            # As mesmas travas da lista, agora na escrita: cancelada não é
-            # obrigação, e compra no cartão se paga pela fatura. Sem elas, um id
+            # As mesmas travas da lista, agora na escrita: rascunho e cancelada não
+            # são obrigação, e compra no cartão se paga pela fatura. Sem elas, um id
             # forjado no corpo marcaria como paga uma compra de cartão e a saída
             # contaria duas vezes no caixa.
-            if tx.status not in REALIZED_STATUSES or tx.credit_card_id is not None:
+            if tx.status not in PAYABLE_STATUSES or tx.credit_card_id is not None:
                 continue
             # Autoria (ADR 0018): `member` mexe no que é dele, `admin+` em tudo.
             if not can_write(tx.created_by_user_id, membership):
@@ -344,7 +472,42 @@ class PayablesService:
             if (tx.settled_at is not None) == settled:
                 continue
             tx.settled_at = quando
+            if settled and tx.status == TransactionStatus.pending:
+                # A promoção descrita no docstring. Pagar é o ato que confirma a
+                # despesa: ninguém paga uma conta que não reconhece.
+                tx.status = TransactionStatus.confirmed
             db.add(tx)
+            if settled and account_id is not None:
+                PayablesService._grava_conta(db, tx, membership.user_id, account_id)
             atualizados += 1
 
         return {"updated": atualizados, "skipped": len(transaction_ids) - atualizados}
+
+    @staticmethod
+    def _grava_conta(db: Session, tx: Transaction, user_id: int, account_id: int) -> None:
+        """Anota, na linha de pagador de QUEM LIQUIDOU, de qual conta saiu.
+
+        Silencioso quando não há o que anotar — quem confirma o pagamento de uma
+        despesa em que não é pagador (um `admin` fechando a conta da casa) está
+        registrando o fato, não a origem do próprio dinheiro. Recusar a operação
+        inteira por causa disso faria a confirmação em lote falhar por um detalhe
+        opcional.
+
+        A conta é validada aqui (dono, viva, ativa, moeda) e não na rota porque é
+        aqui que se sabe qual é o pagador e qual a moeda do lançamento.
+        """
+        payer = db.exec(
+            select(TransactionPayer)
+            .where(TransactionPayer.transaction_id == tx.id)
+            .where(TransactionPayer.user_id == user_id)
+        ).first()
+        if payer is None:
+            return
+        conta = db.get(PaymentAccount, account_id)
+        if not conta or conta.deleted_at or conta.owner_user_id != user_id:
+            raise ValueError("Conta inválida")
+        if not conta.active:
+            raise ValueError(f"Conta '{conta.name}' está desativada")
+        assert_conta_na_moeda(conta, tx.currency)
+        payer.account_id = account_id
+        db.add(payer)

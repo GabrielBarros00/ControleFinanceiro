@@ -266,6 +266,11 @@ def test_renda_e_entrada_de_caixa(db_session, cenario):
     db_session.add(Income(
         title="Salário", amount=Decimal("9000.00"), currency="BRL",
         received_at=datetime(2026, 8, 5, tzinfo=UTC), user_id=alice.id,
+        # `settled_at` é o que faz a renda ser CAIXA (ADR 0034). `received_at`
+        # sozinho é competência: a renda de agosto que ainda não caiu aparece na
+        # lista e na projeção, e não no `cash_in` — ver
+        # `test_renda_prevista_nao_e_caixa`.
+        settled_at=datetime(2026, 8, 5, tzinfo=UTC),
     ))
     db_session.commit()
 
@@ -280,6 +285,7 @@ def test_net_cash_e_entrada_menos_saida(db_session, cenario):
     db_session.add(Income(
         title="Salário", amount=Decimal("5000.00"), currency="BRL",
         received_at=datetime(2026, 8, 5, tzinfo=UTC), user_id=alice.id,
+        settled_at=datetime(2026, 8, 5, tzinfo=UTC),
     ))
     db_session.add(Settlement(
         workspace_id=ws.id, from_user_id=alice.id, to_user_id=bob.id,

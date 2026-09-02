@@ -98,7 +98,7 @@ def test_renda_recorrente_do_dia_1_aparece_no_proprio_mes(db_session, cena):
     ))
     db_session.commit()
 
-    assert RecurringIncomeService.generate_due_income(db_session, cena["user_id"], HOJE) == 1
+    assert RecurringIncomeService.generate_due_income(db_session, cena["user_id"], HOJE, horizonte_meses=0) == 1
     db_session.commit()
 
     inc = db_session.exec(select(Income).where(Income.user_id == cena["user_id"])).one()
@@ -122,7 +122,7 @@ def test_overview_e_caixa_do_dia_1_contam_a_renda(db_session, cena):
         start_date=DIA_1, user_id=cena["user_id"],
     ))
     db_session.commit()
-    RecurringIncomeService.generate_due_income(db_session, cena["user_id"], HOJE)
+    RecurringIncomeService.generate_due_income(db_session, cena["user_id"], HOJE, horizonte_meses=0)
     db_session.commit()
 
     overview = client.get(f"/api/v1/me/overview?month={AGOSTO}", headers=cena["headers"])
@@ -150,7 +150,7 @@ def test_despesa_recorrente_do_dia_1_fica_no_mes(db_session, cena):
     ))
     db_session.commit()
 
-    assert RecurringService.generate_due_instances(db_session, cena["ws_id"], HOJE) == 1
+    assert RecurringService.generate_due_instances(db_session, cena["ws_id"], HOJE, horizonte_meses=0) == 1
     db_session.commit()
 
     tx = db_session.exec(
@@ -175,9 +175,9 @@ def test_materializacao_do_dia_1_nao_duplica(db_session, cena):
     ))
     db_session.commit()
 
-    RecurringService.generate_due_instances(db_session, cena["ws_id"], HOJE)
+    RecurringService.generate_due_instances(db_session, cena["ws_id"], HOJE, horizonte_meses=0)
     db_session.commit()
-    assert RecurringService.generate_due_instances(db_session, cena["ws_id"], HOJE) == 0
+    assert RecurringService.generate_due_instances(db_session, cena["ws_id"], HOJE, horizonte_meses=0) == 0
     db_session.commit()
 
     linhas = db_session.exec(
@@ -200,7 +200,7 @@ def test_dedup_sobrevive_a_edicao_da_data_materializada(db_session, cena):
         workspace_id=cena["ws_id"], created_by_user_id=cena["user_id"],
     ))
     db_session.commit()
-    RecurringService.generate_due_instances(db_session, cena["ws_id"], HOJE)
+    RecurringService.generate_due_instances(db_session, cena["ws_id"], HOJE, horizonte_meses=0)
     db_session.commit()
 
     tx = db_session.exec(
@@ -210,7 +210,7 @@ def test_dedup_sobrevive_a_edicao_da_data_materializada(db_session, cena):
     db_session.add(tx)
     db_session.commit()
 
-    assert RecurringService.generate_due_instances(db_session, cena["ws_id"], HOJE) == 0
+    assert RecurringService.generate_due_instances(db_session, cena["ws_id"], HOJE, horizonte_meses=0) == 0
     db_session.commit()
     linhas = db_session.exec(
         select(Transaction).where(Transaction.workspace_id == cena["ws_id"])
