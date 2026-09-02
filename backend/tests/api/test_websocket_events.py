@@ -1,3 +1,5 @@
+import logging
+
 import pytest
 from fastapi.testclient import TestClient
 from sqlmodel import Session, select
@@ -43,6 +45,53 @@ def test_ws_requires_auth(rt):
             with pytest.raises(WebSocketDisconnect) as exc:
                 sock.receive_json()
             assert exc.value.code == 4401
+
+
+def test_erro_dentro_do_socket_deixa_rastro(rt, caplog, monkeypatch):
+    """Um erro no handler não pode derrubar o socket em SILÊNCIO.
+
+    O `except Exception: pass` que existia aqui tornava indistinguíveis duas
+    coisas muito diferentes: uma aba fechada e um erro de verdade dentro do
+    servidor. As duas chegavam ao cliente como o mesmo disconnect, e ao CI como
+    um `WebSocketDisconnect` sem uma linha dizendo por quê — foi o que custou a
+    investigação do flake de `test_two_clients_receive_seq_consistent_events`.
+
+    O socket continua caindo (é a resposta certa); o que este teste exige é o
+    rastro — e um fechamento de verdade.
+
+    O fechamento não estava lá, e foi este teste que revelou: sem o
+    `close(1011)`, o handler apenas RETORNAVA e o socket ficava pendurado. O
+    cliente esperava para sempre por uma mensagem que nunca viria. Escrever este
+    teste travou por 5 minutos até o `close` entrar — se ele algum dia voltar a
+    pendurar em vez de falhar, é este o motivo.
+    """
+    def explode(_workspace_id):
+        raise RuntimeError("o banco travou no meio do handshake")
+
+    monkeypatch.setattr("app.ws.routes._current_seq", explode)
+
+    with caplog.at_level(logging.ERROR, logger="app.ws"):
+        with TestClient(app) as client:
+            with client.websocket_connect(
+                f"/api/v1/ws/workspaces/{rt['ws'].id}",
+                headers=_headers(rt["users"]["owner"]),
+            ) as sock:
+                with pytest.raises(WebSocketDisconnect) as exc:
+                    sock.receive_json()
+
+    # 1011 = erro interno (RFC 6455). Diz ao cliente que o problema foi do
+    # servidor e que reconectar faz sentido — ao contrário do 4403, que manda
+    # desistir. Sem código nenhum, o cliente não tinha como distinguir.
+    assert exc.value.code == 1011
+
+    assert "o banco travou no meio do handshake" in caplog.text, (
+        "o erro morreu em silêncio — sem isto no log, o próximo vermelho "
+        "de WebSocket volta a custar uma investigação do zero"
+    )
+    # O workspace e o usuário precisam estar na linha: um log que não diz QUAL
+    # socket caiu não ajuda a achar nada em produção.
+    assert str(rt["ws"].id) in caplog.text
+    assert str(rt["users"]["owner"].id) in caplog.text
 
 
 def test_ws_rejects_non_member(rt):
