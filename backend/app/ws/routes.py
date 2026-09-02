@@ -1,6 +1,7 @@
 from typing import Optional, Tuple
 
 import asyncio
+import logging
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from sqlmodel import select
@@ -14,11 +15,18 @@ from app.ws.manager import manager
 
 router = APIRouter(tags=["ws"])
 
+# Mesmo logger do `manager.py`: o que acontece com um socket é uma história só.
+logger = logging.getLogger("app.ws")
+
 # Códigos de fechamento customizados:
 # 4401 = não autenticado/token expirado (cliente deve dar refresh e reconectar)
 # 4403 = sem permissão no workspace (cliente deve parar de tentar)
 WS_UNAUTHORIZED = 4401
 WS_FORBIDDEN = 4403
+# 1011 é do PADRÃO WebSocket (RFC 6455), não customizado: "o servidor encontrou
+# uma condição inesperada". O cliente deve tentar reconectar — ao contrário do
+# 4403, que manda parar.
+WS_INTERNAL_ERROR = 1011
 
 PING_INTERVAL_SECONDS = 30
 
@@ -136,8 +144,34 @@ async def workspace_events(websocket: WebSocket, workspace_id: int):
                 # Heartbeat: cliente considera a conexão morta se ficar mudo
                 await websocket.send_json({"type": "ping"})
     except WebSocketDisconnect:
+        # Saída NORMAL: aba fechada, navegação, rede caindo. Não é erro.
         pass
     except Exception:
-        pass
+        # Engolir sem registrar deixava o socket morrer MUDO, e o silêncio era o
+        # problema: um erro de verdade aqui dentro — um `OperationalError` do
+        # banco sob concorrência, uma falha ao serializar — chega ao cliente como
+        # um disconnect indistinguível de uma aba fechada. Em produção ninguém
+        # fica sabendo; no CI vira um `WebSocketDisconnect` sem uma linha que
+        # diga por quê (foi o que custou a investigação do flake de
+        # `test_two_clients_receive_seq_consistent_events`).
+        #
+        # Continua NÃO relançando: derrubar este socket é a resposta certa, e um
+        # erro numa conexão não deve virar 500 em lugar nenhum. O que muda é que
+        # agora ele deixa rastro.
+        logger.exception(
+            "Erro no socket do workspace %s (user %s)", workspace_id, user_id
+        )
+        # E FECHAR. Sem isto o handler simplesmente retornava, e o socket ficava
+        # pendurado: o cliente esperava para sempre uma mensagem que nunca viria
+        # — não recebia evento, não recebia close, e nem sequer sabia que devia
+        # reconectar. Só o heartbeat do navegador acabaria percebendo, minutos
+        # depois. 1011 é o código padrão de "erro interno do servidor" e diz ao
+        # cliente exatamente o que houve.
+        try:
+            await websocket.close(code=WS_INTERNAL_ERROR)
+        except Exception:
+            # O socket pode já estar morto (foi o erro que o matou). Aqui o
+            # silêncio é legítimo: a exceção de verdade já foi registrada acima.
+            pass
     finally:
         manager.disconnect(workspace_id, websocket)
