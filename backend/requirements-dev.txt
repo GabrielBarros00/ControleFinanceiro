@@ -19,7 +19,7 @@
 pytest==9.1.1
 pytest-asyncio==1.4.0
 pytest-cov==7.1.0
-ruff==0.16.4
+ruff==0.16.5
 # Gera o `requirements.txt` compilado e é o que o gate "Compilado de dependências
 # em dia" do CI executa. FIXADO porque o gate compara a saída dele com o versionado:
 # instalado sem versão, uma release que mude o cabeçalho gerado ou a estratégia

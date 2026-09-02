@@ -36,9 +36,9 @@ starlette==1.6.0
 python-multipart==0.0.32
 
 # --- Modelos e validação ---
-pydantic[email]==2.13.4
+pydantic[email]==2.13.5
 pydantic-settings==2.15.0
-sqlmodel==0.0.39
+sqlmodel==0.0.42
 SQLAlchemy==2.0.52
 alembic==1.19.1
 
@@ -57,7 +57,7 @@ PyJWT[crypto]==2.13.0
 # Este app não usa as APIs PKCS#7 e assina JWT só com HS256, então a
 # explorabilidade aqui é baixa — o que não é motivo para carregar a versão
 # vulnerável, e sim a razão de isto ser um piso e não um pin exato.
-cryptography>=50.0.0
+cryptography>=50.0.1
 # argon2 é o algoritmo primário de senha (ver app/core/security.py). passlib
 # segue apenas para VERIFICAR hashes antigos (pbkdf2_sha256/bcrypt) e permitir o
 # rehash transparente no login; sai daqui quando não houver mais hash legado.
