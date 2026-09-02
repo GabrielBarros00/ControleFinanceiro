@@ -19,7 +19,7 @@ repos:
   # reprovava. Ficou assim porque nada vigiava este arquivo — não havia
   # ecossistema `pre-commit` no Dependabot. Agora há.
   - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: v0.16.4
+    rev: v0.16.5
     hooks:
       - id: ruff
         args: [--fix]
