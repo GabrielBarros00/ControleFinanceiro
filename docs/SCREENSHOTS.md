@@ -133,10 +133,22 @@ estar bom não descobre nada.
 ## Como regerar
 
 ```bash
+rm -f backend/shots.db                         # SE a semeadura mudou — leia abaixo
 cd frontend
 npm run shots                                  # captura em frontend/screenshots/
 python scripts/comprimir-shots.py              # recomprime para docs/images/
 ```
+
+**Apague o `backend/shots.db` sempre que mexer na semeadura.** O banco é
+descartável mas PERSISTE entre execuções, e a semeadura só roda em banco vazio —
+com dados lá dentro, o roteiro cai no login e vai direto fotografar. O efeito é
+cruel: `npm run shots` termina em verde, 129 imagens novas aparecem, e são as
+telas dos dados ANTIGOS. Foi o que aconteceu ao semear o saldo de abertura: as
+capturas saíram idênticas, ainda mostrando "Saldo ainda não configurado", e só a
+conferência a olho na imagem revelou que a mudança nunca tinha rodado.
+
+Sem mexer na semeadura, reaproveitar o banco é bom — é o que torna uma
+regeração rápida.
 
 O roteiro (`e2e-shots/screenshots.spec.ts`) sobe um backend próprio contra um
 `shots.db` descartável, semeia dados realistas pela API e percorre todas as

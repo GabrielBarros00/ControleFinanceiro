@@ -317,15 +317,37 @@ test('seed data and capture all screens', async ({ page, playwright }) => {
     }
 
     // Conta de pagamento (origem do dinheiro nos lançamentos)
+    //
+    // O saldo de ABERTURA vem junto (ADR 0034), e não é enfeite: sem ele a tela
+    // de Contas e o "Seu dinheiro" do Início saem com "Saldo ainda não
+    // configurado" e um travessão no lugar de cada número — o catálogo publicava
+    // a funcionalidade principal da Onda 11 sem mostrar o que ela faz. É o mesmo
+    // buraco que a captura de `/me/accounts` existe para vigiar (ver a nota em
+    // `appRoutes`), e que estava cego por falta de semeadura.
+    //
+    // A data é o CORTE: o que aconteceu antes dela já está dentro do valor
+    // informado e deixa de contar. 60 dias atrás deixa os lançamentos recentes
+    // do roteiro somando por cima da abertura — que é justamente o que a tela
+    // precisa mostrar funcionando.
+    const ABERTURA = iso(60).slice(0, 10);
     for (const ct of [
-      { name: 'Conta Corrente Itaú Personnalité — Agência 0912', type: 'checking' },
-      { name: 'Poupança Caixa', type: 'savings' },
-      { name: 'Carteira digital', type: 'digital_wallet' },
-      { name: 'Conta digital Nubank', type: 'checking' },
-      { name: 'Reserva de emergência — CDB com liquidez diária', type: 'savings' },
+      { name: 'Conta Corrente Itaú Personnalité — Agência 0912', type: 'checking', abertura: 12_480.55 },
+      { name: 'Poupança Caixa', type: 'savings', abertura: 31_200 },
+      { name: 'Carteira digital', type: 'digital_wallet', abertura: 840.2 },
+      { name: 'Conta digital Nubank', type: 'checking', abertura: 3_960.75 },
+      { name: 'Reserva de emergência — CDB com liquidez diária', type: 'savings', abertura: 58_300 },
     ]) {
-      const r = await api.post(u('/me/payment-accounts/'), { data: ct });
+      const { abertura, ...conta } = ct;
+      const r = await api.post(u('/me/payment-accounts/'), { data: conta });
       expect(r.ok(), `conta "${ct.name}": ${r.status()} ${await r.text()}`).toBeTruthy();
+      const criada = await r.json();
+      const rs = await api.put(u(`/me/payment-accounts/${criada.id}/opening-balance`), {
+        data: { amount: abertura, as_of: ABERTURA },
+      });
+      expect(
+        rs.ok(),
+        `saldo de abertura de "${ct.name}": ${rs.status()} ${await rs.text()}`
+      ).toBeTruthy();
     }
 
     // Despesa recorrente (tela de Recorrência)
