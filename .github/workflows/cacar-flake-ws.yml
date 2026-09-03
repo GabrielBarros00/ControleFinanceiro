@@ -1,0 +1,134 @@
+name: Caçar o flake do WebSocket
+
+# Roda a suíte do backend MUITAS vezes, em paralelo, até alguma execução ficar
+# vermelha — e guarda o log dessa execução.
+#
+# Existe porque `test_two_clients_receive_seq_consistent_events` cai com
+# `WebSocketDisconnect` mais ou menos uma vez a cada quinze execuções, sempre no
+# job `backend` (SQLite) e nunca no `backend-postgres`. Localmente, no Windows,
+# não cai: nem isolado em 8 repetições, nem com a suíte completa. Ou seja, o
+# único lugar onde o defeito se manifesta é exatamente este — Linux, SQLite,
+# suíte inteira — e esperar que ele caia por acaso num PR significa pagar de novo
+# a investigação que já custou uma sessão.
+#
+# A ideia é simples: em vez de esperar o vermelho aparecer sozinho, provocá-lo.
+# 10 jobs paralelos × 3 rodadas = 30 execuções da suíte em cerca de 8 minutos de
+# relógio. Com a taxa observada (~1 em 15), a chance de pegar ao menos um
+# vermelho passa de 85%.
+#
+# O que mudou desde a última tentativa, e é o que torna isto útil agora: o
+# handler em `app/ws/routes.py` REGISTRA a exceção antes de fechar o socket. Até
+# então o defeito chegava como um `WebSocketDisconnect` mudo, sem uma linha
+# dizendo por quê. Agora o primeiro vermelho entrega o diagnóstico junto.
+#
+# MANUAL de propósito — `workflow_dispatch` e nada mais. Isto queima ~30 minutos
+# de runner por execução e não protege ninguém de regressão: é ferramenta de
+# investigação, não gate. Um gate que ninguém pediu, rodando em todo push, seria
+# a próxima coisa a apodrecer.
+
+on:
+  workflow_dispatch:
+    inputs:
+      jobs_paralelos:
+        description: 'Quantos jobs em paralelo (cada um é um runner)'
+        required: false
+        default: '10'
+      rodadas_por_job:
+        description: 'Quantas vezes cada job roda a suíte inteira'
+        required: false
+        default: '3'
+
+# Mesmo mínimo do ci.yml: aqui só se clona, instala e roda teste.
+permissions:
+  contents: read
+
+env:
+  SECRET_KEY: ci-secret-key-only-for-tests-0123456789abcdef
+  DATABASE_URL: sqlite:///./ci.db
+  PYTHON_VERSION: '3.14'
+
+jobs:
+  # A matriz do GitHub não aceita um número como tamanho, só uma lista. Este job
+  # transforma o input em `["1","2",...]` para o `strategy.matrix` consumir.
+  matriz:
+    runs-on: ubuntu-latest
+    outputs:
+      lista: ${{ steps.gerar.outputs.lista }}
+    steps:
+      - id: gerar
+        run: |
+          n='${{ inputs.jobs_paralelos }}'
+          # Teto de 20: acima disso a fila de runners passa a ser o gargalo e o
+          # ganho de paralelismo evapora.
+          if ! [ "$n" -ge 1 ] 2>/dev/null || [ "$n" -gt 20 ]; then n=10; fi
+          echo "lista=$(seq 1 "$n" | jq -R . | jq -cs .)" >> "$GITHUB_OUTPUT"
+
+  cacar:
+    needs: matriz
+    runs-on: ubuntu-latest
+    strategy:
+      # SEM fail-fast: o primeiro vermelho é o que se está procurando, e cancelar
+      # os outros nove jogaria fora as amostras que ainda podiam cair — sendo que
+      # duas ocorrências dizem muito mais que uma sobre o que é comum entre elas.
+      fail-fast: false
+      matrix:
+        rodada: ${{ fromJson(needs.matriz.outputs.lista) }}
+    steps:
+      - uses: actions/checkout@v7
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: 'pip'
+          cache-dependency-path: |
+            backend/requirements-dev.txt
+            backend/requirements.in
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip==26.2.1
+          pip install -r backend/requirements-dev.txt
+
+      - name: Rodar a suíte em laço até cair
+        id: lacar
+        run: |
+          cd backend
+          n='${{ inputs.rodadas_por_job }}'
+          if ! [ "$n" -ge 1 ] 2>/dev/null || [ "$n" -gt 20 ]; then n=3; fi
+
+          for i in $(seq 1 "$n"); do
+            echo "::group::rodada ${{ matrix.rodada }}.$i"
+            # Sem `--cov`: cobertura não diz nada sobre o flake e custa ~20% do
+            # tempo de cada rodada.
+            #
+            # `log_cli` em ERROR para o `logger.exception` do handler aparecer na
+            # hora, e não só no relatório de falha — se o socket cair sem derrubar
+            # o teste, a linha ainda assim fica registrada aqui.
+            if python -m pytest -q \
+                 -o log_cli=true -o log_cli_level=ERROR \
+                 > "../flake-${{ matrix.rodada }}-$i.log" 2>&1; then
+              echo "rodada $i: verde"
+              echo "::endgroup::"
+            else
+              echo "::endgroup::"
+              echo "::error::VERMELHO na rodada ${{ matrix.rodada }}.$i — é este o log que interessa"
+              echo "## Vermelho na rodada ${{ matrix.rodada }}.$i" >> "$GITHUB_STEP_SUMMARY"
+              echo '```' >> "$GITHUB_STEP_SUMMARY"
+              tail -n 60 "../flake-${{ matrix.rodada }}-$i.log" >> "$GITHUB_STEP_SUMMARY"
+              echo '```' >> "$GITHUB_STEP_SUMMARY"
+              # Para no primeiro vermelho DESTE job: o que se quer é o log, e
+              # continuar rodando só o sobrescreveria com ruído.
+              exit 1
+            fi
+          done
+          echo "as $n rodadas passaram" >> "$GITHUB_STEP_SUMMARY"
+
+      # `always()`: o log do caso VERDE também interessa, para comparar com o
+      # vermelho depois.
+      - name: Guardar os logs
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: flake-logs-${{ matrix.rodada }}
+          path: flake-*.log
+          if-no-files-found: ignore
+          retention-days: 14
