@@ -36,6 +36,46 @@ def _do_ci(chave: str) -> str:
     return achado.group(1)
 
 
+def test_nenhum_workflow_fixa_python_por_conta_propria():
+    """`PYTHON_VERSION` é fonte única — e "única" tem de valer para TODOS os
+    workflows, não só para o `ci.yml`.
+
+    Os outros testes deste arquivo comparam o `ci.yml` com os Dockerfiles e o
+    compilado, e nasceram justamente porque a versão estava repetida em seis
+    lugares. Mas eles olhavam UM workflow: qualquer arquivo novo em
+    `.github/workflows/` podia declarar o seu próprio Python e ninguém veria.
+
+    Foi o que aconteceu ao criar `cacar-flake-ws.yml` — um workflow de
+    investigação que precisa rodar no MESMO Python do CI para o que ele reproduz
+    valer alguma coisa. Um gate que cobre um arquivo fixo não é um gate de
+    política, é um gate de arquivo; este varre o diretório.
+    """
+    esperado = _do_ci("PYTHON_VERSION")
+    workflows = sorted((ROOT / ".github" / "workflows").glob("*.yml"))
+
+    # Denominador explícito: uma varredura que não acha nada passa vazia e
+    # engana. Se o diretório mudar de nome ou de extensão, isto reprova.
+    assert len(workflows) >= 2, (
+        f"achei só {len(workflows)} workflow(s) em .github/workflows — a "
+        "varredura não está enxergando o diretório"
+    )
+
+    divergentes = []
+    for arquivo in workflows:
+        for achado in re.finditer(
+            r"^\s*PYTHON_VERSION:\s*'([^']+)'", arquivo.read_text(encoding="utf-8"), re.M
+        ):
+            if achado.group(1) != esperado:
+                divergentes.append(f"{arquivo.name}: {achado.group(1)}")
+
+    assert not divergentes, (
+        f"workflow fixando um Python diferente do ci.yml ({esperado}):\n  "
+        + "\n  ".join(divergentes)
+        + "\n\nSuba todos juntos — um workflow rodando noutro Python testa outro "
+        "ambiente, e o resultado dele não fala do que vai para produção."
+    )
+
+
 def test_python_e_o_mesmo_no_ci_no_dockerfile_e_no_compilado():
     do_ci = _do_ci("PYTHON_VERSION")
 
