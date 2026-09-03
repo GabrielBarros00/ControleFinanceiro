@@ -1,4 +1,5 @@
 import logging
+import threading
 
 import pytest
 from fastapi.testclient import TestClient
@@ -10,10 +11,42 @@ from app.core.jwt import create_access_token
 from app.models.user import User
 from app.models.workspace import Workspace, WorkspaceMembership
 from app.models.sync_event import SyncEvent
+from app.ws.manager import manager
 
 
 def _headers(user: User) -> dict:
     return {"Cookie": f"access_token={create_access_token({'sub': str(user.id)})}"}
+
+
+def _receber_com_prazo(sock, prazo: float = 10.0) -> BaseException:
+    """Espera UMA mensagem e devolve a exceção que encerrou o socket.
+
+    Existe porque `sock.receive_json()` não tem limite de tempo: quando o
+    servidor deixa de fechar o socket, o teste que deveria falhar simplesmente
+    TRAVA — na máquina de quem roda, e no CI até o runner desistir. Um teste
+    pendurado não acusa defeito nenhum, só some do radar.
+
+    A thread é `daemon` de propósito: se o prazo estourar ela fica pendurada no
+    receive para sempre, e sem isso o interpretador esperaria por ela no fim da
+    suíte — trocando um teste travado por uma SUÍTE travada.
+    """
+    caixa: dict[str, BaseException] = {}
+
+    def receber() -> None:
+        try:
+            sock.receive_json()
+        except BaseException as exc:  # noqa: BLE001 — é o que o teste quer ver
+            caixa["erro"] = exc
+
+    thread = threading.Thread(target=receber, daemon=True)
+    thread.start()
+    thread.join(timeout=prazo)
+
+    assert not thread.is_alive(), (
+        f"o socket ficou pendurado por {prazo}s — o servidor não fechou nem "
+        "mandou mensagem. É exatamente o defeito que o `close(1011)` corrigiu."
+    )
+    return caixa.get("erro")
 
 
 @pytest.fixture
@@ -61,9 +94,13 @@ def test_erro_dentro_do_socket_deixa_rastro(rt, caplog, monkeypatch):
 
     O fechamento não estava lá, e foi este teste que revelou: sem o
     `close(1011)`, o handler apenas RETORNAVA e o socket ficava pendurado. O
-    cliente esperava para sempre por uma mensagem que nunca viria. Escrever este
-    teste travou por 5 minutos até o `close` entrar — se ele algum dia voltar a
-    pendurar em vez de falhar, é este o motivo.
+    cliente esperava para sempre por uma mensagem que nunca viria.
+
+    Por isso o `receive` aqui tem PRAZO. Na primeira versão ele era um
+    `sock.receive_json()` seco, e a ausência do `close` fazia o teste TRAVAR em
+    vez de falhar — cinco minutos na minha máquina, e no CI um job pendurado até
+    o limite do runner, que é bem pior de diagnosticar que um vermelho. Um teste
+    que trava não acusa nada; ele só some.
     """
     def explode(_workspace_id):
         raise RuntimeError("o banco travou no meio do handshake")
@@ -76,13 +113,15 @@ def test_erro_dentro_do_socket_deixa_rastro(rt, caplog, monkeypatch):
                 f"/api/v1/ws/workspaces/{rt['ws'].id}",
                 headers=_headers(rt["users"]["owner"]),
             ) as sock:
-                with pytest.raises(WebSocketDisconnect) as exc:
-                    sock.receive_json()
+                erro = _receber_com_prazo(sock)
 
+    assert isinstance(erro, WebSocketDisconnect), (
+        f"esperava o servidor FECHAR o socket, e veio {erro!r}"
+    )
     # 1011 = erro interno (RFC 6455). Diz ao cliente que o problema foi do
     # servidor e que reconectar faz sentido — ao contrário do 4403, que manda
     # desistir. Sem código nenhum, o cliente não tinha como distinguir.
-    assert exc.value.code == 1011
+    assert erro.code == 1011
 
     assert "o banco travou no meio do handshake" in caplog.text, (
         "o erro morreu em silêncio — sem isto no log, o próximo vermelho "
@@ -92,6 +131,39 @@ def test_erro_dentro_do_socket_deixa_rastro(rt, caplog, monkeypatch):
     # socket caiu não ajuda a achar nada em produção.
     assert str(rt["ws"].id) in caplog.text
     assert str(rt["users"]["owner"].id) in caplog.text
+
+
+@pytest.mark.asyncio
+async def test_shutdown_esvazia_as_salas():
+    """`shutdown()` tem de zerar as SALAS, não só o loop e a fila.
+
+    O manager é um singleton de módulo. Antes, `shutdown()` limpava `loop` e
+    `queue` e deixava `rooms`/`socket_users` com os sockets do ciclo que acabou.
+    Em produção é inócuo — o processo morre junto. Em teste cada
+    `TestClient(app)` sobe e desce o lifespan e o singleton atravessa; como o
+    banco renasce a cada caso e os ids se repetem, um socket órfão cairia
+    exatamente na sala do teste seguinte.
+
+    HONESTIDADE SOBRE O ALCANCE: isto é DEFESA, não a cura comprovada de nada.
+    Não consegui demonstrar o vazamento pelo caminho integrado — num fechamento
+    ordenado o `finally` do handler já chama `disconnect` e a sala esvazia
+    sozinha, e o cenário de derrubar o app com socket vivo trava o `TestClient`
+    em vez de falhar. O que este teste garante é o CONTRATO do `shutdown`:
+    depois dele, o manager está vazio.
+    """
+    manager.rooms[999] = {"socket-fantasma"}
+    manager.socket_users["socket-fantasma"] = 42
+    try:
+        await manager.shutdown()
+        assert not manager.rooms, (
+            f"a sala sobreviveu ao shutdown: {manager.rooms!r}"
+        )
+        assert not manager.socket_users, (
+            f"o mapa de usuários sobreviveu ao shutdown: {manager.socket_users!r}"
+        )
+    finally:
+        manager.rooms.clear()
+        manager.socket_users.clear()
 
 
 def test_ws_rejects_non_member(rt):

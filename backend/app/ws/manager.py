@@ -37,6 +37,22 @@ class ConnectionManager:
             self._consumer_task = None
         self.loop = None
         self.queue = None
+        # As SALAS também. Este objeto é um singleton de módulo, e antes o
+        # shutdown zerava só o loop e a fila — `rooms` e `socket_users` ficavam
+        # com os sockets de um ciclo de vida que já acabou.
+        #
+        # Em produção isso é inócuo (o processo está morrendo junto). Em teste
+        # cada `TestClient(app)` sobe e desce o lifespan e o singleton
+        # atravessa; como o banco renasce a cada caso e os ids se repetem, um
+        # socket órfão cairia exatamente na sala do teste seguinte.
+        #
+        # É DEFESA, não a cura de um defeito observado: no fechamento ordenado o
+        # `finally` do handler já chama `disconnect` e a sala esvazia sozinha.
+        # Não confunda com uma explicação do flake de
+        # `test_two_clients_receive_seq_consistent_events` — foi por ali que
+        # cheguei aqui, mas a ligação NÃO foi demonstrada.
+        self.rooms.clear()
+        self.socket_users.clear()
 
     # --- conexões ---
 
