@@ -42,9 +42,11 @@ test.describe('Divisão por item e edição completa', () => {
 
     await createDialog.getByLabel('Título / Descrição').fill('Churrasco E2E');
     await createDialog.getByLabel('Valor Total').fill('90,00');
-    await createDialog.getByLabel('Forma de pagamento').selectOption('pix');
 
-    // Divisão por item mora em "Opções avançadas"
+    // Forma de pagamento, divisão por item e o resto moram atrás de "Detalhar"
+    // — o formulário abre no modo simples (título, valor, salvar).
+    await createDialog.getByRole('button', { name: /^Detalhar$/ }).click();
+    await createDialog.getByLabel('Forma de pagamento').selectOption('pix');
     await createDialog.getByRole('button', { name: /Opções avançadas/ }).click();
     await createDialog.getByRole('radio', { name: 'Por item' }).click();
     await expect(createDialog.getByLabel('Título do item')).toBeVisible();

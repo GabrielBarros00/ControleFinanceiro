@@ -71,10 +71,34 @@ interface NewTxState {
   setOpen: (open: boolean) => void;
   /** Quem tinha o foco quando o diálogo abriu — para devolvê-lo ao fechar. */
   origemDoFoco: HTMLElement | null;
+  /*
+   * Valores para o formulário nascer preenchido — o "Duplicar" do detalhe.
+   *
+   * Repetir um lançamento é o gesto mais comum que o app não tinha: o mesmo
+   * mercado toda semana, a mesma mensalidade, a mesma corrida. Sem isso, a
+   * pessoa abre o antigo, LÊ os campos, fecha, abre um novo e digita de novo o
+   * que já estava na tela.
+   *
+   * O tipo é solto (`Record`) de propósito: `stores/` não deve conhecer o
+   * formato do formulário de despesa. Quem semeia e quem consome são o mesmo
+   * par de telas, e o tipo forte mora lá.
+   */
+  semente: Record<string, unknown> | null;
+  /** Abre o diálogo já preenchido. */
+  abrirCom: (semente: Record<string, unknown>) => void;
 }
 
 export const useNewTxStore = create<NewTxState>((set) => ({
   open: false,
+  semente: null,
+  abrirCom: (semente) => {
+    const origem = document.activeElement;
+    set({
+      open: true,
+      semente,
+      origemDoFoco: origem instanceof HTMLElement ? origem : null,
+    });
+  },
   /*
    * Guarda quem ABRIU o diálogo e devolve o foco a ele ao fechar.
    *
@@ -109,7 +133,9 @@ export const useNewTxStore = create<NewTxState>((set) => ({
       setTimeout(() => {
         if (origem?.isConnected) origem.focus();
       }, 0);
-      return { open: false, origemDoFoco: null };
+      // A semente morre com o fechamento: o próximo "Nova despesa" tem de
+      // nascer em branco, e não com a cópia do que se duplicou antes.
+      return { open: false, origemDoFoco: null, semente: null };
     });
   },
   origemDoFoco: null,

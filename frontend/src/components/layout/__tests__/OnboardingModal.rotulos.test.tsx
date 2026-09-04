@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { render, screen, fireEvent } from '@/test/utils';
 import { OnboardingModal } from '../OnboardingModal';
-import { ONBOARDING } from '../../../../e2e-shared/rotulos';
+import { ONBOARDING, ONDE, ROTULOS } from '../../../../e2e-shared/rotulos';
 
 /**
  * Os rótulos do onboarding, conferidos em segundos em vez de em quarenta minutos.
@@ -59,5 +59,52 @@ describe('Onboarding — os rótulos que as suítes e2e digitam', () => {
     fireEvent.click(screen.getByRole('button', { name: ONBOARDING.proximo }));
 
     expect(screen.getByRole('button', { name: ONBOARDING.pular })).toBeInTheDocument();
+  });
+});
+
+/**
+ * A varredura: todo rótulo registrado ainda existe em algum lugar de `src/`.
+ *
+ * O teste acima renderiza o onboarding de verdade, e é o mais forte — mas ele
+ * só cobre o onboarding. O `e2e-prod` também procurava "Sair da Conta", que
+ * virou "Sair da conta" na mesma rodada, e essa falha ficou **escondida atrás
+ * da primeira**: dois rótulos podres no mesmo arquivo, um encobrindo o outro,
+ * cada um custando uma rodada de CI para aparecer.
+ *
+ * Esta varredura é grosseira de propósito — ela só pergunta "este texto ainda
+ * existe no código?". Não prova que o botão está na tela certa nem que ele está
+ * visível; prova que ninguém o renomeou sem passar por aqui. É barata o
+ * bastante para rodar sempre, e pega exatamente a classe de erro que custou
+ * duas rodadas de CI nesta sessão.
+ */
+describe('Rótulos registrados x código', () => {
+  it('todo texto registrado existe no arquivo em que a suíte vai clicar', async () => {
+    const fs = await import('node:fs/promises');
+    const path = await import('node:path');
+    const raiz = path.resolve(__dirname, '../../../..');
+
+    const registrados: string[] = [
+      ...Object.values(ONBOARDING),
+      ...Object.values(ROTULOS),
+    ];
+
+    const problemas: string[] = [];
+    for (const texto of registrados) {
+      const arquivo = ONDE[texto];
+      if (!arquivo) {
+        problemas.push(`"${texto}" não diz em que arquivo mora (ver ONDE)`);
+        continue;
+      }
+      const fonte = await fs.readFile(path.join(raiz, arquivo), 'utf8');
+      if (!fonte.includes(texto)) {
+        problemas.push(`"${texto}" não existe mais em ${arquivo}`);
+      }
+    }
+
+    expect(
+      problemas,
+      'rótulo registrado que sumiu do lugar onde a suíte clica — alguma suíte '
+      + 'vai procurá-lo e não achar: ' + problemas.join(' · '),
+    ).toEqual([]);
   });
 });

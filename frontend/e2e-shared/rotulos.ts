@@ -51,3 +51,33 @@ export const ONBOARDING = {
 
 /** O título da primeira tela depois do onboarding. */
 export const TITULO_INICIO = 'Hoje';
+
+/**
+ * Outros textos que as suítes digitam e que já derivaram em silêncio.
+ *
+ * "Sair da Conta" virou "Sair da conta" na mesma rodada de melhorias de texto —
+ * e o `e2e-prod` continuou procurando a versão antiga por trás de OUTRA falha,
+ * que o escondia. Dois rótulos podres no mesmo arquivo, um encobrindo o outro.
+ */
+export const ROTULOS = {
+  sair: 'Sair da conta',
+} as const;
+
+/**
+ * Onde cada rótulo mora — o arquivo que a suíte de fato visita.
+ *
+ * Sem isto a varredura é frouxa demais para servir: "Sair da conta" aparece no
+ * menu lateral, na gaveta do celular E em Configurações, e a suíte clica no de
+ * **Configurações**. Renomear só esse (foi o que aconteceu) deixa o texto vivo
+ * nos outros dois, a varredura passa e o CI reprova assim mesmo.
+ *
+ * Amarrar rótulo a arquivo troca "este texto existe em algum lugar" por "este
+ * texto existe ONDE a suíte vai clicar", que é a pergunta que interessa.
+ */
+export const ONDE: Record<string, string> = {
+  'Sair da conta': 'src/pages/Settings/SettingsPage.tsx',
+  'Começar': 'src/components/layout/OnboardingModal.tsx',
+  'Próximo': 'src/components/layout/OnboardingModal.tsx',
+  'Pular esta etapa': 'src/components/layout/OnboardingModal.tsx',
+  'Salário / Renda Líquida': 'src/components/layout/OnboardingModal.tsx',
+};

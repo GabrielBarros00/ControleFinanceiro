@@ -1,6 +1,6 @@
 import { test, expect, Page } from '@playwright/test';
 import { postWithRetry } from './helpers';
-import { ONBOARDING, TITULO_INICIO } from '../e2e-shared/rotulos';
+import { ONBOARDING, ROTULOS, TITULO_INICIO } from '../e2e-shared/rotulos';
 
 // Regressão do bug: registro/login atrás do nginx (porta != 80) não redirecionava
 // ao dashboard e qualquer rota protegida devolvia ao /login mesmo com cookie válido
@@ -107,7 +107,7 @@ test.describe('Sessão atrás do nginx (stack de produção)', () => {
 
     // 5. Logout devolve ao /login e rota protegida volta a exigir sessão
     await page.goto('/settings');
-    await page.getByRole('button', { name: /Sair da Conta/ }).click();
+    await page.getByRole('button', { name: ROTULOS.sair }).click();
     await expect(page).toHaveURL(/\/login/, { timeout: 15_000 });
     await page.goto('/');
     await expect(page).toHaveURL(/\/login/, { timeout: 15_000 });

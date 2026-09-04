@@ -56,6 +56,8 @@ test.describe('Contas a pagar', () => {
     await expect(dialog).toBeVisible();
     await dialog.getByLabel('Título / Descrição').fill('Conta de luz');
     await dialog.getByLabel('Valor Total').fill('300,00');
+    // Data e "Já foi paga" vivem no formulário detalhado.
+    await dialog.getByRole('button', { name: /^Detalhar$/ }).click();
 
     // Data FUTURA desmarca "Já foi paga" sozinho — ninguém pagou o boleto que
     // vence semana que vem.

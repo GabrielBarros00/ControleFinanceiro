@@ -15,7 +15,7 @@ const members = [
 
 function renderForm() {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-  return render(
+  const resultado = render(
     <QueryClientProvider client={queryClient}>
     {/* `ConfirmProvider`: o diálogo passou a PERGUNTAR antes de descartar um
         formulário preenchido (Escape ou clique fora jogavam fora título, valor,
@@ -26,6 +26,17 @@ function renderForm() {
       </ConfirmProvider>
     </QueryClientProvider>
   );
+  /*
+   * O diálogo de CRIAÇÃO abre no modo simples — título, valor e salvar. Tudo o
+   * que este arquivo exercita (pagadores, itens, divisão, anexos) mora atrás de
+   * "Detalhar", que é o ponto da mudança: o formulário deixou de abrir com doze
+   * controles para preencher dois campos.
+   *
+   * O clique fica no helper, e não em cada teste, porque ele não é o assunto de
+   * nenhum deles: é a porta de entrada do formulário completo.
+   */
+  fireEvent.click(screen.getByRole('button', { name: /^Detalhar$/i }));
+  return resultado;
 }
 
 function pick(...files: File[]) {

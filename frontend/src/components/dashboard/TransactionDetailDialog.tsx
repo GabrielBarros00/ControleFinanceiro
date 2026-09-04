@@ -7,9 +7,11 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
-import { Calendar, Pencil, Trash2 } from 'lucide-react';
+import { Calendar, Copy, Pencil, Trash2 } from 'lucide-react';
 import type { TransactionRead, TransactionStatus } from '@/types/transaction';
 import { MoneyText } from '@/components/money/MoneyText';
+import { fromApiTransaction } from './transaction-form/schema';
+import { useNewTxStore } from '@/stores';
 import { TransactionSummary } from './TransactionSummary';
 import { StatementMover } from './StatementMover';
 import { useCategories } from '@/hooks/use-categories';
@@ -50,6 +52,7 @@ export function TransactionDetailDialog({
   onDelete,
   onMoveStatement,
 }: TransactionDetailDialogProps) {
+  const abrirNovaDespesa = useNewTxStore((estado) => estado.abrirCom);
   const { categories } = useCategories();
   if (!transaction) return null;
 
@@ -133,6 +136,28 @@ export function TransactionDetailDialog({
 
         {(onEdit || onDelete) && (
           <DialogFooter className="gap-2 sm:justify-between">
+            {/* DUPLICAR — o gesto mais comum que o app não tinha.
+                O mesmo mercado toda semana, a mesma corrida, a mesma
+                mensalidade: sem isto a pessoa abre o lançamento antigo, LÊ os
+                campos, fecha, abre um novo e digita de novo o que acabou de ver.
+                A data não é herdada de propósito (ver `NewTransactionDialog`):
+                duplicar é lançar de novo HOJE. */}
+            {canWrite && (
+              <Button
+                type="button"
+                variant="ghost"
+                className="gap-2"
+                onClick={() => {
+                  const { transaction_date: _data, settled: _pago, ...resto } =
+                    fromApiTransaction(transaction);
+                  void _data; void _pago;
+                  onOpenChange(false);
+                  abrirNovaDespesa(resto);
+                }}
+              >
+                <Copy className="h-4 w-4" /> Duplicar
+              </Button>
+            )}
             {onDelete && (
               <Button
                 type="button"

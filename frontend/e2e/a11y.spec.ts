@@ -162,6 +162,13 @@ test.describe('Acessibilidade (axe · WCAG 2 A/AA)', () => {
 
     await page.locator('header').getByRole('button', { name: 'Nova despesa' }).click();
     await expect(page.getByRole('dialog')).toBeVisible();
+    // O formulário abre no modo SIMPLES (título, valor, salvar); o scanner
+    // precisa ver os dois estados — o simples é o que quase todo mundo vê, e o
+    // detalhado é onde moram os controles de divisão.
+    const formSimples = await analisar(page, '[role="dialog"]');
+    expect(resumir(formSimples.violations)).toBe('');
+
+    await page.getByRole('dialog').getByRole('button', { name: /^Detalhar$/ }).click();
     // Inclui as "Opções avançadas": é onde moram os campos de divisão
     await page.getByRole('dialog').getByRole('button', { name: /Opções avançadas/ }).click();
 

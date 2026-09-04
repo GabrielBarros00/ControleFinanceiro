@@ -9,7 +9,7 @@ import {
 import { useTransactions } from '@/hooks/use-transactions';
 import { useAttachmentUploader } from '@/hooks/use-attachments';
 import { useBaseCurrency } from '@/hooks/use-base-currency';
-import { useAuthStore } from '@/stores';
+import { useAuthStore, useNewTxStore } from '@/stores';
 import { toast } from '@/stores/toast';
 import { TransactionForm, type TransactionApiPayload } from './transaction-form/TransactionForm';
 import { todayLocalISO, type TransactionFormValues } from './transaction-form/schema';
@@ -35,7 +35,16 @@ export function NewTransactionDialog({ open, onOpenChange }: NewTransactionDialo
   const confirm = useConfirm();
   const uploadAttachments = useAttachmentUploader();
 
-  const initialValues: TransactionFormValues = {
+  /*
+   * A semente do "Duplicar": os campos do lançamento copiado, por cima dos
+   * padrões. A DATA nunca vem junto — duplicar é lançar de novo HOJE, e herdar a
+   * data do original criaria silenciosamente um lançamento no mês passado.
+   * `settled` também não: se a original já foi paga, isso não diz nada sobre a
+   * cópia.
+   */
+  const semente = useNewTxStore((s) => s.semente);
+
+  const padroes: TransactionFormValues = {
     title: '',
     total_amount: 0,
     // Moeda-base do workspace, não 'BRL' fixo: num workspace em USD o default
@@ -59,6 +68,9 @@ export function NewTransactionDialog({ open, onOpenChange }: NewTransactionDialo
     // sozinha ao escolher uma data futura — ver `TransactionForm`.
     settled: true,
   };
+  const initialValues: TransactionFormValues = semente
+    ? { ...padroes, ...(semente as Partial<TransactionFormValues>) }
+    : padroes;
 
   const handleSubmit = async (payload: TransactionApiPayload) => {
     const created = await create({ ...payload, status: 'confirmed' });
@@ -123,7 +135,11 @@ export function NewTransactionDialog({ open, onOpenChange }: NewTransactionDialo
             Nova despesa
           </DialogTitle>
           <DialogDescription className="text-muted-foreground">
-            Adicione uma transação e defina como ela será dividida.
+            {/* O subtítulo descrevia o formulário ANTIGO ("defina como ela será
+                dividida") — no modo simples não há divisão à vista, e prometer
+                uma etapa que não aparece faz a pessoa procurar o que não está
+                lá. Agora ele diz o que basta e onde está o resto. */}
+            Título e valor bastam. Em "Detalhar" ficam a data, a forma de pagamento e a divisão.
           </DialogDescription>
         </DialogHeader>
         <TransactionForm
@@ -132,6 +148,14 @@ export function NewTransactionDialog({ open, onOpenChange }: NewTransactionDialo
           submitLabel="Salvar despesa"
           aoMudarSujo={setSujo}
           allowInstallments
+          // Só na CRIAÇÃO: editar uma despesa existente tem de mostrar o que ela
+          // tem, inclusive o que a pessoa abriu para conferir.
+          permiteModoSimples
+          aoSalvarELancarOutro={() => {
+            toast.success('Despesa adicionada — pode lançar a próxima');
+            setSujo(false);
+            setPendingFiles([]);
+          }}
           extraFields={
             <AttachmentsSection pendingFiles={pendingFiles} onPendingFilesChange={setPendingFiles} />
           }

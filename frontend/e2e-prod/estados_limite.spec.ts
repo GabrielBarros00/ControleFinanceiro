@@ -91,18 +91,27 @@ test.describe('Estados-limite (stack de produção)', () => {
       await expect(page.locator('h1')).toBeVisible();
     }
 
-    // O caixa do mês corrente: despesas à vista entram no ato.
+    // O caixa do mês corrente saiu da primeira tela (era cópia literal do topo
+    // do Extrato) — a verificação foi para onde o número mora agora.
+    await page.goto('/me/ledger', { waitUntil: 'domcontentloaded' });
+    await expect(page.getByText('Saiu')).toBeVisible();
+    await expect(page.getByText('Saldo do mês')).toBeVisible();
+
+    // E a primeira tela responde as três perguntas dela.
     await page.goto('/overview', { waitUntil: 'domcontentloaded' });
-    await expect(page.getByText('Caixa do mês')).toBeVisible();
-    await expect(page.getByText('Adiantado nos lançamentos')).toBeVisible();
+    await expect(page.getByText('Seu dinheiro')).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Precisa de você' })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Este mês' })).toBeVisible();
 
     // A série pessoal desenhou de fato, em vez do estado vazio.
     await page.goto('/me/reports', { waitUntil: 'domcontentloaded' });
     await page.waitForTimeout(1500);
     await expect(page.getByText('Renda × consumo')).toBeVisible();
-    await expect(
-      page.getByText('Ainda não há meses suficientes para comparar.'),
-    ).toHaveCount(0);
+    // Asserção NEGATIVA com o texto errado passa sempre — e esta passava:
+    // "Ainda não há meses suficientes para comparar." não existe em lugar
+    // nenhum do app. O estado vazio de verdade é o do `EmptyState` abaixo, e a
+    // conta com dados NÃO pode cair nele.
+    await expect(page.getByText('Nenhum movimento no período')).toHaveCount(0);
 
     expect(semRuido(erros), semRuido(erros).join('\n')).toEqual([]);
   });

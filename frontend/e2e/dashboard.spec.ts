@@ -36,7 +36,9 @@ test.describe('Dashboard and Split Entry Form', () => {
     await dialog.getByLabel('Título / Descrição').fill('Pizza com amigos');
     await dialog.getByLabel('Valor Total').fill('150,00');
 
-    // Método de divisão "Valor Fixo" mora em "Opções avançadas"
+    // Divisão e pagadores moram atrás de "Detalhar" (modo simples é título +
+    // valor + salvar), e o método %/fixo dentro de "Opções avançadas".
+    await dialog.getByRole('button', { name: /^Detalhar$/ }).click();
     await dialog.getByRole('button', { name: /Opções avançadas/ }).click();
     await dialog.getByText('Valor Fixo').click();
 
