@@ -41,6 +41,36 @@ export default defineConfig([
     },
   },
   {
+    /*
+     * Cor sai do design system, não da paleta do Tailwind.
+     *
+     * O `index.css` define `--income`, `--expense`, `--success` e `--warning`
+     * com a luminosidade escolhida para passar em 4,5:1 — e há comentário lá
+     * explicando a conta. Ainda assim a auditoria encontrou 46 usos de cor crua
+     * em 17 arquivos, e o axe reprovou três deles: `emerald-500` sobre fundo
+     * claro dá 2,24:1, e conviver com `--income` põe DOIS verdes diferentes na
+     * mesma tela.
+     *
+     * A regra é sobre o texto da classe porque é assim que o defeito entra:
+     * alguém escreve `text-emerald-500` por hábito, o build passa em silêncio
+     * (Tailwind conhece a classe) e ninguém vê até alguém medir contraste.
+     *
+     * `--color-chart-*` continua livre: gráfico é o único lugar em que a cor é
+     * dado, não semântica — e essas já vêm de token.
+     */
+    files: ['src/**/*.{ts,tsx}'],
+    rules: {
+      'no-restricted-syntax': ['error', {
+        selector:
+          'Literal[value=/(^|[^a-z-])(bg|text|border|ring|from|to|via|fill|stroke|decoration|outline|shadow|divide|accent|caret|placeholder)-(emerald|amber|slate|rose|sky|zinc|gray|neutral|stone|lime|green|red|blue|indigo|violet|purple|fuchsia|pink|orange|yellow|teal|cyan)-[0-9]/]',
+        message:
+          'Cor crua do Tailwind. Use os tokens do design system: text-income, '
+          + 'text-expense, bg-warning-subtle, text-muted-foreground, bg-muted… '
+          + '(ver index.css). Cor crua já reprovou em contraste três vezes.',
+      }],
+    },
+  },
+  {
     // Componentes shadcn/ui e utilitários de teste exportam helpers junto
     // com componentes por design
     files: ['src/components/ui/**/*.tsx', 'src/test/**/*.tsx', 'src/App.tsx'],
