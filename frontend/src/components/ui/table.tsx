@@ -5,7 +5,26 @@ const Table = React.forwardRef<
   HTMLTableElement,
   React.HTMLAttributes<HTMLTableElement>
 >(({ className, ...props }, ref) => (
-  <div className="relative w-full overflow-auto">
+  /*
+    `tabIndex={0}` + `role="region"` + nome: uma área que ROLA precisa ser
+    alcançável pelo teclado.
+
+    Quem usa mouse arrasta a barra; quem usa só teclado não tem como chegar ao
+    conteúdo que ficou fora de vista, porque não há nada focável dentro de uma
+    tabela de leitura. O axe reprova como `scrollable-region-focusable`
+    (gravidade "serious"), e foi o que sobrou no Extrato a 390px, onde a tabela
+    é mais larga que a tela.
+
+    Focável só quando de fato rola? Não dá — o navegador não expõe isso em CSS, e
+    medir no JS custaria um observador de tamanho por tabela. Uma parada a mais
+    no Tab, num contêiner nomeado, é um preço menor que conteúdo inalcançável.
+  */
+  <div
+    className="relative w-full overflow-auto focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring"
+    tabIndex={0}
+    role="region"
+    aria-label="Tabela — role para os lados para ver todas as colunas"
+  >
     <table
       ref={ref}
       className={cn("w-full caption-bottom text-sm", className)}

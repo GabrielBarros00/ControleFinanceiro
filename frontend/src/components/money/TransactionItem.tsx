@@ -72,7 +72,12 @@ export function TransactionItem({
 
   const meta: string[] = [];
   if (category?.name) meta.push(category.name);
-  meta.push(paymentMethodLabel(tx.payment_method, tx.credit_card_id));
+  // O travessão é o "não informado" do `paymentMethodLabel`, e sozinho ele não
+  // informa nada: numa lista de lançamentos sem forma de pagamento preenchida,
+  // eram oito linhas seguidas exibindo um "—" solitário debaixo do título. Só
+  // entra quando acompanha alguma coisa.
+  const formaDePagamento = paymentMethodLabel(tx.payment_method, tx.credit_card_id);
+  if (formaDePagamento !== '—' || meta.length > 0) meta.push(formaDePagamento);
   if (tx.installments_of && tx.installments_of > 1) {
     meta.push(`${tx.installment_no}/${tx.installments_of}`);
   }
@@ -82,37 +87,77 @@ export function TransactionItem({
   }
 
   return (
+    /*
+      A LINHA não é mais um botão; o título é.
+
+      Antes, a linha inteira era `role="button" tabIndex={0}` com os botões de
+      editar e excluir dentro dela — controles interativos aninhados, que o axe
+      reprova (`nested-interactive`, 15 nós nesta tela) e que um leitor de tela
+      anuncia como um botão só chamado "Faxina Pendente A pagar −R$ 220,00",
+      sem deixar claro o que há dentro.
+
+      O padrão aqui é o "stretched link", que o próprio projeto já usa no quadro
+      de Caixa da `OverviewPage` (e documenta lá): quem é acionável é um controle
+      de verdade — o título —, e ele ESTENDE a própria área de clique sobre a
+      linha com `after:absolute after:inset-0`. Os botões de ação sobem para
+      `relative z-10` e continuam clicáveis por cima dessa área.
+
+      Ganho de lambuja: o nome acessível do controle passa a ser o título da
+      despesa, e não a linha inteira lida em voz alta.
+    */
     <div
       // Âncora estável para o E2E: o extrato deixou de ser <table> no redesign,
       // então não há mais role="row" para localizar a linha
       data-testid="ledger-row"
       className={cn(
-        'group flex items-center gap-3 rounded-lg px-2 py-2.5 transition-colors hover:bg-muted',
-        onSelect && 'cursor-pointer',
+        'group relative flex items-center gap-3 rounded-lg px-2 py-2.5 transition-colors hover:bg-muted',
+        onSelect && 'cursor-pointer focus-within:bg-muted',
       )}
-      onClick={onSelect ? () => onSelect(tx) : undefined}
-      role={onSelect ? 'button' : undefined}
-      tabIndex={onSelect ? 0 : undefined}
-      onKeyDown={
-        onSelect
-          ? (e) => {
-              if (e.key === 'Enter' || e.key === ' ') {
-                e.preventDefault();
-                onSelect(tx);
-              }
-            }
-          : undefined
-      }
     >
       <CategoryGlyph category={category} />
 
+      {/*
+        Título SOZINHO na primeira linha; pílulas e meta descem para a segunda.
+        Esta é a correção do pior defeito que a auditoria de UX encontrou.
+
+        Antes, título e pílulas dividiam a mesma linha. O título tem `truncate`
+        (ou seja, `overflow: hidden`), e isso ZERA a largura mínima automática de
+        um item flex — ele podia ceder até desaparecer. As pílulas não cediam.
+        Resultado medido no extrato: a 390px, **14 de 15 títulos com 0px de
+        largura**; a 360px, o maior tinha 61px. A tela mais usada do produto, no
+        aparelho para o qual ele virou PWA, não dizia que despesa era cada linha
+        — e havia um botão de excluir ao lado de cada uma.
+
+        Nada disso estourava a página, então o portão de rolagem horizontal a
+        360px passava folgado. Quem mede agora é `e2e/larguras.spec.ts`.
+
+        Uma linha só para os dois tamanhos, de propósito: manter o layout antigo
+        no desktop significaria dois caminhos para a mesma linha, e o desktop
+        também melhora com o título ocupando a largura toda.
+      */}
       <div className="min-w-0 flex-1">
-        <div className="flex items-center gap-1.5">
+        {onSelect ? (
+          <button
+            type="button"
+            onClick={() => onSelect(tx)}
+            className="block w-full truncate rounded-sm text-left text-sm font-medium text-foreground after:absolute after:inset-0 after:rounded-lg after:content-[''] focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring"
+          >
+            {tx.title}
+          </button>
+        ) : (
           <p className="truncate text-sm font-medium text-foreground">{tx.title}</p>
-          {status && <StatusPill tone={status.tone}>{status.label}</StatusPill>}
-          {liquidacao && <StatusPill tone={liquidacao.tone}>{liquidacao.label}</StatusPill>}
-        </div>
-        <p className="truncate text-xs text-muted-foreground">{meta.join(' · ')}</p>
+        )}
+        {/* `flex-wrap`: numa tela estreita as duas pílulas mais a meta não cabem
+            em 200px, e sem quebra voltaríamos a espremer alguém. */}
+        {(meta.length > 0 || status || liquidacao) && (
+          <div className="flex flex-wrap items-center gap-x-1.5 gap-y-1">
+            {meta.length > 0 && (
+              <p className="min-w-0 truncate text-xs text-muted-foreground">{meta.join(' · ')}</p>
+            )}
+            {status && <StatusPill tone={status.tone}>{status.label}</StatusPill>}
+            {liquidacao && <StatusPill tone={liquidacao.tone}>{liquidacao.label}</StatusPill>}
+          </div>
+        )}
       </div>
 
       {isSplit && memberName && (
@@ -139,9 +184,12 @@ export function TransactionItem({
       <MoneyText value={amount} kind={kind} currency={tx.currency} className="shrink-0 font-semibold" />
 
       {(onEdit || onDelete) && (
+        // `relative z-10`: a área de clique estendida do título cobre a linha
+        // inteira (ver o comentário no topo), e sem subir no empilhamento estes
+        // botões ficariam POR BAIXO dela — clicar em excluir abriria o detalhe.
         <div
           className={cn(
-            'flex shrink-0 items-center gap-0.5 transition-opacity',
+            'relative z-10 flex shrink-0 items-center gap-0.5 transition-opacity',
             'sm:opacity-0 sm:group-hover:opacity-100 sm:group-focus-within:opacity-100',
           )}
         >

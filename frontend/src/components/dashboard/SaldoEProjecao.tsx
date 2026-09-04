@@ -6,6 +6,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { StatTile } from '@/components/ui/stat-tile';
 import { formatMoney } from '@/lib/money';
 import { useBalance } from '@/hooks/use-balance';
+import { ErrorState } from '@/components/ui/error-state';
 
 /*
  * "Quanto eu tenho" e "quanto vou ter" (ADR 0034) — as duas perguntas que o app
@@ -40,12 +41,35 @@ function TileDesconhecido({ label, hint }: { label: string; hint: string }) {
 }
 
 export function SaldoEProjecao({ month }: { month: string }) {
-  const { balance, isLoading, isError } = useBalance(month);
+  const { balance, isLoading, isError, refetch } = useBalance(month);
 
   if (isLoading) return <Skeleton className="h-40 w-full" />;
-  // Silencioso no erro: o resto do Seu mês continua útil, e um segundo bloco de
-  // erro na mesma tela empurraria o conteúdo para baixo sem acrescentar ação.
-  if (isError || !balance) return null;
+  /*
+   * O erro é DITO, não escondido.
+   *
+   * Aqui havia um `return null` com a justificativa de que "o resto do Seu mês
+   * continua útil". O efeito real era pior do que o incômodo que ele evitava:
+   * com `/me/balance` fora do ar, os dois blocos mais importantes da tela —
+   * "Seu dinheiro" e "Até o fim do mês" — simplesmente **desapareciam**, sem
+   * erro, sem aviso e sem como tentar de novo. A tela ficava parecendo uma
+   * versão do produto que não tem saldo, e ninguém tinha como saber que faltava
+   * ali um número que existe.
+   *
+   * É a mesma regra ERR-001 que esta página já aplica ao `/me/overview` vinte
+   * linhas abaixo; ela só não valia para este bloco.
+   *
+   * `!balance` sem erro continua nulo: aí a resposta chegou e não há saldo a
+   * mostrar, o que é uma resposta legítima e não uma falha.
+   */
+  if (isError) {
+    return (
+      <ErrorState
+        message="Não foi possível carregar o seu saldo e a previsão do mês."
+        onRetry={refetch}
+      />
+    );
+  }
+  if (!balance) return null;
 
   const moeda = balance.currency;
   const n = (v: unknown) => Number(v ?? 0);

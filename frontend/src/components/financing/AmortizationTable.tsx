@@ -21,6 +21,7 @@ import { useConfirm } from '@/components/ui/confirm';
 import { parseApiDate, todayLocalISO } from '@/lib/date';
 import { nativeSelectClass } from '@/components/ui/native-select';
 import { CardsOrTable, DataCard } from '@/components/ui/data-card';
+import { NumberInput } from '@/components/ui/NumberInput';
 
 // Base UI Select abre num portal fora do focus-trap do Dialog (Radix) e fecha
 // na hora — dentro de diálogos usamos <select> nativo (mesmo padrão de
@@ -242,7 +243,7 @@ function CreateFinancingDialog({ open, onOpenChange }: { open: boolean; onOpenCh
           <div className={`grid grid-cols-1 gap-4 ${semJuros ? 'sm:grid-cols-2' : 'sm:grid-cols-3'}`}>
             <div className="space-y-2">
               <Label>Parcelas</Label>
-              <Input type="number" inputMode="numeric" min={1} max={600} value={installments} onChange={(e) => setInstallments(Number(e.target.value))} className="bg-background/50" />
+              <NumberInput aria-label="Número de parcelas" min={1} max={600} padraoAoSair={12} value={installments} onChange={(v) => setInstallments(v ?? 12)} className="bg-background/50" />
               {semJuros && totalAmount > 0 && installments > 0 && (
                 <p className="text-[11px] text-muted-foreground">
                   {installments}× de{' '}
@@ -321,7 +322,7 @@ function FinancingDetail({ financing }: { financing: Financing }) {
       <div className="grid gap-6 md:grid-cols-3">
         <Card className="bg-card border-border">
           <CardHeader className="pb-2">
-            <CardTitle className="text-xs font-medium text-muted-foreground uppercase">Saldo Devedor</CardTitle>
+            <CardTitle className="text-sm font-normal text-muted-foreground">Saldo devedor</CardTitle>
           </CardHeader>
           <CardContent>
             <div className="text-xl font-bold">{fmt(remainingBalance)}</div>
@@ -331,7 +332,7 @@ function FinancingDetail({ financing }: { financing: Financing }) {
         </Card>
         <Card className="bg-card border-border">
           <CardHeader className="pb-2">
-            <CardTitle className="text-xs font-medium text-muted-foreground uppercase">Próxima Parcela</CardTitle>
+            <CardTitle className="text-sm font-normal text-muted-foreground">Próxima parcela</CardTitle>
           </CardHeader>
           <CardContent>
             <div className="text-xl font-bold">
@@ -346,10 +347,10 @@ function FinancingDetail({ financing }: { financing: Financing }) {
         </Card>
         <Card className="bg-card border-border">
           <CardHeader className="pb-2">
-            <CardTitle className="text-xs font-medium text-muted-foreground uppercase">Economia se Quitar Hoje</CardTitle>
+            <CardTitle className="text-sm font-normal text-muted-foreground">Economia se quitar hoje</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="text-xl font-bold text-emerald-500">
+            <div className="text-xl font-bold text-income">
               {settlement ? fmt(settlement.savings) : '—'}
             </div>
             {settlement && (
@@ -554,7 +555,7 @@ export function AmortizationTable() {
               }`}
             >
               {f.title}
-              {f.status === 'settled' && <span className="ml-2 text-[10px] text-emerald-500 font-semibold">QUITADO</span>}
+              {f.status === 'settled' && <span className="ml-2 text-[10px] text-income font-semibold">QUITADO</span>}
             </button>
           ))}
         </div>

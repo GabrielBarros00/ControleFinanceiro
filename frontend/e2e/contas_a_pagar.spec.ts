@@ -70,7 +70,7 @@ test.describe('Contas a pagar', () => {
     await expect(dialog.getByRole('checkbox', { name: /Já foi paga/ })).toBeChecked();
     await dialog.getByRole('checkbox', { name: /Já foi paga/ }).uncheck();
 
-    await dialog.getByRole('button', { name: 'Salvar Despesa' }).click();
+    await dialog.getByRole('button', { name: 'Salvar despesa' }).click();
     await expect(dialog).toBeHidden();
 
     // --- 2. Ela aparece em Contas a pagar, e NÃO no caixa ------------------

@@ -16,6 +16,8 @@ import type { TransactionFormValues } from './schema';
 // do formulário de itens, que já são 40px — o desalinhamento que o comentário
 // de `ui/input.tsx` descreve nascia justamente daqui.
 import { nativeSelectClass as selectClass } from '@/components/ui/native-select';
+import { normalizarAoSair } from './normalizar-numero';
+
 
 interface ItemsEditorProps {
   participants: Participant[];
@@ -92,7 +94,7 @@ export function ItemsEditor({ participants, defaultUserId }: ItemsEditorProps) {
       <div className="space-y-1">
         <p
           data-testid="items-summary"
-          className={`text-xs font-semibold ${closed ? 'text-emerald-500' : 'text-destructive'}`}
+          className={`text-xs font-semibold ${closed ? 'text-income' : 'text-destructive'}`}
         >
           {closed
             ? `Itens fecham ${fmt(watchedTotal ?? 0)}`
@@ -175,6 +177,7 @@ function ItemRow({ index, participants, onRemove }: ItemRowProps) {
             min="0"
             aria-label="Quantidade"
             {...register(`items.${index}.quantity` as const, { valueAsNumber: true })}
+            onBlur={normalizarAoSair(setValue, `items.${index}.quantity`)}
             className="bg-background border-border"
           />
           {itemErrors?.quantity && <p className="text-[10px] text-destructive font-medium">{itemErrors.quantity.message as string}</p>}
@@ -316,6 +319,7 @@ function ItemRow({ index, participants, onRemove }: ItemRowProps) {
                     placeholder="%"
                     aria-label={`Percentual do item ${index + 1}`}
                     {...register(`items.${index}.shares.${shareIndex}.value` as const, { valueAsNumber: true })}
+                    onBlur={normalizarAoSair(setValue, `items.${index}.shares.${shareIndex}.value`)}
                     className="bg-background border-border h-9"
                   />
                 ) : (

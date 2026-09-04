@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { BellRing, Check, Share, Smartphone } from 'lucide-react';
+import { BellPlus, BellRing, Check, Share, Smartphone, X } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
 import {
@@ -196,6 +196,8 @@ export function BotaoAtivarNotificacoes({
 }) {
   const { estado, ativar, ocupado } = usePush();
   const [detalhe, setDetalhe] = React.useState(false);
+  // Dispensada nesta sessão; o `adiar()` guarda por uma semana no navegador.
+  const [dispensada, setDispensada] = React.useState(() => Date.now() < adiadoAte());
 
   // Some quando não há o que oferecer: já ativado, ou navegador sem suporte.
   if (estado === 'ativado' || estado === 'indisponivel') return null;
@@ -229,7 +231,13 @@ export function BotaoAtivarNotificacoes({
             className,
           )}
         >
-          <BellRing className="h-5 w-5" />
+          {/* `BellPlus`, e não mais um sino igual ao do lado.
+              A barra superior tinha DOIS botões de 36×36 com ícone de sino,
+              encostados um no outro, distinguíveis só por um risco no desenho.
+              Este oferece um canal que ainda não existe ("ativar avisos"); o
+              vizinho mostra o que já chegou. São ações diferentes e agora têm
+              desenhos diferentes. */}
+          <BellPlus className="h-5 w-5" />
           {/* Ponto discreto: é um convite, não um alerta — sem contador e sem
               vermelho, que aqui competiriam com o do sino ao lado. */}
           <span
@@ -237,18 +245,27 @@ export function BotaoAtivarNotificacoes({
             aria-hidden
           />
         </button>
-      ) : (
-        <button
-          type="button"
-          onClick={acionar}
-          disabled={ocupado}
+      ) : dispensada ? null : (
+        /* A faixa agora pode ser DISPENSADA.
+         *
+         * Para quem bloqueou notificações no navegador, ela ocupava o topo de
+         * "Contas a pagar" para sempre, empurrando os números para baixo, sem
+         * nenhuma forma de sair — e desbloquear é uma decisão que a pessoa já
+         * tomou. O convite em diálogo já sabia se adiar por uma semana
+         * (`adiar()`); a faixa não tinha nada. Agora usam a mesma memória. */
+        <div
           className={cn(
-            'flex w-full items-center gap-3 rounded-xl border border-brand/40 bg-brand/5 px-4 py-3 text-left transition-colors hover:bg-brand/10 disabled:opacity-60',
+            'flex w-full items-center gap-3 rounded-xl border border-brand/40 bg-brand/5 px-4 py-3 text-left transition-colors',
             className,
           )}
         >
           <BellRing className="h-5 w-5 shrink-0 text-brand" aria-hidden />
-          <span className="min-w-0 flex-1">
+          <button
+            type="button"
+            onClick={acionar}
+            disabled={ocupado}
+            className="min-w-0 flex-1 text-left disabled:opacity-60"
+          >
             <span className="block text-sm font-semibold text-foreground">{rotulo}</span>
             <span className="block text-xs text-muted-foreground">
               {estado === 'bloqueado'
@@ -257,8 +274,16 @@ export function BotaoAtivarNotificacoes({
                   ? 'No iPhone, é preciso instalar o app antes. Toque para ver como.'
                   : 'Avisamos três dias antes e no dia do vencimento.'}
             </span>
-          </span>
-        </button>
+          </button>
+          <button
+            type="button"
+            aria-label="Dispensar este aviso"
+            onClick={() => { adiar(); setDispensada(true); }}
+            className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-brand/10 hover:text-foreground"
+          >
+            <X className="h-4 w-4" />
+          </button>
+        </div>
       )}
 
       <Dialog open={detalhe} onOpenChange={setDetalhe}>

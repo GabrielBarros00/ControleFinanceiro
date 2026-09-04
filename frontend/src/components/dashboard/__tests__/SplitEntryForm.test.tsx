@@ -5,6 +5,7 @@ import { server } from '@/test/setup';
 import { describe, it, expect, beforeEach } from 'vitest';
 import { NewTransactionDialog } from '../NewTransactionDialog';
 import { useAuthStore, useUIStore } from '@/stores';
+import { ConfirmProvider } from '@/components/ui/confirm';
 
 const WS = 'http://localhost:8000/api/v1/workspaces/1';
 
@@ -17,7 +18,13 @@ function renderForm() {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
     <QueryClientProvider client={queryClient}>
-      <NewTransactionDialog open onOpenChange={() => {}} />
+    {/* `ConfirmProvider`: o diálogo passou a PERGUNTAR antes de descartar um
+        formulário preenchido (Escape ou clique fora jogavam fora título, valor,
+        pagadores, divisão e anexos sem aviso). `useConfirm` lança sem o
+        provider, exatamente como já acontecia no teste da Administração. */}
+      <ConfirmProvider>
+        <NewTransactionDialog open onOpenChange={() => {}} />
+      </ConfirmProvider>
     </QueryClientProvider>
   );
 }
@@ -98,7 +105,7 @@ describe('NewTransactionDialog — método de divisão', () => {
     fireEvent.change(percentInputs[0], { target: { value: '60' } });
     fireEvent.change(percentInputs[1], { target: { value: '30' } });
 
-    fireEvent.click(screen.getByRole('button', { name: 'Salvar Despesa' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Salvar despesa' }));
 
     await screen.findAllByText(/faltam 10%/);
     expect(createCalled).toBe(false);
@@ -124,7 +131,7 @@ describe('NewTransactionDialog — método de divisão', () => {
     fireEvent.change(percentInputs[0], { target: { value: '60' } });
     fireEvent.change(percentInputs[1], { target: { value: '40' } });
 
-    fireEvent.click(screen.getByRole('button', { name: 'Salvar Despesa' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Salvar despesa' }));
 
     await waitFor(() => expect(payload).not.toBeNull());
     expect(payload!.total_amount).toBe(90);
@@ -154,7 +161,7 @@ describe('NewTransactionDialog — método de divisão', () => {
     fireEvent.change(fixedInputs[0], { target: { value: '50,00' } });
     fireEvent.change(fixedInputs[1], { target: { value: '30,00' } });
 
-    fireEvent.click(screen.getByRole('button', { name: 'Salvar Despesa' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Salvar despesa' }));
 
     await screen.findAllByText(/faltam R\$\s*10,00/);
     expect(createCalled).toBe(false);
@@ -180,7 +187,7 @@ describe('NewTransactionDialog — método de divisão', () => {
     fireEvent.change(fixedInputs[0], { target: { value: '50,00' } });
     fireEvent.change(fixedInputs[1], { target: { value: '40,00' } });
 
-    fireEvent.click(screen.getByRole('button', { name: 'Salvar Despesa' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Salvar despesa' }));
 
     await waitFor(() => expect(payload).not.toBeNull());
     expect(payload!.splits).toEqual([
@@ -206,7 +213,7 @@ describe('NewTransactionDialog — método de divisão', () => {
     const participantSelects = screen.getAllByLabelText('Participante');
     fireEvent.change(participantSelects[1], { target: { value: '1' } });
 
-    fireEvent.click(screen.getByRole('button', { name: 'Salvar Despesa' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Salvar despesa' }));
 
     await screen.findByText('Participante repetido na divisão');
     expect(createCalled).toBe(false);
@@ -225,7 +232,7 @@ describe('NewTransactionDialog — método de divisão', () => {
     await screen.findAllByText('Alice');
 
     await fillBaseFields();
-    fireEvent.click(screen.getByRole('button', { name: 'Salvar Despesa' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Salvar despesa' }));
 
     const alert = await screen.findByRole('alert');
     expect(alert.textContent).toContain('Divisão inválida: percentuais devem somar 100');

@@ -5,6 +5,7 @@ import { server } from '@/test/setup';
 import { describe, it, expect, beforeEach } from 'vitest';
 import { NewTransactionDialog } from '../../NewTransactionDialog';
 import { useAuthStore, useUIStore } from '@/stores';
+import { ConfirmProvider } from '@/components/ui/confirm';
 
 const WS = 'http://localhost:8000/api/v1/workspaces/1';
 
@@ -17,7 +18,13 @@ function renderForm() {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
     <QueryClientProvider client={queryClient}>
-      <NewTransactionDialog open onOpenChange={() => {}} />
+    {/* `ConfirmProvider`: o diálogo passou a PERGUNTAR antes de descartar um
+        formulário preenchido (Escape ou clique fora jogavam fora título, valor,
+        pagadores, divisão e anexos sem aviso). `useConfirm` lança sem o
+        provider, exatamente como já acontecia no teste da Administração. */}
+      <ConfirmProvider>
+        <NewTransactionDialog open onOpenChange={() => {}} />
+      </ConfirmProvider>
     </QueryClientProvider>
   );
 }
@@ -86,7 +93,7 @@ describe('TransactionForm — divisão por item', () => {
     fireEvent.change(screen.getByLabelText('Título do item'), { target: { value: 'Carne' } });
     fireEvent.change(screen.getByLabelText('Total do item'), { target: { value: '60,00' } });
 
-    fireEvent.click(screen.getByRole('button', { name: 'Salvar Despesa' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Salvar despesa' }));
 
     await screen.findAllByText(/faltam R\$\s*30,00/);
     expect(createCalled).toBe(false);
@@ -123,7 +130,7 @@ describe('TransactionForm — divisão por item', () => {
     fireEvent.change(screen.getAllByLabelText('Valor unitário')[1], { target: { value: '10,00' } });
     fireEvent.change(screen.getByLabelText('Participante do item 2'), { target: { value: '2' } });
 
-    fireEvent.click(screen.getByRole('button', { name: 'Salvar Despesa' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Salvar despesa' }));
 
     await waitFor(() => expect(payload).not.toBeNull());
     expect(payload!.split_mode).toBe('item');

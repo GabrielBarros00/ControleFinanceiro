@@ -2,6 +2,7 @@ import * as React from 'react';
 import { useForm, FormProvider, Controller } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { Button } from '@/components/ui/button';
+import { DialogFooter } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { MoneyInput } from '@/components/ui/MoneyInput';
 import { Label } from '@/components/ui/label';
@@ -43,12 +44,15 @@ interface TransactionFormProps {
   onSuccess?: () => void;
   // Bloco extra dentro do form, acima do botão de salvar (ex.: anexos na criação)
   extraFields?: React.ReactNode;
+  /** Avisa quem hospeda o formulário que há algo preenchido — usado para
+   *  perguntar antes de descartar ao fechar o diálogo. */
+  aoMudarSujo?: (sujo: boolean) => void;
 }
 
 // Form compartilhado criar/editar despesa. Layout slim: o essencial fica sempre
 // visível; método %/fixo, divisão por item e categoria moram em "Opções
 // avançadas" (progressive disclosure).
-export function TransactionForm({ initialValues, onSubmit, submitLabel, resetOnSuccess = false, allowInstallments = false, onSuccess, extraFields }: TransactionFormProps) {
+export function TransactionForm({ initialValues, onSubmit, submitLabel, resetOnSuccess = false, allowInstallments = false, onSuccess, extraFields, aoMudarSujo }: TransactionFormProps) {
   const { user } = useAuthStore();
   const { members } = useMembers();
   const { categories } = useCategories();
@@ -72,7 +76,12 @@ export function TransactionForm({ initialValues, onSubmit, submitLabel, resetOnS
     mode: 'onChange',
     defaultValues: initialValues,
   });
-  const { register, control, handleSubmit, watch, reset, getValues, setValue, trigger, formState: { errors } } = methods;
+  const { register, control, handleSubmit, watch, reset, getValues, setValue, trigger, formState: { errors, isDirty } } = methods;
+
+  // O formulário sabe se foi mexido; quem hospeda precisa saber para perguntar
+  // antes de descartar. `isDirty` do react-hook-form compara com os valores
+  // iniciais, então voltar tudo ao original volta a ser "limpo".
+  React.useEffect(() => { aoMudarSujo?.(isDirty); }, [isDirty, aoMudarSujo]);
 
   const splitMode = watch('split_mode');
   const currency = watch('currency');
@@ -297,24 +306,30 @@ export function TransactionForm({ initialValues, onSubmit, submitLabel, resetOnS
 
         </div>
 
-        {/* `flex-wrap`: a mensagem de erro tem `mr-auto` e nenhum limite de
+        {/* `DialogFooter`, e não uma `<div>` própria: este formulário só existe
+            dentro de diálogo (NewTransactionDialog e TransactionDialog), e é
+            dele que vem o rodapé FIXO. Enquanto era uma div comum, o botão
+            "Salvar Despesa" rolava junto com o conteúdo e nascia fora da tela em
+            toda resolução menos 1920×1080 — 322px abaixo da borda no celular.
+
+            `flex-wrap`: a mensagem de erro tem `mr-auto` e nenhum limite de
             largura; ao lado de um botão de 140px fixos, um erro longo empurrava
             o rodapé para fora da tela em vez de quebrar linha. */}
-        <div className="mt-6 flex flex-wrap items-center justify-end gap-4 border-t border-border pt-6">
+        <DialogFooter className="mt-6 flex-wrap items-center gap-4 sm:flex-wrap sm:items-center">
           {apiError && (
             <div role="alert" className="flex min-w-0 flex-1 items-center gap-2 text-destructive text-sm font-medium animate-in fade-in sm:mr-auto">
               <AlertCircle className="h-4 w-4 shrink-0" /> {apiError}
             </div>
           )}
           {success && (
-            <div className="flex items-center gap-2 text-emerald-500 text-sm font-bold animate-in fade-in slide-in-from-right-2">
+            <div className="flex items-center gap-2 text-income text-sm font-semibold animate-in fade-in slide-in-from-right-2">
               <CheckCircle2 className="h-4 w-4" /> Salvo com sucesso!
             </div>
           )}
           <Button type="submit" className="h-11 w-full bg-primary px-8 font-bold text-primary-foreground shadow-lg shadow-primary/20 hover:bg-primary/90 sm:h-9 sm:w-auto sm:min-w-[140px]" pending={loading}>
             {submitLabel}
           </Button>
-        </div>
+        </DialogFooter>
       </form>
     </FormProvider>
   );

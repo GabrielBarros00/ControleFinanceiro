@@ -21,7 +21,7 @@ const STATUS_STYLES: Record<TransactionStatus, { label: string; className: strin
   draft: { label: 'Rascunho', className: 'bg-muted text-muted-foreground border-border' },
   pending: { label: 'Pendente', className: 'bg-warning-subtle text-warning border-warning/20' },
   confirmed: { label: 'Confirmada', className: 'bg-primary/10 text-primary border-primary/20' },
-  paid: { label: 'Paga', className: 'bg-emerald-500/10 text-emerald-500 border-emerald-500/20' },
+  paid: { label: 'Paga', className: 'bg-income-subtle text-income border-income/20' },
   cancelled: { label: 'Cancelada', className: 'bg-destructive/10 text-destructive border-destructive/20' },
 };
 

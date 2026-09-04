@@ -45,7 +45,7 @@ test.describe('Dashboard and Split Entry Form', () => {
     await expect(dialog.getByRole('button', { name: 'Remover participante' })).toHaveCount(2);
 
     // Botão de submit presente
-    await expect(dialog.getByRole('button', { name: 'Salvar Despesa' })).toBeVisible();
+    await expect(dialog.getByRole('button', { name: 'Salvar despesa' })).toBeVisible();
 
     await context.close();
   });

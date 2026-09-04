@@ -69,11 +69,50 @@ export const useUIStore = create<UIState>()(
 interface NewTxState {
   open: boolean;
   setOpen: (open: boolean) => void;
+  /** Quem tinha o foco quando o diálogo abriu — para devolvê-lo ao fechar. */
+  origemDoFoco: HTMLElement | null;
 }
 
 export const useNewTxStore = create<NewTxState>((set) => ({
   open: false,
-  setOpen: (open) => set({ open }),
+  /*
+   * Guarda quem ABRIU o diálogo e devolve o foco a ele ao fechar.
+   *
+   * O Radix faz isso sozinho quando o diálogo tem `DialogTrigger` — mas este é
+   * global, acionado de um store a partir do FAB, do botão do cabeçalho e dos
+   * estados vazios. Sem gatilho não há para onde voltar, e medimos o resultado:
+   * depois do Escape, `document.activeElement` era o `<body>`. Para quem navega
+   * por teclado isso significa recomeçar do início do documento — e a barra
+   * lateral tem 21 itens antes do conteúdo.
+   */
+  setOpen: (open) => {
+    if (open) {
+      const origem = document.activeElement;
+      set({ open: true, origemDoFoco: origem instanceof HTMLElement ? origem : null });
+      return;
+    }
+    set((estado) => {
+      const origem = estado.origemDoFoco;
+      /*
+       * O foco é devolvido no PRÓXIMO ciclo, e não aqui.
+       *
+       * O Radix também restaura foco ao desmontar um diálogo — inclusive o de
+       * confirmação que pode ter aparecido por cima ("Descartar esta despesa?").
+       * Restaurando de forma síncrona, a nossa chamada acontece primeiro e a do
+       * Radix vem depois, apontando para um elemento que já saiu do DOM: o foco
+       * termina no `<body>`, que é exatamente o que se queria corrigir.
+       *
+       * `isConnected`: o elemento pode ter saído do DOM enquanto o diálogo
+       * estava aberto (a linha que o continha foi excluída, a lista recarregou).
+       * Focar um nó órfão não faz nada e ainda deixa o foco no `<body>`.
+       */
+      setTimeout(() => {
+        if (origem?.isConnected) origem.focus();
+      }, 0);
+      return { open: false, origemDoFoco: null };
+    });
+  },
+  origemDoFoco: null,
 }));
 
 // Detalhe/edição global de um lançamento — abre por id a partir de qualquer lugar

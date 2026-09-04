@@ -2,6 +2,7 @@ import * as React from 'react';
 import { Search, Plus, ChevronLeft, ChevronRight, Receipt, FilterX } from 'lucide-react';
 import { useTransactions, type TransactionFilters } from '@/hooks/use-transactions';
 import { useWorkspaceRole } from '@/hooks/use-workspace-role';
+import { useSearchParams } from 'react-router-dom';
 import { useMonthParam } from '@/hooks/use-month-param';
 import { useNewTxStore, useTxDetailStore, useUIStore } from '@/stores';
 import { useConfirm } from '@/components/ui/confirm';
@@ -27,24 +28,64 @@ import { FilterBar } from '@/components/layout/FilterBar';
 const SEARCH_DEBOUNCE_MS = 300;
 
 export function TransactionsPage() {
-  // O mês mora na URL (sobrevive a reload/voltar e dá para compartilhar); o resto
-  // do filtro é estado de tela.
+  /*
+   * TODO o recorte mora na URL — mês, busca e os quatro filtros.
+   *
+   * O mês já morava; o resto era `useState`, e a diferença aparecia no uso: com
+   * "Café" digitado na busca, um F5 devolvia a lista inteira com o campo vazio,
+   * e não havia como mandar a alguém "olha estes lançamentos". Duas metades do
+   * mesmo recorte, guardadas em lugares diferentes.
+   *
+   * `replace: true` (dentro do `useSearchParams`) porque filtrar é ajuste de
+   * visualização e não navegação: com `push`, sair da tela exigiria um "voltar"
+   * por tecla digitada.
+   */
   const [month, setMonth] = useMonthParam();
-  const [filters, setFilters] = React.useState<Omit<TransactionFilters, 'month'>>({
-    page: 1,
+  const [searchParams, setSearchParams] = useSearchParams();
+
+  const filtroDaUrl = (nome: string) => searchParams.get(nome) ?? undefined;
+  const numeroDaUrl = (nome: string) => {
+    const bruto = searchParams.get(nome);
+    const n = bruto == null ? NaN : Number(bruto);
+    return Number.isInteger(n) && n > 0 ? n : undefined;
+  };
+  const filters: Omit<TransactionFilters, 'month'> = {
+    page: numeroDaUrl('page') ?? 1,
     limit: 15,
-    search: '',
-  });
+    search: searchParams.get('q') ?? '',
+    payment_method: filtroDaUrl('pagamento'),
+    category_id: numeroDaUrl('categoria'),
+    tag_id: numeroDaUrl('tag'),
+    // `settled` é booleano de três estados: ausente = "pagas e a pagar".
+    settled: searchParams.has('pagas') ? searchParams.get('pagas') === 'sim' : undefined,
+  };
+
+  const escreverNaUrl = React.useCallback(
+    (mudancas: Record<string, string | number | undefined>) => {
+      setSearchParams((anterior) => {
+        const proximo = new URLSearchParams(anterior);
+        for (const [chave, valor] of Object.entries(mudancas)) {
+          if (valor === undefined || valor === '') proximo.delete(chave);
+          else proximo.set(chave, String(valor));
+        }
+        return proximo;
+      }, { replace: true });
+    },
+    [setSearchParams],
+  );
+
   // O campo responde a cada tecla, mas a query só sai quando o usuário para de
-  // digitar — antes "supermercado" disparava 12 requisições.
-  const [searchInput, setSearchInput] = React.useState('');
+  // digitar — antes "supermercado" disparava 12 requisições. O estado local
+  // continua existindo por isso: é o texto EM DIGITAÇÃO, e só o texto assentado
+  // vai para a URL.
+  const [searchInput, setSearchInput] = React.useState(() => searchParams.get('q') ?? '');
   React.useEffect(() => {
-    const id = setTimeout(
-      () => setFilters((f) => (f.search === searchInput ? f : { ...f, search: searchInput, page: 1 })),
-      SEARCH_DEBOUNCE_MS,
-    );
+    const id = setTimeout(() => {
+      if ((searchParams.get('q') ?? '') === searchInput) return;
+      escreverNaUrl({ q: searchInput || undefined, page: undefined });
+    }, SEARCH_DEBOUNCE_MS);
     return () => clearTimeout(id);
-  }, [searchInput]);
+  }, [searchInput, searchParams, escreverNaUrl]);
 
   const { transactions, total, totalAmount, totalPages, currentPage, isLoading, isError, remove } =
     useTransactions({ ...filters, month });
@@ -57,23 +98,48 @@ export function TransactionsPage() {
   const openDetail = useTxDetailStore((s) => s.open);
   const confirm = useConfirm();
 
+  // Tradução entre o vocabulário do hook de dados e os nomes CURTOS da URL —
+  // que são o que a pessoa vê e eventualmente copia.
   const patch = (p: Partial<Omit<TransactionFilters, 'month'>>) =>
-    setFilters((f) => ({ ...f, ...p, page: p.page ?? 1 }));
+    escreverNaUrl({
+      ...('search' in p ? { q: p.search || undefined } : {}),
+      ...('payment_method' in p ? { pagamento: p.payment_method } : {}),
+      ...('category_id' in p ? { categoria: p.category_id } : {}),
+      ...('tag_id' in p ? { tag: p.tag_id } : {}),
+      ...('settled' in p ? { pagas: p.settled === undefined ? undefined : (p.settled ? 'sim' : 'nao') } : {}),
+      page: p.page ?? undefined,
+    });
 
   // Categoria e tag são IDs de UM workspace. Ao trocar de workspace eles não
   // existem do outro lado: a lista voltava VAZIA e o select ficava com um rótulo
   // que não correspondia a nada — parecia que o workspace novo não tinha
   // lançamento nenhum. (O CardsPage já zerava o cartão selecionado por isso.)
+  //
+  // Só na TROCA, nunca na montagem — daí o `ref`.
+  //
+  // Enquanto o filtro era estado local, limpar na montagem não fazia diferença
+  // (o estado já nascia vazio). Agora que ele mora na URL, o mesmo efeito
+  // apagava o recorte que veio NO ENDEREÇO: abrir
+  // `/w/1/transactions?q=Café` mostrava a lista inteira e a URL voltava limpa,
+  // que é exatamente o contrário do que levar o filtro para a URL serve.
+  //
+  // Só o CAMPO de busca é zerado aqui; a URL não é tocada.
+  //
+  // Tocar na URL neste efeito é uma corrida com a própria troca de espaço: o
+  // `ScopeSwitcher` navega para `/w/<novo>/transactions` e, no mesmo ciclo, o
+  // store muda e este efeito dispara um `setSearchParams` — que se aplica à
+  // localização ANTERIOR e desfaz a navegação. O E2E pegou exatamente isso:
+  // trocar de espaço no celular deixava a URL em `/w/151/transactions` depois
+  // de escolher o 152.
+  //
+  // E é desnecessário: o `workspacePath` monta o caminho novo SEM query string,
+  // então os filtros já não atravessam a troca. O que sobra para limpar é o
+  // texto em digitação, que vive fora da URL justamente por causa do debounce.
+  const espacoAnterior = React.useRef(currentWorkspaceId);
   React.useEffect(() => {
+    if (espacoAnterior.current === currentWorkspaceId) return;
+    espacoAnterior.current = currentWorkspaceId;
     setSearchInput('');
-    setFilters((f) => ({
-      ...f,
-      page: 1,
-      search: '',
-      category_id: undefined,
-      payment_method: undefined,
-      tag_id: undefined,
-    }));
   }, [currentWorkspaceId]);
 
   const handleDelete = async (id: number) => {
@@ -157,7 +223,7 @@ export function TransactionsPage() {
           value={filters.payment_method || 'all'}
           onValueChange={(v: string | null) => patch({ payment_method: v && v !== 'all' ? v : undefined })}
         >
-          <SelectTrigger className="w-full sm:w-[184px]">
+          <SelectTrigger aria-label="Filtrar por forma de pagamento" className="w-full sm:w-[184px]">
             <SelectValue placeholder="Pagamento" />
           </SelectTrigger>
           <SelectContent>
@@ -179,7 +245,7 @@ export function TransactionsPage() {
             patch({ category_id: v && v !== 'all' ? Number(v) : undefined })
           }
         >
-          <SelectTrigger className="w-full sm:w-[184px]">
+          <SelectTrigger aria-label="Filtrar por categoria" className="w-full sm:w-[184px]">
             <SelectValue placeholder="Categoria" />
           </SelectTrigger>
           <SelectContent>
@@ -205,7 +271,7 @@ export function TransactionsPage() {
             patch({ settled: v === 'settled' ? true : v === 'unsettled' ? false : undefined })
           }
         >
-          <SelectTrigger className="w-full sm:w-[176px]">
+          <SelectTrigger aria-label="Filtrar por situação de pagamento" className="w-full sm:w-[176px]">
             <SelectValue placeholder="Liquidação" />
           </SelectTrigger>
           <SelectContent>
@@ -221,7 +287,7 @@ export function TransactionsPage() {
             patch({ tag_id: v && v !== 'all' ? Number(v) : undefined })
           }
         >
-          <SelectTrigger className="w-full sm:w-[160px]">
+          <SelectTrigger aria-label="Filtrar por tag" className="w-full sm:w-[160px]">
             <SelectValue placeholder="Tag" />
           </SelectTrigger>
           <SelectContent>

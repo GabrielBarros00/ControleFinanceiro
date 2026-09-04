@@ -27,7 +27,16 @@ export function StatusPill({
   return (
     <span
       className={cn(
-        'inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium',
+        // `shrink-0` e `whitespace-nowrap`: a pílula NÃO cede espaço e NÃO
+        // quebra em duas linhas. Sem isso, numa linha apertada ela era espremida
+        // e o texto vazava para fora da própria cápsula — no extrato do celular
+        // a palavra "A pagar" quebrava no meio e atravessava por cima do valor
+        // em dinheiro, que é o dado mais importante da linha.
+        //
+        // Quem cede é o TÍTULO, e ele tem um piso próprio (ver TransactionItem):
+        // duas coisas disputando a mesma linha sem que nenhuma ceda é o que
+        // produz vazamento; a decisão aqui é qual das duas cede.
+        'inline-flex shrink-0 items-center gap-1 whitespace-nowrap rounded-full px-2 py-0.5 text-[11px] font-medium',
         TONE[tone],
         className,
       )}

@@ -33,6 +33,7 @@ import { getApiErrorMessage } from '@/lib/api-error';
 import { copiarTexto } from '@/lib/clipboard';
 import { toast } from '@/stores/toast';
 import { useConfirm } from '@/components/ui/confirm';
+import { useTabParam } from '@/hooks/use-tab-param';
 import { CategoryGlyph } from '@/components/money/CategoryGlyph';
 import { parseApiDate } from '@/lib/date';
 import type { components } from '@/types/api.gen';
@@ -41,6 +42,10 @@ import { PageHeader } from '@/components/layout/PageHeader';
 import { rotuloDeEspaco } from '@/components/layout/nav-items';
 
 type Tab = 'profile' | 'security' | 'members' | 'categories' | 'accounts' | 'appearance' | 'audit' | 'convites';
+
+/** As abas de cada tela — o `useTabParam` usa isto para descartar valor inventado na URL. */
+const ABAS_PESSOAIS = ['profile', 'security', 'accounts', 'convites', 'appearance'] as const satisfies readonly Tab[];
+const ABAS_DO_ESPACO = ['members', 'categories', 'audit'] as const satisfies readonly Tab[];
 
 // Moeda-base do workspace: a lista curada de moedas do app, com o código à mostra
 const BASE_CURRENCY_OPTIONS = CURRENCIES.map((c) => ({
@@ -161,7 +166,7 @@ function ProfileTab() {
     <div className="space-y-6 animate-in fade-in slide-in-from-right-4 duration-500">
       <Card className="bg-card border-border shadow-xl">
         <CardHeader>
-          <CardTitle>Informações do Perfil</CardTitle>
+          <CardTitle>Informações do perfil</CardTitle>
           <CardDescription>Gerencie como você é visto no sistema.</CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
@@ -226,9 +231,9 @@ function ProfileTab() {
           </div>
         </CardContent>
         <CardFooter className="bg-accent/30 border-t border-border py-4 justify-end gap-3">
-          {saved && <span className="text-emerald-500 text-sm font-bold flex items-center gap-1"><Check className="h-4 w-4" /> Salvo!</span>}
+          {saved && <span className="text-success text-sm font-bold flex items-center gap-1"><Check className="h-4 w-4" /> Salvo!</span>}
           <Button onClick={saveProfile} disabled={saving || name.trim().length < 1} className="bg-primary hover:bg-primary/90 text-primary-foreground font-bold shadow-lg shadow-primary/20">
-            {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Salvar Alterações'}
+            {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Salvar alterações'}
           </Button>
         </CardFooter>
       </Card>
@@ -269,7 +274,7 @@ function ProfileTab() {
             onClick={() => setCreateOpen(true)}
             className="w-full border-dashed border-2 hover:bg-accent/50 text-muted-foreground hover:text-foreground h-12"
           >
-            + Criar Novo Workspace
+            + Criar novo espaço
           </Button>
         </CardContent>
       </Card>
@@ -312,13 +317,13 @@ function ReportCurrencyCard() {
       </CardHeader>
       <CardContent className="flex flex-wrap items-end gap-3">
         <div className="min-w-[240px] flex-1 space-y-2">
-          <Label htmlFor="report-currency">Sua moeda</Label>
+          <Label htmlFor="report-currency" id="report-currency-rotulo">Sua moeda</Label>
           <Select
             items={BASE_CURRENCY_OPTIONS}
             value={moeda}
             onValueChange={(v) => setMoeda(v as string)}
           >
-            <SelectTrigger id="report-currency"><SelectValue /></SelectTrigger>
+            <SelectTrigger id="report-currency" aria-labelledby="report-currency-rotulo"><SelectValue /></SelectTrigger>
             <SelectContent>
               {BASE_CURRENCY_OPTIONS.map((o) => (
                 <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>
@@ -381,7 +386,7 @@ function SecurityTab() {
     <div className="space-y-6 animate-in fade-in slide-in-from-right-4 duration-500">
       <Card className="bg-card border-border shadow-xl">
         <CardHeader>
-          <CardTitle>Segurança da Conta</CardTitle>
+          <CardTitle>Segurança da conta</CardTitle>
           <CardDescription>Proteja seu acesso e gerencie senhas.</CardDescription>
         </CardHeader>
         <CardContent className="space-y-6">
@@ -402,7 +407,7 @@ function SecurityTab() {
             </div>
           </div>
           {message && (
-            <p className={`text-sm font-medium ${message.ok ? 'text-emerald-500' : 'text-destructive'}`}>{message.text}</p>
+            <p className={`text-sm font-medium ${message.ok ? 'text-success' : 'text-destructive'}`}>{message.text}</p>
           )}
         </CardContent>
         <CardFooter className="bg-accent/30 border-t border-border py-4 justify-end">
@@ -551,7 +556,7 @@ function MembersTab() {
                   value={baseCurrency}
                   onValueChange={(value) => setBaseCurrency(value as string)}
                 >
-                  <SelectTrigger id="base-currency" className="w-full sm:w-[220px]">
+                  <SelectTrigger id="base-currency" aria-label="Moeda-base do espaço" className="w-full sm:w-[220px]">
                     <SelectValue placeholder="Moeda-base" />
                   </SelectTrigger>
                   <SelectContent>
@@ -675,20 +680,32 @@ function MembersTab() {
         </CardHeader>
         <CardContent className="space-y-3">
           {members.map((m) => (
-            // Empilha abaixo de `sm`: os dois seletores fixos (112px + 168px) e
+            // Empilha abaixo de `lg`: os dois seletores fixos (112px + 168px) e
             // o botão de remover somam 328px que se recusavam a encolher
             // (`shrink-0`), contra ~272px disponíveis num telefone de 393px — o
             // seletor de visibilidade e a exclusão ficavam cortados fora do
             // cartão, sem rolagem que os alcançasse.
-            <div key={m.user_id} className="flex flex-col gap-3 p-3 rounded-xl bg-accent/30 border border-border/50 sm:flex-row sm:items-center sm:justify-between">
-              <div className="flex items-center gap-3 min-w-0">
+            //
+            // Era `sm` (640px), e a faixa entre 640 e ~1100px ficava no pior dos
+            // mundos: já em linha, sem espaço para ninguém. Medido a 1024px, o
+            // nome do membro ficava com **6px** e o e-mail com **6px** — "B / E
+            // / b" — enquanto o seletor de papel, o de visibilidade e o botão de
+            // REMOVER continuavam plenamente funcionais ao lado. Numa tela de
+            // permissões, agir sobre uma linha que não dá para identificar é o
+            // pior estado possível.
+            //
+            // `lg` (1024px) é a largura em que a coluna de conteúdo (já
+            // descontada a barra lateral de 240px) comporta os 328px de
+            // controles e ainda sobra espaço de sobra para nome e e-mail.
+            <div key={m.user_id} className="flex flex-col gap-3 p-3 rounded-xl bg-accent/30 border border-border/50 lg:flex-row lg:items-center lg:justify-between">
+              <div className="flex min-w-0 items-center gap-3 lg:min-w-[12rem] lg:flex-1">
                 <Avatar name={m.user_name} userId={m.user_id} version={m.avatar_version} />
                 <div className="min-w-0">
                   <p className="text-sm font-bold truncate">{m.user_name} {m.user_id === user?.id && <span className="text-muted-foreground font-normal">(você)</span>}</p>
                   <p className="text-xs text-muted-foreground truncate">{m.user_email}</p>
                 </div>
               </div>
-              <div className="flex flex-wrap items-center gap-2 sm:shrink-0">
+              <div className="flex flex-wrap items-center gap-2 lg:shrink-0">
                 {isAdmin && m.role !== 'owner' && m.user_id !== user?.id ? (
                   <>
                     <Select
@@ -772,11 +789,11 @@ function MembersTab() {
                         numa ação destrutiva. Aqui ele tinha passado batido. */}
                     <Button
                       variant="ghost" size="sm"
-                      aria-label={`Remover ${m.user_name} do workspace`}
+                      aria-label={`Remover ${m.user_name} do espaço`}
                       onClick={async () => {
                         const ok = await confirm({
                           title: 'Remover membro',
-                          description: `Remover ${m.user_name} do workspace?`,
+                          description: `Remover ${m.user_name} do espaço?`,
                           confirmLabel: 'Remover',
                           destructive: true,
                         });
@@ -806,11 +823,17 @@ function MembersTab() {
       {isAdmin && (
         <Card className="bg-card border-border shadow-xl">
           <CardHeader>
-            <CardTitle>Convidar Pessoas</CardTitle>
+            <CardTitle>Convidar pessoas</CardTitle>
             <CardDescription>Por email (direto) ou por link compartilhável (expira em 7 dias).</CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
-            <div className="flex flex-col md:flex-row gap-3">
+            {/* `flex-wrap` a partir de `md`: a linha tem um campo de e-mail
+                mais dois seletores de largura fixa (130px + 186px) mais dois
+                botões, e sem quebra o único que cedia era o e-mail. Medido a
+                1024px, ele ficava com ~20px — uma caixa vazia — e o botão de
+                copiar o link saía cortado pela borda do cartão. Convidar alguém
+                era impossível na faixa inteira entre 768 e 1100px. */}
+            <div className="flex flex-col gap-3 md:flex-row md:flex-wrap">
               {/* `placeholder` não é rótulo: some ao digitar e não é anunciado
                   como nome do campo. Os seletores ao lado já tinham `aria-label`;
                   o e-mail, que é o campo principal do formulário, não tinha. */}
@@ -820,7 +843,7 @@ function MembersTab() {
                 placeholder="email@exemplo.com"
                 value={inviteEmail}
                 onChange={(e) => setInviteEmail(e.target.value)}
-                className="bg-background/50 border-border flex-1"
+                className="bg-background/50 border-border min-w-[16rem] flex-1"
               />
               <Select items={ROLE_LABELS} value={inviteRole} onValueChange={(value) => setInviteRole(value as WorkspaceRole)}>
                 <SelectTrigger aria-label="Papel do convidado" className="h-10 w-[130px] text-sm font-semibold"><SelectValue /></SelectTrigger>
@@ -858,31 +881,36 @@ function MembersTab() {
               <div className="flex items-center gap-2 p-3 rounded-lg bg-accent/40 border border-border">
                 <code className="text-xs flex-1 truncate">{inviteLink}</code>
                 <Button variant="ghost" size="sm" onClick={copyLink} className="h-8 gap-1 shrink-0">
-                  {copied ? <Check className="h-3.5 w-3.5 text-emerald-500" /> : <Copy className="h-3.5 w-3.5" />}
+                  {copied ? <Check className="h-3.5 w-3.5 text-success" /> : <Copy className="h-3.5 w-3.5" />}
                   {copied ? 'Copiado' : 'Copiar'}
                 </Button>
               </div>
             )}
 
             {feedback && (
-              <p className={`text-sm font-medium ${feedback.ok ? 'text-emerald-500' : 'text-destructive'}`}>{feedback.text}</p>
+              <p className={`text-sm font-medium ${feedback.ok ? 'text-success' : 'text-destructive'}`}>{feedback.text}</p>
             )}
 
             {pendingInvites.length > 0 && (
               <div className="space-y-2 pt-2 border-t border-border">
-                <p className="text-xs uppercase tracking-widest font-bold text-muted-foreground">Convites pendentes</p>
+                <p className="text-sm font-medium text-muted-foreground">Convites pendentes</p>
+                {/* O e-mail é o que identifica o convite, e era ele que cedia:
+                    ao lado de uma etiqueta de papel que não encolhe, o
+                    `truncate` zera a largura mínima e o endereço ficava com
+                    20px a 768px — restava "Revogar" ao lado de nada. Agora o
+                    endereço tem `flex-1` e a etiqueta é quem não encolhe. */}
                 {pendingInvites.map((inv) => (
-                  <div key={inv.id} className="flex items-center justify-between p-2 rounded-lg hover:bg-accent/30">
-                    <div className="flex items-center gap-2 text-sm min-w-0">
+                  <div key={inv.id} className="flex items-center justify-between gap-2 p-2 rounded-lg hover:bg-accent/30">
+                    <div className="flex min-w-0 flex-1 items-center gap-2 text-sm">
                       {inv.email
-                        ? <span className="truncate">{inv.email}</span>
+                        ? <span className="min-w-0 flex-1 truncate">{inv.email}</span>
                         : <span className="flex items-center gap-1 text-muted-foreground"><LinkIcon className="h-3 w-3" /> Link de convite</span>}
-                      <Badge variant="outline" className="border-border text-muted-foreground text-[10px]">{ROLE_LABELS[inv.role]}</Badge>
+                      <Badge variant="outline" className="shrink-0 border-border text-muted-foreground text-[10px]">{ROLE_LABELS[inv.role]}</Badge>
                     </div>
                     <Button
                       variant="ghost" size="sm"
                       onClick={async () => { try { await revokeInvite(inv.id); } catch (err) { showError(err, 'Erro ao revogar.'); } }}
-                      className="h-7 text-xs text-destructive hover:bg-destructive/10"
+                      className="h-7 shrink-0 text-xs text-destructive hover:bg-destructive/10"
                     >
                       Revogar
                     </Button>
@@ -896,7 +924,7 @@ function MembersTab() {
 
       <Card className="bg-card border-destructive/30 shadow-xl">
         <CardHeader>
-          <CardTitle className="text-destructive">Zona de Perigo</CardTitle>
+          <CardTitle className="text-destructive">Zona de perigo</CardTitle>
         </CardHeader>
         <CardContent className="flex flex-col md:flex-row gap-3">
           {!isOwner && (
@@ -914,7 +942,7 @@ function MembersTab() {
                 try { await leaveWorkspace(); } catch (err) { showError(err, 'Erro ao sair.'); }
               }}
             >
-              Sair do workspace
+              Sair do espaço
             </Button>
           )}
           {isOwner && (
@@ -924,15 +952,20 @@ function MembersTab() {
               onClick={async () => {
                 const ok = await confirm({
                   title: 'Excluir espaço',
-                  description: `Excluir o espaço "${currentWorkspace?.name}"? Esta ação não pode ser desfeita.`,
-                  confirmLabel: 'Excluir',
+                  description:
+                    `Todo o histórico compartilhado de "${currentWorkspace?.name}" será apagado para `
+                    + 'TODOS os membros: lançamentos, categorias, acertos e convites. Não há como desfazer.',
+                  confirmLabel: 'Excluir para todos',
                   destructive: true,
+                  // A ação mais destrutiva do produto tinha a mesma proteção de
+                  // apagar um lançamento de R$ 12,50.
+                  exigirDigitar: currentWorkspace?.name,
                 });
                 if (!ok) return;
                 try { await removeWorkspace(currentWorkspace!.id); } catch (err) { showError(err, 'Erro ao excluir.'); }
               }}
             >
-              Excluir workspace
+              Excluir espaço
             </Button>
           )}
         </CardContent>
@@ -1175,7 +1208,7 @@ function AppearanceTab() {
     <div className="space-y-6 animate-in fade-in slide-in-from-right-4 duration-500">
       <Card className="bg-card border-border shadow-xl">
         <CardHeader>
-          <CardTitle>Tema e Aparência</CardTitle>
+          <CardTitle>Tema e aparência</CardTitle>
           <CardDescription>Personalize a interface do seu jeito.</CardDescription>
         </CardHeader>
         <CardContent className="space-y-6">
@@ -1358,7 +1391,21 @@ function SettingsShell({
   return (
     <div className="space-y-8 animate-in slide-in-from-bottom-4 duration-700 pb-20">
       <PageHeader title={title} subtitle={subtitle} />
-      <div className="grid gap-6 md:grid-cols-[240px_1fr]">
+      {/*
+        Duas colunas só a partir de `lg`, não de `md`.
+
+        Com `md` (768px), o rail de 240px saía da largura útil e sobravam ~200px
+        para o conteúdo — a coluna inteira ficava ilegível: "Nome do espaço"
+        quebrando em duas linhas, o campo de nome com espaço para três letras, a
+        descrição do interruptor com uma palavra por linha, e o e-mail do convite
+        pendente reduzido a "b.". Nada disso estourava a página, então o portão
+        de rolagem horizontal passava.
+
+        A 1024px as duas colunas cabem com folga; abaixo disso a faixa rolável
+        horizontal (que já existia para o celular) é a forma certa — ela custa
+        44px de altura em vez de 240px de largura.
+      */}
+      <div className="grid gap-6 lg:grid-cols-[240px_1fr]">
         {/*
           Faixa rolável no celular, coluna no desktop.
           A pilha de botões de largura total custava ~280px de altura antes do
@@ -1374,12 +1421,12 @@ function SettingsShell({
           combinação que a mesma execução no Windows não produzia. O ganho era
           estético; o custo era uma tela quebrada em metade dos aparelhos.
         */}
-        <aside className="flex gap-2 overflow-x-auto pb-1 scrollbar-none md:flex-col md:space-y-2 md:overflow-visible md:pb-0">
+        <aside className="flex gap-2 overflow-x-auto pb-1 scrollbar-none lg:flex-col lg:space-y-2 lg:overflow-visible lg:pb-0">
           {menuItems.map((item) => (
             <Button
               key={item.id}
               variant="ghost"
-              className={`h-10 shrink-0 justify-start gap-2 transition-all md:w-full md:gap-3 ${
+              className={`h-10 shrink-0 justify-start gap-2 transition-all lg:w-full lg:gap-3 ${
                 activeTab === item.id
                   ? 'bg-primary text-primary-foreground font-bold shadow-lg shadow-primary/20'
                   : 'text-muted-foreground hover:text-foreground hover:bg-accent'
@@ -1393,9 +1440,9 @@ function SettingsShell({
           {/* "Sair da Conta" fica FORA da faixa no celular: a gaveta "Mais" já
               tem o mesmo botão, e aqui ele viraria uma sexta aba vermelha
               disputando espaço com as opções que a pessoa veio usar. */}
-          <div className="hidden pt-4 border-t border-border mt-4 md:block">
+          <div className="hidden pt-4 border-t border-border mt-4 lg:block">
             <Button variant="ghost" className="w-full justify-start gap-3 text-destructive hover:bg-destructive/10 transition-colors" onClick={() => logout()}>
-              <LogOut className="h-4 w-4" /> Sair da Conta
+              <LogOut className="h-4 w-4" /> Sair da conta
             </Button>
           </div>
         </aside>
@@ -1538,7 +1585,11 @@ function ConvitesDeCadastroTab() {
  * e administráveis só de dentro de um workspace.
  */
 export function PersonalSettingsPage() {
-  const [activeTab, setActiveTab] = React.useState<Tab>('profile');
+  // Aba na URL, como em Acertos (`useTabParam`). Com `useState` ela sumia no
+  // F5 e no botão voltar, e não havia como mandar a alguém o link de
+  // "Configurações › Segurança" — três telas do app faziam isto de três jeitos
+  // diferentes.
+  const [activeTab, setActiveTab] = useTabParam<Tab>(ABAS_PESSOAIS, 'profile');
 
   const renderTab = () => {
     switch (activeTab) {
@@ -1573,7 +1624,7 @@ export function PersonalSettingsPage() {
  */
 export function SettingsPage() {
   const { isAdmin } = useWorkspaceRole();
-  const [activeTab, setActiveTab] = React.useState<Tab>('members');
+  const [activeTab, setActiveTab] = useTabParam<Tab>(ABAS_DO_ESPACO, 'members');
 
   const menuItems: MenuItem[] = [
     { id: 'members', label: 'Espaço e membros', icon: Users },
@@ -1585,7 +1636,7 @@ export function SettingsPage() {
   // Não-admin nunca fica preso na aba de auditoria (ex.: perdeu o papel)
   React.useEffect(() => {
     if (activeTab === 'audit' && !isAdmin) setActiveTab('members');
-  }, [activeTab, isAdmin]);
+  }, [activeTab, isAdmin, setActiveTab]);
 
   const renderTab = () => {
     switch (activeTab) {

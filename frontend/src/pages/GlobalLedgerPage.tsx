@@ -193,6 +193,17 @@ export function GlobalLedgerPage() {
         />
       ) : (
       <>
+      {/* O ramo de CARREGANDO existe pelo mesmo motivo do ramo de erro logo
+          acima, e faltava: enquanto a resposta não chega, `n(ledger?.cash_in)`
+          é `Number(undefined ?? 0)` — e a tela exibia "Entrou R$ 0,00 · Saiu
+          R$ 0,00 · Saldo R$ 0,00" em verde e vermelho, com a mesma tipografia do
+          número final, enquanto a lista abaixo ainda mostrava esqueletos. Três
+          zeros com cara de valor apurado. */}
+      {isLoading ? (
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 sm:gap-4">
+          {Array.from({ length: 3 }).map((_, i) => <Skeleton key={i} className="h-24" />)}
+        </div>
+      ) : (
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 sm:gap-4">
         <StatTile label="Entrou" value={n(ledger?.cash_in)} kind="income" icon={ArrowDownLeft} currency={moeda} />
         <StatTile label="Saiu" value={n(ledger?.cash_out)} kind="expense" icon={ArrowUpRight} currency={moeda} />
@@ -205,6 +216,7 @@ export function GlobalLedgerPage() {
           hint="Entradas menos saídas — não é saldo bancário"
         />
       </div>
+      )}
 
       <ExcludedForeignNotice count={ledger?.excluded_foreign_count ?? 0} baseCurrency={moeda} />
 

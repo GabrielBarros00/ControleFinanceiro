@@ -50,6 +50,7 @@ import { PageHeader } from '@/components/layout/PageHeader';
 // <select> nativo, mesmo padrão de AmortizationTable/PaymentMethodField.
 import { nativeSelectClass as selectClass } from '@/components/ui/native-select';
 import { CardsOrTable, DataCard } from '@/components/ui/data-card';
+import { EmptyState } from '@/components/ui/empty-state';
 
 const recurringSchema = z.object({
   title: z.string().min(1, 'Título é obrigatório'),
@@ -413,7 +414,7 @@ export function RecurringTransactionsPage() {
           Lançar pendentes
         </Button>
         <Button onClick={openCreate} className="gap-2 font-bold shadow-lg shadow-primary/20">
-          <Plus className="h-4 w-4" /> Nova Despesa
+          <Plus className="h-4 w-4" /> Nova despesa
         </Button>
       </div>
 
@@ -421,9 +422,16 @@ export function RecurringTransactionsPage() {
         cards={
       <div className="space-y-2">
         {recurring.length === 0 ? (
-          <p className="rounded-xl border border-border bg-card p-6 text-center text-sm text-muted-foreground">
-            Nenhuma despesa recorrente cadastrada.
-          </p>
+          // `EmptyState` como as outras telas: diz o que é e como criar a
+          // primeira, em vez de só constatar que não há nada.
+          <div className="rounded-xl border border-border bg-card">
+            <EmptyState
+              icon={Repeat}
+              title="Nenhuma despesa fixa ainda"
+              description="Aluguel, assinaturas e mensalidades entram uma vez e passam a ser lançados todo mês sozinhos."
+              action={<Button onClick={() => setDialogOpen(true)} className="gap-2"><Plus className="h-4 w-4" /> Nova despesa recorrente</Button>}
+            />
+          </div>
         ) : recurring.map((item: RecurringItem) => (
           <DataCard
             key={item.id}
@@ -431,7 +439,7 @@ export function RecurringTransactionsPage() {
             badge={
               <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase ${
                 item.is_active
-                  ? 'border border-emerald-500/20 bg-emerald-500/10 text-emerald-500'
+                  ? 'border border-income/20 bg-income-subtle text-income'
                   : 'border border-border bg-muted text-muted-foreground'
               }`}>
                 {item.is_active ? 'Ativo' : 'Inativo'}
@@ -493,8 +501,13 @@ export function RecurringTransactionsPage() {
             <TableBody>
               {recurring.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={5} className="h-32 text-center text-muted-foreground">
-                    Nenhuma despesa recorrente cadastrada.
+                  <TableCell colSpan={5} className="p-0">
+                    <EmptyState
+                      icon={Repeat}
+                      title="Nenhuma despesa fixa ainda"
+                      description="Aluguel, assinaturas e mensalidades entram uma vez e passam a ser lançados todo mês sozinhos."
+                      action={<Button onClick={() => setDialogOpen(true)} className="gap-2"><Plus className="h-4 w-4" /> Nova despesa recorrente</Button>}
+                    />
                   </TableCell>
                 </TableRow>
               ) : recurring.map((item: RecurringItem) => (
@@ -529,7 +542,7 @@ export function RecurringTransactionsPage() {
                   <TableCell>
                     <div className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold uppercase tracking-tighter ${
                       item.is_active
-                        ? 'bg-emerald-500/10 text-emerald-500 border border-emerald-500/20'
+                        ? 'bg-income-subtle text-income border border-income/20'
                         : 'bg-muted text-muted-foreground border border-border'
                     }`}>
                       {item.is_active ? 'Ativo' : 'Inativo'}
@@ -574,7 +587,7 @@ export function RecurringTransactionsPage() {
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
         <DialogContent className="bg-card border-border sm:max-w-[425px]">
           <DialogHeader>
-            <DialogTitle>{editingId ? 'Editar Despesa' : 'Nova Despesa Recorrente'}</DialogTitle>
+            <DialogTitle>{editingId ? 'Editar despesa' : 'Nova despesa recorrente'}</DialogTitle>
             <DialogDescription>
               Configure os detalhes da sua despesa automática.
             </DialogDescription>

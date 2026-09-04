@@ -19,6 +19,26 @@ function emRotaPublica(): boolean {
 }
 
 /**
+ * "O servidor não respondeu" é diferente de "o servidor disse que você não está
+ * logado" — e o app tratava as duas como a segunda.
+ *
+ * Com a API fora do ar, recarregar qualquer página levava à tela de **login**:
+ * "Bem-vindo, entre com suas credenciais". A sessão estava viva; o app só não
+ * tinha conseguido perguntar. Para quem usa um app de finanças, "sua sessão
+ * sumiu" é uma mensagem cara — e a pessoa digita a senha, que também falha,
+ * agora com um erro de credencial que não tem nada a ver com o problema.
+ *
+ * Sem `response` = a requisição não chegou (rede, DNS, servidor parado).
+ * 5xx = chegou e o servidor quebrou. Nos dois casos a resposta honesta é
+ * "não deu para falar com o servidor", com um botão de tentar de novo.
+ */
+export function ehFalhaDeInfraestrutura(erro: unknown): boolean {
+  const status = (erro as { response?: { status?: number } })?.response?.status;
+  if (status === undefined) return true;
+  return status >= 500;
+}
+
+/**
  * A sessão + a seleção de workspace, fora do hook para poder ser chamada de dois
  * lugares: como `queryFn` da `auth-me` e diretamente pelo login (ver abaixo por
  * que o login não pode depender de refetch).
@@ -79,7 +99,11 @@ export function useAuth() {
     // interceptor: lá o 401 é o sinal de "access token venceu, renove", e
     // bloqueá-lo derrubaria a sessão de quem só recarregou a página.
     enabled: !emRotaPublica(),
-    retry: false,
+    // Nunca insistir num 401 — ele é uma RESPOSTA ("não há sessão"), não uma
+    // falha. Mas insistir em queda de rede e em 5xx, que são falhas de verdade
+    // e costumam durar segundos: sem isso, um soluço de conexão já mandava para
+    // a tela de login quem tinha sessão válida.
+    retry: (tentativas, erro) => ehFalhaDeInfraestrutura(erro) && tentativas < 2,
     staleTime: 1000 * 60 * 5,
   });
 
@@ -172,6 +196,14 @@ export function useAuth() {
     //   cadastro cair em `/login` de forma intermitente.
     isLoading:
       meQuery.isLoading || loginMutation.isPending || registerMutation.isPending,
+    /**
+     * Não deu para falar com o servidor — que NÃO é a mesma coisa que estar
+     * deslogado. Quem consome isto é o `ProtectedRoute`: com esta bandeira ele
+     * mostra "sem conexão" e um botão de tentar de novo, em vez de mandar para
+     * a tela de login alguém cuja sessão está perfeitamente viva.
+     */
+    falhaDeConexao: meQuery.isError && ehFalhaDeInfraestrutura(meQuery.error),
+    tentarSessaoDeNovo: () => meQuery.refetch(),
     error: loginMutation.error || registerMutation.error,
     login: loginMutation.mutateAsync,
     register: registerMutation.mutateAsync,

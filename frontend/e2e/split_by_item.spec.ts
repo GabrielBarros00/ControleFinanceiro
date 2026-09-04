@@ -15,9 +15,9 @@ async function registerAndOnboard(page: Page, name: string, email: string) {
   // da página fica inerte (aria-hidden) — o cabeçalho "Início" atrás dele deixa
   // de ser alcançável por role, que é justamente o comportamento correto.
   await expect(page.getByRole('dialog')).toBeVisible();
-  await page.getByRole('button', { name: /Começar Setup/ }).click();
+  await page.getByRole('button', { name: 'Começar' }).click();
   await page.getByLabel('Salário / Renda Líquida').fill('5000,00');
-  await page.getByRole('button', { name: 'Próximo Passo' }).click();
+  await page.getByRole('button', { name: 'Próximo' }).click();
   await Promise.all([
     page.waitForNavigation({ waitUntil: 'load' }),
     page.getByRole('button', { name: 'Pular esta etapa' }).click(),
@@ -61,7 +61,7 @@ test.describe('Divisão por item e edição completa', () => {
     // Resumo fecha o total
     await expect(createDialog.getByTestId('items-summary')).toContainText('Itens fecham');
 
-    await createDialog.getByRole('button', { name: 'Salvar Despesa' }).click();
+    await createDialog.getByRole('button', { name: 'Salvar despesa' }).click();
     await expect(createDialog).not.toBeVisible({ timeout: 10_000 });
 
     // Extrato: transação com forma de pagamento Pix. Editar/excluir só existem
@@ -88,7 +88,7 @@ test.describe('Divisão por item e edição completa', () => {
     await expect(createDialog).toBeVisible();
     await createDialog.getByLabel('Título / Descrição').fill('Edicao Full E2E');
     await createDialog.getByLabel('Valor Total').fill('100,00');
-    await createDialog.getByRole('button', { name: 'Salvar Despesa' }).click();
+    await createDialog.getByRole('button', { name: 'Salvar despesa' }).click();
     await expect(createDialog).not.toBeVisible({ timeout: 10_000 });
 
     await page.goto('/transactions');

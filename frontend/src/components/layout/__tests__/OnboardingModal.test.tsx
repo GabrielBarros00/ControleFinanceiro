@@ -44,9 +44,9 @@ describe('OnboardingModal', () => {
   it('não manda workspace_id — o backend resolve o workspace próprio', async () => {
     render(<OnboardingModal />);
 
-    fireEvent.click(screen.getByRole('button', { name: /começar setup/i }));
+    fireEvent.click(screen.getByRole('button', { name: /^começar$/i }));
     fireEvent.click(screen.getByRole('button', { name: /pular por enquanto/i }));
-    fireEvent.click(screen.getByRole('button', { name: /concluir tutorial/i }));
+    fireEvent.click(screen.getByRole('button', { name: /^concluir$/i }));
 
     await waitFor(() => expect(post).toHaveBeenCalled());
     const [url, payload] = post.mock.calls[0];

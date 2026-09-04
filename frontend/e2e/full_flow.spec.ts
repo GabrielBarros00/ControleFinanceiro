@@ -23,9 +23,9 @@ test.describe('Full User Flow', () => {
     // aberto, o resto da página fica inerte e o "Início" atrás dele não é
     // alcançável por role — comportamento correto, e o que esperamos aqui.
     await expect(page.getByRole('dialog')).toBeVisible();
-    await page.getByRole('button', { name: /Começar Setup/ }).click();
+    await page.getByRole('button', { name: 'Começar' }).click();
     await page.getByLabel('Salário / Renda Líquida').fill('5000,00');
-    await page.getByRole('button', { name: 'Próximo Passo' }).click();
+    await page.getByRole('button', { name: 'Próximo' }).click();
     // "Pular" dispara window.location.reload() — espera a navegação terminar
     await Promise.all([
       page.waitForNavigation({ waitUntil: 'load' }),
@@ -46,7 +46,7 @@ test.describe('Full User Flow', () => {
     await dialog.getByLabel('Valor Total').fill('123,45');
 
     // Pagador e divisão usam os padrões (você paga e divide consigo mesmo)
-    await dialog.getByRole('button', { name: 'Salvar Despesa' }).click();
+    await dialog.getByRole('button', { name: 'Salvar despesa' }).click();
 
     // Modal fecha ao salvar; toast confirma
     await expect(dialog).not.toBeVisible({ timeout: 10_000 });

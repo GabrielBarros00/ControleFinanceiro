@@ -16,6 +16,7 @@ import { currencySymbol } from '@/lib/money';
 import { apiClient } from '@/api/client';
 import { toast } from '@/stores/toast';
 import { Wallet, CreditCard, Sparkles, ChevronRight, ArrowLeft, Calendar } from 'lucide-react';
+import { NumberInput } from '@/components/ui/NumberInput';
 
 export function OnboardingModal() {
   const { user } = useAuth();
@@ -106,9 +107,17 @@ export function OnboardingModal() {
                   </DialogDescription>
                 </div>
               </DialogHeader>
-              <div className="pt-4">
+              <div className="space-y-2 pt-4">
                  <Button onClick={() => setStep(2)} className="w-full h-12 text-lg font-bold gap-2">
-                   Começar Setup <ChevronRight className="h-5 w-5" />
+                   Começar <ChevronRight className="h-5 w-5" />
+                 </Button>
+                 {/* Saída no PRIMEIRO passo. O diálogo é bloqueante de propósito
+                     (sem X, sem Esc, sem clique fora), e até aqui a única opção
+                     da tela de boas-vindas era seguir — quem só quer olhar o app
+                     não tinha alternativa nenhuma à vista. Os passos 2 e 3 já
+                     ofereciam pular; o primeiro, não. */}
+                 <Button variant="link" onClick={handleFinish} className="w-full text-muted-foreground text-xs">
+                   Configurar depois
                  </Button>
               </div>
             </div>
@@ -143,7 +152,7 @@ export function OnboardingModal() {
                     não cria renda — auth.py), mas a UI travava o botão em 0 e
                     obrigava a inventar um valor. */}
                 <Button onClick={() => setStep(3)} className="flex-1 h-12 font-bold">
-                  {salary ? 'Próximo Passo' : 'Pular por enquanto'}
+                  {salary ? 'Próximo' : 'Pular por enquanto'}
                 </Button>
               </div>
             </div>
@@ -180,27 +189,42 @@ export function OnboardingModal() {
                        <Label className="flex items-center gap-1.5">
                          <Calendar className="h-3.5 w-3.5 text-muted-foreground" /> Fechamento
                        </Label>
-                       <Input
-                        type="number"
-                        inputMode="numeric"
+                       {/* `padraoAoSair` no lugar do antigo `|| 5`: aquele
+                           repunha o valor a CADA tecla, então não dava para
+                           apagar o campo nem digitar um número começado por 0.
+                           Agora o padrão é aplicado só quando a pessoa sai
+                           deixando vazio. */}
+                       <NumberInput
+                        aria-label="Dia de fechamento do cartão"
                         min={1}
                         max={31}
+                        padraoAoSair={5}
                         placeholder="5"
-                        value={closingDay} 
-                        onChange={(e) => setClosingDay(parseInt(e.target.value) || 5)} 
+                        value={closingDay}
+                        onChange={(v) => setClosingDay(v ?? 5)}
                        />
                      </div>
                    </div>
                 </div>
               </div>
+              {/* O botão "Concluir" trava quando há nome de cartão sem limite —
+                  e até aqui ele travava em SILÊNCIO: nem erro no campo, nem
+                  asterisco, nem `aria-describedby`. A pessoa ficava olhando um
+                  botão apagado sem saber o que faltava. */}
+              {!!cardName && !cardLimit && (
+                <p id="onboarding-falta-limite" className="text-xs font-medium text-destructive">
+                  Informe o limite do cartão para concluir — ou deixe o nome em branco e pule esta etapa.
+                </p>
+              )}
               <div className="flex gap-3 pt-4">
                 <Button variant="ghost" onClick={() => setStep(2)} className="h-12"><ArrowLeft className="h-4 w-4 mr-2" /> Voltar</Button>
                 <Button 
                   onClick={handleFinish} 
-                  className="flex-1 h-12 font-bold bg-emerald-600 hover:bg-emerald-700" 
+                  className="flex-1 h-12 font-bold" 
                   disabled={loading || (!!cardName && !cardLimit)}
+                  aria-describedby={!!cardName && !cardLimit ? 'onboarding-falta-limite' : undefined}
                 >
-                  {loading ? 'Finalizando...' : 'Concluir Tutorial'}
+                  {loading ? 'Salvando…' : 'Concluir'}
                 </Button>
               </div>
               <Button variant="link" className="w-full text-muted-foreground text-xs" onClick={handleFinish}>Pular esta etapa</Button>

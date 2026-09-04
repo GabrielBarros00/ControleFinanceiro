@@ -5,6 +5,7 @@ import {
   YAxis, 
   CartesianGrid, 
   Tooltip, 
+  Legend, 
   ResponsiveContainer, 
   PieChart, 
   Pie, 
@@ -29,7 +30,11 @@ import { PeriodPicker } from '@/components/layout/PeriodPicker';
 import { monthShortLabel } from '@/lib/date';
 import { useMonthParam } from '@/hooks/use-month-param';
 import { cn } from '@/lib/utils';
+import { useTabParam } from '@/hooks/use-tab-param';
 
+
+const ABAS = ['overview', 'categories', 'trends', 'budget'] as const;
+type AbaDeRelatorio = (typeof ABAS)[number];
 
 export function ReportsPage() {
   // Relatórios seguem o mesmo período das outras telas — antes ficavam presos
@@ -45,6 +50,9 @@ export function ReportsPage() {
    * acesso é restrito); faltava poder escolher.
    */
   const [comporPor, setComporPor] = React.useState<'espaco' | 'minha'>('espaco');
+  // Aba na URL: dá para mandar "olha as categorias de agosto" com o `?month=`
+  // que esta tela já mantém, e o botão voltar deixa de sair da página inteira.
+  const [aba, setAba] = useTabParam<AbaDeRelatorio>(ABAS, 'overview');
   const { data, isLoading, isError } = useReports(month);
   const baseCurrency = useBaseCurrency();
   // Cores lidas do tema atual (claro/escuro) — nunca hardcoded (corrige B3)
@@ -63,7 +71,7 @@ export function ReportsPage() {
     return (
       <div className="space-y-8">
         {header}
-        <div className="grid gap-4 md:grid-cols-4">
+        <div className="grid grid-cols-2 gap-3 sm:gap-4 md:grid-cols-4">
           {[1, 2, 3, 4].map(i => <Skeleton key={i} className="h-24 bg-card border-border" />)}
         </div>
         <Skeleton className="h-[260px] w-full bg-card border-border sm:h-[400px]" />
@@ -138,7 +146,7 @@ export function ReportsPage() {
   return (
     <div className="space-y-8 animate-in fade-in duration-700">
       {header}
-      <div className="grid gap-4 md:grid-cols-4">
+      <div className="grid grid-cols-2 gap-3 sm:gap-4 md:grid-cols-4">
         <StatTile
           label="Seu gasto (mês)"
           value={myExpenses}
@@ -173,7 +181,7 @@ export function ReportsPage() {
         />
       </div>
 
-      <Tabs defaultValue="overview" className="space-y-4">
+      <Tabs value={aba} onValueChange={(v) => setAba(v as AbaDeRelatorio)} className="space-y-4">
         <TabsList>
           <TabsTrigger value="overview">Visão geral</TabsTrigger>
           <TabsTrigger value="categories">Categorias</TabsTrigger>
@@ -219,6 +227,11 @@ export function ReportsPage() {
                       contentStyle={{ backgroundColor: chart.tooltipBg, border: `1px solid ${chart.tooltipBorder}`, borderRadius: '12px', color: chart.tooltipText }}
                       itemStyle={{ color: chart.tooltipText, fontWeight: 'bold' }}
                     />
+                    {/* Duas séries de barras sem legenda: o título nomeava as
+                        duas grandezas mas nada dizia qual cor era qual, e só o
+                        tooltip respondia — que no celular não existe, porque não
+                        há `hover`. As séries já traziam `name`; faltava exibir. */}
+                    <Legend wrapperStyle={{ fontSize: 12, paddingTop: 8 }} />
                     <Bar dataKey="expenses" fill={chart.series[0]} radius={[4, 4, 0, 0]} name="Despesa (espaço)" />
                     <Bar dataKey="my_expenses" fill={chart.series[2]} radius={[4, 4, 0, 0]} name="Minha parte" />
                   </BarChart>
