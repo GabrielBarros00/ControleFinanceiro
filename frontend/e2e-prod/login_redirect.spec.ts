@@ -1,5 +1,6 @@
 import { test, expect, Page } from '@playwright/test';
 import { postWithRetry } from './helpers';
+import { ONBOARDING, TITULO_INICIO } from '../e2e-shared/rotulos';
 
 // Regressão do bug: registro/login atrás do nginx (porta != 80) não redirecionava
 // ao dashboard e qualquer rota protegida devolvia ao /login mesmo com cookie válido
@@ -12,7 +13,7 @@ import { postWithRetry } from './helpers';
 // também cobre esse redirecionamento.
 const PAGES: Array<[string, string]> = [
   // Pessoais (ADR 0021)
-  ['/overview', 'Seu mês'],
+  ['/overview', 'Hoje'],
   ['/me/income', 'Rendas'],
   ['/me/cards', 'Cartões'],
   ['/me/financing', 'Financiamentos'],
@@ -77,24 +78,24 @@ test.describe('Sessão atrás do nginx (stack de produção)', () => {
     await expect(page).toHaveURL(/\/overview$/, { timeout: 15_000 });
     // O que está na tela do usuário novo é o ONBOARDING, não o painel: ele é um
     // diálogo modal e torna o resto da página inerte, então procurar o heading
-    // "Seu mês" aqui é procurar algo que o leitor de tela também não alcança.
+    // "Hoje" aqui é procurar algo que o leitor de tela também não alcança.
     // A asserção passava por corrida — o modal abre num efeito, depois que
     // `/auth/me` responde, e antes o login resolvia sem esperar essa resposta.
     await expect(page.getByRole('dialog')).toBeVisible({ timeout: 15_000 });
 
     // 2. Onboarding mínimo (salário + pular cartão; "Pular" recarrega a página)
-    await page.getByRole('button', { name: /Começar Setup/ }).click();
-    await page.getByLabel('Salário / Renda Líquida').fill('5000,00');
-    await page.getByRole('button', { name: 'Próximo Passo' }).click();
+    await page.getByRole('button', { name: ONBOARDING.comecar }).click();
+    await page.getByLabel(ONBOARDING.salario).fill('5000,00');
+    await page.getByRole('button', { name: ONBOARDING.proximo }).click();
     await Promise.all([
       page.waitForNavigation({ waitUntil: 'load' }),
-      page.getByRole('button', { name: 'Pular esta etapa' }).click(),
+      page.getByRole('button', { name: ONBOARDING.pular }).click(),
     ]);
-    await expect(page.getByRole('heading', { name: 'Seu mês' })).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByRole('heading', { name: TITULO_INICIO })).toBeVisible({ timeout: 15_000 });
 
     // 3. F5 mantém a sessão (era o sintoma: reload devolvia ao /login)
     await page.reload();
-    await expect(page.getByRole('heading', { name: 'Seu mês' })).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByRole('heading', { name: TITULO_INICIO })).toBeVisible({ timeout: 15_000 });
     await expect(page).not.toHaveURL(/\/login/);
 
     // 4. Todas as rotas protegidas abrem sem bounce

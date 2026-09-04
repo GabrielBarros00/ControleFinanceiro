@@ -150,7 +150,7 @@ test.describe('Acessibilidade (axe · WCAG 2 A/AA)', () => {
     // Início GLOBAL (ADR 0020): soma todos os workspaces, e é só leitura —
     // lançar despesa é ato de UMA casa, então o botão não mora aqui.
     await page.goto('/overview');
-    await expect(page.getByRole('heading', { name: /Seu mês/ })).toBeVisible();
+    await expect(page.getByRole('heading', { name: /Hoje/ })).toBeVisible();
     const global = await analisar(page);
     expect(resumir(global.violations)).toBe('');
 

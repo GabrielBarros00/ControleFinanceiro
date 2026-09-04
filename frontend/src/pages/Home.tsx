@@ -87,7 +87,7 @@ export function Home() {
       <PageHeader
         title="Painel"
         scope="workspace"
-        subtitle="Somente este espaço. Sua renda e seu resultado ficam em Pessoal › Seu mês."
+        subtitle="Somente este espaço. Sua renda e seu resultado ficam em Pessoal › Seus relatórios."
         action={
           canWrite ? (
             <Button onClick={() => setNewTxOpen(true)} className="gap-2">

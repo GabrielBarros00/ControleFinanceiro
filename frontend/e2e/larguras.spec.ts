@@ -320,3 +320,45 @@ test('o botão de fechar não cobre o conteúdo do diálogo', async ({ browser }
     await context.close();
   }
 });
+
+/**
+ * Densidade: quanto de rolagem a primeira tela custa.
+ *
+ * `mobile_layout` já garante que nada estoura a largura, e este arquivo garante
+ * que nada fica ilegível — mas os dois são cegos para o defeito que sobra: uma
+ * tela pode caber perfeitamente na largura, ser toda legível, e ainda assim
+ * exigir seis rolagens até a primeira informação útil. Foi o que a análise
+ * mediu em "Seu mês": seis blocos, ~14 números, **2.475px** de altura numa
+ * conta VAZIA — o saldo aparecendo três vezes.
+ *
+ * O teto é por rota e frouxo de propósito (não é um pixel-perfect): ele existe
+ * para reprovar a volta do acúmulo, não para congelar o desenho. 1.400px a
+ * 390px são ~1,6 telas — cabe um resumo e o começo de uma lista.
+ */
+const TETO_DE_ALTURA: { rota: string; teto: number; porque: string }[] = [
+  { rota: '/overview', teto: 1400, porque: 'a primeira tela responde antes da segunda rolagem' },
+];
+
+test('a primeira tela não é um relatório para rolar', async ({ browser }) => {
+  test.setTimeout(90_000);
+  const { context, wsId } = await contaComDados(browser, 390, 844);
+  const page = await context.newPage();
+  void wsId;
+
+  const excedidos: string[] = [];
+  for (const { rota, teto, porque } of TETO_DE_ALTURA) {
+    await page.goto(rota);
+    await esperarAssentar(page);
+    await telaRenderizou(page, rota);
+
+    const altura = await page.evaluate(() => {
+      const main = document.querySelector('main');
+      return Math.round(main ? main.scrollHeight : document.body.scrollHeight);
+    });
+    console.log(`[densidade] ${rota}: ${altura}px (teto ${teto}px)`);
+    if (altura > teto) excedidos.push(`${rota}: ${altura}px (teto ${teto}px) — ${porque}`);
+  }
+
+  await context.close();
+  expect(excedidos, `Tela alta demais:\n  ` + excedidos.join("\n  ")).toEqual([]);
+});

@@ -1,4 +1,5 @@
 import { test, expect, type Page } from '@playwright/test';
+import { ONBOARDING } from '../e2e-shared/rotulos';
 
 // Registro + onboarding até o dashboard (mesmo fluxo do full_flow.spec)
 async function registerAndOnboard(page: Page, name: string, email: string) {
@@ -15,14 +16,14 @@ async function registerAndOnboard(page: Page, name: string, email: string) {
   // da página fica inerte (aria-hidden) — o cabeçalho "Início" atrás dele deixa
   // de ser alcançável por role, que é justamente o comportamento correto.
   await expect(page.getByRole('dialog')).toBeVisible();
-  await page.getByRole('button', { name: 'Começar' }).click();
-  await page.getByLabel('Salário / Renda Líquida').fill('5000,00');
-  await page.getByRole('button', { name: 'Próximo' }).click();
+  await page.getByRole('button', { name: ONBOARDING.comecar }).click();
+  await page.getByLabel(ONBOARDING.salario).fill('5000,00');
+  await page.getByRole('button', { name: ONBOARDING.proximo }).click();
   await Promise.all([
     page.waitForNavigation({ waitUntil: 'load' }),
-    page.getByRole('button', { name: 'Pular esta etapa' }).click(),
+    page.getByRole('button', { name: ONBOARDING.pular }).click(),
   ]);
-  await expect(page.getByRole('heading', { name: /Seu mês|Painel/ })).toBeVisible({ timeout: 15_000 });
+  await expect(page.getByRole('heading', { name: /Hoje|Painel/ })).toBeVisible({ timeout: 15_000 });
 
   // Entra no workspace: o painel da casa é onde se lança despesa.
   await page.getByRole('link', { name: 'Painel' }).click();

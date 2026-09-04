@@ -72,8 +72,12 @@ export const GLOBAL_SECTION: NavSection = {
   hint: 'Só você vê',
   items: [
     // "Visão global" era o pior rótulo do app: para quem lê, "global" sugere "de
-    // todos" — e significa o contrário, "só meu, somando meus espaços".
-    { icon: LayoutDashboard, label: 'Seu mês', to: '/overview' },
+    // todos" — e significa o contrário, "só meu, somando meus espaços". Virou
+    // "Seu mês"; e depois "Hoje", quando a tela deixou de ser um relatório do
+    // mês e passou a responder o agora: quanto tenho, o que precisa de mim. O
+    // rótulo acompanha o título da página, senão o caminho não bate com onde se
+    // chega.
+    { icon: LayoutDashboard, label: 'Hoje', to: '/overview' },
     // Onde o dinheiro ESTÁ (ADR 0034). Segundo item porque é a outra metade da
     // pergunta que o Seu mês abre: lá está o que entrou e saiu no período, aqui
     // está quanto existe agora. Era uma aba dentro de Configurações, e cabia lá
