@@ -74,6 +74,15 @@ const DialogContent = React.forwardRef<
         // inset é 0 e o rodapé ficaria colado na borda.
         "inset-x-0 bottom-0 max-h-[92vh] w-full overflow-y-auto rounded-t-2xl pb-[max(1.25rem,env(safe-area-inset-bottom))] data-[state=closed]:slide-out-to-bottom data-[state=open]:slide-in-from-bottom",
         // >= sm: dialog centralizado
+        // O "×" é `absolute` — ele FLUTUA por cima do cabeçalho. Enquanto os
+        // títulos eram curtos ninguém viu; no detalhe do lançamento, o que mora
+        // na borda direita é o VALOR (medido: botão em 870–910, "−R$ 486,20"
+        // até 898). Um ícone em cima do número mais importante do diálogo.
+        //
+        // A reserva vive aqui, e não em cada diálogo, porque o botão é decisão
+        // deste componente: quem escreve um cabeçalho novo não deveria precisar
+        // saber que existe algo flutuando sobre ele.
+        showCloseButton && "[&_[data-slot=dialog-header]]:pr-10",
         "sm:inset-x-auto sm:bottom-auto sm:left-[50%] sm:top-[50%] sm:max-h-[85vh] sm:max-w-lg sm:translate-x-[-50%] sm:translate-y-[-50%] sm:rounded-lg sm:pb-6 sm:data-[state=closed]:slide-out-to-left-1/2 sm:data-[state=closed]:slide-out-to-top-[48%] sm:data-[state=open]:slide-in-from-left-1/2 sm:data-[state=open]:slide-in-from-top-[48%] sm:data-[state=closed]:zoom-out-95 sm:data-[state=open]:zoom-in-95",
         className
       )}
@@ -99,6 +108,7 @@ const DialogHeader = ({
   ...props
 }: React.HTMLAttributes<HTMLDivElement>) => (
   <div
+    data-slot="dialog-header"
     className={cn(
       "flex flex-col space-y-1.5 text-center sm:text-left",
       className

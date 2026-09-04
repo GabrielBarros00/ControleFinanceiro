@@ -179,7 +179,15 @@ class CommitmentFinancing(BaseModel):
     financing_id: int
     title: str
     outstanding: Decimal
+    #: A próxima parcela A PARTIR DE HOJE — não a mais antiga em aberto. Num
+    #: contrato cadastrado depois de já ter começado, a segunda é uma data no
+    #: passado, e a tela anunciava "próxima em 31/08/2025" numa seção "a vencer".
     next_due_date: date
+    #: O valor dessa parcela. É o número acionável da tela; o `outstanding` é o
+    #: saldo devedor do contrato inteiro e serve de apoio, não de destaque.
+    next_amount: Optional[Decimal] = None
+    #: Quantas parcelas já venceram e seguem em aberto. Zero para quem está em dia.
+    overdue_count: int = 0
     remaining_installments: int
 
 

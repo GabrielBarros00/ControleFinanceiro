@@ -350,7 +350,7 @@ export function StatementView({ cardId }: { cardId: number | null }) {
                             pergunta "por que R$ 100 viraram US$ 20?". */}
                         {tx.statement_currency && tx.currency !== tx.statement_currency && (
                           <span className="text-xs text-muted-foreground">
-                            {formatCurrency(parseFloat(tx.total_amount), tx.currency)} no workspace
+                            {formatCurrency(parseFloat(tx.total_amount), tx.currency)} no espaço
                           </span>
                         )}
                       </div>

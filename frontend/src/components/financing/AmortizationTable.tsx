@@ -2,6 +2,7 @@ import * as React from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Progress } from "@/components/ui/progress";
+import { StatTile } from "@/components/ui/stat-tile";
 import { StatusPill } from "@/components/ui/status-pill";
 import { Button } from "@/components/ui/button";
 import {
@@ -19,6 +20,7 @@ import { currencySymbol, formatMoney } from '@/lib/money';
 import { toast } from '@/stores/toast';
 import { useConfirm } from '@/components/ui/confirm';
 import { parseApiDate, todayLocalISO } from '@/lib/date';
+import { getApiErrorMessage } from '@/lib/api-error';
 import { nativeSelectClass } from '@/components/ui/native-select';
 import { CardsOrTable, DataCard } from '@/components/ui/data-card';
 import { NumberInput } from '@/components/ui/NumberInput';
@@ -128,7 +130,8 @@ function PagarParcelaDialog({
 }
 
 function CreateFinancingDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (o: boolean) => void }) {
-  const { create } = useFinancing();
+  const { create, quitarAnteriores } = useFinancing();
+  const confirm = useConfirm();
   // Criando, vale a moeda de RELATÓRIO do dono — é com ela que o backend
   // (`resolve_personal_currency`) vai gravar o contrato. A moeda-base do
   // workspace prometia uma coisa e o backend gravava outra.
@@ -162,7 +165,7 @@ function CreateFinancingDialog({ open, onOpenChange }: { open: boolean; onOpenCh
     setSaving(true);
     setError(null);
     try {
-      await create({
+      const criado = await create({
         title: title.trim(),
         total_amount: String(totalAmount),
         // Sem juros: taxa zero e PRICE, que com taxa zero é exatamente
@@ -174,6 +177,42 @@ function CreateFinancingDialog({ open, onOpenChange }: { open: boolean; onOpenCh
         currency,
       });
       onOpenChange(false);
+      /*
+       * Contrato que começou ANTES de hoje: perguntar se o passado já foi pago.
+       *
+       * O cronograma nasce inteiro com toda parcela em aberto, então cadastrar um
+       * financiamento que já existia coloca meses de "atraso" no app no mesmo
+       * instante — e ninguém volta para marcar doze parcelas uma a uma. Era a
+       * causa de a primeira tela anunciar dívida do tamanho do atraso.
+       *
+       * A pergunta é feita AQUI, no único momento em que a pessoa tem o contexto
+       * inteiro na cabeça. Fora daqui ela vira uma opção escondida que ninguém
+       * encontra.
+       */
+      if (startDate < todayLocalISO()) {
+        const jaPagas = await confirm({
+          title: 'As parcelas anteriores já foram pagas?',
+          description:
+            'Este contrato começou antes de hoje, e o app criou o cronograma inteiro '
+            + 'em aberto. Marcar as parcelas passadas como pagas evita que elas apareçam '
+            + 'como dívida vencida. Isso não cria lançamentos no seu extrato.',
+          confirmLabel: 'Sim, já paguei',
+          cancelLabel: 'Não, estão em aberto',
+        });
+        if (jaPagas && criado?.id) {
+          try {
+            const r = await quitarAnteriores(criado.id);
+            if (r.quitadas > 0) {
+              toast.success(
+                `${r.quitadas} parcela(s) marcada(s) como paga(s)`,
+                'O cronograma daqui para a frente continua em aberto.',
+              );
+            }
+          } catch (err) {
+            toast.error(getApiErrorMessage(err, 'Não foi possível marcar as parcelas anteriores.'));
+          }
+        }
+      }
       setTitle(''); setTotalAmount(0); setInterestRate('1.00'); setInstallments(12);
       setSemJuros(false);
       setCurrency(reportCurrency);
@@ -282,7 +321,9 @@ function CreateFinancingDialog({ open, onOpenChange }: { open: boolean; onOpenCh
   );
 }
 
-function FinancingDetail({ financing }: { financing: Financing }) {
+function FinancingDetail(
+  { financing, onExcluir }: { financing: Financing; onExcluir: () => void },
+) {
   const { schedule, settlement } = useFinancingSchedule(financing.id);
   // A moeda é DO CONTRATO, não do workspace aberto: o financiamento é pessoal
   // (ADR 0021) e não muda de denominação porque o usuário trocou de casa.
@@ -292,9 +333,26 @@ function FinancingDetail({ financing }: { financing: Financing }) {
   const [pagando, setPagando] = React.useState<number | null>(null);
 
   const unpaid = schedule.filter((i) => !i.is_paid);
-  const nextInstallment = unpaid[0] ?? null;
-  const remainingBalance = nextInstallment
-    ? parseFloat(unpaid[0].remaining_balance) + parseFloat(unpaid[0].principal_amount)
+  /*
+   * "Próxima" é a próxima A PARTIR DE HOJE — não a mais antiga em aberto.
+   *
+   * O catálogo de telas flagrou o quadro "Próxima parcela" anunciando
+   * "Vence em 31/08/2025" num dia de setembro de 2026: num contrato cadastrado
+   * depois de já ter começado (o caso de quem registra um financiamento que já
+   * existia), `unpaid[0]` é a primeira parcela do cronograma, com um ano de
+   * atraso. É o MESMO defeito que a tela de Compromissos já corrigiu; ele
+   * morava em dois lugares porque cada tela derivava a "próxima" por conta.
+   *
+   * O atraso não some: ele ganha a sua própria contagem, logo abaixo.
+   */
+  const hoje = todayLocalISO();
+  const atrasadas = unpaid.filter((i) => i.due_date.slice(0, 10) < hoje);
+  const nextInstallment = unpaid.find((i) => i.due_date.slice(0, 10) >= hoje) ?? null;
+  /* Qual se PAGA primeiro é outra pergunta: é sempre a mais antiga em aberto,
+     vencida ou não. O botão "Pagar" e o atalho da paginação seguem esta. */
+  const proximaAPagar = unpaid[0] ?? null;
+  const remainingBalance = proximaAPagar
+    ? parseFloat(proximaAPagar.remaining_balance) + parseFloat(proximaAPagar.principal_amount)
     : 0;
   const paidCount = schedule.length - unpaid.length;
   const progress = schedule.length > 0 ? (paidCount / schedule.length) * 100 : 0;
@@ -307,7 +365,7 @@ function FinancingDetail({ financing }: { financing: Financing }) {
 
   // Abre na página da PRÓXIMA parcela — é a que interessa (e a única com o botão
   // "Pagar"). Reancora quando o cronograma muda (trocar de financiamento, pagar).
-  const nextNumber = nextInstallment?.installment_number;
+  const nextNumber = proximaAPagar?.installment_number;
   React.useEffect(() => {
     const alvo = nextNumber ? Math.floor((nextNumber - 1) / PARCELAS_POR_PAGINA) : 0;
     setPage(Math.min(alvo, totalPages - 1));
@@ -319,47 +377,49 @@ function FinancingDetail({ financing }: { financing: Financing }) {
 
   return (
     <div className="space-y-8">
-      <div className="grid gap-6 md:grid-cols-3">
-        <Card className="bg-card border-border">
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-normal text-muted-foreground">Saldo devedor</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="text-xl font-bold">{fmt(remainingBalance)}</div>
-            <Progress value={progress} className="h-1 mt-3" />
-            <p className="text-xs text-muted-foreground mt-2">{paidCount} de {schedule.length} parcelas pagas</p>
-          </CardContent>
-        </Card>
-        <Card className="bg-card border-border">
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-normal text-muted-foreground">Próxima parcela</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="text-xl font-bold">
-              {nextInstallment ? fmt(nextInstallment.total_amount) : '—'}
-            </div>
-            {nextInstallment && (
-              <p className="text-xs text-muted-foreground mt-1">
-                Vence em {parseApiDate(nextInstallment.due_date).toLocaleDateString('pt-BR')}
-              </p>
-            )}
-          </CardContent>
-        </Card>
-        <Card className="bg-card border-border">
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-normal text-muted-foreground">Economia se quitar hoje</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="text-xl font-bold text-income">
-              {settlement ? fmt(settlement.savings) : '—'}
-            </div>
-            {settlement && (
-              <p className="text-xs text-muted-foreground mt-1">
-                Pagaria {fmt(settlement.total_to_pay)} (valor presente)
-              </p>
-            )}
-          </CardContent>
-        </Card>
+      {/* Os três números da faixa usavam `Card` + `text-xl font-bold` próprios,
+          enquanto o resto do app fala por `StatTile` — mesma informação, corpo
+          diferente, e o financiamento parecia outra aplicação. `StatTile` também
+          resolve o que a versão à mão não resolvia: número comprido encolhe em
+          vez de quebrar no meio (ver `stat-tile.tsx`). */}
+      <div className="grid gap-4 sm:grid-cols-2 md:grid-cols-3">
+        <StatTile
+          label="Saldo devedor"
+          value={remainingBalance}
+          currency={financing.currency ?? undefined}
+          hint={
+            <>
+              <Progress value={progress} className="mt-2 h-1" />
+              <span className="mt-2 block">{paidCount} de {schedule.length} parcelas pagas</span>
+            </>
+          }
+        />
+        <StatTile
+          label="Próxima parcela"
+          value={nextInstallment ? Number(nextInstallment.total_amount) : 0}
+          currency={financing.currency ?? undefined}
+          hint={
+            <>
+              {nextInstallment
+                ? `Vence em ${parseApiDate(nextInstallment.due_date).toLocaleDateString('pt-BR')}`
+                : 'Nenhuma parcela a vencer'}
+              {atrasadas.length > 0 && (
+                <span className="mt-1 block font-semibold text-expense">
+                  {atrasadas.length} parcela(s) vencida(s) em aberto
+                </span>
+              )}
+            </>
+          }
+        />
+        <StatTile
+          label="Economia se quitar hoje"
+          value={settlement ? Number(settlement.savings) : 0}
+          /* `income` põe um "+" na frente, e economia não é dinheiro que entra:
+             "+R$ 2.351.922,02" numa tela de dívida lia-se como valor a receber. */
+          kind="neutral"
+          currency={financing.currency ?? undefined}
+          hint={settlement ? `Pagaria ${fmt(settlement.total_to_pay)} (valor presente)` : undefined}
+        />
       </div>
 
       <Card className="bg-card border-border">
@@ -401,7 +461,7 @@ function FinancingDetail({ financing }: { financing: Financing }) {
                   { label: 'Saldo devedor', value: fmt(row.remaining_balance), full: true },
                 ]}
                 actions={
-                  !row.is_paid && row.installment_number === nextInstallment?.installment_number ? (
+                  !row.is_paid && row.installment_number === proximaAPagar?.installment_number ? (
                     <Button
                       size="sm"
                       variant="outline"
@@ -441,7 +501,7 @@ function FinancingDetail({ financing }: { financing: Financing }) {
                   <TableCell className="text-center">
                     {row.is_paid ? (
                       <StatusPill tone="success">Paga</StatusPill>
-                    ) : row.installment_number === nextInstallment?.installment_number ? (
+                    ) : row.installment_number === proximaAPagar?.installment_number ? (
                       <Button
                         size="sm"
                         variant="outline"
@@ -512,6 +572,21 @@ function FinancingDetail({ financing }: { financing: Financing }) {
           schedule.find((i) => i.installment_number === pagando)?.total_amount ?? 0,
         )}
       />
+
+      {/* Excluir vive AQUI, no fim do contrato aberto, e não colado em "+ Novo
+          Financiamento" no topo. Duas ações de sentido oposto — criar e destruir
+          — a 8px uma da outra é convite a erro, e a destrutiva era a que ficava
+          mais perto do canto onde o polegar descansa. No fim da tela ela é fácil
+          de achar quando se procura e difícil de tocar sem querer. */}
+      <div className="flex justify-end border-t border-border pt-4">
+        <Button
+          variant="ghost"
+          className="gap-2 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+          onClick={onExcluir}
+        >
+          <Trash2 className="h-4 w-4" /> Excluir este financiamento
+        </Button>
+      </div>
     </div>
   );
 }
@@ -541,47 +616,48 @@ export function AmortizationTable() {
 
   return (
     <div className="space-y-8">
-      <div className="flex items-center justify-between flex-wrap gap-3">
-        <div className="flex items-center gap-3 flex-wrap">
-          {financings.map((f) => (
-            <button
-              key={f.id}
-              type="button"
-              onClick={() => setSelectedId(f.id)}
-              className={`px-4 py-2 rounded-xl border text-sm font-semibold transition-colors ${
-                f.id === selectedId
-                  ? 'border-primary bg-primary/10 text-primary'
-                  : 'border-border bg-card text-muted-foreground hover:text-foreground'
-              }`}
-            >
-              {f.title}
-              {f.status === 'settled' && <span className="ml-2 text-[10px] text-income font-semibold">QUITADO</span>}
-            </button>
-          ))}
-        </div>
-        <div className="flex gap-2">
-          {selected && (
-            <Button
-              variant="ghost"
-              className="text-destructive hover:bg-destructive/10 gap-2"
-              onClick={async () => {
-                const ok = await confirm({
-                  title: 'Excluir financiamento',
-                  description: `Excluir o financiamento "${selected.title}"?`,
-                  confirmLabel: 'Excluir',
-                  destructive: true,
-                });
-                if (!ok) return;
-                try { await remove(selected.id); } catch { toast.error('Erro ao excluir.'); }
-              }}
-            >
-              <Trash2 className="h-4 w-4" /> Excluir
-            </Button>
-          )}
-          <Button onClick={() => setCreateOpen(true)} className="bg-primary hover:bg-primary/90 text-primary-foreground font-bold">
-            + Novo Financiamento
-          </Button>
-        </div>
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        {/* Com seis contratos, as pílulas empilhavam 330px de altura no celular:
+            a tela abria com um menu e o conteúdo começava abaixo da dobra. Acima
+            de três, um `<select>` nativo resolve em uma linha — e é o controle
+            que o sistema operacional já sabe desenhar em tela pequena.
+            `text-base`: `text-sm` num `<select>` faz o iOS dar zoom e não voltar. */}
+        {financings.length > 3 ? (
+          <select
+            aria-label="Escolher financiamento"
+            value={selectedId ?? ''}
+            onChange={(e) => setSelectedId(Number(e.target.value))}
+            className="h-10 w-full rounded-xl border border-border bg-card px-3 text-base font-semibold text-foreground sm:w-auto sm:max-w-xs"
+          >
+            {financings.map((f) => (
+              <option key={f.id} value={f.id}>
+                {f.title}{f.status === 'settled' ? ' — quitado' : ''}
+              </option>
+            ))}
+          </select>
+        ) : (
+          <div className="flex flex-wrap items-center gap-3">
+            {financings.map((f) => (
+              <button
+                key={f.id}
+                type="button"
+                aria-pressed={f.id === selectedId}
+                onClick={() => setSelectedId(f.id)}
+                className={`rounded-xl border px-4 py-2 text-sm font-semibold transition-colors ${
+                  f.id === selectedId
+                    ? 'border-primary bg-primary/10 text-primary'
+                    : 'border-border bg-card text-muted-foreground hover:text-foreground'
+                }`}
+              >
+                {f.title}
+                {f.status === 'settled' && <span className="ml-2 text-[10px] font-semibold text-income">QUITADO</span>}
+              </button>
+            ))}
+          </div>
+        )}
+        <Button onClick={() => setCreateOpen(true)} className="bg-primary font-bold text-primary-foreground hover:bg-primary/90">
+          + Novo Financiamento
+        </Button>
       </div>
 
       {financings.length === 0 ? (
@@ -591,7 +667,19 @@ export function AmortizationTable() {
           </p>
         </Card>
       ) : selected ? (
-        <FinancingDetail financing={selected} />
+        <FinancingDetail
+          financing={selected}
+          onExcluir={async () => {
+            const ok = await confirm({
+              title: 'Excluir financiamento',
+              description: `Excluir o financiamento "${selected.title}"?`,
+              confirmLabel: 'Excluir',
+              destructive: true,
+            });
+            if (!ok) return;
+            try { await remove(selected.id); } catch { toast.error('Erro ao excluir.'); }
+          }}
+        />
       ) : null}
 
       <CreateFinancingDialog open={createOpen} onOpenChange={setCreateOpen} />

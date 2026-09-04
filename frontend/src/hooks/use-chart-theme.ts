@@ -13,6 +13,17 @@ export interface ChartTheme {
   tooltipText: string;
   /** paleta de séries/categorias (--chart-1..6) */
   series: string[];
+  /*
+   * Entrada e saída, nas MESMAS cores do resto do app.
+   *
+   * A paleta `--chart-*` existe para categorias — onde a cor é só um rótulo
+   * ("Mercado é roxo") e qualquer tom serve. Não serve quando as duas séries
+   * são exatamente renda e consumo: o app inteiro ensina que verde entra e
+   * vermelho sai, e o gráfico desenhava consumo em roxo, contrariando a única
+   * convenção de cor que o produto tem.
+   */
+  income: string;
+  expense: string;
 }
 
 const SERIES_VARS = ['--chart-1', '--chart-2', '--chart-3', '--chart-4', '--chart-5', '--chart-6'];
@@ -30,6 +41,8 @@ function compute(): ChartTheme {
     tooltipBorder: readVar('--border', 'rgba(0,0,0,0.1)'),
     tooltipText: readVar('--popover-foreground', readVar('--foreground', '#111')),
     series: SERIES_VARS.map((v) => readVar(v)),
+    income: readVar('--income', '#16a34a'),
+    expense: readVar('--expense', '#dc2626'),
   };
 }
 

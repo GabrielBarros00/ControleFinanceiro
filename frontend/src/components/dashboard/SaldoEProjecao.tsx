@@ -1,5 +1,5 @@
 import { Link } from 'react-router-dom';
-import { ArrowDownLeft, ArrowUpRight, PiggyBank, Wallet } from 'lucide-react';
+import { AlertTriangle, ArrowDownLeft, ArrowRight, ArrowUpRight, PiggyBank, Wallet } from 'lucide-react';
 
 import { MoneyText } from '@/components/money/MoneyText';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -75,6 +75,7 @@ export function SaldoEProjecao({ month }: { month: string }) {
   const n = (v: unknown) => Number(v ?? 0);
   const semSaldo = balance.total === null || balance.total === undefined;
   const projetado = balance.projected_balance;
+  const atrasado = n(balance.overdue_total);
 
   return (
     <div className="space-y-4">
@@ -157,6 +158,39 @@ export function SaldoEProjecao({ month }: { month: string }) {
             pagar, faturas que vencem no mês e parcelas de financiamento.
           </p>
         </div>
+
+        {/*
+          O ATRASO vem antes dos números, e fora deles.
+
+          Ele não entra na projeção (ver `projection_service.py`): "até o fim do
+          mês" com meses de atraso embutidos não responde nem "quanto vou ter"
+          nem "quanto eu devo" — media-se um contrato antigo recém-cadastrado
+          fazendo esta tela anunciar saldo projetado negativo para quem tinha
+          dinheiro no banco.
+
+          Mas ele também não some: dívida vencida escondida é pior que dívida
+          vencida exagerada. Ela vira o que sempre foi — uma pendência com ação,
+          e não uma previsão.
+        */}
+        {atrasado > 0 && (
+          <Link
+            to="/me/payables"
+            className="flex items-center justify-between gap-3 border-b border-border bg-warning-subtle px-4 py-3 transition-colors hover:bg-warning-subtle/70"
+          >
+            <span className="flex min-w-0 items-center gap-2">
+              <AlertTriangle className="h-4 w-4 shrink-0 text-warning" aria-hidden="true" />
+              <span className="min-w-0">
+                <span className="block text-sm font-medium text-foreground">
+                  {formatMoney(atrasado, { currency: moeda })} já venceu e continua em aberto
+                </span>
+                <span className="block text-xs text-muted-foreground">
+                  Fora da conta abaixo, porque não é deste mês. Toque para resolver.
+                </span>
+              </span>
+            </span>
+            <ArrowRight className="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden="true" />
+          </Link>
+        )}
         <div className="grid grid-cols-2 gap-3 p-4 sm:gap-4 lg:grid-cols-4">
           {/* Sem saldo configurado o número é DESCONHECIDO, não zero. Um "R$ 0,00"
               aqui — logo abaixo de "saldo ainda não configurado" — é um valor
@@ -210,7 +244,10 @@ export function SaldoEProjecao({ month }: { month: string }) {
             conferível — a pessoa não teria como saber se a fatura entrou. */}
         {balance.breakdown.length > 0 && (
           <dl className="divide-y divide-border border-t border-border px-4 pb-3">
-            {balance.breakdown.map((linha) => (
+            {/* A linha "overdue" não se repete aqui: ela já é o aviso do topo,
+                com ação. Duas aparições do mesmo número na mesma seção é o que
+                a auditoria apontou em três outros lugares. */}
+            {balance.breakdown.filter((l) => l.kind !== 'overdue').map((linha) => (
               <div
                 key={linha.kind}
                 className="flex items-center justify-between gap-3 py-2"

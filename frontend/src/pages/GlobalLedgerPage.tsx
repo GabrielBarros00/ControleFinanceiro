@@ -227,6 +227,25 @@ export function GlobalLedgerPage() {
             onLimpar={temFiltro ? limparFiltros : undefined}
           >
             <div role="group" aria-label="Filtrar por origem" className="flex flex-wrap gap-2">
+              {/* "Todas" existe porque a ausência de filtro não se enxerga.
+                  Com os seis chips apagados, a tela não diz se está mostrando
+                  tudo ou se algum recorte está ativo em outro canto — e a única
+                  forma de descobrir era clicar. Um chip aceso responde a
+                  pergunta e, de quebra, dá o caminho de volta para "tudo" sem
+                  ter de desmarcar um por um. */}
+              <button
+                type="button"
+                aria-pressed={origensAtivas.length === 0}
+                onClick={() => aplicar((proximo) => proximo.delete('source'))}
+                className={cn(
+                  'rounded-full border px-3 py-1.5 text-xs font-semibold transition-colors',
+                  origensAtivas.length === 0
+                    ? 'border-brand bg-brand text-primary-foreground'
+                    : 'border-border text-muted-foreground hover:bg-muted',
+                )}
+              >
+                Todas
+              </button>
               {ORIGENS.map((o) => {
                 const ativo = origensAtivas.includes(o.value);
                 return (

@@ -56,6 +56,8 @@ export interface TransactionFilters {
    * `undefined` = tudo, que é a leitura padrão do extrato.
    */
   settled?: boolean;
+  /** Só o que ainda não foi categorizado — destino do convite dos Relatórios. */
+  uncategorized?: boolean;
 }
 
 export interface TransactionListResponse {

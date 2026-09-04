@@ -127,12 +127,25 @@ export function CommitmentsPage() {
                 <div className="min-w-0">
                   <p className="truncate font-medium text-foreground">{f.title}</p>
                   <p className="text-sm text-muted-foreground">
-                    {f.remaining_installments} parcela(s) · próxima em{' '}
-                    {parseApiDay(f.next_due_date).toLocaleDateString('pt-BR')}
+                    próxima em {parseApiDay(f.next_due_date).toLocaleDateString('pt-BR')}
+                    {' · '}
+                    {f.remaining_installments} parcela(s) · saldo devedor {fmt(f.outstanding)}
                   </p>
+                  {/* O atraso ganha linha própria, e só existe quando existe.
+                      Antes ele se escondia dentro de "próxima em <data velha>":
+                      a tela dizia "próxima em 31/08/2025" — mais de um ano atrás
+                      — numa seção chamada "a vencer". */}
+                  {f.overdue_count > 0 && (
+                    <p className="text-sm font-medium text-expense">
+                      {f.overdue_count} parcela(s) vencida(s) e em aberto
+                    </p>
+                  )}
                 </div>
+                {/* O DESTAQUE é a próxima parcela, não o saldo devedor.
+                    Numa tela sobre o que vai vencer, o número grande era o valor
+                    do contrato inteiro — R$ 1.250.000 para um imóvel. */}
                 <span className="shrink-0 tabular-nums font-medium text-foreground">
-                  {fmt(f.outstanding)}
+                  {f.next_amount != null ? fmt(f.next_amount) : fmt(f.outstanding)}
                 </span>
               </div>
             ))}

@@ -311,7 +311,7 @@ function ReportCurrencyCard() {
         <CardTitle>Moeda de relatório</CardTitle>
         <CardDescription>
           Moeda em que os seus números aparecem: renda, cartões, financiamentos e a
-          Visão global, que soma workspaces de moedas-base diferentes. Não altera
+          Visão global, que soma espaços de moedas diferentes. Não altera
           nenhum lançamento — só a moeda em que os totais são expressos.
         </CardDescription>
       </CardHeader>
@@ -1515,7 +1515,7 @@ function ConvitesDeCadastroTab() {
         <h2 className="text-lg font-semibold text-foreground">Convidar alguém para o sistema</h2>
         <p className="mt-1 text-sm text-muted-foreground">
           Gera um link de cadastro. Quem entrar por ele terá o próprio espaço, separado do
-          seu — para dividir despesas, convide a pessoa para um workspace depois.
+          seu — para dividir despesas, convide a pessoa para um espaço seu depois.
         </p>
       </div>
 

@@ -669,6 +669,11 @@ def list_transactions(
     # Liquidação (ADR 0029): `false` traz só o que ainda não saiu do caixa.
     # Ausente = tudo, que é a leitura padrão do extrato.
     settled: Optional[bool] = None,
+    # O que ainda não foi categorizado. Não é `category_id=0`: a ausência de
+    # categoria não é uma categoria, e `0` só significaria isso por convenção
+    # combinada no código. É o destino do convite "categorizar" dos Relatórios,
+    # que até aqui identificavam o problema sem oferecer saída.
+    uncategorized: bool = False,
 ):
     offset = (page - 1) * limit
 
@@ -715,6 +720,18 @@ def list_transactions(
         statement = statement.join(TransactionItem).where(
             TransactionItem.category_id == category_id
         ).distinct()
+
+    # Sem categoria: nenhum item categorizado — INCLUSIVE a despesa sem item
+    # nenhum, que é a forma mais comum (lançamento simples não cria item). Um
+    # `outerjoin` traria a despesa parcialmente categorizada junto (ela tem UM
+    # item nulo), e ela não é trabalho pendente do mesmo tipo: já foi mexida.
+    if uncategorized:
+        statement = statement.where(
+            ~select(TransactionItem.id)
+            .where(TransactionItem.transaction_id == Transaction.id)
+            .where(TransactionItem.category_id.is_not(None))
+            .exists()
+        )
 
     # Filtering by payment method
     if payment_method:

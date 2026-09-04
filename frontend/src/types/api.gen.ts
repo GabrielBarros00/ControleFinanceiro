@@ -1718,6 +1718,54 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/me/financing/{financing_id}/installments/settle-past": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Settle Past Installments
+         * @description "Este contrato começou antes de eu cadastrá-lo, e essas parcelas eu já paguei."
+         *
+         *     ## Por que esta rota existe
+         *
+         *     O app gera o cronograma inteiro no cadastro, e toda parcela nasce
+         *     `is_paid=False`. Quem registra um financiamento que **já existia** fica, no
+         *     mesmo instante, com meses de parcelas "em aberto" que na vida real foram
+         *     pagas — e ninguém volta para marcar doze delas uma a uma.
+         *
+         *     O efeito disso vazava para três telas (projeção do Seu mês, Compromissos e
+         *     Relatórios). `projection_service` passou a separar vencido de a vencer, o que
+         *     corrige o **efeito**; esta rota corrige a **causa**.
+         *
+         *     ## O que ela deliberadamente NÃO faz
+         *
+         *     **Não cria despesa nem movimento de caixa.** Marcar como paga aqui é dizer
+         *     "isto aconteceu antes de o app existir para mim" — inventar lançamentos
+         *     retroativos reescreveria o extrato e o resultado de meses fechados, que é
+         *     exatamente o que o ADR 0023 proíbe. Por isso também não recebe `workspace_id`
+         *     nem conta: quem quer a parcela lançada como despesa usa a rota de pagar
+         *     parcela, uma a uma, que é onde essa decisão cabe.
+         *
+         *     **Não toca no futuro.** O corte é estrito (`due_date < ate`), então a parcela
+         *     que vence hoje continua em aberto — ela ainda vai ser paga.
+         *
+         *     ## Idempotência
+         *
+         *     O `UPDATE` filtra por `is_paid=False`, então chamar duas vezes quita zero na
+         *     segunda. É o que permite a interface oferecer o botão sem medo de repetição.
+         */
+        post: operations["settle_past_installments_api_v1_me_financing__financing_id__installments_settle_past_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/me/financing/{financing_id}/installments/{installment_number}/pay": {
         parameters: {
             query?: never;
@@ -2947,6 +2995,11 @@ export interface components {
              * @default 0
              */
             payable_total: string;
+            /**
+             * Overdue Total
+             * @default 0
+             */
+            overdue_total: string;
             /** Projected Balance */
             projected_balance?: string | null;
             /**
@@ -3322,6 +3375,13 @@ export interface components {
              * Format: date
              */
             next_due_date: string;
+            /** Next Amount */
+            next_amount?: string | null;
+            /**
+             * Overdue Count
+             * @default 0
+             */
+            overdue_count: number;
             /** Remaining Installments */
             remaining_installments: number;
         };
@@ -4830,6 +4890,21 @@ export interface components {
         PushUnsubscribe: {
             /** Endpoint */
             endpoint: string;
+        };
+        /** QuitarAnterioresRead */
+        QuitarAnterioresRead: {
+            /** Quitadas */
+            quitadas: number;
+            /** Em Aberto */
+            em_aberto: number;
+        };
+        /**
+         * QuitarAnterioresRequest
+         * @description Marca como pagas as parcelas que venceram ANTES de uma data.
+         */
+        QuitarAnterioresRequest: {
+            /** Ate */
+            ate?: string | null;
         };
         /**
          * RecurrenceFrequency
@@ -7288,6 +7363,7 @@ export interface operations {
                 payment_method?: components["schemas"]["PaymentMethod"] | null;
                 tag_id?: number | null;
                 settled?: boolean | null;
+                uncategorized?: boolean;
             };
             header?: never;
             path: {
@@ -10652,6 +10728,43 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["EarlySettlementRead"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    settle_past_installments_api_v1_me_financing__financing_id__installments_settle_past_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                financing_id: number;
+            };
+            cookie?: {
+                access_token?: string | null;
+            };
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["QuitarAnterioresRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["QuitarAnterioresRead"];
                 };
             };
             /** @description Validation Error */

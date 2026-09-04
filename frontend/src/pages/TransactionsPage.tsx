@@ -55,6 +55,9 @@ export function TransactionsPage() {
     search: searchParams.get('q') ?? '',
     payment_method: filtroDaUrl('pagamento'),
     category_id: numeroDaUrl('categoria'),
+    // Chega dos Relatórios: "categorize estas". Um booleano na URL, para o
+    // link ser compartilhável e o voltar do navegador não perder o recorte.
+    uncategorized: searchParams.get('semcategoria') === 'sim' || undefined,
     tag_id: numeroDaUrl('tag'),
     // `settled` é booleano de três estados: ausente = "pagas e a pagar".
     settled: searchParams.has('pagas') ? searchParams.get('pagas') === 'sim' : undefined,
@@ -105,6 +108,7 @@ export function TransactionsPage() {
       ...('search' in p ? { q: p.search || undefined } : {}),
       ...('payment_method' in p ? { pagamento: p.payment_method } : {}),
       ...('category_id' in p ? { categoria: p.category_id } : {}),
+      ...('uncategorized' in p ? { semcategoria: p.uncategorized ? 'sim' : undefined } : {}),
       ...('tag_id' in p ? { tag: p.tag_id } : {}),
       ...('settled' in p ? { pagas: p.settled === undefined ? undefined : (p.settled ? 'sim' : 'nao') } : {}),
       page: p.page ?? undefined,
@@ -238,11 +242,22 @@ export function TransactionsPage() {
         {/* Categoria e tag: o backend implementa os dois filtros
             (routes/transactions.py) e o hook já os enviava — faltava só o
             controle na tela. */}
+        {/* "Sem categoria" é uma opção do MESMO seletor, e não um filtro à parte:
+            é assim que ela fica ao alcance de quem nunca leu os Relatórios. Ela
+            é a lista de trabalho de quem quer arrumar a casa — e o quadro "Maior
+            categoria: Sem categoria", que antes só constatava o problema, agora
+            aponta para cá. */}
         <Select
-          items={[{ value: 'all', label: 'Toda categoria' }, ...categoryOptions]}
-          value={filters.category_id ? String(filters.category_id) : 'all'}
+          items={[
+            { value: 'all', label: 'Toda categoria' },
+            { value: 'sem', label: 'Sem categoria' },
+            ...categoryOptions,
+          ]}
+          value={filters.uncategorized ? 'sem' : filters.category_id ? String(filters.category_id) : 'all'}
           onValueChange={(v: string | null) =>
-            patch({ category_id: v && v !== 'all' ? Number(v) : undefined })
+            patch(v === 'sem'
+              ? { category_id: undefined, uncategorized: true }
+              : { category_id: v && v !== 'all' ? Number(v) : undefined, uncategorized: false })
           }
         >
           <SelectTrigger aria-label="Filtrar por categoria" className="w-full sm:w-[184px]">
@@ -250,6 +265,7 @@ export function TransactionsPage() {
           </SelectTrigger>
           <SelectContent>
             <SelectItem value="all">Toda categoria</SelectItem>
+            <SelectItem value="sem">Sem categoria</SelectItem>
             {categoryOptions.map((o) => (
               <SelectItem key={o.value} value={o.value}>
                 {o.label}

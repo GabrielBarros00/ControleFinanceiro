@@ -252,3 +252,71 @@ test('a ação principal do diálogo de despesa aparece sem rolar', async ({ bro
     await context.close();
   }
 });
+
+/**
+ * O "×" de fechar não pode cobrir conteúdo.
+ *
+ * Ele é `absolute right-2 top-2` e mede 40×40 — quer dizer que ele flutua por
+ * cima do que estiver ali. No detalhe do lançamento, o que está ali é o VALOR da
+ * despesa: medido, o botão ocupa x=870–910 e "−R$ 486,20" vai até x=898, no
+ * desktop e no celular. O número mais importante do diálogo, com um ícone em
+ * cima.
+ *
+ * O teste é geral de propósito: qualquer diálogo cujo cabeçalho chegue à borda
+ * direita cai no mesmo defeito, e a lista de diálogos do app só cresce.
+ */
+async function nadaSobOBotaoDeFechar(page: Page, onde: string) {
+  const colisoes = await page.evaluate(() => {
+    const dialogo = document.querySelector('[role="dialog"]');
+    if (!dialogo) return [];
+    const fechar = [...dialogo.querySelectorAll('button')].find(
+      (b) => getComputedStyle(b).position === 'absolute' && /fechar/i.test(b.textContent ?? ''),
+    );
+    if (!fechar) return [];
+    const alvo = fechar.getBoundingClientRect();
+    const achados: string[] = [];
+    for (const el of Array.from(dialogo.querySelectorAll<HTMLElement>('*'))) {
+      if (el === fechar || fechar.contains(el) || el.contains(fechar)) continue;
+      if (el.children.length > 0) continue;              // só folhas de texto
+      const texto = (el.textContent ?? '').trim();
+      if (!texto) continue;
+      const r = el.getBoundingClientRect();
+      if (r.width === 0 && r.height === 0) continue;
+      const sobrepoe = !(
+        r.right <= alvo.left || r.left >= alvo.right
+        || r.bottom <= alvo.top || r.top >= alvo.bottom
+      );
+      if (sobrepoe) achados.push(`"${texto.slice(0, 30)}" em ${Math.round(r.left)}–${Math.round(r.right)}px`);
+    }
+    return achados.slice(0, 5);
+  });
+
+  expect(
+    colisoes,
+    `${onde}: o botão de fechar está por cima de ${colisoes.length} texto(s):\n  `
+    + colisoes.join("\n  "),
+  ).toEqual([]);
+}
+
+test('o botão de fechar não cobre o conteúdo do diálogo', async ({ browser }) => {
+  test.setTimeout(120_000);
+  for (const [largura, altura] of [[1366, 768], [390, 844]] as const) {
+    const { context, wsId } = await contaComDados(browser, largura, altura);
+    const page = await context.newPage();
+    await page.goto(`/w/${wsId}/transactions`);
+    await esperarAssentar(page);
+
+    // Detalhe do lançamento: o cabeçalho tem título À ESQUERDA e valor À DIREITA,
+    // e é o valor que estava embaixo do botão.
+    await page.locator('[data-testid="ledger-row"] button').first().click();
+    await esperarAssentar(page);
+    await nadaSobOBotaoDeFechar(page, `detalhe do lançamento a ${largura}px`);
+    await page.keyboard.press('Escape');
+
+    await page.getByRole('button', { name: /nova despesa/i }).first().click();
+    await esperarAssentar(page);
+    await nadaSobOBotaoDeFechar(page, `nova despesa a ${largura}px`);
+
+    await context.close();
+  }
+});

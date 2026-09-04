@@ -71,7 +71,7 @@ export function PendingInvitesModal() {
   return (
     <Dialog open={aberto} onOpenChange={(next) => !next && setDispensado(true)}>
       <DialogContent className="sm:max-w-md">
-        <DialogHeader className="items-center text-center sm:text-center">
+        <DialogHeader className="items-center pl-10 text-center sm:text-center">
           <div className="mb-2 flex h-16 w-16 items-center justify-center rounded-2xl bg-brand/10">
             <Mail className="h-8 w-8 text-brand" />
           </div>
@@ -79,7 +79,7 @@ export function PendingInvitesModal() {
             {varios ? `Você tem ${pendentes.length} convites` : 'Você foi convidado'}
           </DialogTitle>
           <DialogDescription>
-            Aceitar dá acesso aos lançamentos e às dívidas desse workspace — e deixa
+            Aceitar dá acesso aos lançamentos e às dívidas desse espaço — e deixa
             seus lançamentos nele visíveis para os outros membros.
           </DialogDescription>
         </DialogHeader>

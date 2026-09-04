@@ -67,6 +67,33 @@ export default defineConfig([
           'Cor crua do Tailwind. Use os tokens do design system: text-income, '
           + 'text-expense, bg-warning-subtle, text-muted-foreground, bg-muted… '
           + '(ver index.css). Cor crua já reprovou em contraste três vezes.',
+      }, {
+        /*
+         * Jargão interno não vaza para o texto da tela.
+         *
+         * Achados reais: o subtítulo do gráfico de Relatórios terminava em
+         * "(ADR 0022)" — o usuário não tem como saber o que é um ADR, e a
+         * referência ocupa o lugar da explicação. E "Abrir a casa", em Acertos,
+         * usa o vocabulário do CÓDIGO ("casa" = workspace) enquanto a interface
+         * inteira diz "espaço".
+         *
+         * O alvo é `JSXText`: o que está escrito entre as tags é, por definição,
+         * o que a pessoa lê. Comentário em JSX não é `JSXText`, então
+         * o código continua livre para explicar as decisões pelo nome — que é
+         * onde esse vocabulário deve viver.
+         */
+        /*
+         * "casa" só é jargão quando ocupa o lugar de "espaço" — e é o artigo que
+         * denuncia: "abrir A casa", "em todas AS casas". Solto, é português
+         * comum, e o diálogo de criar espaço usa "casa" como EXEMPLO de nome
+         * ("ex: casa, viagem, família"), que é justamente o texto certo. A regra
+         * pegou esse caso na primeira execução; o padrão foi estreitado em vez de
+         * o arquivo ser dispensado, senão a próxima regressão ali passa calada.
+         */
+        selector: 'JSXText[value=/(ADR [0-9]|[^a-z]workspaces?[^a-z]|[^a-z](a|as|da|das|na|nas|numa|cada|essa|dessa|nessa|outra|minha|sua) casas?[^a-z])/i]',
+        message:
+          'Jargão interno no texto da tela. "ADR NNNN" não diz nada a quem usa; '
+          + '"casa"/"workspace" é o nome no código — na interface é "espaço".',
       }],
     },
   },

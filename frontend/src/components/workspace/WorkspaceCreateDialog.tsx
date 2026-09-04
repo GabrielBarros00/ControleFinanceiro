@@ -54,7 +54,7 @@ export function WorkspaceCreateDialog({ open, onOpenChange }: WorkspaceCreateDia
       setSettlementTracking(true);
       onOpenChange(false);
     } catch {
-      setError('Erro ao criar workspace. Tente novamente.');
+      setError('Não foi possível criar o espaço. Tente novamente.');
     } finally {
       setLoading(false);
     }
