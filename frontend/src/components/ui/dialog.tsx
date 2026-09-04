@@ -3,8 +3,27 @@ import * as DialogPrimitive from "@radix-ui/react-dialog"
 import { X } from "lucide-react"
 
 import { cn } from "@/lib/utils"
+import { useFecharComVoltar } from "@/hooks/use-fechar-com-voltar"
 
-const Dialog = DialogPrimitive.Root
+/**
+ * `Dialog` — o `Root` do Radix mais uma regra do celular: **voltar fecha a
+ * camada, não sai da página**.
+ *
+ * Ficar aqui, e não em cada diálogo, é o ponto: quem reportou o defeito viu na
+ * gaveta "Mais", mas ele valia para toda sobreposição do app (verificado também
+ * em "Nova despesa"). São 12 diálogos; corrigir um por um é garantir que o
+ * décimo terceiro nasça errado.
+ *
+ * O hook só entra quando há `onOpenChange` — ou seja, quando o diálogo pode ser
+ * fechado. O onboarding é bloqueante de propósito (sem X, sem Esc, sem clique
+ * fora) e não passa a função; para ele, "voltar" continua sendo navegação, que
+ * é o comportamento correto para uma porta que ainda não foi atravessada.
+ */
+function Dialog({ open, onOpenChange, ...props }: DialogPrimitive.DialogProps) {
+  const fechar = React.useCallback(() => onOpenChange?.(false), [onOpenChange]);
+  useFecharComVoltar(!!open && !!onOpenChange, fechar);
+  return <DialogPrimitive.Root open={open} onOpenChange={onOpenChange} {...props} />;
+}
 
 const DialogTrigger = DialogPrimitive.Trigger
 
@@ -89,13 +108,50 @@ const DialogHeader = ({
 )
 DialogHeader.displayName = "DialogHeader"
 
+/**
+ * Rodapé do diálogo — e ele é FIXO, não rola com o conteúdo.
+ *
+ * O `DialogContent` é o contêiner de rolagem (`overflow-y-auto`, teto de 85vh no
+ * desktop e 92vh no celular), e até aqui as ações rolavam junto com o resto. Em
+ * "Nova Despesa" — o formulário mais longo do app — isso significava que o botão
+ * "Salvar Despesa" nascia FORA DA TELA em toda resolução menos 1920×1080:
+ * 150px abaixo da borda num notebook de 768px de altura, 322px abaixo num
+ * celular. A pessoa abria o formulário mais importante do produto e não via o
+ * botão que o conclui.
+ *
+ * `sticky bottom-0` dentro do próprio contêiner de rolagem resolve sem mexer no
+ * layout de ninguém: onde o conteúdo cabe, o rodapé fica exatamente onde ficava;
+ * onde não cabe, ele para na borda de baixo em vez de sair de vista.
+ *
+ * As margens negativas fazem a faixa sangrar até as bordas do diálogo (que tem
+ * `p-4 sm:p-6`), para a linha divisória atravessar de ponta a ponta em vez de
+ * flutuar no meio com dois vãos nas laterais. O `bg-card` é obrigatório: sem
+ * fundo opaco, o conteúdo rolaria POR BAIXO do rodapé e apareceria através dele.
+ *
+ * O deslocamento de baixo é NEGATIVO e vale exatamente o `padding-bottom` do
+ * `DialogContent` (24px no desktop, `max(1.25rem, área segura)` no celular).
+ * Medido: com `bottom: 0` o Chrome ancora o rodapé no fim do **content box**, e
+ * sobrava uma tira do tamanho do padding — 25px no desktop, 21px no celular —
+ * por onde o conteúdo reaparecia embaixo da barra de ações. Puxar a âncora para
+ * baixo por esse mesmo tanto encosta o rodapé na borda interna do diálogo.
+ *
+ * O `padding-bottom` do próprio rodapé devolve o que a âncora consumiu — e é o
+ * que mantém os botões fora do indicador de home do iPhone, que era a razão de
+ * o `DialogContent` ter aquele `pb` para começo de conversa.
+ *
+ * (Margem negativa NÃO serve aqui, e foi a primeira tentativa: ela move a caixa,
+ * então o rodapé passava a poder parar abaixo da área de rolagem e o conteúdo
+ * reaparecia por baixo dele.)
+ */
 const DialogFooter = ({
   className,
   ...props
 }: React.HTMLAttributes<HTMLDivElement>) => (
   <div
     className={cn(
-      "flex flex-col-reverse sm:flex-row sm:justify-end sm:space-x-2",
+      "sticky z-10 -mx-4 mt-2 flex flex-col-reverse gap-2 border-t border-border bg-card px-4 pt-3",
+      "bottom-[calc(max(1.25rem,env(safe-area-inset-bottom))*-1)] pb-[max(1.25rem,env(safe-area-inset-bottom))]",
+      "sm:-mx-6 sm:bottom-[-1.5rem] sm:flex-row sm:justify-end sm:space-x-2 sm:px-6 sm:pb-6",
       className
     )}
     {...props}
