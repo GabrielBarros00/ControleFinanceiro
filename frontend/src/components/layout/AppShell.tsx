@@ -1,9 +1,13 @@
+import * as React from 'react';
 import type { ReactNode } from 'react';
 import { Sidebar } from './Sidebar';
 import { BottomNav } from './BottomNav';
 import { ScopeSwitcher } from './ScopeSwitcher';
 import { OnboardingModal } from './OnboardingModal';
 import { NewTransactionDialog } from '@/components/dashboard/NewTransactionDialog';
+import { BuscaGlobal } from '@/components/search/BuscaGlobal';
+import { useAtalhoDeBusca } from '@/components/search/use-atalho-de-busca';
+import { Search } from 'lucide-react';
 import { TransactionDetailHost } from '@/components/dashboard/TransactionDetailHost';
 import { NotificationCenter } from '@/components/notifications/NotificationCenter';
 import { InstallAppButton } from '@/components/pwa/InstallApp';
@@ -22,6 +26,9 @@ import { useNewTxStore } from '@/stores';
 export function AppShell({ children }: { children: ReactNode }) {
   useWorkspaceEvents();
   const { open, setOpen } = useNewTxStore();
+  const [buscaAberta, setBuscaAberta] = React.useState(false);
+  const abrirBusca = React.useCallback(() => setBuscaAberta(true), []);
+  useAtalhoDeBusca(abrirBusca);
 
   return (
     /*
@@ -80,6 +87,18 @@ export function AppShell({ children }: { children: ReactNode }) {
         <div className="sticky top-0 z-30 flex items-center justify-between gap-2 border-b border-border/40 bg-background/80 px-2 py-2 pt-safe backdrop-blur-sm sm:px-6 md:justify-end md:px-8">
           <ScopeSwitcher className="md:hidden" />
           <div className="flex items-center gap-1">
+            {/* Buscar vem PRIMEIRO no grupo: é a única coisa aqui que a pessoa
+                procura ativamente — o resto (instalar, notificar, avisos) se
+                oferece sozinho. */}
+            <button
+              type="button"
+              onClick={() => setBuscaAberta(true)}
+              aria-label="Buscar (atalho: barra ou Ctrl+K)"
+              title="Buscar — / ou Ctrl+K"
+              className="flex h-10 w-10 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring"
+            >
+              <Search className="h-5 w-5" />
+            </button>
             <InstallAppButton />
             {/* Ao LADO do sino, e não dentro dele: o sino mostra o que já
                 chegou; este oferece o canal que ainda não existe. Some sozinho
@@ -107,6 +126,7 @@ export function AppShell({ children }: { children: ReactNode }) {
           enquanto qualquer um dos dois estiver na frente. */}
       <ConviteDeNotificacao />
       <NewTransactionDialog open={open} onOpenChange={setOpen} />
+      <BuscaGlobal open={buscaAberta} onOpenChange={setBuscaAberta} />
       <TransactionDetailHost />
     </div>
   );

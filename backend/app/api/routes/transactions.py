@@ -7,10 +7,11 @@ import datetime
 import re
 import uuid
 
-from app.schemas.common import StatusRead
+from app.schemas.common import DeleteResult, StatusRead
 from app.db.session import get_session
 from app.domain.access_policy import (
     assert_can_write,
+    can_write,
     get_visible_transaction,
     scope_transactions,
 )
@@ -29,6 +30,8 @@ from app.models.transaction import (
 )
 from app.schemas.transaction import (
     BulkCreateResult,
+    BulkCategorizeRequest,
+    BulkCategorizeResult,
     BulkDeleteResult,
     InstallmentGroupCancelResult,
     InstallmentGroupRead,
@@ -1139,7 +1142,7 @@ def _full_edit(
     return db_transaction
 
 
-@router.delete("/{transaction_id}", response_model=StatusRead)
+@router.delete("/{transaction_id}", response_model=DeleteResult)
 def delete_transaction(
     workspace_id: int,
     transaction_id: int,
@@ -1159,10 +1162,77 @@ def delete_transaction(
 
     db_transaction.deleted_at = datetime.datetime.now(datetime.UTC)
     session.add(db_transaction)
+    # Quantos anexos foram junto. A exclusão é SOFT e agora tem "desfazer"
+    # (`/restore`), mas o anexo não tem soft delete — ele é apagado de verdade,
+    # porque um recibo preso a uma despesa inalcançável ocuparia cota para
+    # sempre. O desfazer devolve a despesa SEM os recibos, e é este número que
+    # permite à tela dizer isso em vez de deixar a pessoa descobrir sozinha.
+    # `_purge_attachments` devolve CHAVES a liberar, que são deduplicadas — dois
+    # anexos com o mesmo conteúdo compartilham chave. Para avisar a pessoa o que
+    # interessa é quantos RECIBOS sumiram, então a contagem é feita antes.
+    quantos_anexos = session.exec(
+        select(func.count()).select_from(Attachment)
+        .where(Attachment.transaction_id == db_transaction.id)
+    ).one()
     liberar = _purge_attachments(session, [db_transaction.id])
     publish_event(session, workspace_id, "transaction.deleted", "transaction", db_transaction.id, membership.user_id)
     session.commit()
     free_keys(liberar)
+    return {"status": "ok", "attachments_removed": int(quantos_anexos)}
+
+
+@router.post("/{transaction_id}/restore", response_model=StatusRead)
+def restore_transaction(
+    workspace_id: int,
+    transaction_id: int,
+    session: Session = Depends(get_session),
+    membership: WorkspaceMembership = Depends(require_role(WorkspaceRole.member)),
+):
+    """Desfazer a exclusão — o caminho de volta que o soft delete já permitia.
+
+    Excluir a linha errada é o erro mais fácil de cometer numa lista de trinta
+    linhas parecidas, e até aqui ele custava relançar tudo à mão: título, valor,
+    data, pagadores e divisão. O dado nunca saiu do banco; só não havia porta.
+
+    **Mesma permissão do delete**, e por isso `assert_can_write` com o mesmo
+    argumento: sem ele, `restore` seria a porta dos fundos para reviver o
+    lançamento de outra pessoa — quem não pode apagar também não pode ressuscitar.
+
+    Idempotente: restaurar o que já está vivo devolve 200 sem tocar em nada. A
+    interface oferece o "desfazer" num toast, e um segundo toque (ou um duplo
+    clique) não pode virar erro na cara de quem acabou de acertar.
+    """
+    # `get_visible_transaction` filtra `deleted_at IS NULL` — aqui é justamente o
+    # apagado que se procura, então a busca é direta, com o escopo de
+    # visibilidade aplicado à mão.
+    alvo = session.exec(
+        scope_transactions(
+            select(Transaction).where(
+                Transaction.workspace_id == workspace_id,
+                Transaction.id == transaction_id,
+            ),
+            membership,
+        )
+    ).first()
+    if alvo is None:
+        raise HTTPException(status_code=404, detail="Lançamento não encontrado")
+
+    assert_can_write(
+        alvo.created_by_user_id,
+        membership,
+        detail="Você só pode restaurar os próprios lançamentos",
+    )
+
+    if alvo.deleted_at is None:
+        return {"status": "ok"}
+
+    alvo.deleted_at = None
+    session.add(alvo)
+    publish_event(
+        session, workspace_id, "transaction.updated", "transaction",
+        alvo.id, membership.user_id,
+    )
+    session.commit()
     return {"status": "ok"}
 
 
@@ -1711,6 +1781,92 @@ def update_installment_group(
     session.commit()
     session.refresh(first_tx)
     return first_tx
+
+
+@router.post("/bulk-categorize", response_model=BulkCategorizeResult)
+def bulk_categorize(
+    workspace_id: int,
+    payload: BulkCategorizeRequest,
+    session: Session = Depends(get_session),
+    membership: WorkspaceMembership = Depends(require_role(WorkspaceRole.member)),
+):
+    """Aplica uma categoria a várias despesas de uma vez.
+
+    ## Por que a categoria vira um ITEM
+
+    Categoria mora no `TransactionItem`, não na `Transaction` — é o que permite
+    dividir uma compra de mercado entre "comida" e "remédio". A esmagadora
+    maioria das despesas não tem item nenhum (lançamento simples não cria), e
+    para essas o lote **cria** um item que vale o total: sem isso a soma dos
+    itens não fecharia com a despesa, e a divisão por item quebraria na primeira
+    edição.
+
+    ## O que ele NÃO faz
+
+    Não toca em despesa que já tenha algum item categorizado. Quem separou
+    mercado de farmácia na mesma compra fez isso de propósito, e sobrescrever
+    seria destruir o trabalho mais cuidadoso da tela em nome do mais grosseiro.
+    Elas voltam em `skipped`, para a interface poder dizer "3 de 5".
+
+    O escopo de visibilidade e a permissão de escrita são os mesmos da edição
+    individual: passar um id de outro espaço na lista simplesmente não o alcança.
+    """
+    if not payload.transaction_ids:
+        return {"status": "ok", "updated": 0, "skipped": 0}
+
+    # Import local, como no `update_transaction` logo acima: `Category` não é
+    # importada no topo deste módulo.
+    from app.models.category import Category
+
+    categoria = session.get(Category, payload.category_id)
+    if categoria is None or categoria.workspace_id != workspace_id:
+        raise HTTPException(status_code=404, detail="Categoria não encontrada")
+
+    alvos = session.exec(
+        scope_transactions(
+            select(Transaction).where(
+                Transaction.workspace_id == workspace_id,
+                Transaction.id.in_(payload.transaction_ids),
+                Transaction.deleted_at.is_(None),
+            ),
+            membership,
+        )
+    ).all()
+
+    atualizadas = 0
+    puladas = 0
+    for tx in alvos:
+        # Escrita segue a regra individual: membro comum só mexe no que é dele.
+        if not can_write(tx.created_by_user_id, membership):
+            puladas += 1
+            continue
+        itens = session.exec(
+            select(TransactionItem).where(TransactionItem.transaction_id == tx.id)
+        ).all()
+        if any(i.category_id is not None for i in itens):
+            puladas += 1
+            continue
+        if itens:
+            # Tem item, nenhum categorizado: categoriza os existentes em vez de
+            # criar mais um — criar duplicaria o valor da despesa.
+            for item in itens:
+                item.category_id = payload.category_id
+                session.add(item)
+        else:
+            session.add(TransactionItem(
+                transaction_id=tx.id,
+                title=tx.title,
+                amount=tx.total_amount,
+                category_id=payload.category_id,
+            ))
+        atualizadas += 1
+
+    publish_event(
+        session, workspace_id, "transaction.bulk_updated", "transaction",
+        None, membership.user_id,
+    )
+    session.commit()
+    return {"status": "ok", "updated": atualizadas, "skipped": puladas}
 
 
 @router.post("/bulk", response_model=BulkCreateResult)

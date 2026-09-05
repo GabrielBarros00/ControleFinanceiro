@@ -21,11 +21,15 @@ import { PrecisaDeVoce } from '../PrecisaDeVoce';
  *    própria (ADR 0029) — pagar uma fatura é escolher conta e valor, o que é uma
  *    decisão e não um toque. Entram como caminho.
  */
-const hoje = new Date();
-const emDias = (n: number) => {
-  const d = new Date(hoje);
-  d.setDate(d.getDate() + n);
-  return d.toISOString().slice(0, 10);
+const emDias = (offset: number) => {
+  const d = new Date();
+  d.setDate(d.getDate() + offset);
+  // `toISOString()` é UTC: às 22h em UTC-3 ele já devolve o dia SEGUINTE, e um
+  // teste que fala em "hoje" passa a falar de amanhã dependendo da hora em que
+  // roda. Aqui a data é montada em campo local, que é o que `parseApiDay` lê.
+  const mes = String(d.getMonth() + 1).padStart(2, '0');
+  const dia = String(d.getDate()).padStart(2, '0');
+  return `${d.getFullYear()}-${mes}-${dia}`;
 };
 
 const conta = (id: number, titulo: string, dias: number) => ({

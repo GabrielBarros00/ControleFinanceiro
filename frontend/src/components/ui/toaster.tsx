@@ -40,6 +40,17 @@ function ToastCard({ toast }: { toast: Toast }) {
         {toast.description && (
           <p className="text-xs text-muted-foreground wrap-break-word">{toast.description}</p>
         )}
+        {/* A ação fecha o aviso ao ser usada: deixá-lo na tela depois do
+            "Desfazer" faria a pessoa clicar de novo achando que não pegou. */}
+        {toast.action && (
+          <button
+            type="button"
+            onClick={() => { toast.action?.onClick(); dismiss(toast.id); }}
+            className="mt-1 text-xs font-bold text-primary underline-offset-4 hover:underline focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring"
+          >
+            {toast.action.label}
+          </button>
+        )}
       </div>
       <button
         type="button"

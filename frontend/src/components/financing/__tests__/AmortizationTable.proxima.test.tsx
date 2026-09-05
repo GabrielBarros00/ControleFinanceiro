@@ -20,9 +20,14 @@ import { AmortizationTable } from '../AmortizationTable';
  */
 const HOJE = new Date();
 const dia = (offset: number) => {
-  const d = new Date(HOJE);
+  const d = new Date();
   d.setDate(d.getDate() + offset);
-  return d.toISOString().slice(0, 10);
+  // `toISOString()` é UTC: às 22h em UTC-3 ele já devolve o dia SEGUINTE, e um
+  // teste que fala em "hoje" passa a falar de amanhã dependendo da hora em que
+  // roda. Aqui a data é montada em campo local, que é o que `parseApiDay` lê.
+  const mes = String(d.getMonth() + 1).padStart(2, '0');
+  const dia = String(d.getDate()).padStart(2, '0');
+  return `${d.getFullYear()}-${mes}-${dia}`;
 };
 
 const parcela = (n: number, offsetDias: number, paga = false) => ({

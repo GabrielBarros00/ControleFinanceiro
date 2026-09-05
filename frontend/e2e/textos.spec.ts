@@ -1,4 +1,5 @@
 import { test, expect, type Page, type Browser } from '@playwright/test';
+import { diaLocal } from '../e2e-shared/datas';
 
 /*
  * O portão contra o texto que vazou do banco para a tela.
@@ -59,7 +60,7 @@ async function contaSemeada(browser: Browser) {
     data: { name: 'Conta Corrente', type: 'checking' },
   })).json();
   await api.put(`${API}/me/payment-accounts/${conta.id}/opening-balance`, {
-    data: { amount: '5000.00', as_of: new Date().toISOString().slice(0, 10) },
+    data: { amount: '5000.00', as_of: diaLocal() },
   });
 
   await api.post(`${API}/workspaces/${ws.id}/transactions/`, {

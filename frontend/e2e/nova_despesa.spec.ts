@@ -1,4 +1,5 @@
 import { test, expect, type Page, type Browser } from '@playwright/test';
+import { diaLocal } from '../e2e-shared/datas';
 
 /**
  * O formulário mais usado do app — medido pelo que ele obriga a LER.
@@ -153,7 +154,7 @@ test('duplicar repete o lançamento sem herdar a data do original', async ({ bro
 
   // Uma despesa de ONTEM: se a duplicata herdasse a data, ela nasceria no
   // passado sem ninguém pedir — e num fim de mês, no mês errado.
-  const ontem = new Date(Date.now() - 86_400_000).toISOString().slice(0, 10);
+  const ontem = diaLocal(-1);
   await abrirNovaDespesa(page, wsId);
   const dialogo = page.getByRole('dialog');
   await dialogo.getByLabel('Título / Descrição').fill('Mercado da semana');
@@ -174,7 +175,7 @@ test('duplicar repete o lançamento sem herdar a data do original', async ({ bro
   await expect(novo.getByLabel('Valor Total')).toHaveValue('220,00');
 
   await novo.getByRole('button', { name: /^Detalhar$/ }).click();
-  const hoje = new Date().toISOString().slice(0, 10);
+  const hoje = diaLocal();
   await expect(novo.getByLabel('Data', { exact: true })).toHaveValue(hoje);
 
   await context.close();

@@ -1,11 +1,10 @@
 import * as React from 'react';
-import { Search, Plus, ChevronLeft, ChevronRight, Receipt, FilterX } from 'lucide-react';
-import { useTransactions, type TransactionFilters } from '@/hooks/use-transactions';
+import { Search, Plus, ChevronLeft, ChevronRight, Receipt, FilterX, ListChecks } from 'lucide-react';
+import { useTransactions, useBulkCategorize, type TransactionFilters } from '@/hooks/use-transactions';
 import { useWorkspaceRole } from '@/hooks/use-workspace-role';
 import { useSearchParams } from 'react-router-dom';
 import { useMonthParam } from '@/hooks/use-month-param';
 import { useNewTxStore, useTxDetailStore, useUIStore } from '@/stores';
-import { useConfirm } from '@/components/ui/confirm';
 import { toast } from '@/stores/toast';
 import { getApiErrorMessage } from '@/lib/api-error';
 import { PageHeader } from '@/components/layout/PageHeader';
@@ -23,6 +22,7 @@ import { PAYMENT_METHOD_OPTIONS } from '@/lib/payment-methods';
 import { useCategories } from '@/hooks/use-categories';
 import { useTags } from '@/hooks/use-tags';
 import { FilterBar } from '@/components/layout/FilterBar';
+import { nativeSelectClass as selectClass } from '@/components/ui/native-select';
 
 
 const SEARCH_DEBOUNCE_MS = 300;
@@ -90,7 +90,7 @@ export function TransactionsPage() {
     return () => clearTimeout(id);
   }, [searchInput, searchParams, escreverNaUrl]);
 
-  const { transactions, total, totalAmount, totalPages, currentPage, isLoading, isError, remove } =
+  const { transactions, total, totalAmount, totalPages, currentPage, isLoading, isError, remove, restore } =
     useTransactions({ ...filters, month });
   const { currentWorkspaceId } = useUIStore();
   const { canWrite } = useWorkspaceRole();
@@ -99,7 +99,6 @@ export function TransactionsPage() {
   const { tags } = useTags();
   const setNewTxOpen = useNewTxStore((s) => s.setOpen);
   const openDetail = useTxDetailStore((s) => s.open);
-  const confirm = useConfirm();
 
   // Tradução entre o vocabulário do hook de dados e os nomes CURTOS da URL —
   // que são o que a pessoa vê e eventualmente copia.
@@ -146,16 +145,80 @@ export function TransactionsPage() {
     setSearchInput('');
   }, [currentWorkspaceId]);
 
-  const handleDelete = async (id: number) => {
-    const ok = await confirm({
-      title: 'Remover transação',
-      description: 'Tem certeza que deseja remover esta transação?',
-      confirmLabel: 'Remover',
-      destructive: true,
-    });
-    if (!ok) return;
+/**
+ * Excluir e oferecer a volta, em vez de perguntar antes.
+ *
+ * A confirmação a cada exclusão treina a pessoa a responder "sim" sem ler — e a
+ * partir daí ela não protege mais nada, só cobra um toque de quem já sabia o que
+ * queria. O desfazer protege de verdade: quem errou tem dez segundos para
+ * voltar, e quem acertou não paga nada.
+ *
+ * A COMPRA PARCELADA continua perguntando: excluir uma parcela remove a compra
+ * inteira (todas as em aberto), e isso não é o que o clique parece prometer. Aí
+ * a pergunta informa em vez de atrapalhar.
+ *
+ * O aviso diz quantos ANEXOS foram junto quando havia algum: eles não voltam
+ * com o desfazer, e prometer uma restauração completa seria pior do que não
+ * oferecer nenhuma.
+ */
+  /*
+   * MODO LOTE — nasceu do "Maior categoria: Sem categoria".
+   *
+   * Chegar à lista do que falta categorizar (o filtro "Sem categoria") era
+   * metade do caminho: a outra metade é conseguir resolver trinta linhas sem
+   * abrir trinta vezes o detalhe. Fora do modo, a lista não ganha caixa nenhuma
+   * — quem só quer olhar o mês não deveria pagar por uma função que usa uma vez
+   * por trimestre.
+   */
+  const [modoLote, setModoLote] = React.useState(false);
+  const [marcadas, setMarcadas] = React.useState<number[]>([]);
+  const [categoriaDoLote, setCategoriaDoLote] = React.useState('');
+  const { categorizarEmLote, isCategorizando } = useBulkCategorize();
+
+  const alternarMarcada = (id: number) =>
+    setMarcadas((atual) =>
+      atual.includes(id) ? atual.filter((x) => x !== id) : [...atual, id]);
+
+  // Sair do modo limpa a seleção: voltar depois com trinta linhas marcadas de
+  // uma sessão anterior é o tipo de estado que faz alguém aplicar sem querer.
+  const sairDoLote = () => { setModoLote(false); setMarcadas([]); };
+
+  const aplicarCategoria = async () => {
+    if (!categoriaDoLote || marcadas.length === 0) return;
     try {
-      await remove(id);
+      const r = await categorizarEmLote({
+        transactionIds: marcadas,
+        categoryId: Number(categoriaDoLote),
+      });
+      toast.success(
+        `${r.updated} lançamento(s) categorizado(s)`,
+        r.skipped > 0
+          ? `${r.skipped} já tinham categoria e não foram alterados.`
+          : undefined,
+      );
+      sairDoLote();
+    } catch (err) {
+      toast.error(getApiErrorMessage(err, 'Não foi possível categorizar'));
+    }
+  };
+
+  const handleDelete = async (id: number) => {
+    try {
+      const resultado = await remove(id);
+      const anexos = resultado?.attachments_removed ?? 0;
+      toast.comAcao(
+        'Lançamento removido',
+        {
+          label: 'Desfazer',
+          onClick: () => {
+            restore(id).catch((err: unknown) =>
+              toast.error(getApiErrorMessage(err, 'Não foi possível restaurar')));
+          },
+        },
+        anexos > 0
+          ? `${anexos} anexo(s) foram apagados e não voltam com o desfazer.`
+          : undefined,
+      );
     } catch (err) {
       toast.error(getApiErrorMessage(err, 'Erro ao remover transação'));
     }
@@ -336,6 +399,51 @@ export function TransactionsPage() {
         )}
       </FilterBar>
 
+      {/* A barra do LOTE — a resposta prática ao "Maior categoria: Sem
+          categoria". Fora do modo ela é um botão discreto; dentro, ela conta
+          quantas estão marcadas e oferece a única ação que existe.
+
+          Ela fica ACIMA da lista, e não flutuando no rodapé, porque a lista tem
+          paginação: um rodapé fixo competiria com os controles de página no
+          celular, que é onde essa disputa dói. */}
+      {canWrite && transactions.length > 0 && (
+        <div className="flex flex-wrap items-center gap-2 rounded-xl border border-border bg-card px-4 py-2.5">
+          {!modoLote ? (
+            <Button variant="ghost" size="sm" className="gap-2" onClick={() => setModoLote(true)}>
+              <ListChecks className="h-4 w-4" /> Selecionar vários
+            </Button>
+          ) : (
+            <>
+              <span className="text-sm text-muted-foreground">
+                {marcadas.length === 0
+                  ? 'Marque os lançamentos para categorizar'
+                  : `${marcadas.length} selecionado(s)`}
+              </span>
+              <select
+                aria-label="Categoria a aplicar"
+                value={categoriaDoLote}
+                onChange={(e) => setCategoriaDoLote(e.target.value)}
+                className={`${selectClass} h-9 w-full sm:w-[184px]`}
+              >
+                <option value="">Escolha a categoria…</option>
+                {categoryOptions.map((o) => (
+                  <option key={o.value} value={o.value}>{o.label}</option>
+                ))}
+              </select>
+              <Button
+                size="sm"
+                className="gap-2"
+                disabled={!categoriaDoLote || marcadas.length === 0 || isCategorizando}
+                onClick={aplicarCategoria}
+              >
+                Aplicar
+              </Button>
+              <Button variant="ghost" size="sm" onClick={sairDoLote}>Cancelar</Button>
+            </>
+          )}
+        </div>
+      )}
+
       <div className="rounded-xl border border-border bg-card">
         {isLoading ? (
           <div className="space-y-2 p-4">
@@ -370,9 +478,11 @@ export function TransactionsPage() {
               <TransactionLedger
                 transactions={transactions}
                 canWrite={canWrite}
-                onSelect={(tx) => openDetail(tx.id)}
+                onSelect={modoLote ? undefined : (tx) => openDetail(tx.id)}
                 onEdit={(tx) => openDetail(tx.id, 'edit')}
                 onDelete={handleDelete}
+                marcadas={modoLote ? marcadas : undefined}
+                onMarcar={modoLote ? alternarMarcada : undefined}
               />
             </div>
             {totalPages > 1 && (

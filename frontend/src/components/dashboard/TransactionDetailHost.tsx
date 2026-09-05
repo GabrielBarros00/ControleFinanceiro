@@ -16,7 +16,7 @@ export function TransactionDetailHost() {
   const { transaction } = useTransaction(txId);
   // Só as mutations: sem `false`, este host (montado no AppShell) disparava uma
   // listagem de extrato em toda tela autenticada — duas na Home.
-  const { update, updateGroup, remove, removeGroup } = useTransactions(undefined, false);
+  const { update, updateGroup, remove, removeGroup, restore } = useTransactions(undefined, false);
   const { canWrite } = useWorkspaceRole();
   const confirm = useConfirm();
 
@@ -26,28 +26,62 @@ export function TransactionDetailHost() {
   const { group } = useInstallmentGroup(txId, isGroup);
   const paidCount = group?.paid_count ?? 0;
 
+/**
+ * Excluir e oferecer a volta, em vez de perguntar antes.
+ *
+ * A confirmação a cada exclusão treina a pessoa a responder "sim" sem ler — e a
+ * partir daí ela não protege mais nada, só cobra um toque de quem já sabia o que
+ * queria. O desfazer protege de verdade: quem errou tem dez segundos para
+ * voltar, e quem acertou não paga nada.
+ *
+ * A COMPRA PARCELADA continua perguntando: excluir uma parcela remove a compra
+ * inteira (todas as em aberto), e isso não é o que o clique parece prometer. Aí
+ * a pergunta informa em vez de atrapalhar.
+ *
+ * O aviso diz quantos ANEXOS foram junto quando havia algum: eles não voltam
+ * com o desfazer, e prometer uma restauração completa seria pior do que não
+ * oferecer nenhuma.
+ */
   const handleDelete = async (id: number) => {
     // Compra parcelada é coesa: excluir remove a compra inteira (todas as
     // parcelas em aberto), simétrico à edição. O backend preserva as pagas.
     const isInstallment = !!transaction?.installment_group_id;
-    const ok = await confirm({
-      title: isInstallment ? 'Excluir compra parcelada' : 'Remover transação',
-      description: isInstallment
-        ? paidCount > 0
+    if (isInstallment) {
+      const ok = await confirm({
+        title: 'Excluir compra parcelada',
+        description: paidCount > 0
           ? `Isto remove todas as parcelas em aberto desta compra. ${paidCount} parcela(s) já paga(s) serão mantidas.`
-          : 'Isto remove todas as parcelas desta compra.'
-        : 'Tem certeza que deseja remover esta transação?',
-      confirmLabel: isInstallment ? 'Excluir compra' : 'Remover',
-      destructive: true,
-    });
-    if (!ok) return;
-    try {
-      if (isInstallment) {
+          : 'Isto remove todas as parcelas desta compra.',
+        confirmLabel: 'Excluir compra',
+        destructive: true,
+      });
+      if (!ok) return;
+      try {
         await removeGroup(id);
-      } else {
-        await remove(id);
+        close();
+      } catch (err) {
+        toast.error(getApiErrorMessage(err, 'Erro ao remover transação'));
       }
+      return;
+    }
+
+    try {
+      const resultado = await remove(id);
       close();
+      const anexos = resultado?.attachments_removed ?? 0;
+      toast.comAcao(
+        'Lançamento removido',
+        {
+          label: 'Desfazer',
+          onClick: () => {
+            restore(id).catch((err: unknown) =>
+              toast.error(getApiErrorMessage(err, 'Não foi possível restaurar')));
+          },
+        },
+        anexos > 0
+          ? `${anexos} anexo(s) foram apagados e não voltam com o desfazer.`
+          : undefined,
+      );
     } catch (err) {
       toast.error(getApiErrorMessage(err, 'Erro ao remover transação'));
     }

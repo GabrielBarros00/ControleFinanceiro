@@ -31,11 +31,22 @@ interface TransactionItemProps {
   onDelete?: (id: number) => unknown;
   /** Clicar na linha abre o detalhe/preview do lançamento. */
   onSelect?: (tx: TransactionRead) => void;
+  /*
+   * Seleção múltipla — só existe quando a tela está em modo de lote.
+   *
+   * `undefined` (o padrão) não desenha caixa nenhuma: a lista comum não deve
+   * ganhar um controle a mais por causa de uma função que a maioria das visitas
+   * não usa. Quem liga o modo é a tela, num botão explícito.
+   */
+  marcada?: boolean;
+  onMarcar?: (id: number) => void;
 }
 
 export function TransactionItem({
   tx,
   category,
+  marcada,
+  onMarcar,
   memberName,
   memberAvatar,
   // Fail-CLOSED: o default era `true`, então qualquer ledger renderizado sem a
@@ -114,6 +125,19 @@ export function TransactionItem({
         onSelect && 'cursor-pointer focus-within:bg-muted',
       )}
     >
+      {/* A caixa vem ANTES do ícone da categoria, e não no fim da linha: é a
+          coluna que o olho varre para baixo quando se está selecionando várias.
+          `relative z-10` pelo mesmo motivo dos botões de ação — a linha inteira
+          é um alvo estendido, e sem isso o clique na caixa abriria o detalhe. */}
+      {onMarcar && (
+        <input
+          type="checkbox"
+          checked={!!marcada}
+          onChange={() => onMarcar(tx.id)}
+          aria-label={`Selecionar ${tx.title}`}
+          className="relative z-10 h-5 w-5 shrink-0 rounded border-border accent-primary"
+        />
+      )}
       <CategoryGlyph category={category} />
 
       {/*
