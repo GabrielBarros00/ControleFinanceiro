@@ -17,11 +17,12 @@ async function registerAndOnboard(page: Page, name: string, email: string) {
   // de ser alcançável por role, que é justamente o comportamento correto.
   await expect(page.getByRole('dialog')).toBeVisible();
   await page.getByRole('button', { name: ONBOARDING.comecar }).click();
-  await page.getByLabel(ONBOARDING.salario).fill('5000,00');
-  await page.getByRole('button', { name: ONBOARDING.proximo }).click();
+  // O onboarding virou um passo: onde está o dinheiro e quanto há nele.
+  await page.getByLabel(ONBOARDING.ondeEstaODinheiro).fill('Nubank');
+  await page.getByLabel(ONBOARDING.quantoHa).fill('5000,00');
   await Promise.all([
     page.waitForNavigation({ waitUntil: 'load' }),
-    page.getByRole('button', { name: ONBOARDING.pular }).click(),
+    page.getByRole('button', { name: ONBOARDING.concluir }).click(),
   ]);
   await expect(page.getByRole('heading', { name: /Hoje|Painel/ })).toBeVisible({ timeout: 15_000 });
 

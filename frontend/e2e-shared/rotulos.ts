@@ -41,12 +41,20 @@ export const ONBOARDING = {
    * deve quebrar por um espaço a mais.
    */
   comecar: 'Começar',
-  /** Passo 2 → 3, quando há salário preenchido. */
-  proximo: 'Próximo',
-  /** Passo 3: sai sem cadastrar cartão (recarrega a página). */
+  /*
+   * Passo 2 (e último): o saldo de abertura.
+   *
+   * O onboarding pedia salário e cartão em três passos e não perguntava o
+   * único dado que o app não deduz de nada — quanto há na conta. Depois da
+   * Onda 2 isso ficou visível: a primeira tela abria dizendo "saldo ainda não
+   * configurado" para quem tinha acabado de passar por todo o cadastro.
+   */
+  ondeEstaODinheiro: 'Onde está o dinheiro',
+  quantoHa: 'Quanto há nela agora',
+  /** Com a conta preenchida, o botão conclui. */
+  concluir: 'Concluir',
+  /** Sem conta preenchida, o MESMO botão pula — o passo não prende ninguém. */
   pular: 'Pular esta etapa',
-  /** O campo do passo 2. */
-  salario: 'Salário / Renda Líquida',
 } as const;
 
 /** O título da primeira tela depois do onboarding. */
@@ -77,7 +85,8 @@ export const ROTULOS = {
 export const ONDE: Record<string, string> = {
   'Sair da conta': 'src/pages/Settings/SettingsPage.tsx',
   'Começar': 'src/components/layout/OnboardingModal.tsx',
-  'Próximo': 'src/components/layout/OnboardingModal.tsx',
+  'Onde está o dinheiro': 'src/components/layout/OnboardingModal.tsx',
+  'Quanto há nela agora': 'src/components/layout/OnboardingModal.tsx',
+  'Concluir': 'src/components/layout/OnboardingModal.tsx',
   'Pular esta etapa': 'src/components/layout/OnboardingModal.tsx',
-  'Salário / Renda Líquida': 'src/components/layout/OnboardingModal.tsx',
 };

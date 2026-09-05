@@ -137,19 +137,22 @@ test('recorrência: dia do mês não guarda zero à esquerda', async ({ page }) 
   await podeEsvaziar(page, '[role="dialog"] input[id$="-dom"]', 'Dia do mês');
 });
 
-test('onboarding: o dia de fechamento aceita ser apagado', async ({ page }) => {
-  const ts = Date.now();
-  const email = `onb${ts}@e2e.com`;
-  const api = page.context().request;
-  await api.post(`${API}/auth/register`, { data: { name: 'Otto Onboarding', email, password: 'senha123' } });
-  await page.goto('/login');
-  await page.getByLabel(/e-?mail/i).first().fill(email);
-  await page.locator('input[type="password"]').first().fill('senha123');
-  await page.getByRole('button', { name: /acessar|entrar/i }).first().click();
-  await page.getByRole('button', { name: /começar/i }).click();
-  await page.getByRole('button', { name: /pular por enquanto|próximo/i }).click();
-  await digitarSobreZero(page, 'input[aria-label="Dia de fechamento do cartão"]', 'Fechamento (onboarding)');
-  await podeEsvaziar(page, 'input[aria-label="Dia de fechamento do cartão"]', 'Fechamento (onboarding)');
+/*
+ * O dia de fechamento SAIU do onboarding — cartão deixou de ser perguntado na
+ * porta de entrada (a pergunta agora é "quanto você tem hoje, e onde", que é o
+ * único dado que o app não deduz). A invariante não mudou de valor por causa
+ * disso: ela seguiu o campo para o diálogo de cartão, que é onde ele vive.
+ *
+ * Apagar a versão do onboarding sem mover o teste teria trocado uma cobertura
+ * real por um arquivo menor.
+ */
+test('cartão: o dia de fechamento aceita ser apagado', async ({ page }) => {
+  const wsId = await entrar(page);
+  void wsId;
+  await page.goto('/me/cards');
+  await page.getByRole('button', { name: /novo cartão/i }).first().click();
+  await digitarSobreZero(page, '[role="dialog"] input#closing-day', 'Dia de fechamento');
+  await podeEsvaziar(page, '[role="dialog"] input#closing-day', 'Dia de fechamento');
 });
 
 /*

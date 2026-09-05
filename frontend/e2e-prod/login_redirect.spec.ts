@@ -85,11 +85,12 @@ test.describe('Sessão atrás do nginx (stack de produção)', () => {
 
     // 2. Onboarding mínimo (salário + pular cartão; "Pular" recarrega a página)
     await page.getByRole('button', { name: ONBOARDING.comecar }).click();
-    await page.getByLabel(ONBOARDING.salario).fill('5000,00');
-    await page.getByRole('button', { name: ONBOARDING.proximo }).click();
+    // O onboarding virou um passo: onde está o dinheiro e quanto há nele.
+    await page.getByLabel(ONBOARDING.ondeEstaODinheiro).fill('Nubank');
+    await page.getByLabel(ONBOARDING.quantoHa).fill('5000,00');
     await Promise.all([
       page.waitForNavigation({ waitUntil: 'load' }),
-      page.getByRole('button', { name: ONBOARDING.pular }).click(),
+      page.getByRole('button', { name: ONBOARDING.concluir }).click(),
     ]);
     await expect(page.getByRole('heading', { name: TITULO_INICIO })).toBeVisible({ timeout: 15_000 });
 

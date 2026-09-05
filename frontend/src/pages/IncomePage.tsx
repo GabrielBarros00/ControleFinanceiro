@@ -301,7 +301,12 @@ export function IncomePage() {
             <EmptyState
               icon={Wallet}
               title="Nenhuma renda neste mês"
-              description="Salário, freelas e qualquer outra entrada aparecem aqui — e alimentam o resultado do mês."
+              // O onboarding criava a renda "Salário Mensal" no cadastro, e por
+              // isso ninguém precisava saber que ela pode se repetir sozinha.
+              // Ele deixou de fazer isso (a porta de entrada pergunta o saldo,
+              // que é o dado que o app não deduz) — então a informação passou a
+              // ter de existir AQUI, que é onde ela é útil.
+              description="Salário, freelas e qualquer outra entrada aparecem aqui — e alimentam o resultado do mês. Uma renda que se repete todo mês pode ser cadastrada como recorrente e entra sozinha."
               action={<Button onClick={() => setDialogOpen(true)} className="gap-2"><Plus className="h-4 w-4" /> Nova renda</Button>}
             />
           </div>
@@ -393,7 +398,12 @@ export function IncomePage() {
                     <EmptyState
                       icon={Wallet}
                       title="Nenhuma renda neste mês"
-                      description="Salário, freelas e qualquer outra entrada aparecem aqui — e alimentam o resultado do mês."
+                      // O onboarding criava a renda "Salário Mensal" no cadastro, e por
+              // isso ninguém precisava saber que ela pode se repetir sozinha.
+              // Ele deixou de fazer isso (a porta de entrada pergunta o saldo,
+              // que é o dado que o app não deduz) — então a informação passou a
+              // ter de existir AQUI, que é onde ela é útil.
+              description="Salário, freelas e qualquer outra entrada aparecem aqui — e alimentam o resultado do mês. Uma renda que se repete todo mês pode ser cadastrada como recorrente e entra sozinha."
                       action={<Button onClick={() => setDialogOpen(true)} className="gap-2"><Plus className="h-4 w-4" /> Nova renda</Button>}
                     />
                   </TableCell>

@@ -4596,8 +4596,12 @@ export interface components {
         OnboardingRequest: {
             /** Workspace Id */
             workspace_id?: number | null;
+            /** Account Name */
+            account_name?: string | null;
+            /** Account Balance */
+            account_balance?: number | string | null;
             /** Salary */
-            salary: number | string;
+            salary?: number | string | null;
             /** Credit Card Name */
             credit_card_name?: string | null;
             /** Credit Card Limit */

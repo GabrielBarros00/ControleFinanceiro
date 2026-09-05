@@ -37,46 +37,29 @@ describe('Onboarding — os rótulos que as suítes e2e digitam', () => {
     expect(screen.getByRole('button', { name: ONBOARDING.comecar })).toBeInTheDocument();
   });
 
-  it('o passo 2 tem o campo de salário e o botão de avançar', () => {
+  it('o passo 2 pergunta onde está o dinheiro e quanto há', () => {
     render(<OnboardingModal />);
     fireEvent.click(screen.getByRole('button', { name: ONBOARDING.comecar }));
 
-    const salario = screen.getByLabelText(ONBOARDING.salario);
-    expect(salario).toBeInTheDocument();
-
-    // "Próximo" só aparece com salário preenchido — sem ele o botão é
-    // "Pular por enquanto". A suíte preenche antes de clicar, e o teste
-    // reproduz essa ordem em vez de assumir que o botão está sempre lá.
-    fireEvent.change(salario, { target: { value: '5000,00' } });
-    expect(screen.getByRole('button', { name: ONBOARDING.proximo })).toBeInTheDocument();
+    expect(screen.getByLabelText(ONBOARDING.ondeEstaODinheiro)).toBeInTheDocument();
+    expect(screen.getByLabelText(ONBOARDING.quantoHa)).toBeInTheDocument();
   });
 
-  it('o passo 3 tem a saída sem cadastrar cartão', () => {
+  it('o botão conclui quando há conta e pula quando não há', () => {
     render(<OnboardingModal />);
     fireEvent.click(screen.getByRole('button', { name: ONBOARDING.comecar }));
-    const salario = screen.getByLabelText(ONBOARDING.salario);
-    fireEvent.change(salario, { target: { value: '5000,00' } });
-    fireEvent.click(screen.getByRole('button', { name: ONBOARDING.proximo }));
 
+    // Sem conta: o mesmo botão é a saída. Quem não sabe o número agora não pode
+    // ficar preso na porta de entrada.
     expect(screen.getByRole('button', { name: ONBOARDING.pular })).toBeInTheDocument();
+
+    fireEvent.change(screen.getByLabelText(ONBOARDING.ondeEstaODinheiro), {
+      target: { value: 'Nubank' },
+    });
+    expect(screen.getByRole('button', { name: ONBOARDING.concluir })).toBeInTheDocument();
   });
 });
 
-/**
- * A varredura: todo rótulo registrado ainda existe em algum lugar de `src/`.
- *
- * O teste acima renderiza o onboarding de verdade, e é o mais forte — mas ele
- * só cobre o onboarding. O `e2e-prod` também procurava "Sair da Conta", que
- * virou "Sair da conta" na mesma rodada, e essa falha ficou **escondida atrás
- * da primeira**: dois rótulos podres no mesmo arquivo, um encobrindo o outro,
- * cada um custando uma rodada de CI para aparecer.
- *
- * Esta varredura é grosseira de propósito — ela só pergunta "este texto ainda
- * existe no código?". Não prova que o botão está na tela certa nem que ele está
- * visível; prova que ninguém o renomeou sem passar por aqui. É barata o
- * bastante para rodar sempre, e pega exatamente a classe de erro que custou
- * duas rodadas de CI nesta sessão.
- */
 describe('Rótulos registrados x código', () => {
   it('todo texto registrado existe no arquivo em que a suíte vai clicar', async () => {
     const fs = await import('node:fs/promises');
