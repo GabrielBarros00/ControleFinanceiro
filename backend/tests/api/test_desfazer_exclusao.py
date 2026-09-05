@@ -69,7 +69,7 @@ def cena_fixture(db_session: Session, override_get_session):
     db_session.commit()
     db_session.refresh(tx)
     return {
-        "db": db_session, "ws": ws, "tx": tx,
+        "db": db_session, "ws": ws, "tx": tx, "dono_id": dono.id,
         "dono": {"Cookie": f"access_token={create_access_token({'sub': str(dono.id)})}"},
         "outro": {"Cookie": f"access_token={create_access_token({'sub': str(outro.id)})}"},
     }
@@ -116,7 +116,11 @@ def test_diz_quantos_anexos_a_exclusao_levou(cena):
     db.add(Attachment(
         workspace_id=cena["ws"].id, transaction_id=cena["tx"].id,
         filename="nota.pdf", content_type="application/pdf",
-        size_bytes=1024, storage_key="k/nota.pdf", uploaded_by_user_id=1,
+        # Usuário REAL, e não `1`: no SQLite a chave estrangeira não é cobrada e
+        # o teste passava; no Postgres ela é, e o insert estourava. É a mesma
+        # divergência de schema que este projeto já registrou — só o Postgres
+        # reprova o dado inventado.
+        size_bytes=1024, storage_key="k/nota.pdf", uploaded_by_user_id=cena["dono_id"],
     ))
     db.commit()
 
@@ -172,7 +176,11 @@ def test_o_anexo_nao_volta_com_a_despesa(cena):
     db.add(Attachment(
         workspace_id=cena["ws"].id, transaction_id=cena["tx"].id,
         filename="nota.pdf", content_type="application/pdf",
-        size_bytes=1024, storage_key="k/nota.pdf", uploaded_by_user_id=1,
+        # Usuário REAL, e não `1`: no SQLite a chave estrangeira não é cobrada e
+        # o teste passava; no Postgres ela é, e o insert estourava. É a mesma
+        # divergência de schema que este projeto já registrou — só o Postgres
+        # reprova o dado inventado.
+        size_bytes=1024, storage_key="k/nota.pdf", uploaded_by_user_id=cena["dono_id"],
     ))
     db.commit()
 
