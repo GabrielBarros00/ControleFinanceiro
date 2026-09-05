@@ -15,7 +15,7 @@ import { useBaseCurrency } from '@/hooks/use-base-currency';
 import { currencySymbol } from '@/lib/money';
 import { apiClient } from '@/api/client';
 import { toast } from '@/stores/toast';
-import { Wallet, CreditCard, Sparkles, ChevronRight, ArrowLeft, Calendar } from 'lucide-react';
+import { Wallet, Sparkles, ChevronRight, ArrowLeft } from 'lucide-react';
 
 export function OnboardingModal() {
   const { user } = useAuth();
@@ -24,11 +24,22 @@ export function OnboardingModal() {
   const [step, setStep] = React.useState(1);
   const [loading, setLoading] = React.useState(false);
 
-  // Form State
-  const [salary, setSalary] = React.useState<number>(0);
-  const [cardName, setCardName] = React.useState('');
-  const [cardLimit, setCardLimit] = React.useState<number>(0);
-  const [closingDay, setClosingDay] = React.useState<number>(5);
+  /*
+   * O onboarding pergunta UMA coisa: quanto você tem hoje, e onde.
+   *
+   * Ele pedia salário e cartão. Nenhum dos dois é o que a primeira tela usa
+   * para responder a primeira pergunta — e depois da Onda 2 isso ficou visível:
+   * "Hoje" abre com "Seu dinheiro", e para todo usuário novo esse bloco dizia
+   * *"Saldo ainda não configurado"*. Três passos de cadastro no primeiro minuto,
+   * e a tela inicial ainda começava vazia no lugar mais importante.
+   *
+   * Saldo de abertura é o único dado que o app não deduz de nada: não sai de
+   * lançamento, nem de renda, nem de fatura. Salário reaparece todo mês sozinho
+   * (recorrência) e cartão se cadastra na hora de usar — os dois viraram convite
+   * em contexto, nas telas de Rendas e Cartões vazias.
+   */
+  const [accountName, setAccountName] = React.useState('');
+  const [accountBalance, setAccountBalance] = React.useState<number>(0);
 
   React.useEffect(() => {
     if (user && user.needs_onboarding) {
@@ -44,10 +55,10 @@ export function OnboardingModal() {
       // gravava o salário no workspace compartilhado quando o usuário se
       // cadastrava por um convite (ele nasce com dois workspaces).
       await apiClient.post('/auth/onboarding', {
-        salary: salary || 0,
-        credit_card_name: cardName || null,
-        credit_card_limit: cardLimit || null,
-        credit_card_closing_day: cardName ? closingDay : null
+        // `account_balance` vai mesmo quando é 0: "não tenho nada na conta" é
+        // uma resposta, e diferente de "não quis dizer" (que é não mandar nome).
+        account_name: accountName || null,
+        account_balance: accountName ? accountBalance : null,
       });
       setIsOpen(false);
       window.location.reload(); // Reload to refresh user state and dashboard
@@ -84,9 +95,9 @@ export function OnboardingModal() {
             role="progressbar"
             aria-valuenow={step}
             aria-valuemin={1}
-            aria-valuemax={3}
-            aria-label={`Passo ${step} de 3`}
-            style={{ width: `${(step / 3) * 100}%` }}
+            aria-valuemax={2}
+            aria-label={`Passo ${step} de 2`}
+            style={{ width: `${(step / 2) * 100}%` }}
           />
         </div>
 
@@ -106,9 +117,17 @@ export function OnboardingModal() {
                   </DialogDescription>
                 </div>
               </DialogHeader>
-              <div className="pt-4">
+              <div className="space-y-2 pt-4">
                  <Button onClick={() => setStep(2)} className="w-full h-12 text-lg font-bold gap-2">
-                   Começar Setup <ChevronRight className="h-5 w-5" />
+                   Começar <ChevronRight className="h-5 w-5" />
+                 </Button>
+                 {/* Saída no PRIMEIRO passo. O diálogo é bloqueante de propósito
+                     (sem X, sem Esc, sem clique fora), e até aqui a única opção
+                     da tela de boas-vindas era seguir — quem só quer olhar o app
+                     não tinha alternativa nenhuma à vista. Os passos 2 e 3 já
+                     ofereciam pular; o primeiro, não. */}
+                 <Button variant="link" onClick={handleFinish} className="w-full text-muted-foreground text-xs">
+                   Configurar depois
                  </Button>
               </div>
             </div>
@@ -118,92 +137,47 @@ export function OnboardingModal() {
             <div className="space-y-6 animate-in fade-in slide-in-from-right-4 duration-500">
               <DialogHeader className="space-y-2">
                 <DialogTitle className="text-xl font-bold flex items-center gap-2">
-                  <Wallet className="h-5 w-5 text-primary" /> Qual sua renda mensal?
+                  <Wallet className="h-5 w-5 text-primary" /> Quanto você tem hoje, e onde?
                 </DialogTitle>
                 <DialogDescription>
-                  Isso ajuda a calcular quanto você pode gastar por mês.
+                  É o ponto de partida. O que aconteceu antes de hoje já está dentro
+                  desse número — daqui para frente o app conta a partir dele.
                 </DialogDescription>
               </DialogHeader>
               <div className="space-y-4 pt-2">
                 <div className="space-y-2">
-                  <Label htmlFor="salary">Salário / Renda Líquida</Label>
+                  <Label htmlFor="account-name">Onde está o dinheiro</Label>
+                  <Input
+                    id="account-name"
+                    placeholder="Ex: Nubank, Itaú, carteira"
+                    value={accountName}
+                    onChange={(e) => setAccountName(e.target.value)}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="account-balance">Quanto há nela agora</Label>
                   <MoneyInput
-                    id="salary"
+                    id="account-balance"
                     placeholder="0,00"
-                    value={salary}
-                    onChange={(val: number) => setSalary(val)}
+                    value={accountBalance}
+                    onChange={(val: number) => setAccountBalance(val)}
                     prefix={currencySymbol(baseCurrency)}
                     className="h-12 text-lg font-bold"
                   />
                 </div>
               </div>
               <div className="flex gap-3 pt-4">
-                <Button variant="ghost" onClick={() => setStep(1)} className="h-12"><ArrowLeft className="h-4 w-4 mr-2" /> Voltar</Button>
-                {/* Sem `disabled`: o backend suporta pular a etapa (salary <= 0
-                    não cria renda — auth.py), mas a UI travava o botão em 0 e
-                    obrigava a inventar um valor. */}
-                <Button onClick={() => setStep(3)} className="flex-1 h-12 font-bold">
-                  {salary ? 'Próximo Passo' : 'Pular por enquanto'}
+                <Button variant="ghost" onClick={() => setStep(1)} className="h-12">
+                  <ArrowLeft className="h-4 w-4 mr-2" /> Voltar
+                </Button>
+                {/* Sem `disabled`: quem não sabe o número agora não pode ficar
+                    preso na porta de entrada. O backend aceita concluir sem
+                    conta nenhuma, e a primeira tela continua oferecendo
+                    informar depois. */}
+                <Button onClick={handleFinish} disabled={loading} className="h-12 flex-1 font-bold">
+                  {loading ? 'Salvando…' : accountName ? 'Concluir' : 'Pular esta etapa'}
                 </Button>
               </div>
-            </div>
-          )}
-
-          {step === 3 && (
-            <div className="space-y-6 animate-in fade-in slide-in-from-right-4 duration-500">
-              <DialogHeader className="space-y-2">
-                <DialogTitle className="text-xl font-bold flex items-center gap-2">
-                  <CreditCard className="h-5 w-5 text-primary" /> Seu cartão principal
-                </DialogTitle>
-                <DialogDescription>
-                  Adicione um cartão para rastrear suas faturas. (Opcional)
-                </DialogDescription>
-              </DialogHeader>
-              <div className="space-y-4 pt-2">
-                <div className="grid gap-4">
-                   <div className="space-y-2">
-                     <Label>Nome do Cartão</Label>
-                     <Input placeholder="Ex: Nubank, Inter..." value={cardName} onChange={(e) => setCardName(e.target.value)} />
-                   </div>
-                   
-                   <div className="grid grid-cols-2 gap-4">
-                     <div className="space-y-2">
-                       <Label>Limite Total</Label>
-                       <MoneyInput
-                        placeholder="0,00"
-                        value={cardLimit}
-                        onChange={(val: number) => setCardLimit(val)}
-                        prefix={currencySymbol(baseCurrency)}
-                       />
-                     </div>
-                     <div className="space-y-2">
-                       <Label className="flex items-center gap-1.5">
-                         <Calendar className="h-3.5 w-3.5 text-muted-foreground" /> Fechamento
-                       </Label>
-                       <Input
-                        type="number"
-                        inputMode="numeric"
-                        min={1}
-                        max={31}
-                        placeholder="5"
-                        value={closingDay} 
-                        onChange={(e) => setClosingDay(parseInt(e.target.value) || 5)} 
-                       />
-                     </div>
-                   </div>
-                </div>
-              </div>
-              <div className="flex gap-3 pt-4">
-                <Button variant="ghost" onClick={() => setStep(2)} className="h-12"><ArrowLeft className="h-4 w-4 mr-2" /> Voltar</Button>
-                <Button 
-                  onClick={handleFinish} 
-                  className="flex-1 h-12 font-bold bg-emerald-600 hover:bg-emerald-700" 
-                  disabled={loading || (!!cardName && !cardLimit)}
-                >
-                  {loading ? 'Finalizando...' : 'Concluir Tutorial'}
-                </Button>
-              </div>
-              <Button variant="link" className="w-full text-muted-foreground text-xs" onClick={handleFinish}>Pular esta etapa</Button>
             </div>
           )}
         </div>

@@ -5,6 +5,7 @@ import { server } from '@/test/setup';
 import { describe, it, expect, beforeEach } from 'vitest';
 import { NewTransactionDialog } from '../NewTransactionDialog';
 import { useAuthStore, useUIStore } from '@/stores';
+import { ConfirmProvider } from '@/components/ui/confirm';
 
 const WS = 'http://localhost:8000/api/v1/workspaces/1';
 
@@ -14,11 +15,28 @@ const members = [
 
 function renderForm() {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-  return render(
+  const resultado = render(
     <QueryClientProvider client={queryClient}>
-      <NewTransactionDialog open onOpenChange={() => {}} />
+    {/* `ConfirmProvider`: o diálogo passou a PERGUNTAR antes de descartar um
+        formulário preenchido (Escape ou clique fora jogavam fora título, valor,
+        pagadores, divisão e anexos sem aviso). `useConfirm` lança sem o
+        provider, exatamente como já acontecia no teste da Administração. */}
+      <ConfirmProvider>
+        <NewTransactionDialog open onOpenChange={() => {}} />
+      </ConfirmProvider>
     </QueryClientProvider>
   );
+  /*
+   * O diálogo de CRIAÇÃO abre no modo simples — título, valor e salvar. Tudo o
+   * que este arquivo exercita (pagadores, itens, divisão, anexos) mora atrás de
+   * "Detalhar", que é o ponto da mudança: o formulário deixou de abrir com doze
+   * controles para preencher dois campos.
+   *
+   * O clique fica no helper, e não em cada teste, porque ele não é o assunto de
+   * nenhum deles: é a porta de entrada do formulário completo.
+   */
+  fireEvent.click(screen.getByRole('button', { name: /^Detalhar$/i }));
+  return resultado;
 }
 
 function pick(...files: File[]) {
@@ -75,7 +93,7 @@ describe('NewTransactionDialog — anexos na criação', () => {
     await screen.findByText('nota.pdf');
     expect(screen.getByText('recibo.png')).toBeTruthy();
 
-    fireEvent.click(screen.getByRole('button', { name: 'Salvar Despesa' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Salvar despesa' }));
 
     await waitFor(() => expect(uploaded).toEqual(['77', '77']));
   });
@@ -110,7 +128,7 @@ describe('NewTransactionDialog — anexos na criação', () => {
 
     // Sem anexo pendente, salvar não dispara nenhum upload (nenhuma rota de
     // anexo está registrada — um POST extra derrubaria o teste)
-    fireEvent.click(screen.getByRole('button', { name: 'Salvar Despesa' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Salvar despesa' }));
     await waitFor(() => expect(payloadSent).toBe(true));
   });
 });

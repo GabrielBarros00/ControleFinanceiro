@@ -62,9 +62,28 @@ apiClient.interceptors.response.use(
         await refreshPromise;
         return apiClient(original);
       } catch {
-        // Sessão realmente expirada: o ProtectedRoute redireciona ao ver que
-        // não há usuário.
+        // Sessão realmente expirada.
         useAuthStore.getState().logout();
+        /*
+         * E é PRECISO derrubar também a `auth-me` do react-query — o store
+         * sozinho não basta, e essa era a causa do "app travado".
+         *
+         * O comentário que existia aqui dizia "o ProtectedRoute redireciona ao
+         * ver que não há usuário". Isso deixou de ser verdade quando o guard
+         * passou a ler `useAuth()` (react-query) em vez do espelho em Zustand —
+         * mudança certa, feita para resolver outra corrida, que deixou esta
+         * linha órfã. Resultado medido: com o app ABERTO e a sessão expirando,
+         * o guard continuava vendo `auth-me` no cache com dados válidos, dava a
+         * sessão por viva e a tela girava para sempre. Só um F5 saía disso, e o
+         * usuário não tinha como saber disso.
+         *
+         * `setQueryData(null)` e NÃO `removeQueries`: remover uma query com
+         * observador montado faz o react-query refazê-la na hora, e o laço
+         * `/auth/me` → 401 → `/auth/refresh` → 401 → … volta (é o defeito que o
+         * `predicate` logo abaixo foi escrito para evitar). Definir o dado como
+         * nulo deixa a query parada, com a resposta correta: não há sessão.
+         */
+        queryClientRef?.setQueryData(['auth-me'], null);
         // Descarta o cache do usuário que saiu — MENOS a própria `auth-me`.
         //
         // `queryClient.clear()` removia tudo, inclusive ela. E remover uma query

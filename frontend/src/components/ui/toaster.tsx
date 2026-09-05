@@ -5,10 +5,10 @@ import { cn } from '@/lib/utils';
 import { useToastStore, type Toast, type ToastVariant } from '@/stores/toast';
 
 const VARIANTS: Record<ToastVariant, { border: string; icon: React.ReactNode }> = {
-  success: { border: 'border-l-emerald-500', icon: <CheckCircle2 className="h-5 w-5 text-emerald-500" /> },
+  success: { border: 'border-l-income', icon: <CheckCircle2 className="h-5 w-5 text-income" /> },
   error: { border: 'border-l-destructive', icon: <AlertCircle className="h-5 w-5 text-destructive" /> },
   info: { border: 'border-l-primary', icon: <Info className="h-5 w-5 text-primary" /> },
-  warning: { border: 'border-l-amber-500', icon: <AlertTriangle className="h-5 w-5 text-warning" /> },
+  warning: { border: 'border-l-warning', icon: <AlertTriangle className="h-5 w-5 text-warning" /> },
 };
 
 function ToastCard({ toast }: { toast: Toast }) {
@@ -39,6 +39,17 @@ function ToastCard({ toast }: { toast: Toast }) {
         <p className="text-sm font-bold text-foreground">{toast.title}</p>
         {toast.description && (
           <p className="text-xs text-muted-foreground wrap-break-word">{toast.description}</p>
+        )}
+        {/* A ação fecha o aviso ao ser usada: deixá-lo na tela depois do
+            "Desfazer" faria a pessoa clicar de novo achando que não pegou. */}
+        {toast.action && (
+          <button
+            type="button"
+            onClick={() => { toast.action?.onClick(); dismiss(toast.id); }}
+            className="mt-1 text-xs font-bold text-primary underline-offset-4 hover:underline focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring"
+          >
+            {toast.action.label}
+          </button>
         )}
       </div>
       <button

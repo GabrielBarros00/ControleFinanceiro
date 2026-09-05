@@ -35,6 +35,9 @@ interface TransactionLedgerProps {
   onDelete?: (id: number) => void;
   onSelect?: (tx: TransactionRead) => void;
   showDayTotals?: boolean;
+  /** Ids marcados; `undefined` = a lista não está em modo de seleção. */
+  marcadas?: number[];
+  onMarcar?: (id: number) => void;
 }
 
 export function TransactionLedger({
@@ -44,6 +47,8 @@ export function TransactionLedger({
   onDelete,
   onSelect,
   showDayTotals = true,
+  marcadas,
+  onMarcar,
 }: TransactionLedgerProps) {
   const { categories } = useCategories();
   const { members } = useMembers();
@@ -106,6 +111,8 @@ export function TransactionLedger({
                 onEdit={onEdit}
                 onDelete={onDelete}
                 onSelect={onSelect}
+                marcada={marcadas?.includes(tx.id)}
+                onMarcar={onMarcar}
               />
             ))}
           </div>

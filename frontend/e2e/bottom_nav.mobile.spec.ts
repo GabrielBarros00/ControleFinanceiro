@@ -274,7 +274,7 @@ test.describe('BottomNav (mobile)', () => {
     // Visitar o workspace deixa o "último visitado" no localStorage — é
     // exatamente esse estado que fazia o FAB parecer utilizável na visão global.
     await page.goto('/overview');
-    await expect(page.getByRole('heading', { name: /Seu mês/ })).toBeVisible();
+    await expect(page.getByRole('heading', { name: /Hoje/ })).toBeVisible();
     await expect(fab).toHaveCount(0);
 
     await page.goto('/me/cards');
@@ -293,7 +293,7 @@ test.describe('BottomNav (mobile)', () => {
     // Três slots + "Mais", com os rótulos de `nav-items.ts`. O de Cartões sumia
     // porque apontava para uma rota morta, e a filtragem silenciosa não deixava
     // rastro — a barra simplesmente vinha com um item a menos.
-    for (const rotulo of ['Seu mês', 'Lançamentos', 'Cartões', 'Mais']) {
+    for (const rotulo of ['Hoje', 'Lançamentos', 'Cartões', 'Mais']) {
       await expect(barra.getByText(rotulo, { exact: true })).toBeVisible();
     }
 

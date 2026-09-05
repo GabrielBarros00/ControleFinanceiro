@@ -121,7 +121,7 @@ function AbaPorMes({
                   to={`/w/${ws.workspace_id}/debts`}
                   className="inline-flex items-center gap-1 text-xs font-medium text-brand hover:underline"
                 >
-                  Abrir a casa <ArrowRight className="h-3 w-3" />
+                  Abrir o espaço <ArrowRight className="h-3 w-3" />
                 </Link>
               </div>
               <MonthlyLedgerTotals
@@ -326,7 +326,7 @@ export function MySettlementsPage() {
                       to={`/w/${g.workspace_id}/debts`}
                       className="inline-flex items-center gap-1 text-xs font-medium text-brand hover:underline"
                     >
-                      Abrir a casa <ArrowRight className="h-3 w-3" />
+                      Abrir o espaço <ArrowRight className="h-3 w-3" />
                     </Link>
                   </div>
 
@@ -381,9 +381,9 @@ export function MySettlementsPage() {
               <div className="space-y-1">
                 <h4 className="font-bold text-foreground">Por que os saldos ficam separados por espaço?</h4>
                 <p className="text-sm leading-relaxed text-muted-foreground">
-                  Dever R$ 100 numa casa e ter R$ 100 a receber noutra não é estar quitado — são
+                  Dever R$ 100 num espaço e ter R$ 100 a receber noutro não é estar quitado — são
                   pessoas e acordos diferentes. Por isso não existe um "saldo líquido" aqui: cada
-                  casa se resolve com um pagamento (Pix, dinheiro…) registrado nela.{' '}
+                  espaço se resolve com um pagamento (Pix, dinheiro…) registrado nele.{' '}
                   <HandCoins className="inline h-3.5 w-3.5" />
                 </p>
               </div>
@@ -412,8 +412,8 @@ export function MySettlementsPage() {
               <CardHeader>
                 <CardTitle className="text-lg">Histórico de acertos</CardTitle>
                 <CardDescription>
-                  Os acertos em que você é uma das pontas, em todas as casas. A pílula diz qual
-                  mês cada um fecha; para desfazer um, abra a casa dele.
+                  Os acertos em que você é uma das pontas, em todos os espaços. A pílula diz qual
+                  mês cada um fecha; para desfazer um, abra o espaço dele.
                   {/* Truncar em silêncio faria as primeiras linhas parecerem todas. */}
                   {totalHistorico > settlements.length && (
                     <> Mostrando os {settlements.length} mais recentes de {totalHistorico}.</>

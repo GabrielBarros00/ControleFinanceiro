@@ -8,7 +8,7 @@ from app.core.config import settings
 from app.db.session import get_session
 from app.api.routes import (
     admin, analytics, attachments, audit, auth, categories, debts, imports, me,
-    me_accounts, me_balance, me_cards, me_financing, me_income, me_push,
+    me_accounts, me_balance, me_cards, me_financing, me_income, me_push, me_search,
     me_settlements, members, notifications, payables, recurring, settlements, tags,
     transactions, workspaces,
 )
@@ -47,6 +47,7 @@ router.include_router(me_accounts.router)
 # `me_accounts`, porque o prefixo é outro: `/me/balance` e `/me/transfers` não são
 # sub-recursos de uma conta específica.
 router.include_router(me_balance.router)
+router.include_router(me_search.router)
 router.include_router(me_financing.router)
 router.include_router(me_push.router)
 # Acerto entre pessoas atravessa as casas (ADR 0027): só leitura aqui, porque

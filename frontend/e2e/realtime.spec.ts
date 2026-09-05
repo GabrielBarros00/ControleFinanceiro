@@ -70,10 +70,10 @@ test.describe('Tempo real entre dois usuários', () => {
     const pageB = await contextB.newPage();
 
     await pageA.goto('/');
-    await expect(pageA.getByRole('heading', { name: /Seu mês|Painel/ })).toBeVisible();
+    await expect(pageA.getByRole('heading', { name: /Hoje|Painel/ })).toBeVisible();
 
     await pageB.goto('/');
-    await expect(pageB.getByRole('heading', { name: /Seu mês|Painel/ })).toBeVisible();
+    await expect(pageB.getByRole('heading', { name: /Hoje|Painel/ })).toBeVisible();
 
     // B troca para o workspace compartilhado pelo switcher do sidebar — SEM
     // reload. O `reload()` que ficava aqui era maquiagem: escondia o defeito de

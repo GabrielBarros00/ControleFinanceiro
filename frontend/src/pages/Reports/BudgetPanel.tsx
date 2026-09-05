@@ -181,7 +181,7 @@ export function BudgetPanel({
               const pct = budget > 0 ? Math.min(150, (spent / budget) * 100) : 0;
               const over = spent > budget;
               const near = !over && budget > 0 && spent / budget >= 0.75;
-              const barColor = over ? 'bg-destructive' : near ? 'bg-amber-500' : 'bg-emerald-500';
+              const barColor = over ? 'bg-destructive' : near ? 'bg-warning' : 'bg-income';
               return (
                 <div key={estimate.id} className="space-y-1.5" data-testid={`budget-row-${estimate.category}`}>
                   <div className="flex items-center justify-between gap-2">

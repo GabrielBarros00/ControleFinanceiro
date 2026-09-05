@@ -1,5 +1,6 @@
 import * as React from 'react';
 import { Card, CardContent } from "@/components/ui/card";
+import { StatTile } from "@/components/ui/stat-tile";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Button } from "@/components/ui/button";
 import { Plus, Edit2, Trash2, Calendar, Repeat, Loader2 } from 'lucide-react';
@@ -50,6 +51,7 @@ import { PageHeader } from '@/components/layout/PageHeader';
 // <select> nativo, mesmo padrão de AmortizationTable/PaymentMethodField.
 import { nativeSelectClass as selectClass } from '@/components/ui/native-select';
 import { CardsOrTable, DataCard } from '@/components/ui/data-card';
+import { EmptyState } from '@/components/ui/empty-state';
 
 const recurringSchema = z.object({
   title: z.string().min(1, 'Título é obrigatório'),
@@ -104,6 +106,45 @@ interface RecurringItem {
   occurrences_remaining?: number | null;
 }
 
+/**
+ * Quanto uma recorrência custa POR MÊS.
+ *
+ * A tela lista "R$ 150 · toda semana" e "R$ 1.200 · todo ano" na mesma coluna de
+ * valor, e as duas linhas dizem coisas incomparáveis. Para responder "quanto sai
+ * fixo todo mês" — a única pergunta que traz alguém aqui — cada uma tem de ser
+ * trazida para a mesma medida.
+ *
+ * Os fatores são o ano dividido por 12, não arredondamentos de bolso: 52
+ * semanas / 12 e 365 dias / 12. Uma semana não é "um quarto de mês" — quem paga
+ * faxina semanal paga 13 vezes num trimestre, não 12, e é justamente esse tipo
+ * de diferença que o número existe para mostrar.
+ *
+ * `interval` divide: "a cada 2 meses" custa metade, por mês, de "todo mês".
+ */
+const POR_MES: Record<string, number> = {
+  daily: 365 / 12,
+  weekly: 52 / 12,
+  monthly: 1,
+  yearly: 1 / 12,
+};
+
+function custoMensal(item: RecurringItem): number {
+  const valor = parseFloat(item.base_amount);
+  if (!Number.isFinite(valor)) return 0;
+  const fator = POR_MES[item.frequency] ?? 1;
+  return (valor * fator) / Math.max(1, item.interval ?? 1);
+}
+
+/** A linha de apoio da lista — vazia quando não há o que dizer. */
+function metaDaLinha(item: RecurringItem, cards: unknown[]): string {
+  const forma = paymentMethodLabel(item.payment_method, item.credit_card_id);
+  const cartao = item.credit_card_id != null
+    ? (cards as { id: number; name: string }[]).find((c) => c.id === item.credit_card_id)?.name
+    : null;
+  return [forma === '—' ? null : forma, cartao, item.description || null]
+    .filter(Boolean).join(' · ');
+}
+
 const todayStr = todayLocalISO;
 
 const DEFAULTS: RecurringValues = {
@@ -138,6 +179,23 @@ export function RecurringTransactionsPage() {
   const baseCurrency = useBaseCurrency();
   const { cards } = useCreditCards();
   const confirm = useConfirm();
+
+  /* Só as ATIVAS: uma recorrência desligada não tira dinheiro de ninguém, e
+     somá-la faria o compromisso do mês parecer maior do que é. */
+  const ativas = React.useMemo(
+    () => (recurring as RecurringItem[]).filter((r) => r.is_active),
+    [recurring],
+  );
+  const totaisPorMoeda = React.useMemo(() => {
+    const mapa = new Map<string, number>();
+    for (const item of ativas) {
+      const moeda = item.currency ?? baseCurrency;
+      mapa.set(moeda, (mapa.get(moeda) ?? 0) + custoMensal(item));
+    }
+    // A moeda-base primeiro: é a que responde a pergunta para a maioria.
+    return [...mapa.entries()].sort(([a], [b]) =>
+      a === baseCurrency ? -1 : b === baseCurrency ? 1 : a.localeCompare(b));
+  }, [ativas, baseCurrency]);
   const [dialogOpen, setDialogOpen] = React.useState(false);
   const [editingId, setEditingId] = React.useState<number | null>(null);
   // Alcance da materialização quando a data de início é retroativa
@@ -407,13 +465,37 @@ export function RecurringTransactionsPage() {
         subtitle="Gastos fixos deste espaço, gerados automaticamente todo mês."
         scope="workspace"
       />
+      {/* O número que responde a pergunta da tela.
+          Ele fica ANTES da lista porque é o resumo dela: quem chega aqui quer
+          saber quanto está comprometido antes de gastar qualquer coisa, e a
+          lista é a justificativa desse número, não o contrário.
+
+          Moedas diferentes não se somam: cada uma ganha sua linha. Somar 3 mil
+          reais com 20 dólares num total só seria pior do que não ter total. */}
+      {totaisPorMoeda.length > 0 && (
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+          {totaisPorMoeda.map(([moeda, valor], i) => (
+            <div key={moeda} data-testid={i === 0 ? 'total-mensal' : undefined}>
+              <StatTile
+                label={i === 0 ? 'Compromisso fixo por mês' : `Compromisso fixo por mês (${moeda})`}
+                value={valor}
+                currency={moeda}
+                kind="expense"
+                icon={Repeat}
+                hint={`${ativas.length} ativa(s) · semanal e anual convertidos para a medida do mês`}
+              />
+            </div>
+          ))}
+        </div>
+      )}
+
       <div className="flex flex-wrap items-center justify-end gap-2">
         <Button variant="outline" onClick={handleGenerate} disabled={isGenerating} className="gap-2 font-bold">
           {isGenerating ? <Loader2 className="h-4 w-4 animate-spin" /> : <Repeat className="h-4 w-4" />}
           Lançar pendentes
         </Button>
         <Button onClick={openCreate} className="gap-2 font-bold shadow-lg shadow-primary/20">
-          <Plus className="h-4 w-4" /> Nova Despesa
+          <Plus className="h-4 w-4" /> Nova despesa
         </Button>
       </div>
 
@@ -421,9 +503,16 @@ export function RecurringTransactionsPage() {
         cards={
       <div className="space-y-2">
         {recurring.length === 0 ? (
-          <p className="rounded-xl border border-border bg-card p-6 text-center text-sm text-muted-foreground">
-            Nenhuma despesa recorrente cadastrada.
-          </p>
+          // `EmptyState` como as outras telas: diz o que é e como criar a
+          // primeira, em vez de só constatar que não há nada.
+          <div className="rounded-xl border border-border bg-card">
+            <EmptyState
+              icon={Repeat}
+              title="Nenhuma despesa fixa ainda"
+              description="Aluguel, assinaturas e mensalidades entram uma vez e passam a ser lançados todo mês sozinhos."
+              action={<Button onClick={() => setDialogOpen(true)} className="gap-2"><Plus className="h-4 w-4" /> Nova despesa recorrente</Button>}
+            />
+          </div>
         ) : recurring.map((item: RecurringItem) => (
           <DataCard
             key={item.id}
@@ -431,19 +520,15 @@ export function RecurringTransactionsPage() {
             badge={
               <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase ${
                 item.is_active
-                  ? 'border border-emerald-500/20 bg-emerald-500/10 text-emerald-500'
+                  ? 'border border-income/20 bg-income-subtle text-income'
                   : 'border border-border bg-muted text-muted-foreground'
               }`}>
                 {item.is_active ? 'Ativo' : 'Inativo'}
               </span>
             }
             meta={[
-              paymentMethodLabel(item.payment_method, item.credit_card_id),
-              item.credit_card_id != null
-                ? (cards as { id: number; name: string }[]).find((c) => c.id === item.credit_card_id)?.name
-                : null,
+              metaDaLinha(item, cards),
               item.category_id != null ? categoryName(item.category_id) : null,
-              item.description || null,
             ].filter(Boolean).join(' · ')}
             value={
               <span className="font-semibold whitespace-nowrap text-foreground">
@@ -485,16 +570,20 @@ export function RecurringTransactionsPage() {
               <TableRow className="border-border hover:bg-transparent">
                 <TableHead className="w-[300px] text-muted-foreground font-semibold text-xs">Descrição</TableHead>
                 <TableHead className="text-muted-foreground font-semibold text-xs">Recorrência</TableHead>
-                <TableHead className="text-muted-foreground font-semibold text-xs">Status</TableHead>
-                <TableHead className="text-right text-muted-foreground font-semibold text-xs">Valor Base</TableHead>
+                <TableHead className="text-right text-muted-foreground font-semibold text-xs">Valor</TableHead>
                 <TableHead className="text-center text-muted-foreground font-semibold text-xs">Ações</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {recurring.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={5} className="h-32 text-center text-muted-foreground">
-                    Nenhuma despesa recorrente cadastrada.
+                  <TableCell colSpan={4} className="p-0">
+                    <EmptyState
+                      icon={Repeat}
+                      title="Nenhuma despesa fixa ainda"
+                      description="Aluguel, assinaturas e mensalidades entram uma vez e passam a ser lançados todo mês sozinhos."
+                      action={<Button onClick={() => setDialogOpen(true)} className="gap-2"><Plus className="h-4 w-4" /> Nova despesa recorrente</Button>}
+                    />
                   </TableCell>
                 </TableRow>
               ) : recurring.map((item: RecurringItem) => (
@@ -502,22 +591,33 @@ export function RecurringTransactionsPage() {
                   <TableCell>
                     <div className="flex flex-col">
                       <div className="flex items-center gap-2">
-                        <span className="font-bold text-foreground">{item.title}</span>
+                        {/* A coluna "Status" dizia "ATIVO" em praticamente toda
+                            linha — um cabeçalho e uma coluna inteira gastos numa
+                            informação que quase nunca varia. O que interessa é a
+                            exceção, e exceção se marca onde ela acontece. */}
+                        <span className={`font-bold ${item.is_active ? 'text-foreground' : 'text-muted-foreground line-through'}`}>
+                          {item.title}
+                        </span>
+                        {!item.is_active && (
+                          <span className="rounded-full border border-border bg-muted px-1.5 py-0.5 text-[9px] font-semibold uppercase text-muted-foreground">
+                            Inativa
+                          </span>
+                        )}
                         {item.category_id != null && (
                           <span className="rounded-full bg-primary/10 px-1.5 py-0.5 text-[9px] font-semibold uppercase text-primary">
                             {categoryName(item.category_id)}
                           </span>
                         )}
                       </div>
-                      <span className="text-xs text-muted-foreground line-clamp-1">
-                        {[
-                          paymentMethodLabel(item.payment_method, item.credit_card_id),
-                          item.credit_card_id != null
-                            ? (cards as { id: number; name: string }[]).find((c) => c.id === item.credit_card_id)?.name
-                            : null,
-                          item.description || null,
-                        ].filter(Boolean).join(' · ')}
-                      </span>
+                      {/* `paymentMethodLabel` devolve "—" quando não há forma de
+                          pagamento, e a captura do catálogo mostrou uma coluna
+                          inteira de travessões soltos embaixo dos títulos: uma
+                          linha de texto por lançamento para dizer nada. */}
+                      {metaDaLinha(item, cards) && (
+                        <span className="text-xs text-muted-foreground line-clamp-1">
+                          {metaDaLinha(item, cards)}
+                        </span>
+                      )}
                     </div>
                   </TableCell>
                   <TableCell>
@@ -526,22 +626,28 @@ export function RecurringTransactionsPage() {
                       {recurrenceLabel(item)}
                     </div>
                   </TableCell>
-                  <TableCell>
-                    <div className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold uppercase tracking-tighter ${
-                      item.is_active
-                        ? 'bg-emerald-500/10 text-emerald-500 border border-emerald-500/20'
-                        : 'bg-muted text-muted-foreground border border-border'
-                    }`}>
-                      {item.is_active ? 'Ativo' : 'Inativo'}
-                    </div>
-                  </TableCell>
                   <TableCell className="text-right">
                     <span className="font-semibold text-foreground">
                       {formatCurrency(parseFloat(item.base_amount), item.currency ?? baseCurrency)}
                     </span>
+                    {/* "R$ 220,00" numa linha semanal e "R$ 8.450,75" numa mensal
+                        ficavam na MESMA coluna, alinhados, como se fossem
+                        comparáveis — e não são. A equivalência mensal só aparece
+                        onde ela muda a leitura, e é ela que torna o total do topo
+                        conferível em vez de mágico. */}
+                    {item.frequency !== 'monthly' && (
+                      <span className="mt-0.5 block text-xs text-muted-foreground">
+                        ≈ {formatCurrency(custoMensal(item), item.currency ?? baseCurrency)}/mês
+                      </span>
+                    )}
                   </TableCell>
                   <TableCell>
-                    <div className="flex items-center justify-center gap-2 transition-opacity sm:opacity-0 sm:group-hover:opacity-100 sm:group-focus-within:opacity-100">
+                    {/* Sem `opacity-0`: a coluna tinha cabeçalho "Ações" e
+                        nada embaixo até o ponteiro entrar na linha — e num
+                        notebook com tela de toque, nunca. Revelar no `hover`
+                        esconde a ação de quem ainda não sabe que ela existe,
+                        que é exatamente quem precisa vê-la. */}
+                    <div className="flex items-center justify-center gap-2">
                       <Button
                         variant="ghost"
                         size="sm"
@@ -574,7 +680,7 @@ export function RecurringTransactionsPage() {
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
         <DialogContent className="bg-card border-border sm:max-w-[425px]">
           <DialogHeader>
-            <DialogTitle>{editingId ? 'Editar Despesa' : 'Nova Despesa Recorrente'}</DialogTitle>
+            <DialogTitle>{editingId ? 'Editar despesa' : 'Nova despesa recorrente'}</DialogTitle>
             <DialogDescription>
               Configure os detalhes da sua despesa automática.
             </DialogDescription>

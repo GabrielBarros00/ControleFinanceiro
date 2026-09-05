@@ -1,6 +1,6 @@
 import * as React from 'react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom';
+import { BrowserRouter, Routes, Route, Navigate, useLocation, Link } from 'react-router-dom';
 import { OverviewPage } from './pages/OverviewPage';
 import { WorkspaceGuard } from './components/layout/WorkspaceGuard';
 import { useLastWorkspaceId } from './hooks/use-workspace-id';
@@ -12,6 +12,7 @@ import { useIsPlatformAdmin } from './hooks/use-admin';
 import { useTheme } from './hooks/use-theme';
 import { Toaster } from './components/ui/toaster';
 import { ConfirmProvider } from './components/ui/confirm';
+import { ErrorState } from './components/ui/error-state';
 
 // Code-splitting por rota: o dashboard carrega no bundle inicial; o resto
 // (em especial o recharts dos relatórios) só quando a rota é visitada
@@ -91,8 +92,30 @@ interface ProtectedRouteProps {
  * guard espera em vez de concluir que não há sessão.
  */
 const ProtectedRoute = ({ children }: ProtectedRouteProps) => {
-  const { isAuthenticated, isLoading } = useAuth();
+  const { isAuthenticated, isLoading, falhaDeConexao, tentarSessaoDeNovo } = useAuth();
   const location = useLocation();
+
+  /*
+   * "Não consegui perguntar" vem ANTES de "você não está logado".
+   *
+   * Com a API inalcançável, `auth-me` falha e `isAuthenticated` fica falso — e
+   * o app mandava para `/login` quem tinha sessão válida, com um "Bem-vindo,
+   * entre com suas credenciais" que dá a entender que a conta se perdeu. A
+   * senha digitada em seguida também falha, agora com erro de credencial, que é
+   * a pista errada.
+   */
+  if (falhaDeConexao) {
+    return (
+      <div className="min-h-dvh flex items-center justify-center bg-background p-6">
+        <ErrorState
+          className="max-w-md"
+          title="Sem conexão com o servidor"
+          message="Não foi possível falar com o servidor. Sua sessão continua válida — assim que a conexão voltar, é só tentar de novo."
+          onRetry={tentarSessaoDeNovo}
+        />
+      </div>
+    );
+  }
 
   if (isLoading) {
     return (
@@ -156,6 +179,38 @@ function CardsPage() {
 function RedirectParaWorkspace({ sub = '' }: { sub?: string }) {
   const ultimo = useLastWorkspaceId();
   return <Navigate to={ultimo ? `/w/${ultimo}${sub}` : '/overview'} replace />;
+}
+
+/**
+ * 404 — e ela existe por uma razão de UX, não de completude.
+ *
+ * Qualquer endereço desconhecido caía em `/overview` **em silêncio**. Quem
+ * clicava num link antigo, num favorito de um espaço do qual saiu, ou num link
+ * compartilhado por engano, aterrissava no "Seu mês" sem nenhuma explicação — e
+ * a dúvida que fica ("o endereço estava errado ou eu perdi o acesso?") pede
+ * ações opostas.
+ */
+function PaginaNaoEncontrada() {
+  const location = useLocation();
+  return (
+    <div className="min-h-dvh flex flex-col items-center justify-center gap-6 bg-background p-6 text-center">
+      <div className="space-y-2">
+        <p className="text-sm font-semibold text-muted-foreground">Página não encontrada</p>
+        <h1 className="text-2xl font-semibold text-foreground">
+          Não existe nada em <span className="font-mono text-xl">{location.pathname}</span>
+        </h1>
+        <p className="mx-auto max-w-md text-sm text-muted-foreground">
+          O endereço pode ter mudado, ou o link que você seguiu está desatualizado.
+        </p>
+      </div>
+      <Link
+        to="/overview"
+        className="rounded-lg bg-primary px-5 py-2.5 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90"
+      >
+        Ir para o início
+      </Link>
+    </div>
+  );
 }
 
 function AppContent() {
@@ -294,7 +349,11 @@ function AppContent() {
             />
           ))}
 
-          <Route path="*" element={<Navigate to="/overview" replace />} />
+          {/* Página que NÃO existe: dizer isso, em vez de fingir que a pessoa
+              pediu o Início. Um redirecionamento silencioso deixa quem clicou
+              num link velho sem saber se errou o endereço ou se perdeu acesso a
+              alguma coisa — e as duas situações pedem reações diferentes. */}
+          <Route path="*" element={<PaginaNaoEncontrada />} />
         </Routes>
         </React.Suspense>
         </ConfirmProvider>

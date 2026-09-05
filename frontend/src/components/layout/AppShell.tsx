@@ -1,9 +1,13 @@
+import * as React from 'react';
 import type { ReactNode } from 'react';
 import { Sidebar } from './Sidebar';
 import { BottomNav } from './BottomNav';
 import { ScopeSwitcher } from './ScopeSwitcher';
 import { OnboardingModal } from './OnboardingModal';
 import { NewTransactionDialog } from '@/components/dashboard/NewTransactionDialog';
+import { BuscaGlobal } from '@/components/search/BuscaGlobal';
+import { useAtalhoDeBusca } from '@/components/search/use-atalho-de-busca';
+import { Search } from 'lucide-react';
 import { TransactionDetailHost } from '@/components/dashboard/TransactionDetailHost';
 import { NotificationCenter } from '@/components/notifications/NotificationCenter';
 import { InstallAppButton } from '@/components/pwa/InstallApp';
@@ -22,6 +26,9 @@ import { useNewTxStore } from '@/stores';
 export function AppShell({ children }: { children: ReactNode }) {
   useWorkspaceEvents();
   const { open, setOpen } = useNewTxStore();
+  const [buscaAberta, setBuscaAberta] = React.useState(false);
+  const abrirBusca = React.useCallback(() => setBuscaAberta(true), []);
+  useAtalhoDeBusca(abrirBusca);
 
   return (
     /*
@@ -39,6 +46,24 @@ export function AppShell({ children }: { children: ReactNode }) {
       tinha um `dvh` sequer.
     */
     <div className="flex min-h-dvh bg-background">
+      {/*
+        "Pular para o conteúdo" — o primeiro item focável da página.
+
+        Medido antes: o primeiro Tab focava a marca e os treze seguintes
+        percorriam a barra lateral; o conteúdo da página só recebia foco no 15º
+        Tab — e no 22º dentro de um espaço. **Em toda navegação de página.** É a
+        falha do critério 2.4.1 do WCAG (nível A), e para quem navega só de
+        teclado significa atravessar o menu inteiro a cada tela.
+
+        `sr-only focus:not-sr-only`: invisível até receber foco, que é o
+        comportamento esperado — ele não é um botão da interface, é um atalho.
+      */}
+      <a
+        href="#conteudo"
+        className="sr-only focus:not-sr-only focus:absolute focus:left-4 focus:top-4 focus:z-100 focus:rounded-lg focus:bg-primary focus:px-4 focus:py-2 focus:text-sm focus:font-medium focus:text-primary-foreground"
+      >
+        Pular para o conteúdo
+      </a>
       <Sidebar />
       <div className="flex min-w-0 flex-1 flex-col">
         {/*
@@ -59,9 +84,21 @@ export function AppShell({ children }: { children: ReactNode }) {
           direita. Ele some sozinho quando não há o que oferecer — ver
           `components/pwa/InstallApp.tsx`.
         */}
-        <div className="sticky top-0 z-30 flex items-center justify-between gap-2 border-b border-border/40 bg-background/80 px-2 py-2 backdrop-blur-sm sm:px-6 md:justify-end md:px-8">
+        <div className="sticky top-0 z-30 flex items-center justify-between gap-2 border-b border-border/40 bg-background/80 px-2 py-2 pt-safe backdrop-blur-sm sm:px-6 md:justify-end md:px-8">
           <ScopeSwitcher className="md:hidden" />
           <div className="flex items-center gap-1">
+            {/* Buscar vem PRIMEIRO no grupo: é a única coisa aqui que a pessoa
+                procura ativamente — o resto (instalar, notificar, avisos) se
+                oferece sozinho. */}
+            <button
+              type="button"
+              onClick={() => setBuscaAberta(true)}
+              aria-label="Buscar (atalho: barra ou Ctrl+K)"
+              title="Buscar — / ou Ctrl+K"
+              className="flex h-10 w-10 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring"
+            >
+              <Search className="h-5 w-5" />
+            </button>
             <InstallAppButton />
             {/* Ao LADO do sino, e não dentro dele: o sino mostra o que já
                 chegou; este oferece o canal que ainda não existe. Some sozinho
@@ -73,7 +110,10 @@ export function AppShell({ children }: { children: ReactNode }) {
         {/* O `pb` reserva o espaço da barra inferior fixa MAIS a área segura do
             aparelho — sem a segunda parcela, no iPhone o último item da lista
             ficava atrás do indicador de home e não dava para tocá-lo. */}
-        <main className="mx-auto w-full max-w-[1200px] flex-1 space-y-6 px-4 py-6 pb-[calc(6rem+env(safe-area-inset-bottom))] animate-in fade-in duration-300 sm:px-6 md:px-8 md:py-8 md:pb-8">
+        {/* `tabIndex={-1}`: sem ele o `<main>` não é um destino de foco válido e
+            o atalho acima levaria a rolagem sem levar o FOCO — o próximo Tab
+            voltaria para o começo da barra lateral, desfazendo o atalho. */}
+        <main id="conteudo" tabIndex={-1} className="mx-auto w-full max-w-[1200px] flex-1 space-y-6 px-4 py-6 pb-[calc(6rem+env(safe-area-inset-bottom))] animate-in fade-in duration-300 sm:px-6 md:px-8 md:py-8 md:pb-8">
           {children}
         </main>
       </div>
@@ -86,6 +126,7 @@ export function AppShell({ children }: { children: ReactNode }) {
           enquanto qualquer um dos dois estiver na frente. */}
       <ConviteDeNotificacao />
       <NewTransactionDialog open={open} onOpenChange={setOpen} />
+      <BuscaGlobal open={buscaAberta} onOpenChange={setBuscaAberta} />
       <TransactionDetailHost />
     </div>
   );

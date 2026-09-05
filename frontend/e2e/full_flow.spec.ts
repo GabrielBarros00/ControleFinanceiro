@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test';
+import { ONBOARDING } from '../e2e-shared/rotulos';
 
 test.describe('Full User Flow', () => {
   const timestamp = Date.now();
@@ -23,15 +24,16 @@ test.describe('Full User Flow', () => {
     // aberto, o resto da página fica inerte e o "Início" atrás dele não é
     // alcançável por role — comportamento correto, e o que esperamos aqui.
     await expect(page.getByRole('dialog')).toBeVisible();
-    await page.getByRole('button', { name: /Começar Setup/ }).click();
-    await page.getByLabel('Salário / Renda Líquida').fill('5000,00');
-    await page.getByRole('button', { name: 'Próximo Passo' }).click();
+    await page.getByRole('button', { name: ONBOARDING.comecar }).click();
+    // O onboarding virou um passo: onde está o dinheiro e quanto há nele.
+    await page.getByLabel(ONBOARDING.ondeEstaODinheiro).fill('Nubank');
+    await page.getByLabel(ONBOARDING.quantoHa).fill('5000,00');
     // "Pular" dispara window.location.reload() — espera a navegação terminar
     await Promise.all([
       page.waitForNavigation({ waitUntil: 'load' }),
-      page.getByRole('button', { name: 'Pular esta etapa' }).click(),
+      page.getByRole('button', { name: ONBOARDING.concluir }).click(),
     ]);
-    await expect(page.getByRole('heading', { name: /Seu mês|Painel/ })).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByRole('heading', { name: /Hoje|Painel/ })).toBeVisible({ timeout: 15_000 });
 
     // Entra no workspace: o painel da casa é onde se lança despesa.
     await page.getByRole('link', { name: 'Painel' }).click();
@@ -46,7 +48,7 @@ test.describe('Full User Flow', () => {
     await dialog.getByLabel('Valor Total').fill('123,45');
 
     // Pagador e divisão usam os padrões (você paga e divide consigo mesmo)
-    await dialog.getByRole('button', { name: 'Salvar Despesa' }).click();
+    await dialog.getByRole('button', { name: 'Salvar despesa' }).click();
 
     // Modal fecha ao salvar; toast confirma
     await expect(dialog).not.toBeVisible({ timeout: 10_000 });

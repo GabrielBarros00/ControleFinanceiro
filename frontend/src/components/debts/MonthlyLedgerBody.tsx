@@ -418,7 +418,7 @@ export function MonthlyLedgerBody({
                 <>
                   {valorDaDespesa(exp)}
                   <span className={`mt-1 inline-block rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase whitespace-nowrap ${
-                    exp.is_paid ? 'bg-emerald-500/10 text-emerald-500' : 'bg-warning-subtle text-warning'
+                    exp.is_paid ? 'bg-income-subtle text-income' : 'bg-warning-subtle text-warning'
                   }`}>
                     {exp.is_paid ? 'Paga' : 'Em aberto'}
                   </span>
@@ -535,7 +535,7 @@ export function MonthlyLedgerBody({
                       inline, então sem isto ele quebra DENTRO do próprio pill e
                       o fundo arredondado sai partido em duas metades. */}
                   {exp.is_paid ? (
-                    <span className="inline-block rounded-full bg-emerald-500/10 px-2 py-0.5 text-[10px] font-semibold uppercase whitespace-nowrap text-emerald-500">Paga</span>
+                    <span className="inline-block rounded-full bg-income-subtle px-2 py-0.5 text-[10px] font-semibold uppercase whitespace-nowrap text-income">Paga</span>
                   ) : (
                     <span className="inline-block rounded-full bg-warning-subtle px-2 py-0.5 text-[10px] font-semibold uppercase whitespace-nowrap text-warning">Em aberto</span>
                   )}

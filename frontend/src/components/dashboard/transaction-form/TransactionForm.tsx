@@ -2,6 +2,7 @@ import * as React from 'react';
 import { useForm, FormProvider, Controller } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { Button } from '@/components/ui/button';
+import { DialogFooter } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { MoneyInput } from '@/components/ui/MoneyInput';
 import { Label } from '@/components/ui/label';
@@ -43,23 +44,59 @@ interface TransactionFormProps {
   onSuccess?: () => void;
   // Bloco extra dentro do form, acima do botão de salvar (ex.: anexos na criação)
   extraFields?: React.ReactNode;
+  /** Avisa quem hospeda o formulário que há algo preenchido — usado para
+   *  perguntar antes de descartar ao fechar o diálogo. */
+  aoMudarSujo?: (sujo: boolean) => void;
+  /**
+   * Abre no MODO SIMPLES: título, valor e salvar. Só na criação.
+   *
+   * Editar é outra situação: quem abriu uma despesa existente para mexer quer
+   * ver o que ela tem, e esconder metade dos campos ali seria esconder o estado
+   * atual do lançamento — inclusive o que a pessoa veio conferir.
+   */
+  permiteModoSimples?: boolean;
+  /**
+   * "Salvar e lançar outro": o formulário fica aberto, limpo e com foco no
+   * título. Quem chega da feira lança quatro compras seguidas, e reabrir o
+   * diálogo quatro vezes é trabalho que o app estava cobrando à toa.
+   */
+  aoSalvarELancarOutro?: () => void;
 }
 
 // Form compartilhado criar/editar despesa. Layout slim: o essencial fica sempre
 // visível; método %/fixo, divisão por item e categoria moram em "Opções
 // avançadas" (progressive disclosure).
-export function TransactionForm({ initialValues, onSubmit, submitLabel, resetOnSuccess = false, allowInstallments = false, onSuccess, extraFields }: TransactionFormProps) {
+export function TransactionForm({ initialValues, onSubmit, submitLabel, resetOnSuccess = false, allowInstallments = false, onSuccess, extraFields, aoMudarSujo, permiteModoSimples = false, aoSalvarELancarOutro }: TransactionFormProps) {
   const { user } = useAuthStore();
   const { members } = useMembers();
   const { categories } = useCategories();
   const [loading, setLoading] = React.useState(false);
   const [success, setSuccess] = React.useState(false);
   const [apiError, setApiError] = React.useState<string | null>(null);
+  const tituloRef = React.useRef<HTMLInputElement | null>(null);
 
   // Abre "avançado" já aberto quando os valores iniciais não são o caso simples
   // (edição de despesa em %/fixo ou por item)
   const [advanced, setAdvanced] = React.useState(
     () => initialValues.split_mode === 'item' || initialValues.split_method !== 'equal'
+  );
+
+  /*
+   * MODO SIMPLES — o formulário mostra título, valor e salvar.
+   *
+   * Medido: ele abria com **12 controles visíveis** para preencher dois campos.
+   * Nenhum estava errado e todos tinham padrão razoável — pagador é você, data é
+   * hoje, o espaço é o aberto, "já foi paga" vem marcada (ADR 0029). O custo não
+   * era decidir: era ler doze coisas, dez vezes por dia, para achar duas.
+   *
+   * Os campos escondidos continuam REGISTRADOS no formulário, com os mesmos
+   * valores padrão de sempre: o modo simples não muda o que é salvo, só o que é
+   * perguntado. É por isso que "Detalhar" não perde nada do que foi digitado.
+   */
+  const [detalhado, setDetalhado] = React.useState(
+    () => !permiteModoSimples
+      || initialValues.split_mode === 'item'
+      || initialValues.split_method !== 'equal',
   );
 
   // Participantes reais do workspace (fallback: usuário atual enquanto carrega)
@@ -72,7 +109,12 @@ export function TransactionForm({ initialValues, onSubmit, submitLabel, resetOnS
     mode: 'onChange',
     defaultValues: initialValues,
   });
-  const { register, control, handleSubmit, watch, reset, getValues, setValue, trigger, formState: { errors } } = methods;
+  const { register, control, handleSubmit, watch, reset, getValues, setValue, trigger, formState: { errors, isDirty } } = methods;
+
+  // O formulário sabe se foi mexido; quem hospeda precisa saber para perguntar
+  // antes de descartar. `isDirty` do react-hook-form compara com os valores
+  // iniciais, então voltar tudo ao original volta a ser "limpo".
+  React.useEffect(() => { aoMudarSujo?.(isDirty); }, [isDirty, aoMudarSujo]);
 
   const splitMode = watch('split_mode');
   const currency = watch('currency');
@@ -131,16 +173,32 @@ export function TransactionForm({ initialValues, onSubmit, submitLabel, resetOnS
     });
   };
 
-  const submit = async (data: unknown) => {
+  /*
+   * `continuar`: salva e MANTÉM o formulário aberto, limpo e com o foco no
+   * título. Quem volta da feira lança quatro compras seguidas, e até aqui isso
+   * custava reabrir o diálogo quatro vezes — o app cobrava um passo por item
+   * que não tinha nada a ver com o item.
+   *
+   * O reset volta aos `initialValues`, que já trazem data de hoje, pagador e
+   * espaço: o segundo lançamento começa exatamente como o primeiro começou.
+   */
+  const submit = async (data: unknown, continuar = false) => {
     const values = data as TransactionFormValues;
     setLoading(true);
     setApiError(null);
     try {
       await onSubmit(toApiPayload(values));
-      if (resetOnSuccess) {
-        reset();
+      if (resetOnSuccess || continuar) {
+        reset(initialValues);
         setSuccess(true);
         setTimeout(() => setSuccess(false), 3000);
+      }
+      if (continuar) {
+        aoSalvarELancarOutro?.();
+        // O foco volta para o título: sem isso ele ficaria no botão, e o
+        // próximo lançamento começaria com um toque só para achar o campo.
+        requestAnimationFrame(() => tituloRef.current?.focus());
+        return;
       }
       onSuccess?.();
     } catch (err) {
@@ -152,13 +210,19 @@ export function TransactionForm({ initialValues, onSubmit, submitLabel, resetOnS
 
   return (
     <FormProvider {...methods}>
-      <form onSubmit={handleSubmit(submit)}>
+      <form onSubmit={handleSubmit((d) => submit(d))}>
         <div className="space-y-5">
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div className="space-y-2">
               <Label htmlFor="title" className="text-sm font-semibold text-foreground">Título / Descrição</Label>
-              <Input id="title" placeholder="Ex: Mercado" {...register('title')} className="bg-background border-border focus:ring-primary" />
+              <Input
+                id="title"
+                placeholder="Ex: Mercado"
+                {...register('title')}
+                ref={(el) => { register('title').ref(el); tituloRef.current = el; }}
+                className="bg-background border-border focus:ring-primary"
+              />
               {errors.title && <p className="text-xs text-destructive font-medium">{errors.title.message as string}</p>}
             </div>
             <div className="space-y-2">
@@ -177,6 +241,7 @@ export function TransactionForm({ initialValues, onSubmit, submitLabel, resetOnS
                     />
                   )}
                 />
+                {detalhado && (
                 <CurrencyCombobox
                   value={currency}
                   onChange={(c) => {
@@ -189,6 +254,7 @@ export function TransactionForm({ initialValues, onSubmit, submitLabel, resetOnS
                     void trigger();
                   }}
                 />
+                )}
               </div>
               {errors.total_amount && <p className="text-xs text-destructive font-medium">{errors.total_amount.message as string}</p>}
               {/* "Estrangeira" é != da moeda-BASE do espaço, não != 'BRL':
@@ -200,6 +266,7 @@ export function TransactionForm({ initialValues, onSubmit, submitLabel, resetOnS
             </div>
           </div>
 
+          {detalhado && (
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <PayersEditor participants={participants} />
             <div className="space-y-2">
@@ -209,13 +276,15 @@ export function TransactionForm({ initialValues, onSubmit, submitLabel, resetOnS
             </div>
           </div>
 
-          <PaymentMethodField allowInstallments={allowInstallments} />
+          )}
+
+          {detalhado && <PaymentMethodField allowInstallments={allowInstallments} />}
 
           {/* "Já foi paga" (ADR 0029) — CAIXA, não competência.
               Some no cartão: quem paga a compra é a FATURA, e marcá-la como
               paga aqui somaria a mesma saída duas vezes. Some também nos espaços
               sem controle de pagamento, onde a resposta é sempre "sim". */}
-          {controlaPagamento && paymentMethod !== 'credit_card' && (
+          {detalhado && controlaPagamento && paymentMethod !== 'credit_card' && (
             <label
               htmlFor="settled"
               className="flex cursor-pointer items-start gap-3 rounded-lg border border-border bg-accent/20 p-3"
@@ -237,11 +306,26 @@ export function TransactionForm({ initialValues, onSubmit, submitLabel, resetOnS
             </label>
           )}
 
-          <TagMultiSelect />
+          {detalhado && <TagMultiSelect />}
 
           {/* Divisão simples (padrão): rateio igual entre os selecionados */}
-          {!advanced && <SimpleSplitChips participants={participants} />}
+          {detalhado && !advanced && <SimpleSplitChips participants={participants} />}
 
+          {/* A saída do modo simples. Ela é um botão discreto e não um par de
+              abas: o simples é o caminho, não uma opção entre duas. */}
+          {!detalhado && (
+            <button
+              type="button"
+              onClick={() => setDetalhado(true)}
+              className="flex items-center gap-2 text-sm font-semibold text-primary transition-colors hover:text-primary/80"
+            >
+              <SlidersHorizontal className="h-4 w-4" />
+              Detalhar
+              <ChevronDown className="h-4 w-4" />
+            </button>
+          )}
+
+          {detalhado && (
           <div>
             <button
               type="button"
@@ -254,8 +338,9 @@ export function TransactionForm({ initialValues, onSubmit, submitLabel, resetOnS
               <ChevronDown className={cn('h-4 w-4 transition-transform', advanced && 'rotate-180')} />
             </button>
           </div>
+          )}
 
-          {advanced && (
+          {detalhado && advanced && (
             <div className="space-y-5 rounded-xl border border-border/60 bg-accent/20 p-4 animate-in fade-in slide-in-from-top-1 duration-200">
               <div className="space-y-3">
                 <Label className="text-sm font-bold text-foreground">Como dividir?</Label>
@@ -293,28 +378,45 @@ export function TransactionForm({ initialValues, onSubmit, submitLabel, resetOnS
             </div>
           )}
 
-          {extraFields}
+          {detalhado && extraFields}
 
         </div>
 
-        {/* `flex-wrap`: a mensagem de erro tem `mr-auto` e nenhum limite de
+        {/* `DialogFooter`, e não uma `<div>` própria: este formulário só existe
+            dentro de diálogo (NewTransactionDialog e TransactionDialog), e é
+            dele que vem o rodapé FIXO. Enquanto era uma div comum, o botão
+            "Salvar Despesa" rolava junto com o conteúdo e nascia fora da tela em
+            toda resolução menos 1920×1080 — 322px abaixo da borda no celular.
+
+            `flex-wrap`: a mensagem de erro tem `mr-auto` e nenhum limite de
             largura; ao lado de um botão de 140px fixos, um erro longo empurrava
             o rodapé para fora da tela em vez de quebrar linha. */}
-        <div className="mt-6 flex flex-wrap items-center justify-end gap-4 border-t border-border pt-6">
+        <DialogFooter className="mt-6 flex-wrap items-center gap-4 sm:flex-wrap sm:items-center">
           {apiError && (
             <div role="alert" className="flex min-w-0 flex-1 items-center gap-2 text-destructive text-sm font-medium animate-in fade-in sm:mr-auto">
               <AlertCircle className="h-4 w-4 shrink-0" /> {apiError}
             </div>
           )}
           {success && (
-            <div className="flex items-center gap-2 text-emerald-500 text-sm font-bold animate-in fade-in slide-in-from-right-2">
+            <div className="flex items-center gap-2 text-income text-sm font-semibold animate-in fade-in slide-in-from-right-2">
               <CheckCircle2 className="h-4 w-4" /> Salvo com sucesso!
             </div>
+          )}
+          {aoSalvarELancarOutro && (
+            <Button
+              type="button"
+              variant="outline"
+              className="h-11 w-full font-semibold sm:h-9 sm:w-auto"
+              disabled={loading}
+              onClick={handleSubmit((d) => submit(d, true))}
+            >
+              Salvar e lançar outro
+            </Button>
           )}
           <Button type="submit" className="h-11 w-full bg-primary px-8 font-bold text-primary-foreground shadow-lg shadow-primary/20 hover:bg-primary/90 sm:h-9 sm:w-auto sm:min-w-[140px]" pending={loading}>
             {submitLabel}
           </Button>
-        </div>
+        </DialogFooter>
       </form>
     </FormProvider>
   );

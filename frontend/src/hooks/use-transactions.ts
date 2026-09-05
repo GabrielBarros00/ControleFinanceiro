@@ -56,6 +56,8 @@ export interface TransactionFilters {
    * `undefined` = tudo, que é a leitura padrão do extrato.
    */
   settled?: boolean;
+  /** Só o que ainda não foi categorizado — destino do convite dos Relatórios. */
+  uncategorized?: boolean;
 }
 
 export interface TransactionListResponse {
@@ -142,10 +144,29 @@ export function useTransactions(
   });
 
   // Delete transaction (uma parcela avulsa ou lançamento comum)
+  /*
+   * Excluir devolve QUANTOS ANEXOS foram junto.
+   *
+   * A exclusão é soft e agora tem "desfazer" (`restoreMutation`), mas o anexo é
+   * apagado de verdade — um recibo preso a uma despesa inalcançável ocuparia
+   * cota para sempre. Restaurar traz a despesa SEM os recibos, e é este número
+   * que permite ao aviso dizer isso em vez de deixar a pessoa descobrir quando
+   * for procurar o comprovante.
+   */
   const deleteMutation = useMutation({
     mutationFn: async (id: number) => {
       if (!currentWorkspaceId) throw new Error('Workspace not selected');
-      await apiClient.delete(`/workspaces/${currentWorkspaceId}/transactions/${id}`);
+      const res = await apiClient.delete(`/workspaces/${currentWorkspaceId}/transactions/${id}`);
+      return res.data as { status: string; attachments_removed?: number };
+    },
+    onSuccess: invalidateTransactionData
+  });
+
+  /** Desfazer a exclusão — o caminho de volta que o soft delete já permitia. */
+  const restoreMutation = useMutation({
+    mutationFn: async (id: number) => {
+      if (!currentWorkspaceId) throw new Error('Workspace not selected');
+      await apiClient.post(`/workspaces/${currentWorkspaceId}/transactions/${id}/restore`);
     },
     onSuccess: invalidateTransactionData
   });
@@ -184,6 +205,7 @@ export function useTransactions(
     update: updateMutation.mutateAsync,
     updateGroup: updateGroupMutation.mutateAsync,
     remove: deleteMutation.mutateAsync,
+    restore: restoreMutation.mutateAsync,
     removeGroup: deleteGroupMutation.mutateAsync,
     isMutating: createMutation.isPending || updateMutation.isPending || deleteMutation.isPending
   };
@@ -234,4 +256,38 @@ export function useInstallmentGroup(id?: number | null, enabled = true) {
   });
 
   return { group: query.data ?? null, isLoading: query.isLoading };
+}
+
+/**
+ * Categorizar várias despesas de uma vez.
+ *
+ * Hook próprio, e não mais um campo em `useTransactions`: aquele hook já
+ * carrega a LISTA (com filtros, paginação e cache por mês), e quem só quer
+ * disparar o lote não deveria assinar tudo isso. O `invalidate` é o mesmo
+ * conjunto de chaves, porque categorizar muda relatório, extrato e a própria
+ * lista.
+ */
+export function useBulkCategorize() {
+  const queryClient = useQueryClient();
+  const currentWorkspaceId = useWorkspaceId();
+
+  const mutation = useMutation({
+    mutationFn: async (
+      { transactionIds, categoryId }: { transactionIds: number[]; categoryId: number },
+    ) => {
+      if (!currentWorkspaceId) throw new Error('Workspace not selected');
+      const res = await apiClient.post(
+        `/workspaces/${currentWorkspaceId}/transactions/bulk-categorize`,
+        { transaction_ids: transactionIds, category_id: categoryId },
+      );
+      return res.data as { status: string; updated: number; skipped: number };
+    },
+    onSuccess: () =>
+      invalidateForEvent(queryClient, 'transaction.bulk_updated', currentWorkspaceId ?? undefined),
+  });
+
+  return {
+    categorizarEmLote: mutation.mutateAsync,
+    isCategorizando: mutation.isPending,
+  };
 }

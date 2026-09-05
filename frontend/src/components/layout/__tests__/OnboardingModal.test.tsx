@@ -44,9 +44,8 @@ describe('OnboardingModal', () => {
   it('não manda workspace_id — o backend resolve o workspace próprio', async () => {
     render(<OnboardingModal />);
 
-    fireEvent.click(screen.getByRole('button', { name: /começar setup/i }));
-    fireEvent.click(screen.getByRole('button', { name: /pular por enquanto/i }));
-    fireEvent.click(screen.getByRole('button', { name: /concluir tutorial/i }));
+    fireEvent.click(screen.getByRole('button', { name: /^começar$/i }));
+    fireEvent.click(screen.getByRole('button', { name: /pular esta etapa/i }));
 
     await waitFor(() => expect(post).toHaveBeenCalled());
     const [url, payload] = post.mock.calls[0];
@@ -54,5 +53,34 @@ describe('OnboardingModal', () => {
     // Mandar o workspace ativo gravava o salário no workspace COMPARTILHADO de
     // quem se cadastrou por convite (nasce com dois workspaces).
     expect(payload).not.toHaveProperty('workspace_id');
+  });
+
+  it('manda a conta e o saldo — o dado que a primeira tela precisa', async () => {
+    render(<OnboardingModal />);
+
+    fireEvent.click(screen.getByRole('button', { name: /^começar$/i }));
+    fireEvent.change(screen.getByLabelText('Onde está o dinheiro'), {
+      target: { value: 'Nubank' },
+    });
+    fireEvent.change(screen.getByLabelText('Quanto há nela agora'), {
+      target: { value: '1.500,00' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: /^concluir$/i }));
+
+    await waitFor(() => expect(post).toHaveBeenCalled());
+    const [, payload] = post.mock.calls[0];
+    expect(payload).toMatchObject({ account_name: 'Nubank', account_balance: 1500 });
+  });
+
+  it('sem conta informada, não inventa uma', async () => {
+    // Contrapeso: "pular" tem de chegar ao servidor como pulo, e não como uma
+    // conta chamada "" com saldo zero.
+    render(<OnboardingModal />);
+    fireEvent.click(screen.getByRole('button', { name: /^começar$/i }));
+    fireEvent.click(screen.getByRole('button', { name: /pular esta etapa/i }));
+
+    await waitFor(() => expect(post).toHaveBeenCalled());
+    const [, payload] = post.mock.calls[0];
+    expect(payload).toMatchObject({ account_name: null, account_balance: null });
   });
 });

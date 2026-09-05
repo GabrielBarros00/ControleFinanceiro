@@ -199,11 +199,73 @@ async function main() {
     fs.rmSync(arquivo, { force: true });
   }
 
+  /*
+   * A porta já está ocupada? Então PARE — não rode contra o servidor de outra
+   * pessoa.
+   *
+   * `esperar()` só pergunta se a URL responde, e responde é o que um servidor
+   * alheio faz. Quando alguém deixa um backend de pé na 8000 (o de
+   * `npm run shots`, por exemplo, que aponta para outro banco), a suíte inteira
+   * roda contra ELE: os servidores que este script sobe morrem no `EADDRINUSE`,
+   * ninguém repara, e o que aparece são reprovações que não têm nada a ver com
+   * o que se está testando — aqui foi "a conta de bootstrap não é superadmin",
+   * três vezes seguidas, num arquivo inocente.
+   *
+   * Falhar aqui, com o nome da porta, troca meia hora de investigação por uma
+   * linha de erro.
+   */
+  for (const { nome, url } of SERVIDORES) {
+    const jaResponde = await fetch(url, { signal: AbortSignal.timeout(1500) })
+      .then(() => true)
+      .catch(() => false);
+    if (jaResponde) {
+      console.error(
+        `[e2e] ja existe alguem respondendo em ${url} (${nome}). `
+        + 'A suite rodaria contra esse servidor, e provavelmente contra outro banco '
+        + 'de dados. Encerre-o antes de rodar os testes.',
+      );
+      return 1;
+    }
+  }
+
   for (const servidor of SERVIDORES) {
     const registro = subir(servidor);
     await esperar(registro);
     console.log(`[e2e] ${registro.nome} de pé em ${registro.url}`);
   }
+
+  /*
+   * A conta de superadministrador nasce AQUI, antes de qualquer spec.
+   *
+   * A janela de bootstrap (ADR 0026) dá o papel de superadministrador ao PRIMEIRO
+   * cadastro do banco cujo e-mail casa com `SUPERADMIN_EMAIL`. Dois arquivos da
+   * suíte precisam de `/admin` — `a11y.spec.ts` e `mobile_layout.mobile.spec.ts`
+   * — e cada um registrava essa conta por conta própria. Com dois workers rodando
+   * arquivos em paralelo, quem chegasse depois encontrava a janela já fechada por
+   * OUTRO usuário qualquer (cada spec cria o seu) e recebia `platform_role: user`.
+   *
+   * O sintoma era desonesto: o teste reprovava dizendo "a conta de bootstrap não
+   * é superadmin", num arquivo que não tinha nada a ver com quem fechou a janela.
+   * E ele passava sozinho, que é a assinatura clássica de corrida entre arquivos.
+   *
+   * Criar a conta antes de o Playwright subir resolve na raiz: quando o primeiro
+   * spec começa, a janela já foi usada por quem devia usá-la. Os specs seguem
+   * chamando `register` e recebendo 400 ("já existe"), que eles já toleram.
+   */
+  const SUPERADMIN = SERVIDORES[0].env.SUPERADMIN_EMAIL;
+  const respostaBootstrap = await fetch('http://127.0.0.1:8000/api/v1/auth/register', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name: 'Superadmin E2E', email: SUPERADMIN, password: 'senha123' }),
+  });
+  if (!respostaBootstrap.ok && respostaBootstrap.status !== 400) {
+    console.error(
+      `[e2e] não deu para criar o superadministrador (${respostaBootstrap.status}): `
+      + `${await respostaBootstrap.text()}`,
+    );
+    return 1;
+  }
+  console.log(`[e2e] superadministrador de bootstrap pronto (${SUPERADMIN})`);
 
   const playwright = spawn(
     process.execPath,

@@ -250,7 +250,7 @@ describe('Seus acertos', () => {
     renderPage();
     expect(screen.getAllByText('Casa').length).toBeGreaterThan(0);
     expect(screen.getAllByText('Viagem').length).toBeGreaterThan(0);
-    const links = screen.getAllByRole('link', { name: /Abrir a casa/ });
+    const links = screen.getAllByRole('link', { name: /Abrir o espaço/ });
     expect(links[0]).toHaveAttribute('href', '/w/1/debts');
   });
 

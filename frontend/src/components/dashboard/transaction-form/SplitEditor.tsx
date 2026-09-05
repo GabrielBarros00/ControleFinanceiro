@@ -9,6 +9,7 @@ import { SplitSummary } from './SplitSummary';
 import { useFormCurrency } from './use-form-currency';
 import type { TransactionFormValues } from './schema';
 import { nativeSelectClass } from '@/components/ui/native-select';
+import { normalizarAoSair } from './normalizar-numero';
 
 export interface Participant {
   id: string;
@@ -21,7 +22,7 @@ interface SplitEditorProps {
 
 // Divisão no nível da despesa: método único (igual/%/fixo) + participantes
 export function SplitEditor({ participants }: SplitEditorProps) {
-  const { register, control, watch, formState: { errors } } = useFormContext<TransactionFormValues>();
+  const { register, control, watch, setValue, formState: { errors } } = useFormContext<TransactionFormValues>();
   const { fields, append, remove } = useFieldArray({ control, name: 'splits' });
   const { currency, symbol } = useFormCurrency();
 
@@ -101,6 +102,7 @@ export function SplitEditor({ participants }: SplitEditorProps) {
                       placeholder="%"
                       aria-label="Percentual"
                       {...register(`splits.${index}.value` as const, { valueAsNumber: true })}
+                      onBlur={normalizarAoSair(setValue, `splits.${index}.value`)}
                       className="bg-background border-border"
                     />
                   ) : (

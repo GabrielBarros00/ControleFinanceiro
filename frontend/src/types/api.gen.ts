@@ -311,6 +311,38 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/workspaces/{workspace_id}/transactions/{transaction_id}/restore": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Restore Transaction
+         * @description Desfazer a exclusão — o caminho de volta que o soft delete já permitia.
+         *
+         *     Excluir a linha errada é o erro mais fácil de cometer numa lista de trinta
+         *     linhas parecidas, e até aqui ele custava relançar tudo à mão: título, valor,
+         *     data, pagadores e divisão. O dado nunca saiu do banco; só não havia porta.
+         *
+         *     **Mesma permissão do delete**, e por isso `assert_can_write` com o mesmo
+         *     argumento: sem ele, `restore` seria a porta dos fundos para reviver o
+         *     lançamento de outra pessoa — quem não pode apagar também não pode ressuscitar.
+         *
+         *     Idempotente: restaurar o que já está vivo devolve 200 sem tocar em nada. A
+         *     interface oferece o "desfazer" num toast, e um segundo toque (ou um duplo
+         *     clique) não pode virar erro na cara de quem acabou de acertar.
+         */
+        post: operations["restore_transaction_api_v1_workspaces__workspace_id__transactions__transaction_id__restore_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/workspaces/{workspace_id}/transactions/{transaction_id}/installment-group/cancel": {
         parameters: {
             query?: never;
@@ -362,6 +394,45 @@ export interface paths {
          *     pagas são preservadas para não corromper acertos já feitos.
          */
         delete: operations["delete_installment_group_api_v1_workspaces__workspace_id__transactions__transaction_id__installment_group_delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/workspaces/{workspace_id}/transactions/bulk-categorize": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Bulk Categorize
+         * @description Aplica uma categoria a várias despesas de uma vez.
+         *
+         *     ## Por que a categoria vira um ITEM
+         *
+         *     Categoria mora no `TransactionItem`, não na `Transaction` — é o que permite
+         *     dividir uma compra de mercado entre "comida" e "remédio". A esmagadora
+         *     maioria das despesas não tem item nenhum (lançamento simples não cria), e
+         *     para essas o lote **cria** um item que vale o total: sem isso a soma dos
+         *     itens não fecharia com a despesa, e a divisão por item quebraria na primeira
+         *     edição.
+         *
+         *     ## O que ele NÃO faz
+         *
+         *     Não toca em despesa que já tenha algum item categorizado. Quem separou
+         *     mercado de farmácia na mesma compra fez isso de propósito, e sobrescrever
+         *     seria destruir o trabalho mais cuidadoso da tela em nome do mais grosseiro.
+         *     Elas voltam em `skipped`, para a interface poder dizer "3 de 5".
+         *
+         *     O escopo de visibilidade e a permissão de escrita são os mesmos da edição
+         *     individual: passar um id de outro espaço na lista simplesmente não o alcança.
+         */
+        post: operations["bulk_categorize_api_v1_workspaces__workspace_id__transactions_bulk_categorize_post"];
+        delete?: never;
         options?: never;
         head?: never;
         patch?: never;
@@ -1628,6 +1699,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/me/search": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Buscar */
+        get: operations["buscar_api_v1_me_search_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/me/financing": {
         parameters: {
             query?: never;
@@ -1712,6 +1800,54 @@ export interface paths {
         put?: never;
         /** Simulate Early Settlement */
         post: operations["simulate_early_settlement_api_v1_me_financing__financing_id__early_settlement_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/me/financing/{financing_id}/installments/settle-past": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Settle Past Installments
+         * @description "Este contrato começou antes de eu cadastrá-lo, e essas parcelas eu já paguei."
+         *
+         *     ## Por que esta rota existe
+         *
+         *     O app gera o cronograma inteiro no cadastro, e toda parcela nasce
+         *     `is_paid=False`. Quem registra um financiamento que **já existia** fica, no
+         *     mesmo instante, com meses de parcelas "em aberto" que na vida real foram
+         *     pagas — e ninguém volta para marcar doze delas uma a uma.
+         *
+         *     O efeito disso vazava para três telas (projeção do Seu mês, Compromissos e
+         *     Relatórios). `projection_service` passou a separar vencido de a vencer, o que
+         *     corrige o **efeito**; esta rota corrige a **causa**.
+         *
+         *     ## O que ela deliberadamente NÃO faz
+         *
+         *     **Não cria despesa nem movimento de caixa.** Marcar como paga aqui é dizer
+         *     "isto aconteceu antes de o app existir para mim" — inventar lançamentos
+         *     retroativos reescreveria o extrato e o resultado de meses fechados, que é
+         *     exatamente o que o ADR 0023 proíbe. Por isso também não recebe `workspace_id`
+         *     nem conta: quem quer a parcela lançada como despesa usa a rota de pagar
+         *     parcela, uma a uma, que é onde essa decisão cabe.
+         *
+         *     **Não toca no futuro.** O corte é estrito (`due_date < ate`), então a parcela
+         *     que vence hoje continua em aberto — ela ainda vai ser paga.
+         *
+         *     ## Idempotência
+         *
+         *     O `UPDATE` filtra por `is_paid=False`, então chamar duas vezes quita zero na
+         *     segunda. É o que permite a interface oferecer o botão sem medo de repetição.
+         */
+        post: operations["settle_past_installments_api_v1_me_financing__financing_id__installments_settle_past_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -2947,6 +3083,11 @@ export interface components {
              * @default 0
              */
             payable_total: string;
+            /**
+             * Overdue Total
+             * @default 0
+             */
+            overdue_total: string;
             /** Projected Balance */
             projected_balance?: string | null;
             /**
@@ -3108,6 +3249,38 @@ export interface components {
             input_value: string;
             /** Computed Amount */
             computed_amount: string;
+        };
+        /**
+         * BulkCategorizeRequest
+         * @description Categorizar várias despesas de uma vez.
+         *
+         *     Nasceu do quadro "Maior categoria: Sem categoria" dos Relatórios: chegar à
+         *     lista do que falta categorizar é metade do caminho, e categorizar trinta
+         *     despesas uma a uma (abrir, editar, escolher, salvar) é o que faz ninguém
+         *     categorizar nada.
+         */
+        BulkCategorizeRequest: {
+            /** Transaction Ids */
+            transaction_ids: number[];
+            /** Category Id */
+            category_id: number;
+        };
+        /**
+         * BulkCategorizeResult
+         * @description `skipped` são as que JÁ tinham categoria em algum item.
+         *
+         *     Elas são puladas, não sobrescritas: quem separou "mercado" de "farmácia" na
+         *     mesma compra fez isso de propósito, e um lote não pode desfazer esse
+         *     trabalho. O número volta para a tela poder dizer "3 de 5" em vez de deixar a
+         *     diferença sem explicação.
+         */
+        BulkCategorizeResult: {
+            /** Status */
+            status: string;
+            /** Updated */
+            updated: number;
+            /** Skipped */
+            skipped: number;
         };
         /**
          * BulkCreateResult
@@ -3322,6 +3495,13 @@ export interface components {
              * Format: date
              */
             next_due_date: string;
+            /** Next Amount */
+            next_amount?: string | null;
+            /**
+             * Overdue Count
+             * @default 0
+             */
+            overdue_count: number;
             /** Remaining Installments */
             remaining_installments: number;
         };
@@ -3496,6 +3676,25 @@ export interface components {
             older: components["schemas"]["OlderMonths"];
             /** Unassigned */
             unassigned: string;
+        };
+        /**
+         * DeleteResult
+         * @description Confirmação de exclusão que diz o que foi junto.
+         *
+         *     A exclusão de lançamento é SOFT e tem "desfazer" — mas o anexo não tem soft
+         *     delete: ele é apagado de verdade, porque um recibo preso a uma despesa
+         *     inalcançável ocuparia cota para sempre. Restaurar devolve a despesa sem os
+         *     recibos, e este número é o que permite à tela AVISAR em vez de deixar a
+         *     pessoa descobrir quando precisar do comprovante.
+         */
+        DeleteResult: {
+            /** Status */
+            status: string;
+            /**
+             * Attachments Removed
+             * @default 0
+             */
+            attachments_removed: number;
         };
         /**
          * EarlySettlementRead
@@ -4397,8 +4596,12 @@ export interface components {
         OnboardingRequest: {
             /** Workspace Id */
             workspace_id?: number | null;
+            /** Account Name */
+            account_name?: string | null;
+            /** Account Balance */
+            account_balance?: number | string | null;
             /** Salary */
-            salary: number | string;
+            salary?: number | string | null;
             /** Credit Card Name */
             credit_card_name?: string | null;
             /** Credit Card Limit */
@@ -4830,6 +5033,21 @@ export interface components {
         PushUnsubscribe: {
             /** Endpoint */
             endpoint: string;
+        };
+        /** QuitarAnterioresRead */
+        QuitarAnterioresRead: {
+            /** Quitadas */
+            quitadas: number;
+            /** Em Aberto */
+            em_aberto: number;
+        };
+        /**
+         * QuitarAnterioresRequest
+         * @description Marca como pagas as parcelas que venceram ANTES de uma data.
+         */
+        QuitarAnterioresRequest: {
+            /** Ate */
+            ate?: string | null;
         };
         /**
          * RecurrenceFrequency
@@ -5295,6 +5513,51 @@ export interface components {
         RevokeSessionsRead: {
             /** Revogadas */
             revogadas: number;
+        };
+        /**
+         * SearchGroup
+         * @description Os resultados de um tipo, já com o rótulo que a tela mostra.
+         */
+        SearchGroup: {
+            /** Kind */
+            kind: string;
+            /** Label */
+            label: string;
+            /** Items */
+            items: components["schemas"]["SearchHit"][];
+        };
+        /**
+         * SearchHit
+         * @description Uma linha do resultado, de qualquer tipo.
+         */
+        SearchHit: {
+            /** Kind */
+            kind: string;
+            /** Id */
+            id: number;
+            /** Title */
+            title: string;
+            /** Amount */
+            amount?: string | null;
+            /** Currency */
+            currency?: string | null;
+            /** Occurred On */
+            occurred_on?: string | null;
+            /** Workspace Id */
+            workspace_id?: number | null;
+            /** Workspace Name */
+            workspace_name?: string | null;
+            /** Href */
+            href: string;
+        };
+        /** SearchRead */
+        SearchRead: {
+            /** Query */
+            query: string;
+            /** Groups */
+            groups: components["schemas"]["SearchGroup"][];
+            /** Total */
+            total: number;
         };
         /**
          * SeriesRead
@@ -7288,6 +7551,7 @@ export interface operations {
                 payment_method?: components["schemas"]["PaymentMethod"] | null;
                 tag_id?: number | null;
                 settled?: boolean | null;
+                uncategorized?: boolean;
             };
             header?: never;
             path: {
@@ -7485,6 +7749,40 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    "application/json": components["schemas"]["DeleteResult"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    restore_transaction_api_v1_workspaces__workspace_id__transactions__transaction_id__restore_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                workspace_id: number;
+                transaction_id: number;
+            };
+            cookie?: {
+                access_token?: string | null;
+            };
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
                     "application/json": components["schemas"]["StatusRead"];
                 };
             };
@@ -7626,6 +7924,43 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["BulkDeleteResult"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    bulk_categorize_api_v1_workspaces__workspace_id__transactions_bulk_categorize_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                workspace_id: number;
+            };
+            cookie?: {
+                access_token?: string | null;
+            };
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["BulkCategorizeRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BulkCategorizeResult"];
                 };
             };
             /** @description Validation Error */
@@ -10424,6 +10759,40 @@ export interface operations {
             };
         };
     };
+    buscar_api_v1_me_search_get: {
+        parameters: {
+            query: {
+                /** @description Termo de busca */
+                q: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: {
+                access_token?: string | null;
+            };
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SearchRead"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     list_financing_api_v1_me_financing_get: {
         parameters: {
             query?: never;
@@ -10652,6 +11021,43 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["EarlySettlementRead"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    settle_past_installments_api_v1_me_financing__financing_id__installments_settle_past_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                financing_id: number;
+            };
+            cookie?: {
+                access_token?: string | null;
+            };
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["QuitarAnterioresRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["QuitarAnterioresRead"];
                 };
             };
             /** @description Validation Error */

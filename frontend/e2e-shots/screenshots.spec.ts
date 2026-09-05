@@ -747,6 +747,11 @@ test('seed data and capture all screens', async ({ page, playwright }) => {
       await paraFechamento.first().click();
       await page.getByRole('dialog').waitFor({ state: 'visible' }).catch(() => {});
       await page.getByLabel('Título / Descrição').fill('Jantar de aniversário');
+      // O formulário abre no modo SIMPLES (título, valor, salvar): forma de
+      // pagamento e cartão moram atrás de "Detalhar". Sem este clique o roteiro
+      // espera para sempre por um campo que não está na tela — foi assim que a
+      // captura travou, sem erro, depois da mudança do formulário.
+      await page.getByRole('dialog').getByRole('button', { name: /^Detalhar$/ }).click();
       await page.getByLabel('Forma de pagamento').selectOption('credit_card');
       // Pelo NOME, não por índice. A lista de cartões não sai na ordem em que
       // foram semeados, e `{ index: 1 }` pegava o C6 Carbon (fecha dia 10):

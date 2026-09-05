@@ -24,7 +24,10 @@ from app.models.workspace import (
     InviteStatus,
     role_level,
 )
+from app.domain.dates import today_local
 from app.domain.income_settlement import resolve_income_settled_at
+from app.models.payment_account import PaymentAccount, PaymentAccountType
+from app.services.account_balance_service import AccountBalanceService
 from app.domain.query_policy import resolve_personal_currency
 from app.schemas.admin import RegistrationPolicyRead
 from app.schemas.user import UserResponse
@@ -337,7 +340,17 @@ class OnboardingRequest(BaseModel):
     # natural é o workspace pessoal dela. Sem o campo, a rota resolve sozinha —
     # ver _resolve_onboarding_workspace.
     workspace_id: Optional[int] = None
-    salary: Decimal
+    #: A CONTA e o SALDO DE ABERTURA — o único dado que o app não deduz de nada.
+    #:
+    #: Lançamento, renda e fatura o app aprende sozinho com o uso. Saldo, não:
+    #: sem ele `/me/balance` devolve `null`, a projeção fica sem chão e a
+    #: primeira tela abre dizendo "saldo ainda não configurado" para quem acabou
+    #: de passar por três passos de cadastro. Salário virou opcional pelo motivo
+    #: simétrico: ele reaparece todo mês sozinho, e não é o que a tela pergunta
+    #: primeiro.
+    account_name: Optional[str] = Field(None, max_length=60)
+    account_balance: Optional[Decimal] = None
+    salary: Optional[Decimal] = None
     credit_card_name: Optional[str] = None
     credit_card_limit: Optional[Decimal] = None
     credit_card_closing_day: Optional[int] = Field(None, ge=1, le=31)
@@ -422,6 +435,30 @@ async def finish_onboarding(
             received_at=agora,
             settled_at=resolve_income_settled_at(received_at=agora),
         ))
+
+    # 1.5. Conta com SALDO DE ABERTURA — o motivo de o onboarding existir.
+    #
+    # `account_balance` pode ser 0 e isso é uma resposta: "não tenho nada na
+    # conta" é diferente de "não quis dizer" (por isso o teste é `is not None` e
+    # não um `if` de veracidade). Sem nome não se cria nada — o número precisa
+    # morar em algum lugar.
+    if data.account_name and data.account_balance is not None:
+        conta = PaymentAccount(
+            name=data.account_name,
+            type=PaymentAccountType.checking,
+            currency=moeda,
+            owner_user_id=current_user.id,
+            is_default=True,
+        )
+        db.add(conta)
+        db.flush()
+        AccountBalanceService.define_abertura(
+            db,
+            conta,
+            amount=data.account_balance,
+            as_of=today_local(),
+            user_id=current_user.id,
+        )
 
     # 2. Create Credit Card (Optional)
     if data.credit_card_name and data.credit_card_limit:

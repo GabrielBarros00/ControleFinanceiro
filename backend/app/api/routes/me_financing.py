@@ -19,7 +19,7 @@ from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
-from sqlalchemy import update
+from sqlalchemy import func, update
 from sqlalchemy.exc import IntegrityError
 from sqlmodel import Session, select
 
@@ -315,6 +315,89 @@ def update_financing(
     session.commit()
     session.refresh(financing)
     return financing
+
+
+class QuitarAnterioresRequest(BaseModel):
+    """Marca como pagas as parcelas que venceram ANTES de uma data."""
+
+    #: Tudo que vence antes disto e segue em aberto passa a pago. Omitido = hoje.
+    ate: Optional[date] = None
+
+
+class QuitarAnterioresRead(BaseModel):
+    quitadas: int
+    #: Quantas continuam em aberto — a resposta que diz se sobrou algo.
+    em_aberto: int
+
+
+@router.post("/{financing_id}/installments/settle-past", response_model=QuitarAnterioresRead)
+def settle_past_installments(
+    financing_id: int,
+    body: QuitarAnterioresRequest = QuitarAnterioresRequest(),
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+):
+    """"Este contrato começou antes de eu cadastrá-lo, e essas parcelas eu já paguei."
+
+    ## Por que esta rota existe
+
+    O app gera o cronograma inteiro no cadastro, e toda parcela nasce
+    `is_paid=False`. Quem registra um financiamento que **já existia** fica, no
+    mesmo instante, com meses de parcelas "em aberto" que na vida real foram
+    pagas — e ninguém volta para marcar doze delas uma a uma.
+
+    O efeito disso vazava para três telas (projeção do Seu mês, Compromissos e
+    Relatórios). `projection_service` passou a separar vencido de a vencer, o que
+    corrige o **efeito**; esta rota corrige a **causa**.
+
+    ## O que ela deliberadamente NÃO faz
+
+    **Não cria despesa nem movimento de caixa.** Marcar como paga aqui é dizer
+    "isto aconteceu antes de o app existir para mim" — inventar lançamentos
+    retroativos reescreveria o extrato e o resultado de meses fechados, que é
+    exatamente o que o ADR 0023 proíbe. Por isso também não recebe `workspace_id`
+    nem conta: quem quer a parcela lançada como despesa usa a rota de pagar
+    parcela, uma a uma, que é onde essa decisão cabe.
+
+    **Não toca no futuro.** O corte é estrito (`due_date < ate`), então a parcela
+    que vence hoje continua em aberto — ela ainda vai ser paga.
+
+    ## Idempotência
+
+    O `UPDATE` filtra por `is_paid=False`, então chamar duas vezes quita zero na
+    segunda. É o que permite a interface oferecer o botão sem medo de repetição.
+    """
+    financing = _get_financing_or_404(session, financing_id, current_user.id)
+    if financing.status != FinancingStatus.active:
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                f"Financiamento não está ativo (status: "
+                f"{getattr(financing.status, 'value', financing.status)}) — "
+                "não é possível quitar parcelas."
+            ),
+        )
+
+    corte = body.ate or today_local()
+    quitadas = session.execute(
+        update(AmortizationInstallment)
+        .where(AmortizationInstallment.financing_id == financing.id)
+        .where(AmortizationInstallment.is_paid.is_(False))
+        .where(AmortizationInstallment.due_date < corte)
+        # `paid_at` recebe o VENCIMENTO de cada parcela, não a data de hoje: elas
+        # foram pagas no passado, e carimbar todas com hoje inventaria um dia em
+        # que doze parcelas teriam sido quitadas de uma vez.
+        .values(is_paid=True, paid_at=AmortizationInstallment.due_date)
+    ).rowcount
+    session.commit()
+
+    em_aberto = session.exec(
+        select(func.count())
+        .select_from(AmortizationInstallment)
+        .where(AmortizationInstallment.financing_id == financing.id)
+        .where(AmortizationInstallment.is_paid.is_(False))
+    ).one()
+    return QuitarAnterioresRead(quitadas=quitadas or 0, em_aberto=em_aberto)
 
 
 @router.post("/{financing_id}/installments/{installment_number}/pay", response_model=InstallmentPaidRead)

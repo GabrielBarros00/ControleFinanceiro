@@ -87,7 +87,7 @@ export function Home() {
       <PageHeader
         title="Painel"
         scope="workspace"
-        subtitle="Somente este espaço. Sua renda e seu resultado ficam em Pessoal › Seu mês."
+        subtitle="Somente este espaço. Sua renda e seu resultado ficam em Pessoal › Seus relatórios."
         action={
           canWrite ? (
             <Button onClick={() => setNewTxOpen(true)} className="gap-2">
@@ -111,9 +111,21 @@ export function Home() {
         </div>
       ) : (
         <>
-          <div className="grid gap-6 lg:grid-cols-3 lg:items-start">
+          {/*
+            Empilhado, e não duas colunas.
+
+            Era `lg:grid-cols-3` com o herói ocupando duas colunas e três tiles
+            na terceira. O herói tem 170px de altura e a pilha de tiles 362px —
+            então sobrava um buraco medido de **700×216px** embaixo do herói, a
+            maior área ociosa do produto, bem no meio da tela mais visitada do
+            espaço. E o custo não era só estético: a 1366×768 só DUAS linhas de
+            "Últimos lançamentos" cabiam acima da dobra.
+
+            Em fila, os três tiles somam 110px em vez de 362px. O bloco todo cai
+            de 362px para ~296px e o buraco deixa de existir.
+          */}
+          <div className="space-y-4">
             <HeroBalance
-              className="lg:col-span-2"
               // O protagonista aqui é o consumo DESTA casa contra a meta — não
               // uma "sobra", que depende de renda e por isso é da Visão global.
               label="Sua parte no mês"
@@ -125,7 +137,7 @@ export function Home() {
               currency={baseCurrency}
               budgetHref={`${base}/reports?month=${month}`}
             />
-            <div className="grid gap-4 sm:grid-cols-3 lg:grid-cols-1">
+            <div className="grid grid-cols-2 gap-3 sm:gap-4 sm:grid-cols-3">
               {/* Gasto da CASA — o número que só existe com acesso financeiro
                   completo (ADR 0018). Sem ele o tile some, em vez de mostrar
                   "R$ 0,00", que seria um número inventado ao lado da sua parte.
@@ -170,11 +182,11 @@ export function Home() {
                 currency={baseCurrency}
                 hint="Já descontados os acertos deste mês"
               />
-              <ExcludedForeignNotice
-                count={summary?.excluded_foreign_count}
-                baseCurrency={baseCurrency}
-              />
             </div>
+            <ExcludedForeignNotice
+              count={summary?.excluded_foreign_count}
+              baseCurrency={baseCurrency}
+            />
           </div>
 
           <section className="rounded-xl border border-border bg-card">

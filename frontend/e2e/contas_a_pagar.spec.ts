@@ -7,7 +7,7 @@ import { test, expect, type BrowserContext } from '@playwright/test';
  *
  * 1. **O boleto do futuro não sai do caixa, e sai quando é pago.** É a promessa
  *    inteira do ADR 0029 atravessando três telas — o formulário, Contas a pagar
- *    e o Seu mês — e o número tem de fechar nas três.
+ *    e o Extrato — e o número tem de fechar nas três.
  * 2. **Salvar a recorrência abre a revisão.** O `<select>` invisível que ela
  *    substitui existia e não fazia o que prometia; aqui se verifica que a tela
  *    aparece, lista o lançamento e diz o que vai acontecer com ele.
@@ -56,6 +56,8 @@ test.describe('Contas a pagar', () => {
     await expect(dialog).toBeVisible();
     await dialog.getByLabel('Título / Descrição').fill('Conta de luz');
     await dialog.getByLabel('Valor Total').fill('300,00');
+    // Data e "Já foi paga" vivem no formulário detalhado.
+    await dialog.getByRole('button', { name: /^Detalhar$/ }).click();
 
     // Data FUTURA desmarca "Já foi paga" sozinho — ninguém pagou o boleto que
     // vence semana que vem.
@@ -70,7 +72,7 @@ test.describe('Contas a pagar', () => {
     await expect(dialog.getByRole('checkbox', { name: /Já foi paga/ })).toBeChecked();
     await dialog.getByRole('checkbox', { name: /Já foi paga/ }).uncheck();
 
-    await dialog.getByRole('button', { name: 'Salvar Despesa' }).click();
+    await dialog.getByRole('button', { name: 'Salvar despesa' }).click();
     await expect(dialog).toBeHidden();
 
     // --- 2. Ela aparece em Contas a pagar, e NÃO no caixa ------------------
@@ -78,12 +80,17 @@ test.describe('Contas a pagar', () => {
     await expect(page.getByRole('heading', { name: 'Contas a pagar' })).toBeVisible();
     await expect(page.getByText('Conta de luz')).toBeVisible();
 
+    // Na primeira tela ela aparece como PENDÊNCIA — o bloco "Precisa de você",
+    // que substituiu o número solto "Ainda a pagar" e traz a ação junto.
     await page.goto('/overview');
-    // "Ainda a pagar" é o número que não existia: antes do ADR 0029 toda conta
-    // era dada por paga no instante em que era registrada.
-    await expect(page.getByText('Ainda a pagar')).toBeVisible();
-    // A linha de saída só aparece com valor != 0 — nada saiu do caixa ainda.
-    await expect(page.getByText('Lançamentos à vista')).toHaveCount(0);
+    const pendencias = page.getByRole('heading', { name: 'Precisa de você' })
+      .locator('xpath=ancestor::section[1]');
+    await expect(pendencias.getByText('Conta de luz')).toBeVisible();
+
+    // E NÃO no caixa: nada saiu ainda. O extrato é onde o caixa mora desde que
+    // a primeira tela deixou de repeti-lo (era cópia literal do topo de lá).
+    await page.goto(`/me/ledger?month=${mesCorrente()}`);
+    await expect(page.getByText('Conta de luz')).toHaveCount(0);
 
     // --- 3. Marcar como paga move o dinheiro ------------------------------
     await page.goto(`/me/payables?month=${mesCorrente()}`);
@@ -93,9 +100,13 @@ test.describe('Contas a pagar', () => {
 
     await expect(page.getByText('Nenhuma conta em aberto')).toBeVisible();
 
+    // Pagar move o dinheiro: agora ela é uma linha do extrato...
+    await page.goto(`/me/ledger?month=${mesCorrente()}`);
+    await expect(page.getByText('Conta de luz')).toBeVisible();
+
+    // ...e a primeira tela não tem mais o que cobrar.
     await page.goto('/overview');
-    await expect(page.getByText('Lançamentos à vista')).toBeVisible();
-    await expect(page.getByText('Ainda a pagar')).toHaveCount(0);
+    await expect(page.getByText('Tudo em dia')).toBeVisible();
 
     await context.close();
   });

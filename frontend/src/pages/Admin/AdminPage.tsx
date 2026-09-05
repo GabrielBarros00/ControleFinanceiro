@@ -30,6 +30,7 @@ import { bytes, data, dia } from './formatters';
 import { cn } from '@/lib/utils';
 import { nativeSelectClass } from '@/components/ui/native-select';
 import { CardsOrTable, DataCard } from '@/components/ui/data-card';
+import { useTabParam } from '@/hooks/use-tab-param';
 
 /**
  * Área de administração do SITE (ADR 0026).
@@ -902,9 +903,16 @@ function Auditoria() {
 
 // --------------------------------------------------------------------------
 
+const ABAS_DO_ADMIN = ['visao', 'usuarios', 'convites', 'config', 'saude', 'auditoria'] as const;
+type AbaDoAdmin = (typeof ABAS_DO_ADMIN)[number];
+
 export function AdminPage() {
+  // Aba na URL: são seis abas, e sem isto o botão VOLTAR do navegador saía da
+  // Administração inteira em vez de voltar uma aba — além de não haver como
+  // mandar a alguém o link de "Administração › Convites".
+  const [aba, setAba] = useTabParam<AbaDoAdmin>(ABAS_DO_ADMIN, 'visao');
   return (
-    <Tabs defaultValue="visao" className="space-y-4">
+    <Tabs value={aba} onValueChange={(v) => setAba(v as AbaDoAdmin)} className="space-y-4">
       <TabsList>
         <TabsTrigger value="visao">Visão geral</TabsTrigger>
         <TabsTrigger value="usuarios">Pessoas</TabsTrigger>

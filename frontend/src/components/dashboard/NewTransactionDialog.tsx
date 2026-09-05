@@ -9,11 +9,12 @@ import {
 import { useTransactions } from '@/hooks/use-transactions';
 import { useAttachmentUploader } from '@/hooks/use-attachments';
 import { useBaseCurrency } from '@/hooks/use-base-currency';
-import { useAuthStore } from '@/stores';
+import { useAuthStore, useNewTxStore } from '@/stores';
 import { toast } from '@/stores/toast';
 import { TransactionForm, type TransactionApiPayload } from './transaction-form/TransactionForm';
 import { todayLocalISO, type TransactionFormValues } from './transaction-form/schema';
 import { AttachmentsSection } from './AttachmentsSection';
+import { useConfirm } from '@/components/ui/confirm';
 
 interface NewTransactionDialogProps {
   open: boolean;
@@ -28,9 +29,22 @@ export function NewTransactionDialog({ open, onOpenChange }: NewTransactionDialo
   const baseCurrency = useBaseCurrency();
   // Anexos escolhidos antes de existir id: esperam aqui e sobem no submit
   const [pendingFiles, setPendingFiles] = React.useState<File[]>([]);
+  // "Sujo" = a pessoa mexeu em alguma coisa. Vem do react-hook-form, que já
+  // sabe disso — o diálogo só precisa ser avisado.
+  const [sujo, setSujo] = React.useState(false);
+  const confirm = useConfirm();
   const uploadAttachments = useAttachmentUploader();
 
-  const initialValues: TransactionFormValues = {
+  /*
+   * A semente do "Duplicar": os campos do lançamento copiado, por cima dos
+   * padrões. A DATA nunca vem junto — duplicar é lançar de novo HOJE, e herdar a
+   * data do original criaria silenciosamente um lançamento no mês passado.
+   * `settled` também não: se a original já foi paga, isso não diz nada sobre a
+   * cópia.
+   */
+  const semente = useNewTxStore((s) => s.semente);
+
+  const padroes: TransactionFormValues = {
     title: '',
     total_amount: 0,
     // Moeda-base do workspace, não 'BRL' fixo: num workspace em USD o default
@@ -54,6 +68,9 @@ export function NewTransactionDialog({ open, onOpenChange }: NewTransactionDialo
     // sozinha ao escolher uma data futura — ver `TransactionForm`.
     settled: true,
   };
+  const initialValues: TransactionFormValues = semente
+    ? { ...padroes, ...(semente as Partial<TransactionFormValues>) }
+    : padroes;
 
   const handleSubmit = async (payload: TransactionApiPayload) => {
     const created = await create({ ...payload, status: 'confirmed' });
@@ -72,9 +89,41 @@ export function NewTransactionDialog({ open, onOpenChange }: NewTransactionDialo
     }
   };
 
+  /*
+   * Fechar com o formulário preenchido PERGUNTA antes de descartar.
+   *
+   * Este é o formulário mais longo do app — título, valor, moeda, pagadores,
+   * data, forma de pagamento, tags, divisão, itens e anexos — e um Escape ou um
+   * clique fora jogava tudo fora sem nada perguntar. Verificado: ao reabrir, o
+   * campo de título voltava vazio. É o gesto mais comum de fechar qualquer
+   * diálogo trivial, aplicado ao mais caro de refazer.
+   *
+   * Nada de `onOpenChange(false)` antes da resposta: o diálogo é controlado pelo
+   * `open`, então ele fica aberto enquanto a pergunta está na tela — e cancelar
+   * devolve a pessoa ao formulário com tudo no lugar.
+   */
   const handleOpenChange = (next: boolean) => {
-    if (!next) setPendingFiles([]);
-    onOpenChange(next);
+    if (next) {
+      onOpenChange(true);
+      return;
+    }
+    if (!sujo && pendingFiles.length === 0) {
+      setPendingFiles([]);
+      onOpenChange(false);
+      return;
+    }
+    void (async () => {
+      const descartar = await confirm({
+        title: 'Descartar esta despesa?',
+        description: 'O que você preencheu será perdido.',
+        confirmLabel: 'Descartar',
+        cancelLabel: 'Continuar preenchendo',
+        destructive: true,
+      });
+      if (!descartar) return;
+      setPendingFiles([]);
+      onOpenChange(false);
+    })();
   };
 
   return (
@@ -83,22 +132,36 @@ export function NewTransactionDialog({ open, onOpenChange }: NewTransactionDialo
         <DialogHeader>
           <DialogTitle className="text-2xl font-bold flex items-center gap-2">
             <span className="w-1.5 h-6 bg-primary rounded-full" />
-            Nova Despesa
+            Nova despesa
           </DialogTitle>
           <DialogDescription className="text-muted-foreground">
-            Adicione uma transação e defina como ela será dividida.
+            {/* O subtítulo descrevia o formulário ANTIGO ("defina como ela será
+                dividida") — no modo simples não há divisão à vista, e prometer
+                uma etapa que não aparece faz a pessoa procurar o que não está
+                lá. Agora ele diz o que basta e onde está o resto. */}
+            Título e valor bastam. Em "Detalhar" ficam a data, a forma de pagamento e a divisão.
           </DialogDescription>
         </DialogHeader>
         <TransactionForm
           initialValues={initialValues}
           onSubmit={handleSubmit}
-          submitLabel="Salvar Despesa"
+          submitLabel="Salvar despesa"
+          aoMudarSujo={setSujo}
           allowInstallments
+          // Só na CRIAÇÃO: editar uma despesa existente tem de mostrar o que ela
+          // tem, inclusive o que a pessoa abriu para conferir.
+          permiteModoSimples
+          aoSalvarELancarOutro={() => {
+            toast.success('Despesa adicionada — pode lançar a próxima');
+            setSujo(false);
+            setPendingFiles([]);
+          }}
           extraFields={
             <AttachmentsSection pendingFiles={pendingFiles} onPendingFilesChange={setPendingFiles} />
           }
           onSuccess={() => {
             toast.success('Despesa adicionada');
+            setSujo(false);
             setPendingFiles([]);
             onOpenChange(false);
           }}
