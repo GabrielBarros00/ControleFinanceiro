@@ -339,6 +339,25 @@ const TETO_DE_ALTURA: { rota: string; teto: number; porque: string }[] = [
   { rota: '/overview', teto: 1400, porque: 'a primeira tela responde antes da segunda rolagem' },
 ];
 
+/**
+ * Quanto se rola ANTES da primeira linha acionável.
+ *
+ * Para uma LISTA, altura total não é régua: ela cresce com o uso, e uma conta
+ * com cem contas a pagar vai ser alta em qualquer desenho. Medi 788px em
+ * `/me/payables` com a conta semeada e quase aceitei o número — o portão teria
+ * nascido verde por falta de dado, que é o modo mais silencioso de não testar
+ * nada (a auditoria mediu 7.095px numa conta cheia).
+ *
+ * O que de fato incomoda é o CABEÇALHO: quantos pixels de resumo, filtro e
+ * aviso a pessoa atravessa até ver a primeira conta que veio pagar. Isso não
+ * depende de quantas contas existem — e é o número que piora quando alguém
+ * empilha mais um bloco de destaque no topo.
+ */
+const TETO_ATE_A_PRIMEIRA_LINHA: { rota: string; seletor: string; teto: number }[] = [
+  { rota: '/me/payables', seletor: 'main ul li', teto: 700 },
+  { rota: '/me/ledger', seletor: 'main tbody tr, main ul li', teto: 700 },
+];
+
 test('a primeira tela não é um relatório para rolar', async ({ browser }) => {
   test.setTimeout(90_000);
   const { context, wsId } = await contaComDados(browser, 390, 844);
@@ -357,6 +376,27 @@ test('a primeira tela não é um relatório para rolar', async ({ browser }) => 
     });
     console.log(`[densidade] ${rota}: ${altura}px (teto ${teto}px)`);
     if (altura > teto) excedidos.push(`${rota}: ${altura}px (teto ${teto}px) — ${porque}`);
+  }
+
+  for (const { rota, seletor, teto } of TETO_ATE_A_PRIMEIRA_LINHA) {
+    await page.goto(rota);
+    await esperarAssentar(page);
+    await telaRenderizou(page, rota);
+
+    const antes = await page.evaluate((sel) => {
+      const main = document.querySelector('main');
+      const primeira = document.querySelector(sel);
+      if (!main || !primeira) return null;
+      return Math.round(
+        primeira.getBoundingClientRect().top - main.getBoundingClientRect().top,
+      );
+    }, seletor);
+
+    if (antes === null) continue; // lista vazia: não há o que medir
+    console.log(`[densidade] ${rota}: ${antes}px até a primeira linha (teto ${teto}px)`);
+    if (antes > teto) {
+      excedidos.push(`${rota}: ${antes}px de cabeçalho antes da primeira linha (teto ${teto}px)`);
+    }
   }
 
   await context.close();
