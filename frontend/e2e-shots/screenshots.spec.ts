@@ -733,6 +733,21 @@ test('seed data and capture all screens', async ({ page, playwright }) => {
       await page.keyboard.press('Escape').catch(() => {});
     }
 
+    // Formulário da RECORRÊNCIA. Ele entrou no catálogo quando ganhou o
+    // "Dividir com": a lista de recorrências já era capturada, mas ela não
+    // mostra nada do que se pergunta na hora de cadastrar — e é no formulário
+    // que mora a decisão (valor, frequência, divisão, pagamento automático).
+    await page.goto(`/w/${wsId}/recurring`);
+    await settle();
+    const novaFixa = page.getByRole('button', { name: /Nova despesa/i });
+    if (await novaFixa.count()) {
+      await novaFixa.first().click();
+      await page.getByRole('dialog').waitFor({ state: 'visible' }).catch(() => {});
+      await page.waitForTimeout(600);
+      await shot(`recorrencia-form-${theme}`);
+      await page.keyboard.press('Escape').catch(() => {});
+    }
+
     // Aviso da janela de fechamento + atalho para a fatura seguinte (ADR 0032).
     //
     // O aviso só existe com CARTÃO escolhido e data dentro dos três dias que

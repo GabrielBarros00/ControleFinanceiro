@@ -1,6 +1,8 @@
 import * as React from 'react';
 import { Card, CardContent } from "@/components/ui/card";
 import { StatTile } from "@/components/ui/stat-tile";
+import { ChipsDeDivisao } from "@/components/money/ChipsDeDivisao";
+import { useMembers } from '@/hooks/use-members';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Button } from "@/components/ui/button";
 import { Plus, Edit2, Trash2, Calendar, Repeat, Loader2 } from 'lucide-react';
@@ -78,6 +80,16 @@ const recurringSchema = z.object({
   day_of_week: z.number().min(0).max(6),
   month_of_year: z.number().min(1).max(12),
   is_active: z.boolean(),
+  /*
+   * Quem participa do rateio — ids de membros do espaço, como texto porque é
+   * assim que o `<button>` das pílulas os devolve.
+   *
+   * Lista VAZIA significa "não declarei divisão", e o payload manda `null`: no
+   * backend, `split_snapshot = None` é "100% de quem cadastrou" (o padrão de
+   * sempre), enquanto `[]` seria uma despesa sem dono nenhum. A diferença
+   * importa porque a recorrência materializa sozinha.
+   */
+  split_user_ids: z.array(z.string()),
 });
 
 type RecurringValues = z.infer<typeof recurringSchema>;
@@ -101,6 +113,8 @@ interface RecurringItem {
   day_of_week?: number | null;
   month_of_year?: number | null;
   is_active: boolean;
+  /** Divisão do template (ADR 0012): materializa em splits de verdade. */
+  split_snapshot?: { user_id: number; split_method?: string; input_value?: string }[] | null;
   /** Derivados do servidor: alimentam o "87 de 144 restantes" da lista. */
   occurrences_total?: number | null;
   occurrences_remaining?: number | null;
@@ -168,6 +182,7 @@ const DEFAULTS: RecurringValues = {
   day_of_week: 0,
   month_of_year: 1,
   is_active: true,
+  split_user_ids: [],
 };
 
 export function RecurringTransactionsPage() {
@@ -178,6 +193,7 @@ export function RecurringTransactionsPage() {
   const { categories, categoryName } = useCategories();
   const baseCurrency = useBaseCurrency();
   const { cards } = useCreditCards();
+  const { members } = useMembers();
   const confirm = useConfirm();
 
   /* Só as ATIVAS: uma recorrência desligada não tira dinheiro de ninguém, e
@@ -213,7 +229,7 @@ export function RecurringTransactionsPage() {
   const [since, setSince] = React.useState(firstOfCurrentMonth);
   const [materializeEscolhido, setMaterializeEscolhido] = React.useState<MaterializeScope | undefined>();
 
-  const { register, handleSubmit, setValue, watch, reset, formState: { errors, isSubmitting } } = useForm<RecurringValues>({
+  const { register, handleSubmit, setValue, watch, reset, getValues, formState: { errors, isSubmitting } } = useForm<RecurringValues>({
     resolver: zodResolver(recurringSchema),
     defaultValues: DEFAULTS,
   });
@@ -226,6 +242,23 @@ export function RecurringTransactionsPage() {
   React.useEffect(() => {
     if (paymentMethod !== 'credit_card') setValue('credit_card_id', 0);
   }, [paymentMethod, setValue]);
+
+  /* Os membros do espaço, no formato das pílulas. Abaixo de dois não há o que
+     dividir, e o bloco inteiro some — perguntar "dividir com quem?" a quem está
+     sozinho no espaço é oferecer uma escolha que não existe. */
+  const participantes = React.useMemo(
+    () => members.map((m) => ({ id: String(m.user_id), name: m.user_name })),
+    [members],
+  );
+
+  const alternarParticipante = (id: string) => {
+    const atuais = getValues('split_user_ids');
+    setValue(
+      'split_user_ids',
+      atuais.includes(id) ? atuais.filter((x) => x !== id) : [...atuais, id],
+      { shouldDirty: true },
+    );
+  };
 
   // Ponte entre o react-hook-form e o RecurrenceEditor (controlado)
   const recurrence: RecurrenceValue = {
@@ -268,6 +301,7 @@ export function RecurringTransactionsPage() {
       credit_card_id: item.credit_card_id ?? 0,
       auto_settle: item.auto_settle ?? false,
       is_active: item.is_active,
+      split_user_ids: (item.split_snapshot ?? []).map((p) => String(p.user_id)),
       ...rec,
     });
     setDialogOpen(true);
@@ -296,6 +330,23 @@ export function RecurringTransactionsPage() {
     // algo que não vale.
     auto_settle: data.payment_method === 'credit_card' ? false : data.auto_settle,
     is_active: data.is_active,
+    /*
+     * `null` e não `[]` quando ninguém foi marcado: para o backend, ausência de
+     * snapshot é "100% de quem cadastrou" — o padrão de sempre —, e uma lista
+     * vazia seria uma despesa sem dono. A recorrência materializa sozinha, então
+     * a diferença não apareceria na hora de salvar, e sim no mês seguinte.
+     *
+     * `equal` com `input_value: 0` é a divisão IGUAL: o servidor reparte o valor
+     * entre os marcados a cada ocorrência, com o arredondamento que fecha a soma
+     * (o mesmo caminho da despesa avulsa). Porcentagem e valor fixo existem no
+     * contrato e ficaram de fora desta tela de propósito — ver o comentário do
+     * bloco "Dividir com".
+     */
+    split_snapshot: data.split_user_ids.length > 0
+      ? data.split_user_ids.map((id) => ({
+        user_id: Number(id), split_method: 'equal', input_value: 0,
+      }))
+      : null,
     ...toRecurrencePayload({
       custom: data.custom,
       frequency: data.frequency,
@@ -801,6 +852,33 @@ export function RecurringTransactionsPage() {
             )}
 
             <RecurrenceEditor value={recurrence} onChange={patchRecurrence} idPrefix="rec" />
+
+            {/* DIVIDIR COM — a mesma pergunta da despesa avulsa, e as mesmas
+                pílulas (`components/money/ChipsDeDivisao`).
+
+                O aluguel dividido em três é uma despesa fixa por definição: ela
+                se repete todo mês, com as mesmas pessoas. Mas esta era a única
+                tela do app em que não dava para dizer isso — cada ocorrência
+                nascia 100% de quem cadastrou, e corrigir à mão não resolvia,
+                porque a materialização é preguiçosa e a ocorrência do mês
+                seguinte nasceria errada de novo, sozinha.
+
+                Só divisão IGUAL aqui. Porcentagem e valor fixo existem no
+                contrato (`split_method`/`input_value`) e ficam para quando
+                alguém precisar: numa despesa que se repete indefinidamente, um
+                rateio fixo em reais envelhece junto com o valor — o aluguel sobe
+                e a divisão declarada continua a mesma, em silêncio. A divisão
+                igual acompanha. */}
+            {participantes.length > 1 && (
+              <ChipsDeDivisao
+                participantes={participantes}
+                selecionados={watch('split_user_ids')}
+                onAlternar={alternarParticipante}
+                total={watch('base_amount')}
+                formatar={(v) => formatCurrency(v, watch('currency') || baseCurrency)}
+              />
+            )}
+
 
             {isRetroactiveStart(watch('start_date')) && (
               <MaterializeScopeField
