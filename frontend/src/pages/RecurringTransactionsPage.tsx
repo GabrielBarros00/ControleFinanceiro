@@ -3,6 +3,8 @@ import { Card, CardContent } from "@/components/ui/card";
 import { StatTile } from "@/components/ui/stat-tile";
 import { ChipsDeDivisao } from "@/components/money/ChipsDeDivisao";
 import { useMembers } from '@/hooks/use-members';
+import { useWorkspaceId } from '@/hooks/use-workspace-id';
+import { Link } from 'react-router-dom';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Button } from "@/components/ui/button";
 import { Plus, Edit2, Trash2, Calendar, Repeat, Loader2 } from 'lucide-react';
@@ -194,6 +196,7 @@ export function RecurringTransactionsPage() {
   const baseCurrency = useBaseCurrency();
   const { cards } = useCreditCards();
   const { members } = useMembers();
+  const currentWorkspaceId = useWorkspaceId();
   const confirm = useConfirm();
 
   /* Só as ATIVAS: uma recorrência desligada não tira dinheiro de ninguém, e
@@ -869,7 +872,7 @@ export function RecurringTransactionsPage() {
                 rateio fixo em reais envelhece junto com o valor — o aluguel sobe
                 e a divisão declarada continua a mesma, em silêncio. A divisão
                 igual acompanha. */}
-            {participantes.length > 1 && (
+            {participantes.length > 1 ? (
               <ChipsDeDivisao
                 participantes={participantes}
                 selecionados={watch('split_user_ids')}
@@ -877,6 +880,30 @@ export function RecurringTransactionsPage() {
                 total={watch('base_amount')}
                 formatar={(v) => formatCurrency(v, watch('currency') || baseCurrency)}
               />
+            ) : (
+              /* Sozinho no espaço, o bloco EXPLICA em vez de sumir.
+                 A primeira versão escondia tudo — "não há com quem dividir,
+                 então não pergunte". A intenção estava certa e o efeito, não:
+                 quem abre o formulário procurando a divisão vê exatamente o que
+                 veria se ela estivesse quebrada. Foi assim que o dono do projeto
+                 abriu a tela no espaço pessoal dele e perguntou por que a
+                 funcionalidade não existia.
+
+                 Some o que não dá para fazer (as pílulas); fica o rótulo, o
+                 motivo e o caminho. */
+              <div className="space-y-1.5">
+                <Label className="text-sm font-semibold text-foreground">Dividir com</Label>
+                <p className="text-xs text-muted-foreground">
+                  Você é a única pessoa neste espaço.{' '}
+                  <Link
+                    to={`/w/${currentWorkspaceId}/settings`}
+                    className="font-semibold text-primary underline-offset-4 hover:underline"
+                  >
+                    Convidar alguém
+                  </Link>{' '}
+                  para dividir as despesas fixas.
+                </p>
+              </div>
             )}
 
 
