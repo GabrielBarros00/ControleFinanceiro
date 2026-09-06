@@ -422,7 +422,11 @@ class LedgerExpense(BaseModel):
     title: str
     total_amount: Decimal
     status: TransactionStatus
+    #: Liquidada (ADR 0029) — `settled_at` preenchido. NÃO é `status == paid`:
+    #: esse status é letra morta no produto (só fatura o usa).
     is_paid: bool
+    #: Compra no cartão: quem a paga é a FATURA. Nem "paga" nem "em aberto".
+    on_card: bool = False
     transaction_date: datetime
     #: Parcela `n` de `m`; `None` quando a compra não é parcelada.
     installment_no: Optional[int] = None
@@ -435,7 +439,14 @@ class LedgerSettlement(BaseModel):
     id: int
     from_user_id: int
     to_user_id: int
+    #: O valor que coube A ESTE MÊS. Num acerto do saldo acumulado que atravessa
+    #: dois meses, cada mês lista o seu pedaço — e a soma da lista continua
+    #: batendo com `settled_total`, que é o que a tela mostra.
     amount: Decimal
+    #: Veio do saldo acumulado (sem `billing_month`) e foi alocado a este mês
+    #: pelo mais antigo primeiro. A tela diz isso em vez de fingir que o acerto
+    #: foi registrado aqui — e o `id` continua sendo o do acerto, para desfazer.
+    from_balance: bool = False
     note: Optional[str] = None
     settled_at: datetime
 

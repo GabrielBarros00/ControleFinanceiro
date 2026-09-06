@@ -59,21 +59,23 @@ describe('De onde vem esse saldo', () => {
   });
 
   /*
-   * O acerto registrado a partir do acumulado não carrega mês: derruba o total
-   * sem fechar mês nenhum. Antes isso não aparecia em lugar nenhum, e o saldo
-   * caía "sozinho" — foi a queixa que trouxe esta linha à tela.
+   * O que SOBRA de um acerto do acumulado depois de quitar os meses em aberto.
+   *
+   * Esta linha já significou "todo acerto sem mês", quando ele derrubava o
+   * total sem fechar mês nenhum — o defeito. Hoje o pagamento vai para os
+   * meses, e aqui fica só o troco que não achou onde caber.
    */
-  it('mostra o acerto sem mês como linha própria', () => {
+  it('mostra o que sobrou fora dos meses como linha própria', () => {
     montar({ balance: '-270.00', unassigned: '50.00' });
-    expect(screen.getByText('Acertos sem mês')).toBeInTheDocument();
-    expect(screen.getByText(/registrados sobre o acumulado/)).toBeInTheDocument();
+    expect(screen.getByText('Fora dos meses')).toBeInTheDocument();
+    expect(screen.getByText(/sem mês em aberto para abater/)).toBeInTheDocument();
     expect(screen.getByText('você recebe R$ 50,00')).toBeInTheDocument();
     expect(screen.getByText('você deve R$ 270,00')).toBeInTheDocument();
   });
 
-  it('não inventa a linha "sem mês" quando ela é zero', () => {
+  it('não inventa a linha "fora dos meses" quando ela é zero', () => {
     montar();
-    expect(screen.queryByText('Acertos sem mês')).not.toBeInTheDocument();
+    expect(screen.queryByText('Fora dos meses')).not.toBeInTheDocument();
   });
 
   /*

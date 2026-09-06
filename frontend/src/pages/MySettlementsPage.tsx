@@ -21,8 +21,13 @@ import {
   useMyDebts,
   useMyMonthlyDebts,
   useMySettlementsHistory,
+  useDesfazerAcerto,
   type WorkspaceDebtGroup,
 } from '@/hooks/use-my-settlements';
+import { useConfirm } from '@/components/ui/confirm';
+import { toast } from '@/stores/toast';
+import { getApiErrorMessage } from '@/lib/api-error';
+import { formatMoney } from '@/lib/money';
 import { useMyDebtsByMonth } from '@/hooks/use-debts-by-month';
 import { useAuth } from '@/hooks/use-auth';
 import { useMonthParam } from '@/hooks/use-month-param';
@@ -162,6 +167,33 @@ export function MySettlementsPage() {
     refetch: refetchOrigem,
   } = useMyDebtsByMonth();
   const { settlements, total: totalHistorico, isLoading: histLoading } = useMySettlementsHistory();
+  const { desfazer } = useDesfazerAcerto();
+  const confirmar = useConfirm();
+
+  /**
+   * Desfazer é o caminho de CORREÇÃO: o produto não edita acerto, e não precisa
+   * — desfazer e registrar de novo tem o mesmo efeito (um acerto não tem
+   * filhos) com metade da superfície. O aviso diz isso, para quem só queria
+   * mudar o valor não achar que perdeu o registro.
+   */
+  const desfazerAcerto = async (workspaceId: number, id: number) => {
+    const ok = await confirmar({
+      title: 'Desfazer acerto',
+      description:
+        'A dívida correspondente volta ao balanço, e aos meses que ela fechou. '
+        + 'Para corrigir um valor, desfaça e registre de novo.',
+      confirmLabel: 'Desfazer',
+      destructive: true,
+    });
+    if (!ok) return;
+    try {
+      await desfazer({ workspaceId, id });
+      toast.success('Acerto desfeito');
+    } catch (err) {
+      toast.error(getApiErrorMessage(err, 'Não foi possível desfazer o acerto.'));
+    }
+  };
+
   const [dialogOpen, setDialogOpen] = React.useState(false);
   const [draft, setDraft] = React.useState<SettlementDraft | null>(null);
 
@@ -233,8 +265,18 @@ export function MySettlementsPage() {
     amount: s.amount,
     currency: s.currency,
     kind: s.direction === 'sent' ? 'sent' : 'received',
-    // Sem desfazer: a escrita mora na casa, onde vivem a direção e o teto do
-    // ADR 0009.
+    /*
+     * Desfazer AQUI — a escrita continua indo para a rota da casa, mas quem
+     * corrige não precisa mais ir até ela.
+     *
+     * `canUndo` espelha a regra do servidor ("você só pode desfazer os próprios
+     * acertos"): oferecer o botão para depois receber 403 é pior que não
+     * oferecer, porque a pessoa clica achando que resolveu.
+     */
+    onUndo: () => desfazerAcerto(s.workspace_id, s.id),
+    canUndo: s.created_by_user_id === user?.id,
+    undoLabel: `Desfazer acerto de ${formatMoney(s.amount, { currency: s.currency })} com ${s.counterparty_name}`,
+    undoDisabledReason: 'Só quem registrou o acerto pode desfazê-lo.',
   }));
 
   return (

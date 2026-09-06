@@ -191,8 +191,21 @@ def test_monthly_ledger_settlement_zeroes_month(db_session: Session):
     assert after["settlements"][0]["to_user_id"] == u1.id
 
 
-def test_monthly_ledger_ignores_settlement_of_other_scope(db_session: Session):
-    """Acerto global (billing_month=None) ou de outro mês não mexe no mês visto."""
+def test_monthly_ledger_ignores_settlement_of_other_month(db_session: Session):
+    """Acerto de OUTRO mês não mexe no mês visto.
+
+    Este teste dizia também que o acerto GLOBAL (`billing_month=None`) não
+    mexia — e essa metade foi removida, porque era o defeito relatado: um
+    pagamento feito a partir do saldo acumulado zerava o total e deixava cada
+    mês exibindo a dívida cheia. A mesma tela dizia que estava quitado e que
+    havia meses pendentes.
+
+    O acerto global agora é alocado ao mês mais antigo em aberto daquele par
+    (`DebtService._alocar_globais`), que é o que qualquer pagamento de dívida
+    faz. O que continua valendo — e é o que sobrou aqui — é que um acerto
+    carimbado com OUTRO mês pertence àquele mês e a nenhum outro: quem escolheu
+    o mês decidiu, e a alocação automática não passa por cima disso.
+    """
     u1 = User(name="A", email="a6@test.com", password_hash="h")
     u2 = User(name="B", email="b6@test.com", password_hash="h")
     ws = Workspace(name="WS6")
@@ -200,7 +213,6 @@ def test_monthly_ledger_ignores_settlement_of_other_scope(db_session: Session):
     db_session.flush()
 
     _make_installment(db_session, ws.id, u1, u2, 1, "2026-06")
-    db_session.add(Settlement(workspace_id=ws.id, from_user_id=u2.id, to_user_id=u1.id, amount=Decimal("50.00"), billing_month=None))
     db_session.add(Settlement(workspace_id=ws.id, from_user_id=u2.id, to_user_id=u1.id, amount=Decimal("50.00"), billing_month="2026-07"))
     db_session.commit()
 
@@ -208,6 +220,28 @@ def test_monthly_ledger_ignores_settlement_of_other_scope(db_session: Session):
     assert jun["settled_total"] == Decimal("0.00")
     assert len(jun["net_debts"]) == 1
     assert jun["net_debts"][0]["amount"] == Decimal("50.00")
+
+
+def test_monthly_ledger_recebe_o_acerto_do_saldo_acumulado(db_session: Session):
+    """O par do teste acima: o acerto SEM mês chega ao mês, e some da dívida."""
+    u1 = User(name="A", email="a6b@test.com", password_hash="h")
+    u2 = User(name="B", email="b6b@test.com", password_hash="h")
+    ws = Workspace(name="WS6B")
+    db_session.add_all([u1, u2, ws])
+    db_session.flush()
+
+    _make_installment(db_session, ws.id, u1, u2, 1, "2026-06")
+    db_session.add(Settlement(workspace_id=ws.id, from_user_id=u2.id, to_user_id=u1.id, amount=Decimal("50.00"), billing_month=None))
+    db_session.commit()
+
+    jun = DebtService.get_monthly_ledger(db_session, ws.id, "2026-06")
+    assert jun["net_debts"] == [], (
+        "o acerto do saldo acumulado não fechou o único mês em aberto"
+    )
+    assert jun["settled_total"] == Decimal("50.00")
+    # E ele se identifica como vindo do acumulado, para a tela não fingir que
+    # foi registrado ali — o `id` continua sendo o do acerto, para desfazer.
+    assert jun["settlements"][0]["from_balance"] is True
 
 
 # --- A origem do saldo: de quais meses vem o acumulado -----------------------
@@ -272,8 +306,16 @@ def test_origem_do_saldo_fecha_a_conta(db_session: Session):
     """`balance == Σ meses + older + unassigned`, e bate com `/debts`.
 
     Cenário deliberadamente sujo: três pessoas, meses com sinais opostos, acerto
-    COM mês e acerto SEM mês. É o caso em que a versão ingênua (somar só os meses)
-    erra, porque o acerto global não pertence a mês nenhum.
+    COM mês e acerto SEM mês.
+
+    O acerto SEM mês passou a ser ALOCADO ao mês mais antigo em que aquele par
+    tem dívida (`_alocar_globais`) — antes ele ficava só em `unassigned`, e era
+    esse o defeito relatado: o total caía e cada mês continuava exibindo a
+    dívida cheia. Aqui isso aparece em janeiro, que absorve os R$ 40 do Bruno.
+
+    A identidade continua sendo o ponto do teste, e ela é justamente o que
+    prova que a alocação não criou nem perdeu dinheiro: mover valor de
+    `unassigned` para um mês não pode mudar o total.
     """
     u1, u2, u3, ws = _trio(db_session, "fecha")
 
@@ -305,12 +347,14 @@ def test_origem_do_saldo_fecha_a_conta(db_session: Session):
 
     por_mes = {m["month"]: m["balance"] for m in origem["months"]}
     assert por_mes == {
-        "2026-01": Decimal("200.00"),
+        # 200 de sobra − 40 do acerto do Bruno, que caiu no mês mais antigo em
+        # que ele me devia. Do meu ponto de vista, RECEBER derruba meu saldo.
+        "2026-01": Decimal("160.00"),
         "2026-02": Decimal("-150.00"),   # -200 devidos + 50 já acertados
         "2026-03": Decimal("-30.00"),
     }
-    # Do meu ponto de vista, receber um acerto DERRUBA meu saldo.
-    assert origem["unassigned"] == Decimal("-40.00")
+    # Nada sobrou sem mês: os 40 couberam inteiros em janeiro.
+    assert origem["unassigned"] == Decimal("0.00")
     assert origem["older"] == {"count": 0, "balance": Decimal("0.00")}
 
     # A identidade, escrita como a tela a exibe

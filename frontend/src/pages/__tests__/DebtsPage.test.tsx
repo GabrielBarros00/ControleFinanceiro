@@ -260,7 +260,7 @@ describe('Acertos do espaço', () => {
     montar();
     abrirAba('Histórico');
     expect(screen.getByText('jul/2026')).toBeInTheDocument();
-    expect(screen.getByText('sem mês')).toBeInTheDocument();
+    expect(screen.getByText('do acumulado')).toBeInTheDocument();
     expect(screen.getAllByRole('button', { name: 'Desfazer acerto' })).toHaveLength(2);
   });
 

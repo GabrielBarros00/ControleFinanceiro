@@ -107,14 +107,18 @@ export function SettlementDialog({ open, onOpenChange, draft, members }: Settlem
               // acerto vai cair é o que impede o registro na casa errada.
               ? `O valor é abatido do balanço de ${draft.workspace_name}.`
               : 'O valor registrado é abatido do balanço de dívidas deste espaço.'}{' '}
-            {/* Os dois tipos de acerto (ADR 0009): o que FECHA um mês e o que só
-                abate o acumulado. A distinção estava escrita na tela de Acertos,
-                mas não aqui — onde a escolha realmente acontece —, e o histórico
-                depois marcava um "jul/2026" e outro "sem mês" sem que se pudesse
-                saber onde aquilo tinha sido decidido. */}
+            {/* Os dois tipos de acerto (ADR 0009): o que FECHA um mês escolhido
+                e o que paga o acumulado. A distinção estava escrita na tela de
+                Acertos, mas não aqui — onde a escolha realmente acontece.
+
+                O segundo texto dizia "sem fechar mês nenhum", e era verdade: o
+                pagamento derrubava o total e deixava cada mês exibindo a dívida
+                inteira. Era o defeito, prometido em voz alta antes de a pessoa
+                confirmar. Agora ele quita do mais antigo para o mais novo, como
+                qualquer pagamento de dívida, e a frase diz isso. */}
             {draft?.billing_month
               ? `Fecha o mês de ${monthLabel(draft.billing_month)}.`
-              : 'Abate o saldo acumulado, sem fechar mês nenhum.'}
+              : 'Quita os meses em aberto, do mais antigo para o mais novo.'}
           </DialogDescription>
         </DialogHeader>
 

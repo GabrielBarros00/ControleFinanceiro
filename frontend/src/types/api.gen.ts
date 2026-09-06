@@ -4248,6 +4248,11 @@ export interface components {
             /** Is Paid */
             is_paid: boolean;
             /**
+             * On Card
+             * @default false
+             */
+            on_card: boolean;
+            /**
              * Transaction Date
              * Format: date-time
              */
@@ -4314,6 +4319,11 @@ export interface components {
             to_user_id: number;
             /** Amount */
             amount: string;
+            /**
+             * From Balance
+             * @default false
+             */
+            from_balance: boolean;
             /** Note */
             note?: string | null;
             /**

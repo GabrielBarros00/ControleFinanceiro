@@ -64,9 +64,11 @@ describe('Histórico de acertos', () => {
     expect(screen.getByText('jul/2026')).toBeInTheDocument();
   });
 
-  it('"sem mês" é um TIPO de acerto, não um campo vazio', () => {
+  it('"do acumulado" é um TIPO de acerto, não um campo vazio', () => {
+    // O rótulo era "sem mês" e passou a mentir quando esse acerto começou a
+    // fechar os meses mais antigos em aberto.
     montar([{ ...base, billingMonth: null }]);
-    expect(screen.getByText('sem mês')).toBeInTheDocument();
+    expect(screen.getByText('do acumulado')).toBeInTheDocument();
     // Um traço faria parecer dado faltando — e o que falta é justamente a
     // informação de que este acerto não fechou mês nenhum.
     expect(screen.queryByText('—')).not.toBeInTheDocument();

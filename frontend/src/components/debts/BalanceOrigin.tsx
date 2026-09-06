@@ -101,14 +101,19 @@ export function BalanceOrigin({ origem, currency, onOpenMonth }: Props) {
         )}
 
         {temSemMes && (
-          /* O acerto registrado a partir do saldo acumulado não carrega mês:
-             derruba o total sem fechar mês nenhum. Antes isso não aparecia em
-             lugar nenhum da tela, e o saldo caía "sozinho". */
+          /* O que SOBROU de um acerto do saldo acumulado depois de quitar os
+             meses em aberto (`DebtService._alocar_globais`).
+
+             Esta linha já significou outra coisa: era todo acerto sem mês, que
+             derrubava o total sem fechar mês nenhum — o defeito relatado, em
+             que a tela dizia "quitado" e listava meses devendo logo abaixo.
+             Agora esse pagamento vai para os meses, do mais antigo ao mais
+             novo, e aqui fica só o troco que não achou mês onde caber. */
           <li className="flex items-center gap-3 px-3 py-2.5">
             <span className="min-w-0 flex-1">
-              <span className="block text-sm text-muted-foreground">Acertos sem mês</span>
+              <span className="block text-sm text-muted-foreground">Fora dos meses</span>
               <span className="block text-[11px] text-muted-foreground">
-                registrados sobre o acumulado, não sobre um mês
+                o que sobrou de acertos do acumulado, sem mês em aberto para abater
               </span>
             </span>
             <span
