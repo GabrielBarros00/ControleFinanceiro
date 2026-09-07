@@ -254,6 +254,11 @@ export function RecurringTransactionsPage() {
     [members],
   );
 
+  /* Crédito exige cartão — a mesma regra da despesa avulsa, que o formulário
+     de recorrência não aplicava. */
+  const faltaCartao =
+    watch('payment_method') === 'credit_card' && !(watch('credit_card_id') > 0);
+
   const alternarParticipante = (id: string) => {
     const atuais = getValues('split_user_ids');
     setValue(
@@ -830,6 +835,19 @@ export function RecurringTransactionsPage() {
                       <option key={card.id} value={card.id} className="bg-card">{card.name}</option>
                     ))}
                   </select>
+                  {/* "No cartão" SEM cartão é um estado que não existe.
+                      A ocorrência materializada se diria no cartão, não entraria
+                      em fatura nenhuma (não há cartão) e ainda cairia em Contas
+                      a pagar — de onde o ADR 0029 exclui a compra no cartão. O
+                      backend recusa; aqui a pessoa fica sabendo ANTES de achar
+                      que terminou. */}
+                  {faltaCartao && (
+                    <p id="rec-falta-cartao" className="text-xs font-medium text-destructive">
+                      {cards.length === 0
+                        ? 'Você ainda não tem cartão cadastrado — escolha outra forma de pagamento ou cadastre um em Cartões.'
+                        : 'Escolha o cartão: a fatura dele é quem paga esta despesa.'}
+                    </p>
+                  )}
                 </div>
               )}
             </div>
@@ -940,7 +958,15 @@ export function RecurringTransactionsPage() {
 
             <DialogFooter className="pt-4">
               <Button type="button" variant="ghost" disabled={isSubmitting} onClick={() => setDialogOpen(false)}>Cancelar</Button>
-              <Button type="submit" className="bg-primary font-bold px-8" pending={isSubmitting}>Salvar</Button>
+              <Button
+                type="submit"
+                className="bg-primary font-bold px-8"
+                pending={isSubmitting}
+                disabled={faltaCartao}
+                aria-describedby={faltaCartao ? 'rec-falta-cartao' : undefined}
+              >
+                Salvar
+              </Button>
             </DialogFooter>
           </form>
         </DialogContent>

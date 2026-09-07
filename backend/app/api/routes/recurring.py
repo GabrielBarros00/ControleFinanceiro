@@ -235,14 +235,33 @@ def _validate_snapshot(
                 status_code=400,
                 detail="Cartão de crédito só se aplica à forma de pagamento 'credit_card'",
             )
-    elif statement_shift:
-        # Mesma guarda da despesa avulsa (`validate_statement_shift`): sem cartão
-        # não há fatura para deslocar, e aceitar o valor calado deixaria um
-        # deslocamento adormecido que acordaria ao vincular um cartão depois.
-        raise HTTPException(
-            status_code=400,
-            detail="Deslocamento de fatura exige uma recorrência no cartão (credit_card_id)",
-        )
+    else:
+        # A guarda que faltava, e o caminho contrário da de cima.
+        #
+        # `validate_payment_method` (schemas/transaction.py) recusa
+        # `credit_card` sem cartão na despesa avulsa — mas ela vive na rota de
+        # LANÇAMENTO, e a ocorrência materializada não passa por lá: o
+        # `RecurringService` monta o `Transaction` direto. Sem esta linha, um
+        # template inconsistente gera todo mês um lançamento que se diz "no
+        # cartão", não entra em fatura nenhuma (não há cartão) e ainda cai em
+        # Contas a pagar, de onde o ADR 0029 exclui a compra no cartão.
+        #
+        # Foi encontrado numa varredura de telas com a base cheia: "Contas a
+        # pagar" listando uma despesa etiquetada "Cartão de crédito".
+        if payment_method == PaymentMethod.credit_card:
+            raise HTTPException(
+                status_code=400,
+                detail="Recorrência no cartão de crédito exige um cartão (credit_card_id)",
+            )
+        if statement_shift:
+            # Mesma guarda da despesa avulsa (`validate_statement_shift`): sem
+            # cartão não há fatura para deslocar, e aceitar o valor calado
+            # deixaria um deslocamento adormecido que acordaria ao vincular um
+            # cartão depois.
+            raise HTTPException(
+                status_code=400,
+                detail="Deslocamento de fatura exige uma recorrência no cartão (credit_card_id)",
+            )
     member_ids = set(session.exec(
         select(WorkspaceMembership.user_id).where(WorkspaceMembership.workspace_id == workspace_id)
     ).all())

@@ -74,7 +74,9 @@ vi.mock('@/hooks/use-categories', () => ({
   useCategories: () => ({ categories: [], categoryName: () => 'Sem categoria' }),
 }));
 vi.mock('@/hooks/use-base-currency', () => ({ useBaseCurrency: () => 'BRL' }));
-vi.mock('@/hooks/use-credit-cards', () => ({ useCreditCards: () => ({ cards: [] }) }));
+vi.mock('@/hooks/use-credit-cards', () => ({
+  useCreditCards: () => ({ cards: [{ id: 9, name: 'Nubank', currency: 'BRL' }] }),
+}));
 vi.mock('@/components/ui/confirm', () => ({ useConfirm: () => vi.fn() }));
 
 const desenhar = () => render(<RecurringTransactionsPage />);
@@ -194,5 +196,57 @@ describe('Recorrência — dividir com', () => {
     const dialogo = screen.getByRole('dialog');
     expect(within(dialogo).getByRole('button', { name: 'Ana' })).toHaveAttribute('aria-pressed', 'true');
     expect(within(dialogo).getByRole('button', { name: 'Bruno' })).toHaveAttribute('aria-pressed', 'true');
+  });
+});
+
+/**
+ * "No cartão" sem cartão.
+ *
+ * O backend recusa (a ocorrência materializada nasceria num estado que a rota
+ * de despesa proíbe: diz-se no cartão, não entra em fatura nenhuma e ainda cai
+ * em Contas a pagar). Mas o formulário oferecia "Sem cartão" como opção e só
+ * descobria no submit — e o erro do servidor chega depois de a pessoa achar que
+ * terminou.
+ *
+ * O achado é de uma varredura de telas com a base cheia: "Contas a pagar"
+ * listando uma despesa etiquetada "Cartão de crédito".
+ */
+describe('Recorrência — cartão coerente', () => {
+  const abrir = () => {
+    desenhar();
+    fireEvent.click(screen.getByRole('button', { name: /nova despesa/i }));
+    return screen.getByRole('dialog');
+  };
+
+  it('avisa e trava o salvar quando o crédito fica sem cartão', () => {
+    const dialogo = abrir();
+    fireEvent.change(within(dialogo).getByLabelText(/forma de pagamento/i), {
+      target: { value: 'credit_card' },
+    });
+
+    expect(within(dialogo).getByText(/escolha o cartão/i)).toBeInTheDocument();
+    expect(within(dialogo).getByRole('button', { name: /^salvar$/i })).toBeDisabled();
+  });
+
+  it('destrava ao escolher o cartão', () => {
+    const dialogo = abrir();
+    fireEvent.change(within(dialogo).getByLabelText(/forma de pagamento/i), {
+      target: { value: 'credit_card' },
+    });
+    fireEvent.change(within(dialogo).getByLabelText(/qual cartão/i), {
+      target: { value: '9' },
+    });
+
+    expect(within(dialogo).queryByText(/escolha o cartão/i)).toBeNull();
+    expect(within(dialogo).getByRole('button', { name: /^salvar$/i })).toBeEnabled();
+  });
+
+  it('outro método não pede cartão nenhum', () => {
+    // Contrapeso: travar sempre seria pior que o defeito.
+    const dialogo = abrir();
+    fireEvent.change(within(dialogo).getByLabelText(/forma de pagamento/i), {
+      target: { value: 'pix' },
+    });
+    expect(within(dialogo).getByRole('button', { name: /^salvar$/i })).toBeEnabled();
   });
 });

@@ -77,6 +77,7 @@ from app.models.workspace import (  # noqa: E402
     WorkspaceRole,
 )
 from app.services.account_balance_service import AccountBalanceService  # noqa: E402
+from app.services.base_conversion import compute_statement_conversion  # noqa: E402
 from app.services.credit_card_service import CreditCardService  # noqa: E402
 from app.services.financing_service import FinancingService  # noqa: E402
 from app.services.transaction_service import persist_transaction_children  # noqa: E402
@@ -276,7 +277,24 @@ def despesa(
         if etiqueta is not None:
             db.add(TransactionTagLink(transaction_id=tx.id, tag_id=etiqueta.id))
         if cartao is not None:
-            CreditCardService.get_or_create_statement(db, cartao, data_i)
+            # ROTEAR, e não só criar a fatura. A primeira versão chamava
+            # `get_or_create_statement` e descartava o resultado: as compras
+            # ficavam com cartão e `statement_id` nulo — apareciam na lista, não
+            # entravam em fatura nenhuma e o total da fatura somava 0,00 para
+            # sempre. A conferência dos cartões foi quem viu.
+            #
+            # A perna de FATURA (ADR 0024) vem junto: é ela que
+            # `compute_statement_total` soma, e sem ela o total continuaria zero
+            # mesmo com o vínculo certo.
+            fatura = CreditCardService.get_or_create_statement(db, cartao, data_i)
+            tx.statement_id = fatura.id
+            for campo, valor in compute_statement_conversion(
+                db, cartao,
+                currency=tx.currency, total_amount=bruto, transaction_date=data_i,
+            ).items():
+                setattr(tx, campo, valor)
+            db.add(tx)
+            db.flush()
         criadas.append(tx)
 
     db.flush()
@@ -638,10 +656,14 @@ def recorrencias_e_acertos(db: Session, c: dict) -> None:
         start_date=meses_atras(7, 5).date(), auto_settle=True, is_active=True,
         split_snapshot=dividido(dono, marina, rafael),
     ))
+    # PIX, e não cartão: a Marina não tem cartão cadastrado, e "no cartão" sem
+    # cartão é um estado que não existe — a rota agora recusa. Foi o semeador que
+    # o produziu (escrevendo pelo modelo, sem passar pela validação da rota) e a
+    # varredura de telas que o encontrou, em Contas a pagar.
     db.add(RecurringExpense(
         title="Internet e streaming", base_amount=Decimal("189.80"), day_of_month=12,
         workspace_id=casa.id, created_by_user_id=marina.id, payer_user_id=marina.id,
-        currency="BRL", payment_method=PaymentMethod.credit_card,
+        currency="BRL", payment_method=PaymentMethod.pix,
         category_id=cc["Assinaturas"].id, start_date=meses_atras(7, 12).date(),
         is_active=True, split_snapshot=dividido(dono, marina, rafael),
     ))
@@ -651,6 +673,7 @@ def recorrencias_e_acertos(db: Session, c: dict) -> None:
         title="Academia", base_amount=Decimal("129.00"), day_of_month=8,
         workspace_id=casa.id, created_by_user_id=dono.id, payer_user_id=dono.id,
         currency="BRL", payment_method=PaymentMethod.credit_card,
+        credit_card_id=c["cartao_do_dono"].id,
         start_date=meses_atras(7, 8).date(), is_active=True,
     ))
     db.add(RecurringExpense(
@@ -708,7 +731,7 @@ def o_que_falta(db: Session, c: dict, contas, cartoes) -> None:
     estado vazio — e estado vazio não diagnostica nada.
     """
     from app.models.account_ledger import AccountTransfer
-    from app.models.credit_card import CardStatement, StatementStatus
+    from app.models.credit_card import CardStatement, StatementStatus  # noqa: F401
     from app.models.estimate import MonthlyEstimate
 
     dono, casa = c["dono"], c["casa"]
@@ -725,8 +748,11 @@ def o_que_falta(db: Session, c: dict, contas, cartoes) -> None:
         total = CreditCardService.compute_statement_total(db, st.id)
         if total <= 0:
             continue
-        st.status = StatementStatus.closed
-        db.add(st)
+        # FECHAR pelo serviço, não marcando o status na mão: é o fechamento que
+        # CONGELA o total faturado, e sem ele `statement_balance` calcula saldo
+        # zero e o pagamento é recusado com "esta fatura já está quitada". Foi o
+        # que aconteceu — marcar o campo não é fechar a fatura.
+        CreditCardService.close_statement(db, st)
         db.flush()
         CreditCardService.pay_statement(
             db, st, account=contas["Nubank"], amount=total,
@@ -853,6 +879,11 @@ def limpar(db: Session, email_dono: str) -> None:
             f"DELETE FROM category WHERE workspace_id IN ({lista})",
             f"DELETE FROM tag WHERE workspace_id IN ({lista})",
             f"DELETE FROM workspacemembership WHERE workspace_id IN ({lista})",
+            # O canal de tempo real guarda um evento por mutação, com FK para o
+            # espaço: sem apagá-los, o Postgres (com razão) recusa remover o
+            # espaço. São eventos de sincronização, não histórico — morrem com
+            # a sala a que pertencem.
+            f"DELETE FROM syncevent WHERE workspace_id IN ({lista})",
             f"DELETE FROM workspace WHERE id IN ({lista})",
         ):
             db.exec(text(sql))
@@ -906,6 +937,8 @@ def main() -> int:
         c = semear(db, args.dono)
         historia_dos_espacos(db, c)
         contas, cartoes = vida_pessoal(db, c)
+        # O cartão do dono é insumo das recorrências no crédito (uma delas usa).
+        c["cartao_do_dono"] = cartoes["Nubank Roxinho"]
         vida_das_demais(db, c)
         recorrencias_e_acertos(db, c)
         o_que_falta(db, c, contas, cartoes)
