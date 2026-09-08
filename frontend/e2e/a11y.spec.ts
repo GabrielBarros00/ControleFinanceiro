@@ -150,7 +150,7 @@ test.describe('Acessibilidade (axe · WCAG 2 A/AA)', () => {
     // Início GLOBAL (ADR 0020): soma todos os workspaces, e é só leitura —
     // lançar despesa é ato de UMA casa, então o botão não mora aqui.
     await page.goto('/overview');
-    await expect(page.getByRole('heading', { name: /Seu mês/ })).toBeVisible();
+    await expect(page.getByRole('heading', { name: /Hoje/ })).toBeVisible();
     const global = await analisar(page);
     expect(resumir(global.violations)).toBe('');
 
@@ -162,6 +162,13 @@ test.describe('Acessibilidade (axe · WCAG 2 A/AA)', () => {
 
     await page.locator('header').getByRole('button', { name: 'Nova despesa' }).click();
     await expect(page.getByRole('dialog')).toBeVisible();
+    // O formulário abre no modo SIMPLES (título, valor, salvar); o scanner
+    // precisa ver os dois estados — o simples é o que quase todo mundo vê, e o
+    // detalhado é onde moram os controles de divisão.
+    const formSimples = await analisar(page, '[role="dialog"]');
+    expect(resumir(formSimples.violations)).toBe('');
+
+    await page.getByRole('dialog').getByRole('button', { name: /^Detalhar$/ }).click();
     // Inclui as "Opções avançadas": é onde moram os campos de divisão
     await page.getByRole('dialog').getByRole('button', { name: /Opções avançadas/ }).click();
 

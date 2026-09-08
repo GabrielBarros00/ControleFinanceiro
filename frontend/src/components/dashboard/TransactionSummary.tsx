@@ -130,7 +130,7 @@ export function TransactionSummary({ transaction }: TransactionSummaryProps) {
             <p key={adj.id} className="text-xs text-foreground">
               {ADJUSTMENT_TYPE_LABELS[adj.type]}
               {adj.description ? ` (${adj.description})` : ''}:{' '}
-              <span className={`font-bold ${parseFloat(adj.amount) < 0 ? 'text-emerald-500' : ''}`}>
+              <span className={`font-bold ${parseFloat(adj.amount) < 0 ? 'text-income' : ''}`}>
                 {formatCurrency(parseFloat(adj.amount), transaction.currency)}
               </span>
             </p>

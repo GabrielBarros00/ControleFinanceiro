@@ -19,8 +19,9 @@ import { monthCompactLabel, parseApiDate } from '@/lib/date';
  * **A pílula do mês é a novidade que importa.** `billing_month` sempre existiu
  * no banco e na resposta, e nunca apareceu na tela — então os dois tipos de
  * acerto eram indistinguíveis: o registrado a partir de um mês fecha AQUELE mês;
- * o registrado a partir do saldo acumulado derruba o total sem fechar mês
- * nenhum. É a explicação do saldo que "cai sozinho", e ela estava escondida.
+ * o registrado a partir do saldo acumulado quita do mais antigo ao mais novo,
+ * até o valor acabar. É a explicação do saldo que "cai sozinho", e ela estava
+ * escondida.
  *
  * As duas telas mapeiam o payload delas para `HistoryRow` — a da casa tem os
  * nomes e o desfazer, a global tem a coluna de espaço e o eixo "eu". A tabela, os
@@ -42,9 +43,19 @@ export interface HistoryRow {
    *  entre terceiros, que a tela da casa mostra a quem tem acesso completo e no
    *  qual não há "para mim" nenhum. */
   kind: 'sent' | 'received' | 'neutral';
-  /** Ausente = não dá para desfazer daqui (é o caso da tela global). */
+  /** Ausente = não dá para desfazer daqui. */
   onUndo?: () => void;
   canUndo?: boolean;
+  /*
+   * Como o botão se chama para quem NÃO vê a tabela.
+   *
+   * Numa lista de acertos, "Desfazer" repetido em toda linha não diz qual
+   * acerto — e é a única coisa que um leitor de tela anuncia. Quem informa a
+   * linha é quem monta os dados, que já tem o nome da contraparte e o valor.
+   */
+  undoLabel?: string;
+  /** Por que o desfazer está travado (vira `title` do botão). */
+  undoDisabledReason?: string;
 }
 
 interface Props {
@@ -57,9 +68,13 @@ function MesPill({ month }: { month?: string | null }) {
   return month ? (
     <StatusPill tone="brand">{monthCompactLabel(month)}</StatusPill>
   ) : (
-    /* "Sem mês" não é ausência de dado, é um TIPO de acerto — o que abate o
-       acumulado sem fechar mês nenhum. Um traço faria parecer campo vazio. */
-    <StatusPill tone="neutral">sem mês</StatusPill>
+    /* Não é ausência de dado, é um TIPO de acerto: o registrado a partir do
+       saldo acumulado, que não escolhe mês.
+       O rótulo era "sem mês" e passou a mentir quando esse acerto começou a
+       fechar os meses mais antigos em aberto (`_alocar_globais`) — ele não
+       fecha "mês nenhum", fecha os que couberem, do mais antigo ao mais novo.
+       Um traço faria parecer campo vazio. */
+    <StatusPill tone="neutral">do acumulado</StatusPill>
   );
 }
 
@@ -119,6 +134,8 @@ export function SettlementHistory({ rows, whoLabel = 'Com quem' }: Props) {
                     variant="ghost"
                     disabled={row.canUndo === false}
                     onClick={row.onUndo}
+                    aria-label={row.undoLabel ?? 'Desfazer acerto'}
+                    title={row.canUndo === false ? row.undoDisabledReason : undefined}
                     className="gap-1.5 text-destructive hover:bg-destructive/10"
                   >
                     <Trash2 className="h-3.5 w-3.5" /> Desfazer
@@ -174,7 +191,8 @@ export function SettlementHistory({ rows, whoLabel = 'Com quem' }: Props) {
                       <Button
                         size="sm"
                         variant="ghost"
-                        aria-label="Desfazer acerto"
+                        aria-label={row.undoLabel ?? 'Desfazer acerto'}
+                        title={row.canUndo === false ? row.undoDisabledReason : undefined}
                         disabled={row.canUndo === false}
                         onClick={row.onUndo}
                         className="h-8 w-8 p-0 text-destructive hover:bg-destructive/10"

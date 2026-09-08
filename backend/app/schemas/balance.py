@@ -42,7 +42,7 @@ class ProjectionLine(BaseModel):
     """Uma parcela da projeção, nomeada — "a pagar: 4.380" sem detalhe não é
     auditável pela pessoa, que não teria como saber se a fatura entrou ou não."""
 
-    kind: str  # payables | statements | financing | income
+    kind: str  # payables | statements | financing | income | overdue
     label: str
     amount: Decimal
     count: int = 0
@@ -64,6 +64,13 @@ class BalanceRead(BaseModel):
     receivable_total: Decimal = Decimal("0")
     #: Contas a pagar + faturas que vencem no mês + parcelas de financiamento.
     payable_total: Decimal = Decimal("0")
+    #: O que JÁ VENCEU e segue em aberto — fora da projeção de propósito.
+    #:
+    #: "Até o fim do mês" com doze meses de atraso embutidos não responde nem
+    #: "quanto vou ter" nem "quanto eu devo". Separar não é esconder: o valor
+    #: continua na resposta e ganha linha própria no `breakdown`, com a tela
+    #: levando a Contas a pagar, que detalha item a item.
+    overdue_total: Decimal = Decimal("0")
     #: `saldo atual + a receber − a pagar`. `None` quando não há saldo atual —
     #: projetar a partir de um saldo desconhecido daria um número inventado.
     projected_balance: Optional[Decimal] = None

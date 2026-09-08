@@ -120,9 +120,13 @@ describe('SettlementDialog', () => {
     expect(screen.getByText(/Fecha o mês de Agosto de 2026/)).toBeInTheDocument();
   });
 
-  it('sem mês, avisa que só abate o acumulado', () => {
+  it('sem mês, avisa que quita do mais antigo para o mais novo', () => {
+    // A frase dizia "abate o acumulado, sem fechar mês nenhum" — descrevia o
+    // defeito, e o descrevia ANTES de a pessoa confirmar.
     renderDialog();
-    expect(screen.getByText(/Abate o saldo acumulado, sem fechar mês nenhum/)).toBeInTheDocument();
+    expect(
+      screen.getByText(/Quita os meses em aberto, do mais antigo para o mais novo/),
+    ).toBeInTheDocument();
     expect(screen.queryByText(/Fecha o mês de/)).not.toBeInTheDocument();
   });
 

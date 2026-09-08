@@ -282,10 +282,18 @@ class PayablesService:
         do ADR 0022 já teve de resolver uma vez.
         """
         dados = PayablesService.list_payables(db, user_id, target_month, destino)
+        # As CONTAGENS separadas existem porque a projeção precisa dizer "3
+        # vencidas" e "1 vence este mês" — e `len(entries)` sozinho só sabia
+        # somar as duas. Cada entrada já carrega `is_overdue` (derivado, nunca
+        # armazenado — ver `_situacao`), então é contar o que já está lá.
+        atrasadas = sum(1 for e in dados["entries"] if e["is_overdue"])
         return {
             "payables_total": dados["total"],
             "payables_count": len(dados["entries"]),
             "payables_overdue": dados["overdue_total"],
+            "due_this_month_total": dados["due_this_month_total"],
+            "payables_overdue_count": atrasadas,
+            "payables_due_count": len(dados["entries"]) - atrasadas,
         }
 
     # ---- Montagem ------------------------------------------------------------

@@ -136,7 +136,7 @@ export function CurrencyCombobox({
                   <span className="w-9 shrink-0 font-semibold">{c.code}</span>
                   <span className="min-w-0 flex-1 truncate text-muted-foreground">{c.name}</span>
                   {c.ptax && (
-                    <span className="shrink-0 rounded-full bg-emerald-500/10 px-1.5 py-0.5 text-[9px] font-semibold uppercase text-emerald-500">
+                    <span className="shrink-0 rounded-full bg-income-subtle px-1.5 py-0.5 text-[9px] font-semibold uppercase text-income">
                       oficial
                     </span>
                   )}

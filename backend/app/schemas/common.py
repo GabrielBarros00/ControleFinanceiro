@@ -81,6 +81,20 @@ class StatusRead(BaseModel):
     status: str
 
 
+class DeleteResult(BaseModel):
+    """Confirmação de exclusão que diz o que foi junto.
+
+    A exclusão de lançamento é SOFT e tem "desfazer" — mas o anexo não tem soft
+    delete: ele é apagado de verdade, porque um recibo preso a uma despesa
+    inalcançável ocuparia cota para sempre. Restaurar devolve a despesa sem os
+    recibos, e este número é o que permite à tela AVISAR em vez de deixar a
+    pessoa descobrir quando precisar do comprovante.
+    """
+    status: str
+    #: Quantos anexos foram apagados junto (e não voltam com o "desfazer").
+    attachments_removed: int = 0
+
+
 class MessageRead(BaseModel):
     """Confirmação com texto para a tela — em PT-BR, como todo o app."""
     message: str

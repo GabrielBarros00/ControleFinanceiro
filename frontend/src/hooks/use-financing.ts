@@ -63,6 +63,25 @@ export function useFinancing() {
   });
 
   /**
+   * Marca como pagas as parcelas que já venceram.
+   *
+   * Para quem cadastra um contrato que JÁ EXISTIA: o app gera o cronograma
+   * inteiro e toda parcela nasce em aberto, então o financiamento entra no app
+   * com meses de "atraso" que na vida real foram pagos. O backend é idempotente
+   * (filtra por `is_paid=false`), então chamar duas vezes não faz mal.
+   */
+  const quitarAnteriores = useMutation({
+    mutationFn: async (id: number) => {
+      const response = await apiClient.post(
+        `/me/financing/${id}/installments/settle-past`,
+        {},
+      );
+      return response.data as { quitadas: number; em_aberto: number };
+    },
+    onSuccess: invalidate,
+  });
+
+  /**
    * Paga a parcela e, OPCIONALMENTE, lança a despesa num workspace.
    *
    * O backend aceita `workspace_id` desde sempre e o hook nunca o enviava: pela
@@ -105,6 +124,7 @@ export function useFinancing() {
     create: createMutation.mutateAsync,
     remove: deleteMutation.mutateAsync,
     payInstallment: payInstallment.mutateAsync,
+    quitarAnteriores: quitarAnteriores.mutateAsync,
   };
 }
 

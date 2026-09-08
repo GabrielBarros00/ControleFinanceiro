@@ -26,12 +26,34 @@ function SelectValue({ className, ...props }: SelectPrimitive.Value.Props) {
   )
 }
 
+/**
+ * O gatilho do select — e o rótulo acessível dele é OBRIGATÓRIO.
+ *
+ * O Base UI renderiza `<button role="combobox">`, e `combobox` não é um papel
+ * que aceita "nome pelo conteúdo": o texto de dentro é o VALOR escolhido, não o
+ * nome do campo. Sem `aria-label` (ou `aria-labelledby`), o axe reprova com
+ * impacto CRÍTICO e um leitor de tela anuncia "caixa de combinação, recolhida" —
+ * sem dizer do quê.
+ *
+ * Era o caso dos quatro filtros de Lançamentos, a tela mais usada do app: quem
+ * enxerga entende pelo valor exibido ("Todo pagamento", "Toda categoria"), quem
+ * não enxerga recebia quatro comboboxes anônimos em sequência.
+ *
+ * O tipo abaixo torna isso um erro de compilação, e não um detalhe a lembrar:
+ * ou vem `aria-label`, ou vem `aria-labelledby`. É o mesmo raciocínio do
+ * `showCloseButton` do diálogo — o que precisa ser decidido em cada uso vira
+ * parâmetro, não convenção.
+ */
+type RotuloAcessivel =
+  | { 'aria-label': string; 'aria-labelledby'?: never }
+  | { 'aria-labelledby': string; 'aria-label'?: never };
+
 function SelectTrigger({
   className,
   size = "default",
   children,
   ...props
-}: SelectPrimitive.Trigger.Props & {
+}: SelectPrimitive.Trigger.Props & RotuloAcessivel & {
   size?: "sm" | "default"
 }) {
   return (

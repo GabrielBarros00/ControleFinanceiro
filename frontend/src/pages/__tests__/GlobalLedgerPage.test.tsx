@@ -110,6 +110,18 @@ describe('Extrato global', () => {
     expect(screen.getByText('Saldo do mês')).toBeInTheDocument();
   });
 
+  it('mostra que nada está filtrado em vez de deixar seis chips apagados', () => {
+    renderPage();
+    // Sem filtro, "Todas" é o chip aceso: a tela AFIRMA que está mostrando tudo.
+    expect(screen.getByRole('button', { name: 'Todas' })).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByRole('button', { name: 'Rendas' })).toHaveAttribute('aria-pressed', 'false');
+  });
+
+  it('apaga "Todas" quando um recorte entra', () => {
+    renderPage(LEDGER, '/me/ledger?month=2026-07&source=income');
+    expect(screen.getByRole('button', { name: 'Todas' })).toHaveAttribute('aria-pressed', 'false');
+  });
+
   it('lê o filtro de origem da URL e o repassa ao hook', () => {
     renderPage(LEDGER, '/me/ledger?month=2026-07&source=income');
     expect(mockLedger).toHaveBeenCalledWith(

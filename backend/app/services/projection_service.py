@@ -23,6 +23,28 @@ de novo é a forma mais direta de inflar a projeção.
 (isso é `ForecastService`, e é do workspace). Aqui só entra compromisso CONHECIDO,
 com data e valor. Um número que mistura o que se sabe com o que se estima não
 responde nem "quanto vou ter" nem "quanto costumo gastar".
+
+## O que VENCE e o que JÁ VENCEU são coisas diferentes
+
+As consultas de saída somavam tudo com vencimento **até** o fim do mês, sem piso
+inferior — e "não paga" é o estado padrão de toda parcela que o app gera sozinho.
+Medido: conta com R$ 10.000 e **um** financiamento começado há 12 meses (o caso de
+quem cadastra um contrato que já existia) faziam a primeira tela anunciar
+"a pagar −R$ 43.140" e "saldo projetado −R$ 33.140", quando vencia uma parcela de
+~R$ 3.595 e o saldo projetado era positivo.
+
+A correção **não** é ignorar o atraso — o comentário de `_a_receber`, logo abaixo,
+já dá o argumento certo: esconder dívida vencida é o mesmo erro que esconder renda
+antiga. O que faltava era **distinguir**:
+
+- `payable_total`      — só o que vence de hoje até o fim do mês;
+- `overdue_total`      — o que já venceu, em linha própria do detalhamento;
+- `projected_balance`  — usa só o primeiro, e passa a significar
+  *"se eu pagar o que vence este mês, quanto sobra"*.
+
+Nada some da tela: a mesma separação que `PayablesService` já fazia
+(`overdue_total` × `due_this_month_total`) passa a valer aqui, e as duas telas
+vizinhas param de contar histórias diferentes sobre o mesmo dinheiro.
 """
 import calendar
 from datetime import date
@@ -76,15 +98,22 @@ class ProjectionService:
             })
 
         # --- Saídas conhecidas --------------------------------------------------
+        #
+        # Cada fonte devolve DOIS pares: o que vence de hoje até o fim do mês e o
+        # que já venceu. O segundo não entra na projeção — vira a linha "Vencido",
+        # que é dívida e não previsão (ver o cabeçalho do módulo).
         pendencias = PayablesService.totals(db, user_id, target_month, destino)
-        contas = pendencias["payables_total"]
-        if pendencias["payables_count"]:
+        # `payables_total` é o total INTEIRO (inclui atrasado); o que descreve o
+        # mês é `due_this_month_total`, que a própria tela de Contas a pagar usa.
+        contas = pendencias["due_this_month_total"]
+        contas_vencidas = pendencias["payables_overdue"]
+        if contas:
             linhas.append({
                 "kind": "payables", "label": "Contas a pagar",
-                "amount": contas, "count": pendencias["payables_count"],
+                "amount": contas, "count": pendencias["payables_due_count"],
             })
 
-        faturas, n_faturas = ProjectionService._faturas(
+        faturas, n_faturas, faturas_vencidas, n_faturas_vencidas = ProjectionService._faturas(
             db, user_id, destino, fim_do_mes, hoje
         )
         if n_faturas:
@@ -93,13 +122,30 @@ class ProjectionService:
                 "amount": faturas, "count": n_faturas,
             })
 
-        parcelas, n_parcelas = ProjectionService._parcelas(
+        parcelas, n_parcelas, parcelas_vencidas, n_parcelas_vencidas = ProjectionService._parcelas(
             db, user_id, destino, fim_do_mes, hoje
         )
         if n_parcelas:
             linhas.append({
                 "kind": "financing", "label": "Parcelas de financiamento",
                 "amount": parcelas, "count": n_parcelas,
+            })
+
+        # --- O atraso, em UMA linha ---------------------------------------------
+        #
+        # Somado das três fontes de propósito: a pergunta que ele responde é "o que
+        # eu deixei passar", e ela não se resolve por origem — se resolve pagando.
+        # A tela leva daqui para Contas a pagar, que detalha item a item.
+        vencido = contas_vencidas + faturas_vencidas + parcelas_vencidas
+        n_vencidas = (
+            pendencias.get("payables_overdue_count", 0)
+            + n_faturas_vencidas
+            + n_parcelas_vencidas
+        )
+        if vencido:
+            linhas.append({
+                "kind": "overdue", "label": "Vencido",
+                "amount": vencido, "count": n_vencidas,
             })
 
         a_pagar = contas + faturas + parcelas
@@ -110,6 +156,7 @@ class ProjectionService:
             "month": month_key(target_month),
             "receivable_total": a_receber,
             "payable_total": a_pagar,
+            "overdue_total": vencido,
             "projected_balance": projetado,
             "breakdown": linhas,
         }
@@ -156,6 +203,8 @@ class ProjectionService:
         ).all()
         total = ZERO
         contadas = 0
+        atrasado = ZERO
+        atrasadas = 0
         for card in cartoes:
             # O teto do vencimento entra no SQL, e não num `continue` depois: sem
             # ele a consulta trazia TODA fatura não paga da vida do cartão e o
@@ -174,9 +223,16 @@ class ProjectionService:
                 convertido = converte(db, saldo, card.currency, destino, hoje)
                 if convertido is None:
                     continue
-                total += convertido
-                contadas += 1
-        return total, contadas
+                # `due_date` da fatura é um instante (`civil_instant`); comparar
+                # com `hoje` exige trazer os dois para o mesmo terreno.
+                vence = stmt.due_date.date() if hasattr(stmt.due_date, "date") else stmt.due_date
+                if vence < hoje:
+                    atrasado += convertido
+                    atrasadas += 1
+                else:
+                    total += convertido
+                    contadas += 1
+        return total, contadas, atrasado, atrasadas
 
     @staticmethod
     def _parcelas(db: Session, user_id: int, destino: str, fim_do_mes: date, hoje: date) -> tuple:
@@ -211,10 +267,19 @@ class ProjectionService:
         ).all()
         total = ZERO
         contadas = 0
-        for valor, moeda, _vence in linhas:
+        atrasado = ZERO
+        atrasadas = 0
+        for valor, moeda, vence in linhas:
             convertido = converte(db, valor or ZERO, moeda, destino, hoje)
             if convertido is None:
                 continue
-            total += convertido
-            contadas += 1
-        return total, contadas
+            # Dois baldes, e a linha divisória é HOJE. O que venceu antes é
+            # atraso — continua sendo dívida e continua na tela, mas não é
+            # "o que vai sair este mês".
+            if vence < hoje:
+                atrasado += convertido
+                atrasadas += 1
+            else:
+                total += convertido
+                contadas += 1
+        return total, contadas, atrasado, atrasadas

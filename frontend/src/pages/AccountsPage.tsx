@@ -24,7 +24,7 @@ import { StatusPill } from '@/components/ui/status-pill';
 import { useConfirm } from '@/components/ui/confirm';
 import { toast } from '@/stores/toast';
 import { getApiErrorMessage } from '@/lib/api-error';
-import { todayLocalISO } from '@/lib/date';
+import { parseApiDay, todayLocalISO } from '@/lib/date';
 import { currencySymbol, formatMoney } from '@/lib/money';
 import {
   useAccountBalanceActions,
@@ -211,7 +211,8 @@ export default function AccountsPage() {
                   )}
                   <p className="text-[11px] text-muted-foreground">
                     {accountTypeLabel(conta.type)} · {conta.currency}
-                    {conta.opening_on && ` · desde ${conta.opening_on}`}
+                    {conta.opening_on
+                      && ` · desde ${parseApiDay(conta.opening_on).toLocaleDateString('pt-BR')}`}
                   </p>
                 </div>
 

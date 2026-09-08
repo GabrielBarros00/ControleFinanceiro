@@ -69,11 +69,76 @@ export const useUIStore = create<UIState>()(
 interface NewTxState {
   open: boolean;
   setOpen: (open: boolean) => void;
+  /** Quem tinha o foco quando o diálogo abriu — para devolvê-lo ao fechar. */
+  origemDoFoco: HTMLElement | null;
+  /*
+   * Valores para o formulário nascer preenchido — o "Duplicar" do detalhe.
+   *
+   * Repetir um lançamento é o gesto mais comum que o app não tinha: o mesmo
+   * mercado toda semana, a mesma mensalidade, a mesma corrida. Sem isso, a
+   * pessoa abre o antigo, LÊ os campos, fecha, abre um novo e digita de novo o
+   * que já estava na tela.
+   *
+   * O tipo é solto (`Record`) de propósito: `stores/` não deve conhecer o
+   * formato do formulário de despesa. Quem semeia e quem consome são o mesmo
+   * par de telas, e o tipo forte mora lá.
+   */
+  semente: Record<string, unknown> | null;
+  /** Abre o diálogo já preenchido. */
+  abrirCom: (semente: Record<string, unknown>) => void;
 }
 
 export const useNewTxStore = create<NewTxState>((set) => ({
   open: false,
-  setOpen: (open) => set({ open }),
+  semente: null,
+  abrirCom: (semente) => {
+    const origem = document.activeElement;
+    set({
+      open: true,
+      semente,
+      origemDoFoco: origem instanceof HTMLElement ? origem : null,
+    });
+  },
+  /*
+   * Guarda quem ABRIU o diálogo e devolve o foco a ele ao fechar.
+   *
+   * O Radix faz isso sozinho quando o diálogo tem `DialogTrigger` — mas este é
+   * global, acionado de um store a partir do FAB, do botão do cabeçalho e dos
+   * estados vazios. Sem gatilho não há para onde voltar, e medimos o resultado:
+   * depois do Escape, `document.activeElement` era o `<body>`. Para quem navega
+   * por teclado isso significa recomeçar do início do documento — e a barra
+   * lateral tem 21 itens antes do conteúdo.
+   */
+  setOpen: (open) => {
+    if (open) {
+      const origem = document.activeElement;
+      set({ open: true, origemDoFoco: origem instanceof HTMLElement ? origem : null });
+      return;
+    }
+    set((estado) => {
+      const origem = estado.origemDoFoco;
+      /*
+       * O foco é devolvido no PRÓXIMO ciclo, e não aqui.
+       *
+       * O Radix também restaura foco ao desmontar um diálogo — inclusive o de
+       * confirmação que pode ter aparecido por cima ("Descartar esta despesa?").
+       * Restaurando de forma síncrona, a nossa chamada acontece primeiro e a do
+       * Radix vem depois, apontando para um elemento que já saiu do DOM: o foco
+       * termina no `<body>`, que é exatamente o que se queria corrigir.
+       *
+       * `isConnected`: o elemento pode ter saído do DOM enquanto o diálogo
+       * estava aberto (a linha que o continha foi excluída, a lista recarregou).
+       * Focar um nó órfão não faz nada e ainda deixa o foco no `<body>`.
+       */
+      setTimeout(() => {
+        if (origem?.isConnected) origem.focus();
+      }, 0);
+      // A semente morre com o fechamento: o próximo "Nova despesa" tem de
+      // nascer em branco, e não com a cópia do que se duplicou antes.
+      return { open: false, origemDoFoco: null, semente: null };
+    });
+  },
+  origemDoFoco: null,
 }));
 
 // Detalhe/edição global de um lançamento — abre por id a partir de qualquer lugar

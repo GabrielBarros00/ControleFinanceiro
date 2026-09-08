@@ -590,9 +590,24 @@ class OverviewService:
                         "due_date": parcela.due_date,
                         "amount": valor,
                     })
+            # A PRÓXIMA parcela é a próxima a partir de HOJE — não a primeira em
+            # aberto.
+            #
+            # `em_aberto[0]` é a mais antiga que ninguém marcou como paga, e num
+            # contrato cadastrado depois de já ter começado isso é uma data no
+            # passado: a tela dizia "próxima em 31/08/2025" com mais de um ano de
+            # atraso, numa seção chamada "a vencer". Quem lê conclui que o app
+            # está errado — e, do jeito que estava, estava.
+            #
+            # O atraso não some: `vencido` acima já o soma, e `overdue_count`
+            # abaixo diz quantas parcelas são.
+            a_vencer = [p for p in em_aberto if p.due_date >= hoje]
+            atrasadas = len(em_aberto) - len(a_vencer)
+            referencia = a_vencer[0] if a_vencer else em_aberto[0]
+
             # Comprometimento mensal: a próxima parcela de cada financiamento ativo
             # é o que se repete todo mês.
-            proxima = _conv(em_aberto[0].total_amount, fin.currency)
+            proxima = _conv(referencia.total_amount, fin.currency)
             if proxima is not None:
                 comprometimento += proxima
 
@@ -600,7 +615,12 @@ class OverviewService:
                 "financing_id": fin.id,
                 "title": fin.title,
                 "outstanding": saldo,
-                "next_due_date": em_aberto[0].due_date,
+                "next_due_date": referencia.due_date,
+                # O valor da PRÓXIMA parcela: numa tela de "a vencer", o número
+                # acionável é este, não o saldo devedor do contrato inteiro (que
+                # aparecia em destaque — R$ 1.250.000 para um imóvel).
+                "next_amount": proxima,
+                "overdue_count": atrasadas,
                 "remaining_installments": len(em_aberto),
             })
 

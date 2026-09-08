@@ -11,6 +11,7 @@ import {
 
 // <select> nativo: usado dentro de Dialog (Radix), onde o Select do Base UI foge do focus-trap
 import { nativeSelectClass as selectClass } from '@/components/ui/native-select';
+import { NumberInput } from '@/components/ui/NumberInput';
 
 const FREQS: RecurrenceFrequency[] = ['daily', 'weekly', 'monthly', 'yearly'];
 
@@ -67,14 +68,13 @@ export function RecurrenceEditor({ value, onChange, idPrefix = 'rec' }: Recurren
         {!value.custom && (value.frequency === 'monthly' || value.frequency === 'yearly') && (
           <div className="space-y-2">
             <Label htmlFor={`${idPrefix}-dom`}>Dia do mês</Label>
-            <Input
+            <NumberInput
               id={`${idPrefix}-dom`}
-              type="number"
-              inputMode="numeric"
               min={1}
               max={31}
+              padraoAoSair={1}
               value={value.day_of_month}
-              onChange={(e) => onChange({ day_of_month: Number(e.target.value) })}
+              onChange={(v) => onChange({ day_of_month: v ?? 1 })}
               className="bg-background/50"
             />
           </div>
@@ -121,13 +121,15 @@ export function RecurrenceEditor({ value, onChange, idPrefix = 'rec' }: Recurren
           <div className="space-y-2">
             <Label htmlFor={`${idPrefix}-interval`}>A cada</Label>
             <div className="flex gap-2">
-              <Input
+              {/* O `Math.max(1, … || 1)` que havia aqui rodava a cada tecla:
+                  digitar `0` saltava para 1 na hora, e apagar o campo era
+                  impossível. O mínimo agora é aplicado ao SAIR. */}
+              <NumberInput
                 id={`${idPrefix}-interval`}
-                type="number"
-                inputMode="numeric"
                 min={1}
+                padraoAoSair={1}
                 value={value.interval}
-                onChange={(e) => onChange({ interval: Math.max(1, Number(e.target.value) || 1) })}
+                onChange={(v) => onChange({ interval: v ?? 1 })}
                 className="w-20 bg-background/50"
               />
               <select
@@ -184,14 +186,13 @@ export function RecurrenceEditor({ value, onChange, idPrefix = 'rec' }: Recurren
             />
           )}
           {value.end_mode === 'after' && (
-            <Input
+            <NumberInput
               aria-label="Número de ocorrências"
-              type="number"
-              inputMode="numeric"
               min={1}
               max={600}
+              padraoAoSair={1}
               value={value.end_after}
-              onChange={(e) => onChange({ end_after: Math.max(1, Number(e.target.value) || 1) })}
+              onChange={(v) => onChange({ end_after: v ?? 1 })}
               className="w-24 bg-background/50"
             />
           )}

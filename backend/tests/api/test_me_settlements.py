@@ -585,11 +585,21 @@ def test_origem_do_saldo_nao_mostra_divida_entre_terceiros(cenario, db_session, 
     assert Decimal(grupos["Viagem"]["balance"]) == Decimal("120.00")
 
 
-def test_origem_separa_o_acerto_sem_mes(cenario, db_session, override_get_session):
-    """Acerto global entra em `unassigned`, não some nem se finge de mês.
+def test_acerto_sem_mes_fecha_o_mes_mais_antigo(cenario, db_session, override_get_session):
+    """Acerto do saldo acumulado ABATE o mês mais antigo em aberto.
 
-    É o defeito que a tela passou a mostrar: registrar pelo saldo acumulado
-    derruba o total sem fechar mês nenhum, e antes nada dizia isso.
+    Este teste dizia o contrário — "o mês continua devendo os 100, o acerto
+    global não o tocou" — e a docstring anterior chamava isso de defeito que "a
+    tela passou a mostrar": a rodada que a escreveu conheceu o problema e
+    escolheu EXIBIR o saldo órfão em vez de resolvê-lo.
+
+    Exibir não bastou. Quem registra o acerto pelo Resumo vê o total zerar e,
+    na linha de baixo, os mesmos meses devendo o valor inteiro — a tela afirma
+    as duas coisas ao mesmo tempo. Agora o pagamento faz o que qualquer
+    pagamento de dívida faz: quita do mais antigo para o mais novo
+    (`DebtService._alocar_globais`).
+
+    `unassigned` continua existindo, para o que não tem mês onde caber.
     """
     db_session.add(Settlement(
         workspace_id=cenario["casa"].id,
@@ -604,9 +614,9 @@ def test_origem_separa_o_acerto_sem_mes(cenario, db_session, override_get_sessio
         g for g in client.get("/api/v1/me/debts/by-month", headers=cenario["headers"]).json()["by_workspace"]
         if g["workspace_name"] == "Casa"
     )
-    # O mês continua devendo os 100 — o acerto global não o tocou
-    assert [(m["month"], m["balance"]) for m in casa["months"]] == [("2026-08", "-100.00")]
-    assert casa["unassigned"] == "30.00"
+    # Os 30 caíram no mês: ele passa a dever 70, e não sobra saldo órfão.
+    assert [(m["month"], m["balance"]) for m in casa["months"]] == [("2026-08", "-70.00")]
+    assert casa["unassigned"] == "0.00"
     assert Decimal(casa["balance"]) == Decimal("-70.00")
     assert (
         sum(Decimal(m["balance"]) for m in casa["months"]) + Decimal(casa["unassigned"])

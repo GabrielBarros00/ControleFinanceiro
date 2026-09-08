@@ -1,6 +1,7 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest';
-import { fireEvent, render, screen, within } from '@testing-library/react';
+import { fireEvent, render, screen, within, waitFor } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { ConfirmProvider } from '@/components/ui/confirm';
 import { MemoryRouter } from 'react-router-dom';
 import { MySettlementsPage } from '../MySettlementsPage';
 
@@ -162,11 +163,13 @@ const mockDebts = vi.fn();
 const mockMonthly = vi.fn();
 const mockHistory = vi.fn();
 const mockOrigem = vi.fn();
+const mockDesfazer = vi.hoisted(() => vi.fn());
 
 vi.mock('@/hooks/use-my-settlements', () => ({
   useMyDebts: () => mockDebts(),
   useMyMonthlyDebts: (...args: unknown[]) => mockMonthly(...args),
   useMySettlementsHistory: () => mockHistory(),
+  useDesfazerAcerto: () => ({ desfazer: mockDesfazer, isDesfazendo: false }),
 }));
 vi.mock('@/hooks/use-debts-by-month', () => ({
   useMyDebtsByMonth: () => mockOrigem(),
@@ -201,9 +204,14 @@ function montar(entrada = '/me/settlements?month=2026-08') {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
     <QueryClientProvider client={qc}>
-      <MemoryRouter initialEntries={[entrada]}>
-        <MySettlementsPage />
-      </MemoryRouter>
+      {/* `ConfirmProvider`: desfazer um acerto PERGUNTA antes — a dívida volta
+          ao balanço e aos meses que ela fechou. `useConfirm` lança sem o
+          provider, e a tela inteira falha ao montar. */}
+      <ConfirmProvider>
+        <MemoryRouter initialEntries={[entrada]}>
+          <MySettlementsPage />
+        </MemoryRouter>
+      </ConfirmProvider>
     </QueryClientProvider>,
   );
 }
@@ -250,7 +258,7 @@ describe('Seus acertos', () => {
     renderPage();
     expect(screen.getAllByText('Casa').length).toBeGreaterThan(0);
     expect(screen.getAllByText('Viagem').length).toBeGreaterThan(0);
-    const links = screen.getAllByRole('link', { name: /Abrir a casa/ });
+    const links = screen.getAllByRole('link', { name: /Abrir o espaço/ });
     expect(links[0]).toHaveAttribute('href', '/w/1/debts');
   });
 
@@ -293,9 +301,9 @@ describe('Seus acertos', () => {
     expect(within(casa).getByText('ago/2026')).toBeInTheDocument();
     expect(within(casa).getByText('jul/2026')).toBeInTheDocument();
     expect(within(casa).getAllByText('você deve R$ 60,00')).toHaveLength(2);
-    // O acerto sem mês é uma LINHA, não um sumiço: é ele que explica por que o
+    // O troco do acerto do acumulado é uma LINHA, não um sumiço: é ele que explica por que o
     // total (100) não é a soma dos meses (120).
-    expect(within(casa).getByText('Acertos sem mês')).toBeInTheDocument();
+    expect(within(casa).getByText('Fora dos meses')).toBeInTheDocument();
     expect(within(casa).getByText('você recebe R$ 20,00')).toBeInTheDocument();
     // A conta fecha na tela: −60 −60 +20 = −100
     expect(within(casa).getByText('Total acumulado')).toBeInTheDocument();
@@ -313,7 +321,54 @@ describe('Seus acertos', () => {
     // A pílula é a novidade: `billing_month` sempre veio na resposta e nunca
     // aparecia na tela, então os dois tipos de acerto eram indistinguíveis.
     expect(screen.getByText('jul/2026')).toBeInTheDocument();
-    expect(screen.getByText('sem mês')).toBeInTheDocument();
+    expect(screen.getByText('do acumulado')).toBeInTheDocument();
+  });
+
+  /**
+   * Desfazer daqui.
+   *
+   * A tela global registrava acerto e mandava a pessoa a OUTRA tela para
+   * desfazê-lo ("para desfazer um, abra o espaço dele") — quem errou o valor
+   * tinha de descobrir de qual espaço era a linha, navegar até lá e achar o
+   * acerto de novo. Corrigir é o que se faz logo depois de errar, e é onde se
+   * errou que a correção precisa estar.
+   *
+   * O espaço vem da LINHA, não da URL: esta tela lista acertos de vários.
+   */
+  it('desfaz o acerto sem sair da tela, no espaço certo', async () => {
+    renderPage();
+    abrirAba('Histórico');
+
+    fireEvent.click(screen.getByRole('button', { name: /Desfazer acerto de .* com Ana/ }));
+
+    // Desfazer PERGUNTA antes: a dívida volta ao balanço e aos meses que ela
+    // fechou. O aviso também é onde a tela explica como corrigir um valor.
+    const confirmacao = await screen.findByRole('dialog');
+    expect(confirmacao).toHaveTextContent(/desfaça e registre de novo/i);
+    fireEvent.click(within(confirmacao).getByRole('button', { name: 'Desfazer' }));
+
+    await waitFor(() => expect(mockDesfazer).toHaveBeenCalled());
+    // O espaço vem da LINHA (Casa, id 1), não de um "workspace atual" — esta
+    // tela lista acertos de vários.
+    expect(mockDesfazer).toHaveBeenCalledWith({ workspaceId: 1, id: 5 });
+  });
+
+  it('trava o desfazer do acerto que outra pessoa registrou, e diz por quê', () => {
+    /*
+     * O backend recusa desfazer acerto alheio ("Você só pode desfazer os
+     * próprios acertos"). O botão aparece TRAVADO em vez de sumir: some, a
+     * pessoa procura o que não está lá; travado sem explicação, ela clica e
+     * conclui que quebrou. Com `title`, ela sabe de quem é a vez.
+     */
+    renderPage();
+    abrirAba('Histórico');
+
+    const meu = screen.getByRole('button', { name: /Desfazer acerto de .* com Ana/ });
+    const doBruno = screen.getByRole('button', { name: /Desfazer acerto de .* com Bruno/ });
+
+    expect(meu).toBeEnabled();
+    expect(doBruno).toBeDisabled();
+    expect(doBruno).toHaveAttribute('title', expect.stringContaining('registrou'));
   });
 
   /*

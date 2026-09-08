@@ -460,6 +460,31 @@ class BulkCreateResult(BaseModel):
     skipped_details: List[BulkSkipped] = []
 
 
+class BulkCategorizeRequest(BaseModel):
+    """Categorizar várias despesas de uma vez.
+
+    Nasceu do quadro "Maior categoria: Sem categoria" dos Relatórios: chegar à
+    lista do que falta categorizar é metade do caminho, e categorizar trinta
+    despesas uma a uma (abrir, editar, escolher, salvar) é o que faz ninguém
+    categorizar nada.
+    """
+    transaction_ids: List[int]
+    category_id: int
+
+
+class BulkCategorizeResult(BaseModel):
+    """`skipped` são as que JÁ tinham categoria em algum item.
+
+    Elas são puladas, não sobrescritas: quem separou "mercado" de "farmácia" na
+    mesma compra fez isso de propósito, e um lote não pode desfazer esse
+    trabalho. O número volta para a tela poder dizer "3 de 5" em vez de deixar a
+    diferença sem explicação.
+    """
+    status: str
+    updated: int
+    skipped: int
+
+
 class BulkDeleteResult(BaseModel):
     """Exclusão em lote. `skipped_paid` existe porque despesa PAGA é imutável
     (ADR 0003): ela é pulada, não recusada — senão um lote inteiro falharia por

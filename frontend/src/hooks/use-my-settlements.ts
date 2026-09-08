@@ -1,5 +1,6 @@
-import { useQuery } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { apiClient } from '@/api/client';
+import { invalidateForEvent } from '@/lib/ws-events';
 import type { components } from '@/types/api.gen';
 
 /**
@@ -10,10 +11,15 @@ import type { components } from '@/types/api.gen';
  * me acerto, somando todas". Como o resto de `/me/*`, a chave NÃO leva
  * `workspaceId` — o recorte é a pessoa (ver `use-overview.ts`).
  *
- * Só leitura. Registrar e desfazer acerto continua em `useSettlements`, que fala
- * com `/workspaces/{ws}/settlements`: é lá que vivem a direção e o teto do ADR
- * 0009 e a trava contra sobrepagamento. A tela global só informa de qual casa é
- * a linha em que a pessoa clicou.
+ * Leitura, mais o DESFAZER (`useDesfazerAcerto`). Registrar continua em
+ * `useSettlements`, que fala com `/workspaces/{ws}/settlements`: é lá que vivem
+ * a direção e o teto do ADR 0009 e a trava contra sobrepagamento, e a tela
+ * global só informa de qual casa é a linha em que a pessoa clicou.
+ *
+ * Desfazer veio para cá porque a alternativa era pior: a tela global registrava
+ * o acerto e mandava a pessoa a OUTRA tela para corrigi-lo. Quem errou o valor
+ * teria de descobrir de qual espaço era a linha, navegar até lá e achar o
+ * acerto de novo — e corrigir é o que se faz logo depois de errar.
  *
  * Os três devolvem `isError`/`refetch` (ERR-001): sem isso uma falha de API vira
  * `data === undefined`, os totais caem no `?? 0` e a tela anuncia "você não deve
@@ -82,4 +88,31 @@ export function useMySettlementsHistory(limit = 50) {
     isError: query.isError,
     refetch: query.refetch,
   };
+}
+
+/**
+ * Desfazer um acerto a partir da tela global.
+ *
+ * O espaço vem do PARÂMETRO, e não da URL ou de um "workspace atual": esta tela
+ * lista acertos de vários, e o id do acerto sozinho não diz para qual rota ele
+ * vai. Mandar para o espaço errado responderia 404 falando de um acerto que
+ * existe.
+ *
+ * Não há edição de acerto no produto — corrigir é desfazer e registrar de novo.
+ * É o mesmo efeito (um acerto não tem filhos) com metade da superfície.
+ */
+export function useDesfazerAcerto() {
+  const queryClient = useQueryClient();
+  const mutation = useMutation({
+    mutationFn: async ({ workspaceId, id }: { workspaceId: number; id: number }) => {
+      await apiClient.delete(`/workspaces/${workspaceId}/settlements/${id}`);
+      return { workspaceId };
+    },
+    // Mesmo alcance de registrar: o acerto mexe no saldo global, no ledger do
+    // mês e no histórico das duas telas.
+    onSuccess: ({ workspaceId }) =>
+      invalidateForEvent(queryClient, 'settlement.deleted', workspaceId),
+  });
+
+  return { desfazer: mutation.mutateAsync, isDesfazendo: mutation.isPending };
 }

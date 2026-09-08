@@ -288,6 +288,31 @@
   padding-bottom: max(0.375rem, env(safe-area-inset-bottom, 0px));
 }
 
+/*
+ * Área segura de CIMA — a irmã que faltava.
+ *
+ * `index.html` declara `viewport-fit=cover`, cujo efeito é estender o layout por
+ * baixo das áreas do sistema. O rodapé foi protegido contra isso em cinco
+ * lugares (`pb-safe`, `AppShell`, `BottomNav`, `dialog`, `AdminPage`); o TOPO
+ * não tinha uma referência sequer a `safe-area-inset-top` no projeto inteiro —
+ * verificado varrendo as regras CSS da página em execução.
+ *
+ * Na prática: a barra superior do app nasce em `top: 0` com 57px de altura, e é
+ * onde moram o seletor de espaço, o botão de instalar e os dois sinos. Em
+ * qualquer configuração em que o inset de topo passe a valer (iOS em
+ * `black-translucent`, Android de borda a borda, recorte em paisagem) esses
+ * controles ficam POR BAIXO da barra de status.
+ *
+ * O `max()` é um PISO, e ele não é opcional: a barra superior já tinha `py-2`
+ * (8px), e uma utilidade que só escrevesse `padding-top: env(...)` venceria na
+ * cascata e ZERARIA esse respiro em todo desktop, onde o inset vale 0. Medido:
+ * `paddingTop` caiu para `0px` na primeira versão desta regra. 0.5rem = os
+ * mesmos 8px do `py-2`, para o desktop ficar exatamente como estava.
+ */
+@utility pt-safe {
+  padding-top: max(0.5rem, env(safe-area-inset-top, 0px));
+}
+
 /* Acessibilidade: respeita quem pede menos movimento (docs/frontend-redesign/03 §4) */
 @media (prefers-reduced-motion: reduce) {
   *,

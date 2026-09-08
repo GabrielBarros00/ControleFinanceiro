@@ -8,7 +8,7 @@ import type { StatementAlert } from '@/lib/statement-alert';
 // legível sem brigar com o roxo do cartão.
 const SELO_POR_TOM: Record<StatementAlert['tone'], string> = {
   danger: 'bg-white text-destructive',
-  warning: 'bg-amber-300 text-amber-950',
+  warning: 'bg-warning-subtle text-warning',
   info: 'bg-white/25 text-primary-foreground',
   success: 'bg-white/25 text-primary-foreground',
 };

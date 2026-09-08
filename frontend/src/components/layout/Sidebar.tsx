@@ -1,3 +1,4 @@
+import * as React from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { LogOut } from 'lucide-react';
 import { cn } from '@/lib/utils';
@@ -65,6 +66,27 @@ export function Sidebar() {
     hint: rotuloDeEspaco(espaco, usuario?.id),
   });
 
+  /*
+   * Trazer o item ativo para a vista.
+   *
+   * A barra tem 21 itens e ~1.100px de altura num painel de 768px — a altura de
+   * um notebook comum. Medido: em `/admin` o item ativo ficava em y=1066, em
+   * `/w/:id/settings` em y=969, em `/w/:id/import` em y=929. Ou seja, estando NA
+   * página, nada aparecia aceso na barra — e a seção "Compartilhado" mostrava só
+   * o cabeçalho, dando a entender que o espaço não tem itens.
+   *
+   * Duas perguntas ficavam sem resposta ao mesmo tempo: "onde estou?" e "para
+   * onde posso ir?".
+   *
+   * `block: 'nearest'` não mexe em nada quando o item já está visível — que é o
+   * caso comum. E é `useLayoutEffect` para o ajuste acontecer antes da pintura,
+   * em vez de a barra dar um pulo depois de a tela aparecer.
+   */
+  const refDoItemAtivo = React.useRef<HTMLAnchorElement>(null);
+  React.useLayoutEffect(() => {
+    refDoItemAtivo.current?.scrollIntoView({ block: 'nearest' });
+  }, [ativo]);
+
   return (
     <aside className="sticky top-0 hidden h-dvh w-[240px] shrink-0 flex-col border-r border-border bg-card md:flex">
       <div className="px-4 py-5">
@@ -86,7 +108,20 @@ export function Sidebar() {
         <ScopeSwitcher variant="sidebar" />
       </div>
 
-      <nav className="flex-1 space-y-5 overflow-y-auto px-3 py-5">
+      {/* `aria-label`: são DUAS navegações no app (esta e a barra inferior do
+          celular), e sem nome um leitor de tela anuncia "navegação" duas vezes
+          sem distinguir uma da outra. */}
+      {/* A máscara de gradiente é a AFORDÂNCIA de que há mais coisa fora
+          de vista. Sem ela a barra rolava, mas nada dizia isso: não há barra de
+          rolagem à mostra, e o corte caía exatamente sobre um cabeçalho de
+          seção, o que se lê como "esta seção está vazia".
+
+          `mask-image` desbota as duas pontas do conteúdo; onde não há o que
+          rolar, não há o que desbotar, então ela não custa nada no caso comum. */}
+      <nav
+        aria-label="Navegação principal"
+        className="flex-1 space-y-5 overflow-y-auto px-3 py-5 [mask-image:linear-gradient(to_bottom,transparent,black_12px,black_calc(100%-12px),transparent)]"
+      >
         {secoes.map((section) => (
           <div key={section.label} className="space-y-1">
             {/* Sem o `/70` que havia aqui: com 11px e maiúsculas, 70% de opacidade
@@ -107,6 +142,13 @@ export function Sidebar() {
                 <Link
                   key={item.to}
                   to={item.to}
+                  /* O item ativo era marcado só VISUALMENTE (fundo e barrinha).
+                     Para tecnologia assistiva a lista era de links iguais, sem
+                     nada dizendo qual é a página atual — e a barra inferior do
+                     celular já fazia isso certo, então o app respondia de dois
+                     jeitos à mesma pergunta. */
+                  aria-current={active ? 'page' : undefined}
+                  ref={active ? refDoItemAtivo : undefined}
                   className={cn(
                     'group relative flex items-center gap-3 rounded-lg px-3 py-2 text-sm transition-colors',
                     active

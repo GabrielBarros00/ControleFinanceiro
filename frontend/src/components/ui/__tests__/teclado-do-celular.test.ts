@@ -81,12 +81,66 @@ function semComentarios(tag: string): string {
   return saida;
 }
 
+
+/**
+ * Apaga os comentários do ARQUIVO INTEIRO, preservando as quebras de linha.
+ *
+ * O `semComentarios` acima resolve o comentário DENTRO de uma tag; este resolve
+ * o caso oposto, e igualmente real: uma tag escrita dentro de um comentário.
+ * O `ui/NumberInput.tsx` documenta, em prosa, por que NÃO usa um campo numérico
+ * — e para explicar isso precisa escrever a tag. Sem esta limpeza o gate lia a
+ * explicação como se fosse um campo de verdade e acusava justamente o
+ * componente que existe para não ter o defeito.
+ *
+ * As quebras de linha são preservadas para o número da linha do relatório
+ * continuar apontando para o lugar certo.
+ *
+ * O sentido perigoso — um comentário APAGAR um defeito real — não é criado
+ * aqui: só o conteúdo do comentário some, e um `<Input>` fora dele continua
+ * inteiro. O teste `comentário não esconde um campo de verdade` guarda isso.
+ */
+function semComentariosNoArquivo(fonte: string): string {
+  let saida = '';
+  let aspas: string | null = null;
+  for (let i = 0; i < fonte.length; i += 1) {
+    const c = fonte[i];
+    if (aspas) {
+      saida += c;
+      // Escape antes da aspa: uma barra invertida a precedendo nao fecha a string.
+      if (c === aspas && fonte[i - 1] !== String.fromCharCode(92)) aspas = null;
+      continue;
+    }
+    if (c === '"' || c === "'" || c === '`') {
+      aspas = c;
+      saida += c;
+      continue;
+    }
+    if (c === '/' && fonte[i + 1] === '*') {
+      const fim = fonte.indexOf('*/', i + 2);
+      const trecho = fonte.slice(i, fim === -1 ? fonte.length : fim + 2);
+      saida += trecho.replace(/[^\n]/g, ' ');
+      i = fim === -1 ? fonte.length : fim + 1;
+      continue;
+    }
+    if (c === '/' && fonte[i + 1] === '/') {
+      const fim = fonte.indexOf('\n', i);
+      const trecho = fonte.slice(i, fim === -1 ? fonte.length : fim);
+      saida += trecho.replace(/./g, ' ');
+      i = fim === -1 ? fonte.length : fim - 1;
+      continue;
+    }
+    saida += c;
+  }
+  return saida;
+}
+
 /**
  * Conteúdo de cada `<Input>`/`<input>`, respeitando chaves e aspas aninhadas —
  * um atributo como `max={Math.floor(x / 2)}` tem `>` dentro que não fecha a tag.
  * Mesmo parser do gate de `acoes-travam`, aqui com o nome da tag por parâmetro.
  */
-function tags(fonte: string, nome: string): { linha: number; tag: string }[] {
+function tags(fonteBruta: string, nome: string): { linha: number; tag: string }[] {
+  const fonte = semComentariosNoArquivo(fonteBruta);
   const achados: { linha: number; tag: string }[] = [];
   const re = new RegExp(`<${nome}\\b`, 'g');
   let m: RegExpExecArray | null;
@@ -221,6 +275,39 @@ describe('gate: o celular abre o teclado do campo', () => {
     // type="email" — a regra lê `id`/`aria-label`, não o texto do placeholder.
     const busca = tags('<Input type="search" placeholder="Buscar por nome ou e-mail" aria-label="Buscar pessoa" />', 'Input')[0].tag;
     expect(pareceEmail(busca)).toBe(false);
+  });
+
+  it('tag escrita DENTRO de um comentário não conta como campo', () => {
+    /*
+     * O caso oposto do teste seguinte, e igualmente real: o `ui/NumberInput`
+     * documenta em prosa por que não usa um campo numérico — e para explicar
+     * isso precisa escrever a tag. O gate acusava justamente o componente
+     * criado para não ter o defeito.
+     */
+    const soProsa = [
+      '/**',
+      ' * Sobre `<input type="number">` e por que ele não serve aqui.',
+      ' */',
+      'export function X() { return null; }',
+    ].join('\n');
+    expect(tags(soProsa, 'input')).toEqual([]);
+
+    // O SENTIDO PERIGOSO: um comentário logo acima não pode esconder um campo
+    // de verdade. Sem esta metade, "ignorar comentários" viraria um jeito de
+    // silenciar o gate — bastaria comentar acima do campo defeituoso.
+    const comentarioEDepoisOCampo = [
+      '// explica alguma coisa sobre <input type="number">',
+      '<Input type="number" />',
+    ].join('\n');
+    const achados = tags(comentarioEDepoisOCampo, 'Input');
+    expect(achados).toHaveLength(1);
+    expect(valorDe(achados[0].tag, 'type')).toBe('number');
+    expect(temAtributo(achados[0].tag, 'inputMode')).toBe(false);
+
+    // E a linha reportada continua certa depois da limpeza — o relatório do
+    // gate aponta arquivo:linha, e um deslocamento aqui mandaria quem for
+    // corrigir para o lugar errado.
+    expect(achados[0].linha).toBe(2);
   });
 
   it('comentário dentro da tag não conta como atributo', () => {

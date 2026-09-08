@@ -136,4 +136,54 @@ if (!sw.includes("addEventListener('notificationclick'")) {
   );
 }
 
+/*
+ * A cor da barra de status precisa servir aos DOIS temas.
+ *
+ * O app instalado no Android pinta a barra de status com o `theme_color` do
+ * MANIFESTO — não com a meta `theme-color` que o `use-theme.ts` mantém em dia,
+ * porque o manifesto é lido na instalação e não em tempo de execução. Com
+ * `#fcfbf9` (o que havia aqui), a barra ficava branca por cima de um app no tema
+ * escuro, e os ícones do sistema — hora, bateria, notificações — desapareciam
+ * nela: 1,03:1 de contraste contra branco.
+ *
+ * A regra abaixo exige uma cor **escura o bastante para ícone branco**, e a
+ * escolha merece justificativa porque a alternativa parece igualmente válida:
+ *
+ * - Exigir só "que algum dos dois jogos de ícone passe" NÃO serve de portão:
+ *   `#fcfbf9` dá 20:1 com ícone preto e passaria folgado — era exatamente a cor
+ *   que produziu o defeito.
+ * - Quem decide a cor do ícone é o sistema, pela luminância, e nem todo Android
+ *   troca para ícone escuro numa cor clara. Ícone branco sobre cor escura é a
+ *   única combinação que TODOS resolvem igual.
+ * - E é a que serve aos dois temas do app: uma barra na cor da marca não briga
+ *   nem com o tema claro nem com o escuro, enquanto uma barra branca só combina
+ *   com um deles.
+ *
+ * O mesmo vale para `background_color`, que é a cor da splash de toda abertura a
+ * frio: branca num app escuro é um clarão na cara de quem abre à noite.
+ */
+const luminancia = (hex) => {
+  const canal = [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16) / 255);
+  const linear = canal.map((c) => (c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4));
+  return 0.2126 * linear[0] + 0.7152 * linear[1] + 0.0722 * linear[2];
+};
+const contrasteComBranco = (hex) => 1.05 / (luminancia(hex) + 0.05);
+
+const MINIMO_DE_ICONE = 4.5;
+for (const campo of ['theme_color', 'background_color']) {
+  const cor = manifesto[campo];
+  if (typeof cor !== 'string' || !/^#[0-9a-f]{6}$/i.test(cor)) {
+    throw new Error(`manifest.${campo} precisa ser um hex de 6 dígitos (veio ${JSON.stringify(cor)})`);
+  }
+  const contraste = contrasteComBranco(cor);
+  if (contraste < MINIMO_DE_ICONE) {
+    throw new Error(
+      `manifest.${campo} = ${cor} dá apenas ${contraste.toFixed(2)}:1 contra ícone branco. `
+      + 'A barra de status do app instalado usa esta cor e não acompanha o tema — '
+      + 'clara demais, ela engole hora, bateria e notificações. '
+      + 'Use uma cor escura o bastante para ícone branco (a da marca serve aos dois temas).',
+    );
+  }
+}
+
 console.log('[build] manifesto, service worker e ícones do PWA emitidos');

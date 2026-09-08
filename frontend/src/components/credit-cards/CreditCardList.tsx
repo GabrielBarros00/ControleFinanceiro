@@ -22,6 +22,7 @@ import { parseApiDay } from '@/lib/date';
 import { toast } from '@/stores/toast';
 import { useConfirm } from '@/components/ui/confirm';
 import { CurrencyCombobox } from '@/components/dashboard/transaction-form/CurrencyCombobox';
+import { NumberInput } from '@/components/ui/NumberInput';
 
 interface CreditCardListProps {
   selectedCardId?: number | null;
@@ -262,26 +263,24 @@ export function CreditCardList({ selectedCardId, onSelectCard }: CreditCardListP
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div className="space-y-2">
                 <Label htmlFor="closing-day">Dia de fechamento</Label>
-                <Input
+                <NumberInput
                   id="closing-day"
-                  type="number"
-                  inputMode="numeric"
                   min={1}
                   max={31}
+                  padraoAoSair={1}
                   value={closingDay}
-                  onChange={(e) => setClosingDay(Number(e.target.value))}
+                  onChange={(v) => setClosingDay(v ?? 1)}
                 />
               </div>
               <div className="space-y-2">
                 <Label htmlFor="due-day">Dia de vencimento</Label>
-                <Input
+                <NumberInput
                   id="due-day"
-                  type="number"
-                  inputMode="numeric"
                   min={1}
                   max={31}
+                  padraoAoSair={10}
                   value={dueDay}
-                  onChange={(e) => setDueDay(Number(e.target.value))}
+                  onChange={(v) => setDueDay(v ?? 10)}
                 />
               </div>
             </div>

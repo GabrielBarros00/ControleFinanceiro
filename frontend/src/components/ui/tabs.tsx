@@ -27,7 +27,11 @@ function TabsList({ className, ...props }: React.ComponentProps<typeof TabsPrimi
          * `justify-start` porque com rolagem o `justify-center` faria o
          * conteúdo começar fora da vista quando ele não coubesse.
          */
-        'inline-flex h-9 w-fit max-w-full shrink-0 items-center justify-start overflow-x-auto rounded-lg bg-muted p-1 text-muted-foreground scrollbar-none',
+                // `h-11` no celular (44px), `sm:h-9` no desktop: as abas mediam 28px de
+        // altura no toque — abaixo do mínimo confortável, e o extrato já tinha
+        // recebido 40px nos botões de editar/excluir pelo mesmo motivo. Quem usa
+        // com o polegar erra o alvo e vai para a aba vizinha.
+        'inline-flex h-11 w-fit max-w-full shrink-0 items-center justify-start overflow-x-auto rounded-lg bg-muted p-1 text-muted-foreground scrollbar-none sm:h-9',
         className,
       )}
       {...props}
@@ -46,7 +50,7 @@ function TabsTrigger({ className, ...props }: React.ComponentProps<typeof TabsPr
         // some em silêncio, como as variantes `data-*` bare.
         // `shrink-0`: agora que a lista rola, sem isto o flex espremeria os
         // triggers até o texto sumir em vez de deixar a faixa rolar.
-        'inline-flex shrink-0 items-center justify-center gap-1.5 whitespace-nowrap rounded-md px-3 py-1 text-sm font-medium text-muted-foreground transition-all hover:text-foreground',
+        'inline-flex h-full shrink-0 items-center justify-center gap-1.5 whitespace-nowrap rounded-md px-3 py-1 text-sm font-medium text-muted-foreground transition-all hover:text-foreground',
         'focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring',
         'disabled:pointer-events-none disabled:opacity-50',
         'data-[state=active]:bg-card data-[state=active]:text-foreground data-[state=active]:shadow-sm',

@@ -30,7 +30,7 @@ const ALERTA_POR_TOM: Record<
   danger: { box: 'border-destructive/30 bg-destructive/10', icone: 'text-destructive', icon: AlertTriangle },
   warning: { box: 'border-warning/30 bg-warning-subtle', icone: 'text-warning', icon: Clock },
   info: { box: 'border-border bg-muted/50', icone: 'text-muted-foreground', icon: Info },
-  success: { box: 'border-emerald-500/30 bg-emerald-500/10', icone: 'text-emerald-500', icon: CheckCircle2 },
+  success: { box: 'border-income/30 bg-income-subtle', icone: 'text-income', icon: CheckCircle2 },
 };
 
 const STATUS_LABELS: Record<string, { label: string; tone: PillTone }> = {
@@ -350,7 +350,7 @@ export function StatementView({ cardId }: { cardId: number | null }) {
                             pergunta "por que R$ 100 viraram US$ 20?". */}
                         {tx.statement_currency && tx.currency !== tx.statement_currency && (
                           <span className="text-xs text-muted-foreground">
-                            {formatCurrency(parseFloat(tx.total_amount), tx.currency)} no workspace
+                            {formatCurrency(parseFloat(tx.total_amount), tx.currency)} no espaço
                           </span>
                         )}
                       </div>

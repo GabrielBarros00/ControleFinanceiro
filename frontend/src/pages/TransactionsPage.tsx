@@ -1,10 +1,10 @@
 import * as React from 'react';
-import { Search, Plus, ChevronLeft, ChevronRight, Receipt, FilterX } from 'lucide-react';
-import { useTransactions, type TransactionFilters } from '@/hooks/use-transactions';
+import { Search, Plus, ChevronLeft, ChevronRight, Receipt, FilterX, ListChecks } from 'lucide-react';
+import { useTransactions, useBulkCategorize, type TransactionFilters } from '@/hooks/use-transactions';
 import { useWorkspaceRole } from '@/hooks/use-workspace-role';
+import { useSearchParams } from 'react-router-dom';
 import { useMonthParam } from '@/hooks/use-month-param';
 import { useNewTxStore, useTxDetailStore, useUIStore } from '@/stores';
-import { useConfirm } from '@/components/ui/confirm';
 import { toast } from '@/stores/toast';
 import { getApiErrorMessage } from '@/lib/api-error';
 import { PageHeader } from '@/components/layout/PageHeader';
@@ -22,31 +22,75 @@ import { PAYMENT_METHOD_OPTIONS } from '@/lib/payment-methods';
 import { useCategories } from '@/hooks/use-categories';
 import { useTags } from '@/hooks/use-tags';
 import { FilterBar } from '@/components/layout/FilterBar';
+import { nativeSelectClass as selectClass } from '@/components/ui/native-select';
 
 
 const SEARCH_DEBOUNCE_MS = 300;
 
 export function TransactionsPage() {
-  // O mês mora na URL (sobrevive a reload/voltar e dá para compartilhar); o resto
-  // do filtro é estado de tela.
+  /*
+   * TODO o recorte mora na URL — mês, busca e os quatro filtros.
+   *
+   * O mês já morava; o resto era `useState`, e a diferença aparecia no uso: com
+   * "Café" digitado na busca, um F5 devolvia a lista inteira com o campo vazio,
+   * e não havia como mandar a alguém "olha estes lançamentos". Duas metades do
+   * mesmo recorte, guardadas em lugares diferentes.
+   *
+   * `replace: true` (dentro do `useSearchParams`) porque filtrar é ajuste de
+   * visualização e não navegação: com `push`, sair da tela exigiria um "voltar"
+   * por tecla digitada.
+   */
   const [month, setMonth] = useMonthParam();
-  const [filters, setFilters] = React.useState<Omit<TransactionFilters, 'month'>>({
-    page: 1,
-    limit: 15,
-    search: '',
-  });
-  // O campo responde a cada tecla, mas a query só sai quando o usuário para de
-  // digitar — antes "supermercado" disparava 12 requisições.
-  const [searchInput, setSearchInput] = React.useState('');
-  React.useEffect(() => {
-    const id = setTimeout(
-      () => setFilters((f) => (f.search === searchInput ? f : { ...f, search: searchInput, page: 1 })),
-      SEARCH_DEBOUNCE_MS,
-    );
-    return () => clearTimeout(id);
-  }, [searchInput]);
+  const [searchParams, setSearchParams] = useSearchParams();
 
-  const { transactions, total, totalAmount, totalPages, currentPage, isLoading, isError, remove } =
+  const filtroDaUrl = (nome: string) => searchParams.get(nome) ?? undefined;
+  const numeroDaUrl = (nome: string) => {
+    const bruto = searchParams.get(nome);
+    const n = bruto == null ? NaN : Number(bruto);
+    return Number.isInteger(n) && n > 0 ? n : undefined;
+  };
+  const filters: Omit<TransactionFilters, 'month'> = {
+    page: numeroDaUrl('page') ?? 1,
+    limit: 15,
+    search: searchParams.get('q') ?? '',
+    payment_method: filtroDaUrl('pagamento'),
+    category_id: numeroDaUrl('categoria'),
+    // Chega dos Relatórios: "categorize estas". Um booleano na URL, para o
+    // link ser compartilhável e o voltar do navegador não perder o recorte.
+    uncategorized: searchParams.get('semcategoria') === 'sim' || undefined,
+    tag_id: numeroDaUrl('tag'),
+    // `settled` é booleano de três estados: ausente = "pagas e a pagar".
+    settled: searchParams.has('pagas') ? searchParams.get('pagas') === 'sim' : undefined,
+  };
+
+  const escreverNaUrl = React.useCallback(
+    (mudancas: Record<string, string | number | undefined>) => {
+      setSearchParams((anterior) => {
+        const proximo = new URLSearchParams(anterior);
+        for (const [chave, valor] of Object.entries(mudancas)) {
+          if (valor === undefined || valor === '') proximo.delete(chave);
+          else proximo.set(chave, String(valor));
+        }
+        return proximo;
+      }, { replace: true });
+    },
+    [setSearchParams],
+  );
+
+  // O campo responde a cada tecla, mas a query só sai quando o usuário para de
+  // digitar — antes "supermercado" disparava 12 requisições. O estado local
+  // continua existindo por isso: é o texto EM DIGITAÇÃO, e só o texto assentado
+  // vai para a URL.
+  const [searchInput, setSearchInput] = React.useState(() => searchParams.get('q') ?? '');
+  React.useEffect(() => {
+    const id = setTimeout(() => {
+      if ((searchParams.get('q') ?? '') === searchInput) return;
+      escreverNaUrl({ q: searchInput || undefined, page: undefined });
+    }, SEARCH_DEBOUNCE_MS);
+    return () => clearTimeout(id);
+  }, [searchInput, searchParams, escreverNaUrl]);
+
+  const { transactions, total, totalAmount, totalPages, currentPage, isLoading, isError, remove, restore } =
     useTransactions({ ...filters, month });
   const { currentWorkspaceId } = useUIStore();
   const { canWrite } = useWorkspaceRole();
@@ -55,37 +99,126 @@ export function TransactionsPage() {
   const { tags } = useTags();
   const setNewTxOpen = useNewTxStore((s) => s.setOpen);
   const openDetail = useTxDetailStore((s) => s.open);
-  const confirm = useConfirm();
 
+  // Tradução entre o vocabulário do hook de dados e os nomes CURTOS da URL —
+  // que são o que a pessoa vê e eventualmente copia.
   const patch = (p: Partial<Omit<TransactionFilters, 'month'>>) =>
-    setFilters((f) => ({ ...f, ...p, page: p.page ?? 1 }));
+    escreverNaUrl({
+      ...('search' in p ? { q: p.search || undefined } : {}),
+      ...('payment_method' in p ? { pagamento: p.payment_method } : {}),
+      ...('category_id' in p ? { categoria: p.category_id } : {}),
+      ...('uncategorized' in p ? { semcategoria: p.uncategorized ? 'sim' : undefined } : {}),
+      ...('tag_id' in p ? { tag: p.tag_id } : {}),
+      ...('settled' in p ? { pagas: p.settled === undefined ? undefined : (p.settled ? 'sim' : 'nao') } : {}),
+      page: p.page ?? undefined,
+    });
 
   // Categoria e tag são IDs de UM workspace. Ao trocar de workspace eles não
   // existem do outro lado: a lista voltava VAZIA e o select ficava com um rótulo
   // que não correspondia a nada — parecia que o workspace novo não tinha
   // lançamento nenhum. (O CardsPage já zerava o cartão selecionado por isso.)
+  //
+  // Só na TROCA, nunca na montagem — daí o `ref`.
+  //
+  // Enquanto o filtro era estado local, limpar na montagem não fazia diferença
+  // (o estado já nascia vazio). Agora que ele mora na URL, o mesmo efeito
+  // apagava o recorte que veio NO ENDEREÇO: abrir
+  // `/w/1/transactions?q=Café` mostrava a lista inteira e a URL voltava limpa,
+  // que é exatamente o contrário do que levar o filtro para a URL serve.
+  //
+  // Só o CAMPO de busca é zerado aqui; a URL não é tocada.
+  //
+  // Tocar na URL neste efeito é uma corrida com a própria troca de espaço: o
+  // `ScopeSwitcher` navega para `/w/<novo>/transactions` e, no mesmo ciclo, o
+  // store muda e este efeito dispara um `setSearchParams` — que se aplica à
+  // localização ANTERIOR e desfaz a navegação. O E2E pegou exatamente isso:
+  // trocar de espaço no celular deixava a URL em `/w/151/transactions` depois
+  // de escolher o 152.
+  //
+  // E é desnecessário: o `workspacePath` monta o caminho novo SEM query string,
+  // então os filtros já não atravessam a troca. O que sobra para limpar é o
+  // texto em digitação, que vive fora da URL justamente por causa do debounce.
+  const espacoAnterior = React.useRef(currentWorkspaceId);
   React.useEffect(() => {
+    if (espacoAnterior.current === currentWorkspaceId) return;
+    espacoAnterior.current = currentWorkspaceId;
     setSearchInput('');
-    setFilters((f) => ({
-      ...f,
-      page: 1,
-      search: '',
-      category_id: undefined,
-      payment_method: undefined,
-      tag_id: undefined,
-    }));
   }, [currentWorkspaceId]);
 
-  const handleDelete = async (id: number) => {
-    const ok = await confirm({
-      title: 'Remover transação',
-      description: 'Tem certeza que deseja remover esta transação?',
-      confirmLabel: 'Remover',
-      destructive: true,
-    });
-    if (!ok) return;
+/**
+ * Excluir e oferecer a volta, em vez de perguntar antes.
+ *
+ * A confirmação a cada exclusão treina a pessoa a responder "sim" sem ler — e a
+ * partir daí ela não protege mais nada, só cobra um toque de quem já sabia o que
+ * queria. O desfazer protege de verdade: quem errou tem dez segundos para
+ * voltar, e quem acertou não paga nada.
+ *
+ * A COMPRA PARCELADA continua perguntando: excluir uma parcela remove a compra
+ * inteira (todas as em aberto), e isso não é o que o clique parece prometer. Aí
+ * a pergunta informa em vez de atrapalhar.
+ *
+ * O aviso diz quantos ANEXOS foram junto quando havia algum: eles não voltam
+ * com o desfazer, e prometer uma restauração completa seria pior do que não
+ * oferecer nenhuma.
+ */
+  /*
+   * MODO LOTE — nasceu do "Maior categoria: Sem categoria".
+   *
+   * Chegar à lista do que falta categorizar (o filtro "Sem categoria") era
+   * metade do caminho: a outra metade é conseguir resolver trinta linhas sem
+   * abrir trinta vezes o detalhe. Fora do modo, a lista não ganha caixa nenhuma
+   * — quem só quer olhar o mês não deveria pagar por uma função que usa uma vez
+   * por trimestre.
+   */
+  const [modoLote, setModoLote] = React.useState(false);
+  const [marcadas, setMarcadas] = React.useState<number[]>([]);
+  const [categoriaDoLote, setCategoriaDoLote] = React.useState('');
+  const { categorizarEmLote, isCategorizando } = useBulkCategorize();
+
+  const alternarMarcada = (id: number) =>
+    setMarcadas((atual) =>
+      atual.includes(id) ? atual.filter((x) => x !== id) : [...atual, id]);
+
+  // Sair do modo limpa a seleção: voltar depois com trinta linhas marcadas de
+  // uma sessão anterior é o tipo de estado que faz alguém aplicar sem querer.
+  const sairDoLote = () => { setModoLote(false); setMarcadas([]); };
+
+  const aplicarCategoria = async () => {
+    if (!categoriaDoLote || marcadas.length === 0) return;
     try {
-      await remove(id);
+      const r = await categorizarEmLote({
+        transactionIds: marcadas,
+        categoryId: Number(categoriaDoLote),
+      });
+      toast.success(
+        `${r.updated} lançamento(s) categorizado(s)`,
+        r.skipped > 0
+          ? `${r.skipped} já tinham categoria e não foram alterados.`
+          : undefined,
+      );
+      sairDoLote();
+    } catch (err) {
+      toast.error(getApiErrorMessage(err, 'Não foi possível categorizar'));
+    }
+  };
+
+  const handleDelete = async (id: number) => {
+    try {
+      const resultado = await remove(id);
+      const anexos = resultado?.attachments_removed ?? 0;
+      toast.comAcao(
+        'Lançamento removido',
+        {
+          label: 'Desfazer',
+          onClick: () => {
+            restore(id).catch((err: unknown) =>
+              toast.error(getApiErrorMessage(err, 'Não foi possível restaurar')));
+          },
+        },
+        anexos > 0
+          ? `${anexos} anexo(s) foram apagados e não voltam com o desfazer.`
+          : undefined,
+      );
     } catch (err) {
       toast.error(getApiErrorMessage(err, 'Erro ao remover transação'));
     }
@@ -157,7 +290,7 @@ export function TransactionsPage() {
           value={filters.payment_method || 'all'}
           onValueChange={(v: string | null) => patch({ payment_method: v && v !== 'all' ? v : undefined })}
         >
-          <SelectTrigger className="w-full sm:w-[184px]">
+          <SelectTrigger aria-label="Filtrar por forma de pagamento" className="w-full sm:w-[184px]">
             <SelectValue placeholder="Pagamento" />
           </SelectTrigger>
           <SelectContent>
@@ -172,18 +305,30 @@ export function TransactionsPage() {
         {/* Categoria e tag: o backend implementa os dois filtros
             (routes/transactions.py) e o hook já os enviava — faltava só o
             controle na tela. */}
+        {/* "Sem categoria" é uma opção do MESMO seletor, e não um filtro à parte:
+            é assim que ela fica ao alcance de quem nunca leu os Relatórios. Ela
+            é a lista de trabalho de quem quer arrumar a casa — e o quadro "Maior
+            categoria: Sem categoria", que antes só constatava o problema, agora
+            aponta para cá. */}
         <Select
-          items={[{ value: 'all', label: 'Toda categoria' }, ...categoryOptions]}
-          value={filters.category_id ? String(filters.category_id) : 'all'}
+          items={[
+            { value: 'all', label: 'Toda categoria' },
+            { value: 'sem', label: 'Sem categoria' },
+            ...categoryOptions,
+          ]}
+          value={filters.uncategorized ? 'sem' : filters.category_id ? String(filters.category_id) : 'all'}
           onValueChange={(v: string | null) =>
-            patch({ category_id: v && v !== 'all' ? Number(v) : undefined })
+            patch(v === 'sem'
+              ? { category_id: undefined, uncategorized: true }
+              : { category_id: v && v !== 'all' ? Number(v) : undefined, uncategorized: false })
           }
         >
-          <SelectTrigger className="w-full sm:w-[184px]">
+          <SelectTrigger aria-label="Filtrar por categoria" className="w-full sm:w-[184px]">
             <SelectValue placeholder="Categoria" />
           </SelectTrigger>
           <SelectContent>
             <SelectItem value="all">Toda categoria</SelectItem>
+            <SelectItem value="sem">Sem categoria</SelectItem>
             {categoryOptions.map((o) => (
               <SelectItem key={o.value} value={o.value}>
                 {o.label}
@@ -205,7 +350,7 @@ export function TransactionsPage() {
             patch({ settled: v === 'settled' ? true : v === 'unsettled' ? false : undefined })
           }
         >
-          <SelectTrigger className="w-full sm:w-[176px]">
+          <SelectTrigger aria-label="Filtrar por situação de pagamento" className="w-full sm:w-[176px]">
             <SelectValue placeholder="Liquidação" />
           </SelectTrigger>
           <SelectContent>
@@ -221,7 +366,7 @@ export function TransactionsPage() {
             patch({ tag_id: v && v !== 'all' ? Number(v) : undefined })
           }
         >
-          <SelectTrigger className="w-full sm:w-[160px]">
+          <SelectTrigger aria-label="Filtrar por tag" className="w-full sm:w-[160px]">
             <SelectValue placeholder="Tag" />
           </SelectTrigger>
           <SelectContent>
@@ -253,6 +398,51 @@ export function TransactionsPage() {
           </Button>
         )}
       </FilterBar>
+
+      {/* A barra do LOTE — a resposta prática ao "Maior categoria: Sem
+          categoria". Fora do modo ela é um botão discreto; dentro, ela conta
+          quantas estão marcadas e oferece a única ação que existe.
+
+          Ela fica ACIMA da lista, e não flutuando no rodapé, porque a lista tem
+          paginação: um rodapé fixo competiria com os controles de página no
+          celular, que é onde essa disputa dói. */}
+      {canWrite && transactions.length > 0 && (
+        <div className="flex flex-wrap items-center gap-2 rounded-xl border border-border bg-card px-4 py-2.5">
+          {!modoLote ? (
+            <Button variant="ghost" size="sm" className="gap-2" onClick={() => setModoLote(true)}>
+              <ListChecks className="h-4 w-4" /> Selecionar vários
+            </Button>
+          ) : (
+            <>
+              <span className="text-sm text-muted-foreground">
+                {marcadas.length === 0
+                  ? 'Marque os lançamentos para categorizar'
+                  : `${marcadas.length} selecionado(s)`}
+              </span>
+              <select
+                aria-label="Categoria a aplicar"
+                value={categoriaDoLote}
+                onChange={(e) => setCategoriaDoLote(e.target.value)}
+                className={`${selectClass} h-9 w-full sm:w-[184px]`}
+              >
+                <option value="">Escolha a categoria…</option>
+                {categoryOptions.map((o) => (
+                  <option key={o.value} value={o.value}>{o.label}</option>
+                ))}
+              </select>
+              <Button
+                size="sm"
+                className="gap-2"
+                disabled={!categoriaDoLote || marcadas.length === 0 || isCategorizando}
+                onClick={aplicarCategoria}
+              >
+                Aplicar
+              </Button>
+              <Button variant="ghost" size="sm" onClick={sairDoLote}>Cancelar</Button>
+            </>
+          )}
+        </div>
+      )}
 
       <div className="rounded-xl border border-border bg-card">
         {isLoading ? (
@@ -288,9 +478,11 @@ export function TransactionsPage() {
               <TransactionLedger
                 transactions={transactions}
                 canWrite={canWrite}
-                onSelect={(tx) => openDetail(tx.id)}
+                onSelect={modoLote ? undefined : (tx) => openDetail(tx.id)}
                 onEdit={(tx) => openDetail(tx.id, 'edit')}
                 onDelete={handleDelete}
+                marcadas={modoLote ? marcadas : undefined}
+                onMarcar={modoLote ? alternarMarcada : undefined}
               />
             </div>
             {totalPages > 1 && (

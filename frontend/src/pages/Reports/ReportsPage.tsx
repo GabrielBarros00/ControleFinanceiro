@@ -5,6 +5,7 @@ import {
   YAxis, 
   CartesianGrid, 
   Tooltip, 
+  Legend, 
   ResponsiveContainer, 
   PieChart, 
   Pie, 
@@ -29,12 +30,20 @@ import { PeriodPicker } from '@/components/layout/PeriodPicker';
 import { monthShortLabel } from '@/lib/date';
 import { useMonthParam } from '@/hooks/use-month-param';
 import { cn } from '@/lib/utils';
+import { useTabParam } from '@/hooks/use-tab-param';
+import { Link } from 'react-router-dom';
+import { ArrowRight } from 'lucide-react';
+import { useUIStore } from '@/stores';
 
+
+const ABAS = ['overview', 'categories', 'trends', 'budget'] as const;
+type AbaDeRelatorio = (typeof ABAS)[number];
 
 export function ReportsPage() {
   // Relatórios seguem o mesmo período das outras telas — antes ficavam presos
   // no mês corrente, sem como olhar o passado.
   const [month, setMonth] = useMonthParam();
+  const { currentWorkspaceId } = useUIStore();
   /**
    * De quem é a composição por categoria que a aba mostra.
    *
@@ -45,6 +54,9 @@ export function ReportsPage() {
    * acesso é restrito); faltava poder escolher.
    */
   const [comporPor, setComporPor] = React.useState<'espaco' | 'minha'>('espaco');
+  // Aba na URL: dá para mandar "olha as categorias de agosto" com o `?month=`
+  // que esta tela já mantém, e o botão voltar deixa de sair da página inteira.
+  const [aba, setAba] = useTabParam<AbaDeRelatorio>(ABAS, 'overview');
   const { data, isLoading, isError } = useReports(month);
   const baseCurrency = useBaseCurrency();
   // Cores lidas do tema atual (claro/escuro) — nunca hardcoded (corrige B3)
@@ -63,7 +75,7 @@ export function ReportsPage() {
     return (
       <div className="space-y-8">
         {header}
-        <div className="grid gap-4 md:grid-cols-4">
+        <div className="grid grid-cols-2 gap-3 sm:gap-4 md:grid-cols-4">
           {[1, 2, 3, 4].map(i => <Skeleton key={i} className="h-24 bg-card border-border" />)}
         </div>
         <Skeleton className="h-[260px] w-full bg-card border-border sm:h-[400px]" />
@@ -122,7 +134,7 @@ export function ReportsPage() {
   const casa = (mine: number, house: number | null) =>
     house == null || sameMoney(mine, house)
       ? undefined
-      : `Casa ${formatMoney(house, { currency: baseCurrency })}`;
+      : `Espaço ${formatMoney(house, { currency: baseCurrency })}`;
   // Sem acesso completo não há composição da casa: a pizza e o ranking passam a
   // mostrar a SUA parte (`my_categories`, que o backend continua devolvendo). É
   // melhor que uma tela vazia — e é o número que a pessoa pode conferir.
@@ -130,6 +142,15 @@ export function ReportsPage() {
   // Sem acesso completo não HÁ o que escolher: só a sua parte existe.
   const porEspaco = temVisaoDaCasa && comporPor === 'espaco';
   const categoryData = porEspaco ? categoryDataCasa : myCategoryData;
+  /* O nome sozinho não responde nada: "Mercado" pode ser R$ 80 ou R$ 1.800.
+     E quando a maior é a ausência de categoria, o quadro deixa de ser métrica e
+     passa a ser tarefa — daí o link. */
+  const maiorCategoria =
+    ([...categoryData].sort(
+      (a: { value: number }, b: { value: number }) => b.value - a.value,
+    )[0] as { name: string; value: number } | undefined) ?? null;
+  const semCategoria = /sem categoria/i.test(maiorCategoria?.name ?? '');
+
   const totalDaComposicao = categoryData.reduce(
     (acc: number, c: { value: number }) => acc + Number(c.value || 0),
     0,
@@ -138,7 +159,7 @@ export function ReportsPage() {
   return (
     <div className="space-y-8 animate-in fade-in duration-700">
       {header}
-      <div className="grid gap-4 md:grid-cols-4">
+      <div className="grid grid-cols-2 gap-3 sm:gap-4 md:grid-cols-4">
         <StatTile
           label="Seu gasto (mês)"
           value={myExpenses}
@@ -155,13 +176,29 @@ export function ReportsPage() {
           currency={baseCurrency}
           hint="O que você assumiu das despesas deste espaço"
         />
+        {/* A resposta mais comum aqui, numa conta de uso real, é "Sem categoria"
+            — e a versão anterior parava nisso: um quarto da faixa de destaque
+            gasto para dizer que os relatórios não servem, sem oferecer saída.
+            Agora ele é um link para a lista do que falta categorizar. O valor
+            também entra: "Mercado" sozinho não diz se são R$ 80 ou R$ 1.800. */}
         <div className="rounded-xl border border-border bg-card p-4">
           <p className="text-sm text-muted-foreground">Maior categoria</p>
           <p className="mt-1 truncate text-2xl font-semibold text-foreground">
-            {categoryData.length > 0
-              ? [...categoryData].sort((a: { value: number }, b: { value: number }) => b.value - a.value)[0].name
-              : 'Nenhuma'}
+            {maiorCategoria?.name ?? 'Nenhuma'}
           </p>
+          {maiorCategoria && (
+            <p className="mt-0.5 text-xs text-muted-foreground">
+              {formatMoney(maiorCategoria.value, { currency: baseCurrency })}
+            </p>
+          )}
+          {semCategoria && currentWorkspaceId && (
+            <Link
+              to={`/w/${currentWorkspaceId}/transactions?semcategoria=sim&month=${month}`}
+              className="mt-1 inline-flex items-center gap-1 text-xs font-semibold text-brand hover:underline"
+            >
+              Categorizar estas despesas <ArrowRight className="h-3 w-3" />
+            </Link>
+          )}
         </div>
         <StatTile
           // "Saldo" ficou reservado a saldo de conta: aqui é o acerto deste espaço.
@@ -173,7 +210,7 @@ export function ReportsPage() {
         />
       </div>
 
-      <Tabs defaultValue="overview" className="space-y-4">
+      <Tabs value={aba} onValueChange={(v) => setAba(v as AbaDeRelatorio)} className="space-y-4">
         <TabsList>
           <TabsTrigger value="overview">Visão geral</TabsTrigger>
           <TabsTrigger value="categories">Categorias</TabsTrigger>
@@ -201,7 +238,7 @@ export function ReportsPage() {
             <CardHeader>
               <CardTitle className="flex items-center gap-2 text-lg">
                 <BarChart3 className="h-5 w-5 text-primary" />
-                Gasto da casa × sua parte
+                Gasto do espaço × sua parte
               </CardTitle>
               {/* Não é "Receitas vs Despesas": renda saiu do espaço no ADR
                   0021 e o gráfico só desenha despesa. O título prometia uma
@@ -219,6 +256,11 @@ export function ReportsPage() {
                       contentStyle={{ backgroundColor: chart.tooltipBg, border: `1px solid ${chart.tooltipBorder}`, borderRadius: '12px', color: chart.tooltipText }}
                       itemStyle={{ color: chart.tooltipText, fontWeight: 'bold' }}
                     />
+                    {/* Duas séries de barras sem legenda: o título nomeava as
+                        duas grandezas mas nada dizia qual cor era qual, e só o
+                        tooltip respondia — que no celular não existe, porque não
+                        há `hover`. As séries já traziam `name`; faltava exibir. */}
+                    <Legend wrapperStyle={{ fontSize: 12, paddingTop: 8 }} />
                     <Bar dataKey="expenses" fill={chart.series[0]} radius={[4, 4, 0, 0]} name="Despesa (espaço)" />
                     <Bar dataKey="my_expenses" fill={chart.series[2]} radius={[4, 4, 0, 0]} name="Minha parte" />
                   </BarChart>
@@ -311,7 +353,11 @@ export function ReportsPage() {
                 <CardTitle>{porEspaco ? 'Gastos do espaço' : 'Gastos da sua parte'}</CardTitle>
               </CardHeader>
               <CardContent>
-                <div className="space-y-3.5">
+                {/* Lista de verdade (`ul`/`li`): eram `div`s, e um leitor de tela
+                    lia dez pares de "nome, valor" sem dizer que são um ranking
+                    nem quantos itens tem. O nome acessível também dá ao teste um
+                    recorte estável — o mesmo valor aparece na faixa de destaque. */}
+                <ul aria-label="Categorias" className="space-y-3.5">
                   {categoryData.length > 0 ? (
                     [...categoryData]
                       .sort((a: { value: number }, b: { value: number }) => b.value - a.value)
@@ -320,7 +366,7 @@ export function ReportsPage() {
                         const pct = (item.value / max) * 100;
                         const color = COLORS[idx % COLORS.length];
                         return (
-                          <div key={item.name} className="space-y-1.5">
+                          <li key={item.name} className="space-y-1.5">
                             <div className="flex items-center justify-between">
                               <div className="flex min-w-0 items-center gap-2.5">
                                 <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ backgroundColor: color }} />
@@ -331,13 +377,13 @@ export function ReportsPage() {
                             <div className="h-1.5 w-full overflow-hidden rounded-full bg-muted">
                               <div className="h-full rounded-full" style={{ width: `${pct}%`, backgroundColor: color }} />
                             </div>
-                          </div>
+                          </li>
                         );
                       })
                   ) : (
                     <p className="py-8 text-center text-muted-foreground">Comece a registrar gastos para ver os detalhes.</p>
                   )}
-                </div>
+                </ul>
               </CardContent>
             </Card>
           </div>

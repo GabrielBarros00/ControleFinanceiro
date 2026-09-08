@@ -4,6 +4,28 @@ import { useWorkspaces } from '@/hooks/use-workspaces';
 import { useUIStore } from '@/stores';
 import { ErrorState } from '@/components/ui/error-state';
 import { Skeleton } from '@/components/ui/skeleton';
+import { toast } from '@/stores/toast';
+
+/**
+ * Redireciona para o Início e conta o que aconteceu.
+ *
+ * O aviso sai num efeito, e não no corpo do componente: disparar um toast
+ * durante a renderização atualiza o store de outro componente no meio do render
+ * do React, o que é justamente o que ele proíbe.
+ */
+function RedirecionaAvisando({ valido }: { valido: boolean }) {
+  React.useEffect(() => {
+    if (valido) {
+      toast.info(
+        'Você não tem acesso a este espaço',
+        'Ou ele foi excluído, ou você deixou de ser membro dele.',
+      );
+    } else {
+      toast.info('Espaço não encontrado', 'O endereço não corresponde a nenhum espaço seu.');
+    }
+  }, [valido]);
+  return <Navigate to="/overview" replace />;
+}
 
 /**
  * Porteiro de `/w/:workspaceId/*` (ADR 0020).
@@ -32,10 +54,23 @@ export function WorkspaceGuard() {
 
   // Esperar a lista é essencial: decidir com ela vazia mandaria todo mundo para
   // /overview no primeiro carregamento.
+  //
+  // O esqueleto tem FORMA de página, e não é decoração: antes eram dois
+  // retângulos cinzas soltos, sem título e sem nada que dissesse em que tela a
+  // pessoa estava. Numa conexão lenta, abrir "Lançamentos" mostrava um bloco
+  // cinza mudo por segundos — enquanto `/overview`, ao lado, já mostrava o
+  // título e o seletor de período com esqueleto só nos números. Duas telas do
+  // mesmo app respondendo de formas diferentes à mesma situação.
   if (isLoading) {
     return (
-      <div className="space-y-4">
-        <Skeleton className="h-10 w-64" />
+      <div className="space-y-6">
+        <div className="space-y-2">
+          <Skeleton className="h-8 w-52" />
+          <Skeleton className="h-4 w-72" />
+        </div>
+        <div className="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-4">
+          {Array.from({ length: 4 }).map((_, i) => <Skeleton key={i} className="h-24" />)}
+        </div>
         <Skeleton className="h-64 w-full" />
       </div>
     );
@@ -57,7 +92,19 @@ export function WorkspaceGuard() {
     );
   }
 
-  if (!pertence) return <Navigate to="/overview" replace />;
+  /*
+   * Não pertence: redireciona, mas DIZENDO por quê.
+   *
+   * O `Navigate` silencioso deixava quem clicou num link antigo — ou num
+   * favorito de um espaço do qual saiu — aterrissando no "Seu mês" sem nenhuma
+   * explicação. As duas leituras possíveis ("errei o endereço" e "perdi o
+   * acesso") pedem reações diferentes, e a tela não ajudava a escolher.
+   *
+   * O aviso distingue os dois casos com a informação que o guard já tem: id
+   * inválido é endereço errado; id válido do qual não se é membro é falta de
+   * acesso.
+   */
+  if (!pertence) return <RedirecionaAvisando valido={valido} />;
 
   return <Outlet />;
 }

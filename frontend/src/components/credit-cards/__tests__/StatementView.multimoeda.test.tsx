@@ -92,7 +92,7 @@ describe('StatementView — cartão em moeda diferente do workspace', () => {
 
   it('mostra também o valor contábil, para a conversão não parecer erro', () => {
     render(<StatementView cardId={1} />);
-    expect(screen.getByText(/no workspace/)).toBeInTheDocument();
+    expect(screen.getByText(/no espaço/)).toBeInTheDocument();
     expect(screen.getByText(/100,00/)).toBeInTheDocument();
   });
 

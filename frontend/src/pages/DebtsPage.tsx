@@ -318,11 +318,15 @@ export function DebtsPage() {
               <p className="text-sm leading-relaxed text-muted-foreground">
                 O sistema calcula quem pagou a mais e quem pagou a menos pelas divisões de cada
                 despesa. Faça o pagamento (Pix, dinheiro…) e registre aqui.{' '}
-                {/* A distinção que a tela escondia — e que explica o saldo que
-                    "cai sozinho" sem nenhum mês fechar. */}
+                {/* A distinção entre os dois tipos de acerto (ADR 0009).
+                    Este texto dizia que registrar pelo acumulado "não fecha mês
+                    nenhum" — era verdade, e era o defeito: o total caía e cada
+                    mês continuava exibindo a dívida cheia. Corrigido o
+                    comportamento, a frase ficou mentindo por uma rodada, até uma
+                    varredura de telas com a base cheia encontrá-la. */}
                 <strong className="text-foreground">Registrar por um mês</strong> (na aba Por mês)
                 fecha aquele mês; <strong className="text-foreground">registrar por aqui</strong>{' '}
-                abate o acumulado sem fechar mês nenhum — o histórico marca cada um com o mês dele.
+                quita os meses em aberto do mais antigo para o mais novo, até o valor acabar.
               </p>
             </div>
           </div>

@@ -46,6 +46,8 @@ export interface LedgerLike {
     title: string;
     total_amount: Money;
     is_paid: boolean;
+    /** Compra no cartão: quem a paga é a fatura (nem paga, nem em aberto). */
+    on_card?: boolean;
     installment_no?: number | null;
     installments_of?: number | null;
     payers: { user_id: number; amount: Money }[];
@@ -234,6 +236,29 @@ export function MonthlyLedgerTotals({
   );
 }
 
+/**
+ * O estado de uma despesa do mês: paga, no cartão, ou em aberto.
+ *
+ * "Paga" passou a ser LIQUIDAÇÃO (`settled_at`, ADR 0029) e não mais o status
+ * `paid`, que nenhuma tela do app grava — por isso este selo dizia "Em aberto"
+ * em todo lançamento, inclusive nos quitados, e o quadro "Pago" do mês vivia em
+ * R$ 0,00.
+ *
+ * A compra no CARTÃO ganhou estado próprio porque não é nem uma coisa nem
+ * outra: quem a paga é a fatura, então ela nunca terá `settled_at` e chamá-la
+ * de "em aberto" seria cobrar de novo o que já está numa fatura. Ela também
+ * ficou fora do total "Em aberto" do mês — os dois têm de contar a mesma
+ * história.
+ */
+function estadoDaDespesa(exp: { is_paid: boolean; on_card?: boolean }) {
+  if (exp.on_card) {
+    return { texto: 'No cartão', classe: 'bg-accent/40 text-muted-foreground' };
+  }
+  return exp.is_paid
+    ? { texto: 'Paga', classe: 'bg-income-subtle text-income' }
+    : { texto: 'Em aberto', classe: 'bg-warning-subtle text-warning' };
+}
+
 export function MonthlyLedgerBody({
   ledger,
   members,
@@ -417,10 +442,8 @@ export function MonthlyLedgerBody({
               value={
                 <>
                   {valorDaDespesa(exp)}
-                  <span className={`mt-1 inline-block rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase whitespace-nowrap ${
-                    exp.is_paid ? 'bg-emerald-500/10 text-emerald-500' : 'bg-warning-subtle text-warning'
-                  }`}>
-                    {exp.is_paid ? 'Paga' : 'Em aberto'}
+                  <span className={`mt-1 inline-block rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase whitespace-nowrap ${estadoDaDespesa(exp).classe}`}>
+                    {estadoDaDespesa(exp).texto}
                   </span>
                 </>
               }
@@ -534,11 +557,9 @@ export function MonthlyLedgerBody({
                   {/* `inline-block` + `whitespace-nowrap`: o badge é um `span`
                       inline, então sem isto ele quebra DENTRO do próprio pill e
                       o fundo arredondado sai partido em duas metades. */}
-                  {exp.is_paid ? (
-                    <span className="inline-block rounded-full bg-emerald-500/10 px-2 py-0.5 text-[10px] font-semibold uppercase whitespace-nowrap text-emerald-500">Paga</span>
-                  ) : (
-                    <span className="inline-block rounded-full bg-warning-subtle px-2 py-0.5 text-[10px] font-semibold uppercase whitespace-nowrap text-warning">Em aberto</span>
-                  )}
+                  <span className={`inline-block rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase whitespace-nowrap ${estadoDaDespesa(exp).classe}`}>
+                    {estadoDaDespesa(exp).texto}
+                  </span>
                 </TableCell>
                 <TableCell className="text-right whitespace-nowrap">
                   {valorDaDespesa(exp)}

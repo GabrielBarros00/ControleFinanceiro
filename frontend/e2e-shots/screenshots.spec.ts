@@ -733,6 +733,21 @@ test('seed data and capture all screens', async ({ page, playwright }) => {
       await page.keyboard.press('Escape').catch(() => {});
     }
 
+    // Formulário da RECORRÊNCIA. Ele entrou no catálogo quando ganhou o
+    // "Dividir com": a lista de recorrências já era capturada, mas ela não
+    // mostra nada do que se pergunta na hora de cadastrar — e é no formulário
+    // que mora a decisão (valor, frequência, divisão, pagamento automático).
+    await page.goto(`/w/${wsId}/recurring`);
+    await settle();
+    const novaFixa = page.getByRole('button', { name: /Nova despesa/i });
+    if (await novaFixa.count()) {
+      await novaFixa.first().click();
+      await page.getByRole('dialog').waitFor({ state: 'visible' }).catch(() => {});
+      await page.waitForTimeout(600);
+      await shot(`recorrencia-form-${theme}`);
+      await page.keyboard.press('Escape').catch(() => {});
+    }
+
     // Aviso da janela de fechamento + atalho para a fatura seguinte (ADR 0032).
     //
     // O aviso só existe com CARTÃO escolhido e data dentro dos três dias que
@@ -747,6 +762,11 @@ test('seed data and capture all screens', async ({ page, playwright }) => {
       await paraFechamento.first().click();
       await page.getByRole('dialog').waitFor({ state: 'visible' }).catch(() => {});
       await page.getByLabel('Título / Descrição').fill('Jantar de aniversário');
+      // O formulário abre no modo SIMPLES (título, valor, salvar): forma de
+      // pagamento e cartão moram atrás de "Detalhar". Sem este clique o roteiro
+      // espera para sempre por um campo que não está na tela — foi assim que a
+      // captura travou, sem erro, depois da mudança do formulário.
+      await page.getByRole('dialog').getByRole('button', { name: /^Detalhar$/ }).click();
       await page.getByLabel('Forma de pagamento').selectOption('credit_card');
       // Pelo NOME, não por índice. A lista de cartões não sai na ordem em que
       // foram semeados, e `{ index: 1 }` pegava o C6 Carbon (fecha dia 10):

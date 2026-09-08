@@ -126,40 +126,40 @@ export function ImportPage() {
           </CardHeader>
           <CardContent className="space-y-4">
             <div className="space-y-2">
-              <Label>Arquivo CSV</Label>
+              <Label htmlFor="csv-arquivo">Arquivo CSV</Label>
               <div className="flex items-center gap-2">
-                <Input type="file" accept=".csv" onChange={handleFileChange} className="bg-background/50" />
+                <Input id="csv-arquivo" type="file" accept=".csv" onChange={handleFileChange} className="bg-background/50" />
               </div>
             </div>
 
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-1">
-                <Label className="text-xs">Delimitador</Label>
-                <Input value={mapping.delimiter} onChange={e => setMapping({...mapping, delimiter: e.target.value})} />
+                <Label htmlFor="csv-delimitador" className="text-xs">Delimitador</Label>
+                <Input id="csv-delimitador" value={mapping.delimiter} onChange={e => setMapping({...mapping, delimiter: e.target.value})} />
               </div>
               <div className="space-y-1">
-                <Label className="text-xs">Sep. Decimal</Label>
-                <Input value={mapping.decimal_separator} onChange={e => setMapping({...mapping, decimal_separator: e.target.value})} />
+                <Label htmlFor="csv-decimal" className="text-xs">Separador decimal</Label>
+                <Input id="csv-decimal" value={mapping.decimal_separator} onChange={e => setMapping({...mapping, decimal_separator: e.target.value})} />
               </div>
             </div>
 
             <div className="space-y-1">
-              <Label className="text-xs">Formato Data</Label>
-              <Input value={mapping.date_format} onChange={e => setMapping({...mapping, date_format: e.target.value})} />
+              <Label htmlFor="csv-formato-data" className="text-xs">Formato da data</Label>
+              <Input id="csv-formato-data" value={mapping.date_format} onChange={e => setMapping({...mapping, date_format: e.target.value})} />
               <p className="text-[10px] text-muted-foreground">%d=dia, %m=mês, %Y=ano (ex: %d/%m/%Y)</p>
             </div>
 
             <div className="space-y-1">
-              <Label className="text-xs">Coluna Data</Label>
-              <Input value={mapping.date_column} onChange={e => setMapping({...mapping, date_column: e.target.value})} />
+              <Label htmlFor="csv-coluna-data" className="text-xs">Coluna da data</Label>
+              <Input id="csv-coluna-data" value={mapping.date_column} onChange={e => setMapping({...mapping, date_column: e.target.value})} />
             </div>
             <div className="space-y-1">
-              <Label className="text-xs">Coluna Descrição</Label>
-              <Input value={mapping.description_column} onChange={e => setMapping({...mapping, description_column: e.target.value})} />
+              <Label htmlFor="csv-coluna-descricao" className="text-xs">Coluna da descrição</Label>
+              <Input id="csv-coluna-descricao" value={mapping.description_column} onChange={e => setMapping({...mapping, description_column: e.target.value})} />
             </div>
             <div className="space-y-1">
-              <Label className="text-xs">Coluna Valor</Label>
-              <Input value={mapping.amount_column} onChange={e => setMapping({...mapping, amount_column: e.target.value})} />
+              <Label htmlFor="csv-coluna-valor" className="text-xs">Coluna do valor</Label>
+              <Input id="csv-coluna-valor" value={mapping.amount_column} onChange={e => setMapping({...mapping, amount_column: e.target.value})} />
             </div>
 
             <Button 
@@ -208,7 +208,7 @@ export function ImportPage() {
                     Pular duplicatas
                   </label>
                 )}
-                <Button onClick={handleImport} disabled={isCommitting} className="bg-emerald-600 hover:bg-emerald-700 gap-2 font-bold">
+                <Button onClick={handleImport} disabled={isCommitting} className="gap-2 font-bold">
                   {isCommitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}
                   Confirmar {rowsToImport.length} Transações
                 </Button>

@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { fireEvent, render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, within } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { ReportsPage } from '../ReportsPage';
 
@@ -78,7 +78,10 @@ describe('Relatórios — a composição por categoria', () => {
     expect(screen.getByText('Gastos da sua parte')).toBeInTheDocument();
     // 300 + 100 — os números de `my_categories`, não os da casa.
     expect(screen.getByText(/Total: R\$ 400,00/)).toBeInTheDocument();
-    expect(screen.getByText('R$ 300,00')).toBeInTheDocument();
+    // O mesmo valor aparece no quadro "Maior categoria" da faixa de destaque:
+    // o recorte é a lista da aba, que é o que este teste está examinando.
+    expect(within(screen.getByRole('list', { name: /categorias/i }))
+      .getByText('R$ 300,00')).toBeInTheDocument();
     expect(screen.queryByText('R$ 800,00')).not.toBeInTheDocument();
   });
 
@@ -92,6 +95,7 @@ describe('Relatórios — a composição por categoria', () => {
     abrirAba('Categorias');
     expect(screen.queryByRole('group', { name: 'De quem é a composição' })).not.toBeInTheDocument();
     expect(screen.getByText('Sua distribuição por categoria')).toBeInTheDocument();
-    expect(screen.getByText('R$ 300,00')).toBeInTheDocument();
+    expect(within(screen.getByRole('list', { name: /categorias/i }))
+      .getByText('R$ 300,00')).toBeInTheDocument();
   });
 });

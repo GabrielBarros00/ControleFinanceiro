@@ -542,6 +542,10 @@ test.describe('Layout mobile — nenhuma tela estoura a largura', () => {
     await page.waitForLoadState('networkidle').catch(() => {});
     await page.locator('nav').last().getByRole('button', { name: 'Nova despesa' }).click();
     await expect(page.getByRole('dialog')).toBeVisible();
+    // O modo simples também é medido: ele é o que a maioria vê.
+    await esperarAssentar(page);
+    await semRolagemHorizontal(page, 'diálogo Nova despesa (simples)');
+    await page.getByRole('dialog').getByRole('button', { name: /^Detalhar$/ }).click();
     await page.getByRole('dialog').getByRole('button', { name: /Opções avançadas/ }).click();
     await esperarAssentar(page);
     await semRolagemHorizontal(page, 'diálogo Nova despesa');

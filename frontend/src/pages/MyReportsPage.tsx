@@ -43,6 +43,23 @@ import { cn } from '@/lib/utils';
  */
 /** Períodos oferecidos. A API aceita 1..12 (`/me/reports`, `months`). */
 const PERIODOS = [3, 6, 12] as const;
+/** A legenda na ordem do título: primeiro o que entra, depois o que sai. */
+function LegendaRendaConsumo({ chart }: { chart: { income: string; expense: string } }) {
+  return (
+    <ul className="flex items-center justify-center gap-4 pt-2 text-xs text-muted-foreground">
+      {[
+        { rotulo: 'Renda', cor: chart.income },
+        { rotulo: 'Consumo', cor: chart.expense },
+      ].map(({ rotulo, cor }) => (
+        <li key={rotulo} className="flex items-center gap-1.5">
+          <span className="h-2.5 w-2.5 rounded-[3px]" style={{ backgroundColor: cor }} />
+          {rotulo}
+        </li>
+      ))}
+    </ul>
+  );
+}
+
 const MESES_PADRAO = 6;
 
 function rotuloMes(month: string): string {
@@ -184,8 +201,8 @@ export function MyReportsPage() {
         <div className="border-b border-border px-4 py-3">
           <h2 className="text-base font-semibold text-foreground">Renda × consumo</h2>
           <p className="text-sm text-muted-foreground">
-            A comparação que os Relatórios do workspace não podem fazer: a renda é
-            sua e não mora em casa nenhuma.
+            Sua renda não pertence a espaço nenhum — por isso esta comparação só
+            existe aqui, e não no relatório de um espaço compartilhado.
           </p>
         </div>
         <div className="h-[240px] p-4 sm:h-[320px]">
@@ -210,9 +227,14 @@ export function MyReportsPage() {
                     color: chart.tooltipText,
                   }}
                 />
-                <Legend />
-                <Bar dataKey="renda" name="Renda" fill={chart.series[1]} radius={[6, 6, 0, 0]} />
-                <Bar dataKey="consumo" name="Consumo" fill={chart.series[0]} radius={[6, 6, 0, 0]} />
+                {/* Legenda desenhada à mão: o Recharts montava a sua com
+                    "Consumo" antes de "Renda", contra o título "Renda × consumo"
+                    — e a v3 não aceita mais `payload` para reordenar. Ler a
+                    legenda ao contrário do título obriga a conferir a cor de cada
+                    barra antes de entender o gráfico. */}
+                <Legend content={<LegendaRendaConsumo chart={chart} />} />
+                <Bar dataKey="renda" name="Renda" fill={chart.income} radius={[6, 6, 0, 0]} />
+                <Bar dataKey="consumo" name="Consumo" fill={chart.expense} radius={[6, 6, 0, 0]} />
               </BarChart>
             </ResponsiveContainer>
           ) : (
@@ -233,8 +255,9 @@ export function MyReportsPage() {
             Resultado e caixa, mês a mês
           </h2>
           <p className="text-sm text-muted-foreground">
-            Resultado é renda − consumo (competência). Caixa é o dinheiro que se
-            moveu, com fatura paga, acerto e parcela de financiamento (ADR 0022).
+            Resultado conta a despesa no mês em que ela aconteceu. Caixa conta o
+            dinheiro no dia em que ele saiu — a fatura paga, o acerto, a parcela do
+            financiamento. Por isso as duas linhas raramente coincidem.
           </p>
         </div>
         <div className="h-[240px] p-4 sm:h-[320px]">

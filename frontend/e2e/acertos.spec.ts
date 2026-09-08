@@ -142,14 +142,16 @@ test.describe('Acertos — a origem do saldo fecha na tela', () => {
     });
     expect(comMes.ok(), await comMes.text()).toBeTruthy();
 
-    // Acerto SEM mês: abate 50 do acumulado e não fecha mês nenhum. É o tipo que
-    // era indistinguível do outro antes do ADR 0031.
+    // Acerto SEM mês: paga o acumulado, quitando do mês mais ANTIGO para o mais
+    // novo. Ele já foi "não fecha mês nenhum" — e era o defeito: o total caía e
+    // cada mês continuava exibindo a dívida cheia.
     const semMes = await ctxAna.request.post(`${API}/workspaces/${ws.id}/settlements`, {
       data: { from_user_id: eu.id, to_user_id: outro.id, amount: '50.00' },
     });
     expect(semMes.ok(), await semMes.text()).toBeTruthy();
 
-    // Esperado: −180 (retrasado) −100 (passado) +50 (sem mês) = −230
+    // Esperado: −180 (retrasado) −100 (passado) +50 alocados ao retrasado = −230,
+    // agora em DUAS linhas: −130 e −100.
     const page = await ctxAna.newPage();
     await page.goto(`/w/${ws.id}/debts`);
     // `exact`: "Como os acertos funcionam?" também é heading nesta aba.
@@ -162,10 +164,10 @@ test.describe('Acertos — a origem do saldo fecha na tela', () => {
 
     // --- A quebra fecha ---
     const linhas = await linhasDaOrigem(page);
-    expect(linhas.length, 'duas linhas de mês + a de acerto sem mês').toBe(3);
-    expect(linhas).toContain(-180);
+    expect(linhas.length, 'duas linhas de mês; o acerto do acumulado entrou num deles').toBe(2);
+    // O mês mais antigo absorveu os 50: −180 + 50 = −130.
+    expect(linhas).toContain(-130);
     expect(linhas).toContain(-100);
-    expect(linhas).toContain(50);
 
     const totalDaQuebra = await page
       .getByText('Total acumulado')
@@ -175,24 +177,28 @@ test.describe('Acertos — a origem do saldo fecha na tela', () => {
     // A soma das linhas exibidas É o total exibido. É a promessa do bloco.
     expect(linhas.reduce((a, b) => a + b, 0)).toBe(-230);
 
-    await expect(page.getByText('Acertos sem mês')).toBeVisible();
+    // Nada sobrou fora dos meses: os 50 couberam inteiros no mais antigo. A
+    // linha só aparece com troco que não achou mês para abater.
+    await expect(page.getByText('Fora dos meses')).toHaveCount(0);
 
     // --- Clicar num mês abre a aba dele, com o mesmo número ---
     await page.getByText('Total acumulado').waitFor();
-    const linhaDoRetrasado = page.locator('button', { hasText: 'R$ 180,00' }).first();
+    // 130, e não 180: o acerto do acumulado já abateu 50 deste mês.
+    const linhaDoRetrasado = page.locator('button', { hasText: 'R$ 130,00' }).first();
     await linhaDoRetrasado.click();
     await expect(page.getByRole('tab', { name: 'Por mês' })).toHaveAttribute('data-state', 'active');
     await expect(page.getByText('Quem deve a quem neste mês')).toBeVisible();
     // `\s` e nunca espaço literal: o `Intl` do pt-BR separa "R$" do número com
     // ESPAÇO NÃO-QUEBRÁVEL (U+00A0), e um espaço comum no padrão não casa.
-    await expect(page.getByText(/deve\s+R\$\s*180,00/).first()).toBeVisible();
+    await expect(page.getByText(/deve\s+R\$\s*130,00/).first()).toBeVisible();
     // O mês diz quanto já foi acertado — sem repetir a lista de acertos, que
-    // vive no Histórico.
-    await expect(page.getByText('R$ 120,00 já acertados')).toBeVisible();
+    // vive no Histórico. São 170: os 120 registrados NESTE mês mais os 50 do
+    // acerto do acumulado que couberam aqui.
+    await expect(page.getByText('R$ 170,00 já acertados')).toBeVisible();
 
     // --- O histórico distingue os dois tipos ---
     await page.getByRole('tab', { name: 'Histórico' }).click();
-    await expect(page.getByText('sem mês')).toBeVisible();
+    await expect(page.getByText('do acumulado')).toBeVisible();
     const mesCurto = new Date(`${retrasado.mes}-15T12:00:00`)
       .toLocaleDateString('pt-BR', { month: 'short' })
       .replace('.', '');

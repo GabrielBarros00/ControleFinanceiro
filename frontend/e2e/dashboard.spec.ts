@@ -25,7 +25,7 @@ test.describe('Dashboard and Split Entry Form', () => {
     await page.goto(`/w/${ws.id}`);
 
     // Dashboard renderizado
-    await expect(page.getByRole('heading', { name: /Seu mês|Painel/ })).toBeVisible();
+    await expect(page.getByRole('heading', { name: /Hoje|Painel/ })).toBeVisible();
 
     // Abre o modal de Nova Despesa
     await page.locator('header').getByRole('button', { name: 'Nova despesa' }).click();
@@ -36,7 +36,9 @@ test.describe('Dashboard and Split Entry Form', () => {
     await dialog.getByLabel('Título / Descrição').fill('Pizza com amigos');
     await dialog.getByLabel('Valor Total').fill('150,00');
 
-    // Método de divisão "Valor Fixo" mora em "Opções avançadas"
+    // Divisão e pagadores moram atrás de "Detalhar" (modo simples é título +
+    // valor + salvar), e o método %/fixo dentro de "Opções avançadas".
+    await dialog.getByRole('button', { name: /^Detalhar$/ }).click();
     await dialog.getByRole('button', { name: /Opções avançadas/ }).click();
     await dialog.getByText('Valor Fixo').click();
 
@@ -45,7 +47,7 @@ test.describe('Dashboard and Split Entry Form', () => {
     await expect(dialog.getByRole('button', { name: 'Remover participante' })).toHaveCount(2);
 
     // Botão de submit presente
-    await expect(dialog.getByRole('button', { name: 'Salvar Despesa' })).toBeVisible();
+    await expect(dialog.getByRole('button', { name: 'Salvar despesa' })).toBeVisible();
 
     await context.close();
   });

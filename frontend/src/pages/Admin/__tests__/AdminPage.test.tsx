@@ -1,6 +1,7 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 import { fireEvent, render, screen, within } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { MemoryRouter } from 'react-router-dom';
 
 import { ConfirmProvider } from '@/components/ui/confirm';
 import { AdminPage } from '../AdminPage';
@@ -121,12 +122,18 @@ function renderizar() {
   // `useConfirm` para desativar conta e revogar convite — ações destrutivas que
   // o projeto proíbe fazer com `window.confirm`. Sem o provider, o hook lança e
   // a aba inteira falha ao montar.
+  // `MemoryRouter` passou a ser obrigatório: a aba selecionada mora na URL
+  // (`useTabParam`), como já acontecia em Acertos — antes o `/admin` guardava a
+  // aba em `useState`, e o botão VOLTAR do navegador saía da Administração
+  // inteira em vez de voltar uma aba.
   return render(
-    <QueryClientProvider client={qc}>
-      <ConfirmProvider>
-        <AdminPage />
-      </ConfirmProvider>
-    </QueryClientProvider>,
+    <MemoryRouter>
+      <QueryClientProvider client={qc}>
+        <ConfirmProvider>
+          <AdminPage />
+        </ConfirmProvider>
+      </QueryClientProvider>
+    </MemoryRouter>,
   );
 }
 

@@ -43,6 +43,7 @@ import { useMonthParam } from '@/hooks/use-month-param';
 import { CardsOrTable, DataCard } from '@/components/ui/data-card';
 import { NativeSelect } from '@/components/ui/native-select';
 import { usePaymentAccounts } from '@/hooks/use-payment-accounts';
+import { EmptyState } from '@/components/ui/empty-state';
 
 
 /**
@@ -293,9 +294,22 @@ export function IncomePage() {
         cards={
       <div className="space-y-2">
         {incomes.length === 0 ? (
-          <p className="rounded-xl border border-border bg-card p-6 text-center text-sm text-muted-foreground">
-            Nenhuma renda registrada neste mês.
-          </p>
+          // `EmptyState` como as outras 15 telas do app: ícone, título, uma
+          // frase que ENSINA o próximo passo e a ação. Uma frase cinza solta
+          // dizia o que não há, sem dizer o que fazer.
+          <div className="rounded-xl border border-border bg-card">
+            <EmptyState
+              icon={Wallet}
+              title="Nenhuma renda neste mês"
+              // O onboarding criava a renda "Salário Mensal" no cadastro, e por
+              // isso ninguém precisava saber que ela pode se repetir sozinha.
+              // Ele deixou de fazer isso (a porta de entrada pergunta o saldo,
+              // que é o dado que o app não deduz) — então a informação passou a
+              // ter de existir AQUI, que é onde ela é útil.
+              description="Salário, freelas e qualquer outra entrada aparecem aqui — e alimentam o resultado do mês. Uma renda que se repete todo mês pode ser cadastrada como recorrente e entra sozinha."
+              action={<Button onClick={() => setDialogOpen(true)} className="gap-2"><Plus className="h-4 w-4" /> Nova renda</Button>}
+            />
+          </div>
         ) : incomes.map((income) => (
           <DataCard
             key={income.id}
@@ -380,15 +394,25 @@ export function IncomePage() {
             <TableBody>
               {incomes.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={4} className="h-32 text-center text-muted-foreground">
-                    Nenhuma renda registrada neste mês.
+                  <TableCell colSpan={4} className="p-0">
+                    <EmptyState
+                      icon={Wallet}
+                      title="Nenhuma renda neste mês"
+                      // O onboarding criava a renda "Salário Mensal" no cadastro, e por
+              // isso ninguém precisava saber que ela pode se repetir sozinha.
+              // Ele deixou de fazer isso (a porta de entrada pergunta o saldo,
+              // que é o dado que o app não deduz) — então a informação passou a
+              // ter de existir AQUI, que é onde ela é útil.
+              description="Salário, freelas e qualquer outra entrada aparecem aqui — e alimentam o resultado do mês. Uma renda que se repete todo mês pode ser cadastrada como recorrente e entra sozinha."
+                      action={<Button onClick={() => setDialogOpen(true)} className="gap-2"><Plus className="h-4 w-4" /> Nova renda</Button>}
+                    />
                   </TableCell>
                 </TableRow>
               ) : incomes.map((income) => (
                 <TableRow key={income.id} className="border-border group hover:bg-accent/30 transition-colors">
                   <TableCell>
                     <div className="flex items-center gap-2">
-                      <Wallet className="h-4 w-4 text-emerald-500 shrink-0" />
+                      <Wallet className="h-4 w-4 text-income shrink-0" />
                       <span className="font-bold text-foreground">{income.title}</span>
                       <IncomeStatusPill status={income.status} />
                       {income.recurring_income_id != null && (
@@ -518,7 +542,7 @@ export function IncomePage() {
               badge={
                 <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase ${
                   item.is_active
-                    ? 'border border-emerald-500/20 bg-emerald-500/10 text-emerald-500'
+                    ? 'border border-income/20 bg-income-subtle text-income'
                     : 'border border-border bg-muted text-muted-foreground'
                 }`}>
                   {item.is_active ? 'Ativa' : 'Inativa'}
@@ -592,7 +616,7 @@ export function IncomePage() {
                     <TableCell>
                       <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold uppercase tracking-tighter ${
                         item.is_active
-                          ? 'bg-emerald-500/10 text-emerald-500 border border-emerald-500/20'
+                          ? 'bg-income-subtle text-income border border-income/20'
                           : 'bg-muted text-muted-foreground border border-border'
                       }`}>
                         {item.is_active ? 'Ativa' : 'Inativa'}

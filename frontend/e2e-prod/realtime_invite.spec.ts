@@ -1,5 +1,6 @@
 import { test, expect } from '@playwright/test';
 import { registerAndLogin, defaultWorkspace } from './helpers';
+import { TITULO_INICIO } from '../e2e-shared/rotulos';
 
 // Auditoria da stack de produção (nginx + backend production):
 // 1) WebSocket através do proxy nginx: mutação de A aparece para B sem reload
@@ -55,7 +56,7 @@ test.describe('Stack de produção: tempo real e convite por link', () => {
     // Contar as buscas transforma isso em evidência: durante a queda o número
     // não pode subir, e depois da reconexão TEM de subir (é o resync). Se o
     // teste falhar, a mensagem diz qual dos dois aconteceu.
-    // QUALQUER GET da API, não apenas `/transactions`: a tela "Seu mês" monta a
+    // QUALQUER GET da API, não apenas `/transactions`: a tela "Hoje" monta a
     // lista "Onde você está envolvido" a partir de outros endpoints, então um
     // contador estreito diria "B não buscou nada" enquanto B buscava por outro
     // caminho — um falso negativo que apontaria a investigação para o lado
@@ -107,9 +108,9 @@ test.describe('Stack de produção: tempo real e convite por link', () => {
     });
 
     await pageA.goto('/');
-    await expect(pageA.getByRole('heading', { name: 'Seu mês' })).toBeVisible({ timeout: 15_000 });
+    await expect(pageA.getByRole('heading', { name: TITULO_INICIO })).toBeVisible({ timeout: 15_000 });
     await pageB.goto('/');
-    await expect(pageB.getByRole('heading', { name: 'Seu mês' })).toBeVisible({ timeout: 15_000 });
+    await expect(pageB.getByRole('heading', { name: TITULO_INICIO })).toBeVisible({ timeout: 15_000 });
 
     // O `ScopeSwitcher` substituiu o `WorkspaceSwitcher`: o botão traz o NOME do
     // espaço atual (ou "Pessoal"), não a palavra "Workspace" — que saiu da
@@ -289,7 +290,7 @@ test.describe('Stack de produção: tempo real e convite por link', () => {
 
     // Depois de aceitar, o workspace convidado aparece para Carla
     await pageC.goto('/');
-    await expect(pageC.getByRole('heading', { name: 'Seu mês' })).toBeVisible({ timeout: 15_000 });
+    await expect(pageC.getByRole('heading', { name: TITULO_INICIO })).toBeVisible({ timeout: 15_000 });
     const wsListC = await (await contextC.request.get(`${API}/workspaces/`)).json();
     expect(wsListC.some((w: { name: string }) => w.name === linkWsName)).toBeTruthy();
 

@@ -14,7 +14,15 @@
     <!-- O iOS ignora o manifesto para isto: precisa das metas próprias, ou o
          atalho abre dentro do Safari com barra de endereço. -->
     <meta name="apple-mobile-web-app-capable" content="yes" />
-    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+    <!-- `black-translucent` e não `default`, e a diferença exige a área segura
+         de cima (a utilidade `pt-safe`, aplicada na barra superior do AppShell):
+         com ela o conteúdo passa por baixo da barra de status e QUEM PINTA o
+         fundo ali é o app, nos dois temas. Com `default`, a cor do texto da
+         barra segue a aparência do SISTEMA e não a do app — celular no escuro
+         com o app no claro dava ícones brancos sobre fundo branco. O iOS ignora
+         a meta `theme-color`, então a sincronização do `use-theme.ts` não
+         alcança este caso. -->
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <meta name="apple-mobile-web-app-title" content="Financeiro" />
     <meta name="mobile-web-app-capable" content="yes" />
     <!-- `viewport-fit=cover` é o que faz `env(safe-area-inset-*)` valer alguma

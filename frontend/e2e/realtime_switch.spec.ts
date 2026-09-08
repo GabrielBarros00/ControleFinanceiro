@@ -111,7 +111,7 @@ test.describe('Troca de workspace: janela do handshake', () => {
     });
 
     await pageB.goto('/');
-    await expect(pageB.getByRole('heading', { name: /Seu mês|Painel/ })).toBeVisible();
+    await expect(pageB.getByRole('heading', { name: /Hoje|Painel/ })).toBeVisible();
     await socketDeB;
 
     // Troca pelo switcher do sidebar
