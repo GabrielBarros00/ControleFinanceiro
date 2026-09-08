@@ -59,6 +59,7 @@ from app.models.recurring import RecurringExpense, RecurringIncome  # noqa: E402
 from app.models.settlement import Settlement  # noqa: E402
 from app.models.tag import Tag, TransactionTagLink  # noqa: E402
 from app.models.transaction import (  # noqa: E402
+    AdjustmentType,
     PaymentMethod,
     SplitMethod,
     SplitMode,
@@ -66,6 +67,9 @@ from app.models.transaction import (  # noqa: E402
     TransactionStatus,
 )
 from app.schemas.transaction import (  # noqa: E402
+    TransactionAdjustmentCreate,
+    TransactionItemCreate,
+    TransactionItemShareBase,
     TransactionPayerBase,
     TransactionSplitBase,
 )
@@ -210,6 +214,20 @@ def despesa(
     etiqueta: Optional[Tag] = None,
     parcelas: int = 1,
     moeda: Optional[str] = None,
+    #: Divisão que NÃO é igual: `[(user, método, valor)]`. Cobre porcentagem e
+    #: valor fixo, que têm tela própria ("Opções avançadas") e nunca eram
+    #: semeados — a tela ficava sem caso para desenhar.
+    divisao: Optional[list] = None,
+    #: Mais de um pagador (ADR 0004): `[(user, valor)]`.
+    pagadores: Optional[list] = None,
+    #: Divisão POR ITEM: `[(título, valor, [users])]`. Outro modo inteiro do
+    #: formulário, com editor próprio.
+    itens: Optional[list] = None,
+    #: Desconto, frete, gorjeta… `[(tipo, valor)]`, com o sinal do tipo.
+    ajustes: Optional[list] = None,
+    #: Deslocamento de fatura (ADR 0032): a compra cai no ciclo seguinte.
+    shift: int = 0,
+    status: TransactionStatus = TransactionStatus.confirmed,
 ) -> Transaction:
     """Uma despesa completa, pelo mesmo caminho das rotas.
 
@@ -232,11 +250,13 @@ def despesa(
             total_amount=bruto,
             currency=moeda or ws.base_currency,
             transaction_date=data_i,
-            status=TransactionStatus.confirmed,
+            status=status,
             workspace_id=ws.id,
             created_by_user_id=pagador.id,
             payment_method=metodo,
             credit_card_id=cartao.id if cartao else None,
+            statement_shift=shift,
+            split_mode=SplitMode.item if itens else SplitMode.transaction,
             installment_no=(i + 1) if parcelas > 1 else None,
             installments_of=parcelas if parcelas > 1 else None,
             installment_group_id=grupo,
@@ -255,18 +275,54 @@ def despesa(
             grupo = tx.installment_group_id or tx.id
             tx.installment_group_id = grupo
 
-        persist_transaction_children(
-            db, ws.id, tx,
-            total_amount=bruto,
-            split_mode=SplitMode.transaction,
-            payers=[TransactionPayerBase(user_id=pagador.id, amount=bruto)],
-            splits=[
+        quem_pagou = (
+            [TransactionPayerBase(user_id=u.id, amount=Decimal(v)) for u, v in pagadores]
+            if pagadores
+            else [TransactionPayerBase(user_id=pagador.id, amount=bruto)]
+        )
+        if divisao:
+            partes = [
+                TransactionSplitBase(user_id=u.id, split_method=m, input_value=Decimal(v))
+                for u, m, v in divisao
+            ]
+        else:
+            partes = [
                 TransactionSplitBase(
                     user_id=u.id, split_method=SplitMethod.equal, input_value=Decimal("0"),
                 )
                 for u in entre
-            ],
-            items=None,
+            ]
+        linhas = None
+        if itens:
+            # No modo item os splits derivam das SHARES de cada linha
+            # (`item_split_service`), então a lista de cima não vale — por isso
+            # ela vai vazia.
+            partes = []
+            linhas = [
+                TransactionItemCreate(
+                    title=titulo_item, amount=Decimal(valor_item),
+                    shares=[
+                        TransactionItemShareBase(
+                            user_id=u.id, split_method=SplitMethod.equal,
+                            input_value=Decimal("0"),
+                        )
+                        for u in quem_do_item
+                    ],
+                )
+                for titulo_item, valor_item, quem_do_item in itens
+            ]
+
+        persist_transaction_children(
+            db, ws.id, tx,
+            total_amount=bruto,
+            split_mode=SplitMode.item if itens else SplitMode.transaction,
+            payers=quem_pagou,
+            splits=partes,
+            items=linhas,
+            adjustments=[
+                TransactionAdjustmentCreate(type=tipo, amount=Decimal(valor))
+                for tipo, valor in (ajustes or [])
+            ] or None,
             actor_user_id=pagador.id,
         )
         if categoria is not None:
@@ -452,6 +508,47 @@ def historia_dos_espacos(db: Session, c: dict) -> None:
                 quando=meses_atras(m, 22), pagador=rafael, entre=grupo_rep,
                 categoria=cr["Faxina"])
 
+    # --- Os modos de divisão que só existiam no formulário ----------------
+    #
+    # Divisão IGUAL era a única coisa semeada, e o app tem outras três: por
+    # porcentagem, por valor fixo e por ITEM (com editor próprio). Uma tela sem
+    # caso para desenhar é uma tela que ninguém consegue diagnosticar.
+    despesa(db, casa, titulo="Jantar de aniversário", valor="480.00",
+            quando=meses_atras(1, 21), pagador=dono, entre=trio_casa,
+            categoria=cc["Lazer"],
+            divisao=[(dono, SplitMethod.percentage, "50"),
+                     (marina, SplitMethod.percentage, "30"),
+                     (rafael, SplitMethod.percentage, "20")])
+    despesa(db, casa, titulo="Material de construção", valor="1260.00",
+            quando=meses_atras(2, 17), pagador=marina, entre=trio_casa,
+            categoria=cc["Moradia"],
+            divisao=[(dono, SplitMethod.fixed, "800.00"),
+                     (marina, SplitMethod.fixed, "300.00"),
+                     (rafael, SplitMethod.fixed, "160.00")])
+    # POR ITEM: cada linha da nota tem os seus donos — o remédio é só de quem
+    # tomou, a comida é de todos.
+    despesa(db, casa, titulo="Mercado com farmácia junto", valor="340.00",
+            quando=meses_atras(1, 9), pagador=dono, entre=trio_casa,
+            categoria=cc["Mercado"],
+            itens=[("Compras da casa", "260.00", trio_casa),
+                   ("Remédio da Marina", "80.00", [marina])])
+    # DOIS PAGADORES na mesma despesa (ADR 0004) + AJUSTES (frete, desconto).
+    #
+    # O ajuste RECONCILIA itens com o total, então ele exige os itens — e a
+    # conta tem de fechar: 1.500 de itens + 120 de frete − 70 de desconto =
+    # 1.550. O serviço recusa qualquer outra soma, e faz bem.
+    despesa(db, casa, titulo="Móvel novo (frete e desconto)", valor="1550.00",
+            quando=meses_atras(3, 19), pagador=dono, entre=trio_casa,
+            categoria=cc["Moradia"],
+            pagadores=[(dono, "1000.00"), (marina, "550.00")],
+            itens=[("Sofá", "1500.00", trio_casa)],
+            ajustes=[(AdjustmentType.shipping, "120.00"),
+                     (AdjustmentType.discount, "-70.00")])
+    # CANCELADA: o estado que some dos totais mas fica no histórico.
+    despesa(db, casa, titulo="Compra cancelada pela loja", valor="219.90",
+            quando=meses_atras(2, 24), pagador=dono, entre=trio_casa,
+            status=TransactionStatus.cancelled)
+
     # --- FREELA em dólar --------------------------------------------------
     despesa(db, c["freela"], titulo="Assinatura de ferramenta", valor="49.00",
             quando=meses_atras(1, 14), pagador=dono, entre=[dono, tiago],
@@ -536,6 +633,14 @@ def vida_pessoal(db: Session, c: dict) -> None:
                 quando=meses_atras(2 - (m % 3), 5 + m * 2), pagador=dono,
                 entre=[dono], metodo=PaymentMethod.credit_card,
                 cartao=cartoes[qual])
+
+    # DESLOCAMENTO de fatura (ADR 0032): a compra feita perto do fechamento cai
+    # no ciclo seguinte. Sem um caso destes, a tela do deslocamento não tem o que
+    # mostrar e o seletor de fatura do detalhe nunca aparece diferente.
+    despesa(db, c["casa"], titulo="Compra perto do fechamento", valor="420.00",
+            quando=meses_atras(1, 2), pagador=dono, entre=[dono],
+            metodo=PaymentMethod.credit_card, cartao=cartoes["Nubank Roxinho"],
+            shift=1)
 
     # --- Rendas: salário recorrente + freelas avulsos --------------------
     for m in range(6, 0, -1):
@@ -691,6 +796,24 @@ def recorrencias_e_acertos(db: Session, c: dict) -> None:
         start_date=meses_atras(5, 1).date(), is_active=True,
         category_id=cr["Faxina"].id, split_snapshot=dividido(dono, rafael, camila, tiago),
     ))
+    # A CADA N períodos (ADR 0030), e com FIM declarado: os dois eixos da
+    # recorrência que a tela sabe desenhar ("a cada 3 meses", "87 de 144
+    # restantes") e que nunca tinham dado para exibir.
+    db.add(RecurringExpense(
+        title="Manutenção preventiva do carro", base_amount=Decimal("380.00"),
+        day_of_month=18, frequency="monthly", interval=3,
+        workspace_id=casa.id, created_by_user_id=dono.id, payer_user_id=dono.id,
+        currency="BRL", payment_method=PaymentMethod.pix,
+        start_date=meses_atras(6, 18).date(), is_active=True,
+    ))
+    db.add(RecurringExpense(
+        title="Mensalidade do curso (12x)", base_amount=Decimal("560.00"),
+        day_of_month=10, workspace_id=casa.id, created_by_user_id=dono.id,
+        payer_user_id=dono.id, currency="BRL", payment_method=PaymentMethod.boleto,
+        start_date=meses_atras(4, 10).date(),
+        end_date=_somar_meses(meses_atras(4, 10), 12).date(),
+        is_active=True,
+    ))
     db.add(RecurringExpense(
         title="Seguro anual do apartamento", base_amount=Decimal("1450.00"),
         day_of_month=15, month_of_year=3, frequency="yearly",
@@ -759,6 +882,53 @@ def o_que_falta(db: Session, c: dict, contas, cartoes) -> None:
             paid_at=meses_atras(2, 12), note="pagamento total", user_id=dono.id,
         )
 
+    # --- Uma fatura VENCIDA e outra com pagamento PARCIAL ----------------
+    #
+    # A vencida aciona o aviso de atraso do cartão; a parcial exercita o saldo
+    # CUMULATIVO do ADR 0023 — a fatura continua `closed` até chegar a zero, e
+    # antes disso qualquer valor positivo a marcava como paga.
+    abertas = db.exec(
+        select(CardStatement)
+        .where(CardStatement.card_id.in_([x.id for x in cartoes.values()]))
+        .where(CardStatement.status == StatementStatus.open)
+        .order_by(CardStatement.month)
+    ).all()
+    for st in abertas:
+        total = CreditCardService.compute_statement_total(db, st.id)
+        if total <= 0:
+            continue
+        # `due_date` é INSTANTE aqui, e `HOJE` é dia civil — comparar os dois
+        # direto estoura. A conversão explícita é a mesma que o app faz.
+        vence = st.due_date.date() if hasattr(st.due_date, "date") else st.due_date
+        if vence and vence < HOJE:
+            CreditCardService.close_statement(db, st)
+            db.flush()
+            continue  # fechada e NÃO paga: é a fatura vencida
+        CreditCardService.close_statement(db, st)
+        db.flush()
+        CreditCardService.pay_statement(
+            db, st, account=contas["Nubank"],
+            amount=(total / 2).quantize(Decimal("0.01")),
+            paid_at=meses_atras(0, 3), note="pagamento parcial", user_id=dono.id,
+        )
+        break
+
+    # --- Ajuste de saldo de conta ----------------------------------------
+    #
+    # "Conferi o extrato e faltavam R$ 35" — o ajuste é como o app reconcilia
+    # sem inventar despesa.
+    from app.domain.dates import civil_instant
+    from app.models.account_ledger import AccountEntry, AccountEntryKind
+    db.add(AccountEntry(
+        account_id=contas["Itaú"].id,
+        kind=AccountEntryKind.adjustment,
+        # COM SINAL: negativo tira. É como a rota grava (me_accounts.py).
+        amount=Decimal("-35.00"),
+        occurred_at=civil_instant(meses_atras(1, 22).date()),
+        description="conferência com o extrato do banco",
+        created_by_user_id=dono.id,
+    ))
+
     # --- Transferência entre contas próprias -----------------------------
     db.add(AccountTransfer(
         from_account_id=contas["Nubank"].id,
@@ -800,6 +970,114 @@ def o_que_falta(db: Session, c: dict, contas, cartoes) -> None:
             role=WorkspaceRole.member, invited_by_user_id=dono.id,
             token="demo-convite-pendente-0001",
             expires_at=datetime.now(UTC) + timedelta(days=7),
+        ))
+
+    # --- Um lote de importação já processado ------------------------------
+    #
+    # A tela de Importar guarda o histórico por lote e por LINHA (ADR 0008) — e
+    # a listagem abre vazia numa base semeada, junto com o resumo
+    # "importadas / duplicadas / ignoradas" que é o coração dela.
+    #
+    # O lote aponta para lançamentos que já existem: um lote cujas linhas não
+    # levam a lugar nenhum seria um histórico de mentira.
+    from app.models.import_batch import (
+        ImportBatch,
+        ImportRow,
+        ImportRowStatus,
+        compute_fingerprint,
+    )
+
+    if not db.exec(select(ImportBatch).where(ImportBatch.workspace_id == casa.id)).first():
+        importadas = db.exec(
+            select(Transaction)
+            .where(Transaction.workspace_id == casa.id)
+            .where(Transaction.deleted_at.is_(None))
+            .order_by(Transaction.transaction_date.desc())
+            .limit(3)
+        ).all()
+        lote = ImportBatch(
+            workspace_id=casa.id, filename="extrato-agosto.csv",
+            created_by_user_id=dono.id,
+            total_rows=len(importadas) + 2,
+            imported_count=len(importadas), duplicate_count=1, ignored_count=1,
+            created_at=meses_atras(1, 3),
+        )
+        db.add(lote)
+        db.flush()
+        for i, t in enumerate(importadas, start=1):
+            db.add(ImportRow(
+                batch_id=lote.id, workspace_id=casa.id, line=i, title=t.title,
+                amount=t.total_amount, transaction_date=t.transaction_date,
+                fingerprint=compute_fingerprint(
+                    casa.id, t.transaction_date, t.total_amount, t.title,
+                ),
+                status=ImportRowStatus.imported, transaction_id=t.id,
+            ))
+        # A DUPLICADA e a IGNORADA: os dois desfechos que explicam a diferença
+        # entre "linhas do arquivo" e "lançamentos criados".
+        for linha, titulo, status, motivo in [
+            (len(importadas) + 1, "Mercado do mês", ImportRowStatus.duplicate,
+             "já existe um lançamento igual neste dia"),
+            (len(importadas) + 2, "SALDO ANTERIOR", ImportRowStatus.ignored,
+             "linha sem valor de lançamento"),
+        ]:
+            db.add(ImportRow(
+                batch_id=lote.id, workspace_id=casa.id, line=linha, title=titulo,
+                amount=Decimal("0.00"), transaction_date=meses_atras(1, 3),
+                fingerprint=compute_fingerprint(
+                    casa.id, meses_atras(1, 3), Decimal("0.00"), titulo,
+                ),
+                status=status, reason=motivo,
+            ))
+
+    # --- Um recibo anexado ------------------------------------------------
+    #
+    # A seção de anexos existe em todo detalhe de lançamento e abre vazia numa
+    # base semeada — junto com a cota de armazenamento, que nunca sai de 0%. O
+    # conteúdo vive FORA do banco (ADR 0007), então o arquivo é gravado pelo
+    # mesmo `AttachmentStorage` das rotas, com o sha256 de verdade.
+    import hashlib
+
+    from app.models.attachment import Attachment
+    from app.services.attachment_storage import AttachmentStorage
+
+    alvo = db.exec(
+        select(Transaction)
+        .where(Transaction.workspace_id == casa.id)
+        .where(Transaction.title == "Móvel novo (frete e desconto)")
+    ).first()
+    if alvo is not None and not db.exec(
+        select(Attachment).where(Attachment.transaction_id == alvo.id)
+    ).first():
+        # Um PDF mínimo de verdade: o app guarda `content_type`, e um .txt
+        # disfarçado de PDF deixaria a visualização quebrada na tela.
+        conteudo = (
+            b"%PDF-1.4\n1 0 obj<</Type/Catalog>>endobj\n%%EOF\n"
+        )
+        sha = hashlib.sha256(conteudo).hexdigest()
+        chave = AttachmentStorage.save(casa.id, sha, conteudo)
+        db.add(Attachment(
+            workspace_id=casa.id, transaction_id=alvo.id,
+            filename="nota-fiscal-sofa.pdf", content_type="application/pdf",
+            size_bytes=len(conteudo), sha256=sha, storage_key=chave,
+            uploaded_by_user_id=dono.id,
+        ))
+
+    # --- Avisos no sino ---------------------------------------------------
+    #
+    # A central de avisos abre vazia numa base recém-semeada, e ela é uma tela
+    # inteira: sem um item dentro, não dá para ver como o não-lido se distingue
+    # do lido, nem o agrupamento.
+    from app.models.notification import Notification, NotificationType
+    for tipo, titulo, corpo, lida in [
+        (NotificationType.due_reminder, "Fatura do Nubank Roxinho fecha em 3 dias",
+         "Compras feitas depois do fechamento entram na fatura seguinte.", False),
+        (NotificationType.member_added, "Rafael entrou na República",
+         "Ele já aparece nas divisões do espaço.", True),
+    ]:
+        db.add(Notification(
+            user_id=dono.id, type=tipo, title=titulo, body=corpo,
+            read_at=datetime.now(UTC) if lida else None,
         ))
 
     db.flush()
