@@ -63,7 +63,7 @@ export function PreferenciasDeAviso() {
       <CardContent className="space-y-5">
         <div className="flex flex-wrap items-end gap-3">
           <div className="min-w-[240px] flex-1 space-y-2">
-            <Label htmlFor="aviso-dias">Avisar com antecedência de</Label>
+            <Label htmlFor="aviso-dias">Primeiro aviso com antecedência de</Label>
             <NativeSelect
               id="aviso-dias"
               value={String(prefs?.days_before ?? 3)}
@@ -76,8 +76,8 @@ export function PreferenciasDeAviso() {
               ))}
             </NativeSelect>
             <p className="text-xs text-muted-foreground">
-              Além deste, sempre sai um aviso no dia do vencimento e um se a
-              conta passar da data.
+              Além deste, sempre saem um aviso na véspera, um no dia do
+              vencimento e um se a conta passar da data.
             </p>
           </div>
         </div>

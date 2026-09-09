@@ -49,6 +49,7 @@ class NotificationPrefsRead(BaseModel):
 class NotificationPrefsUpdate(BaseModel):
     # `ge=1`: zero dias antes seria "vence em 0 dias", que o marco "no dia" já
     # cobre melhor. O teto é o mesmo que a varredura usa para montar a janela.
+    # Isto rege só o PRIMEIRO aviso; véspera, dia e atraso saem sempre.
     days_before: Optional[int] = Field(default=None, ge=1, le=MAX_DIAS_ANTES)
     by_email: Optional[bool] = None
     show_amount: Optional[bool] = None

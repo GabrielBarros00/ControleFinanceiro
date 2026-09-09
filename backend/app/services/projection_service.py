@@ -53,7 +53,7 @@ from typing import Any, Dict, List, Optional
 
 from sqlmodel import Session, select
 
-from app.domain.dates import civil_instant, month_bounds_utc, month_key, today_local
+from app.domain.dates import civil_day, civil_instant, month_bounds_utc, month_key, today_local
 from app.domain.query_policy import PAYABLE_STATUSES
 from app.models.credit_card import CardStatement, CreditCard, StatementStatus
 from app.models.financing import AmortizationInstallment, Financing, FinancingStatus
@@ -223,9 +223,10 @@ class ProjectionService:
                 convertido = converte(db, saldo, card.currency, destino, hoje)
                 if convertido is None:
                     continue
-                # `due_date` da fatura é um instante (`civil_instant`); comparar
-                # com `hoje` exige trazer os dois para o mesmo terreno.
-                vence = stmt.due_date.date() if hasattr(stmt.due_date, "date") else stmt.due_date
+                # `due_date` da fatura é um DIA guardado em coluna `datetime`;
+                # `civil_day` é o leitor dele (nunca `local_day`, que recuaria um
+                # dia sobre a meia-noite gravada).
+                vence = civil_day(stmt.due_date)
                 if vence < hoje:
                     atrasado += convertido
                     atrasadas += 1

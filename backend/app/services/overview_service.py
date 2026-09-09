@@ -40,7 +40,7 @@ from typing import Any, Dict, List, Optional
 from sqlmodel import Session, func, select
 
 from app.domain.access_policy import involvement_filter
-from app.domain.dates import local_day, month_bounds_utc, month_key, today_local
+from app.domain.dates import civil_day, local_day, month_bounds_utc, month_key, today_local
 from app.domain.query_policy import (
     REALIZED_STATUSES,
     workspace_base_currency,
@@ -531,7 +531,7 @@ class OverviewService:
                     excluidos += 1
                     continue
                 atrasada = CreditCardService.is_overdue(stmt)
-                vencimento = stmt.due_date.date() if hasattr(stmt.due_date, "date") else stmt.due_date
+                vencimento = civil_day(stmt.due_date)
                 saldo_devedor += convertido
                 if atrasada:
                     vencido += convertido
