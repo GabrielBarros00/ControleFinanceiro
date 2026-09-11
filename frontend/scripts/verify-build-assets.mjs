@@ -7,6 +7,85 @@
  */
 import fs from 'node:fs';
 import path from 'node:path';
+import zlib from 'node:zlib';
+
+/**
+ * Lê um PNG RGBA de 8 bits sem dependência nenhuma.
+ *
+ * Trinta linhas em vez de `pngjs`/`sharp` porque a única pergunta a responder é
+ * "este pixel é transparente?", e sob o portão do `npm audit`
+ * (scripts/audit-gate.mjs) toda dependência nova é dívida permanente — a mesma
+ * decisão que `scripts/gerar-icones.mjs` já tomou ao rasterizar com o Chromium
+ * que o projeto já tem.
+ *
+ * Aceita só o que o gerador produz: 8 bits, cor tipo 6 (RGBA), sem entrelace.
+ * Qualquer outra coisa levanta erro em vez de devolver pixel errado — um leitor
+ * que "quase" lê é pior do que nenhum num arquivo que ninguém olha.
+ */
+function lerPngRgba(buffer) {
+  if (buffer.readUInt32BE(0) !== 0x89504e47) throw new Error('não é um PNG');
+
+  let largura = 0;
+  let altura = 0;
+  const idat = [];
+  for (let pos = 8; pos < buffer.length; ) {
+    const tamanho = buffer.readUInt32BE(pos);
+    const tipo = buffer.toString('ascii', pos + 4, pos + 8);
+    const dados = buffer.subarray(pos + 8, pos + 8 + tamanho);
+    if (tipo === 'IHDR') {
+      largura = dados.readUInt32BE(0);
+      altura = dados.readUInt32BE(4);
+      const [profundidade, cor, , , entrelace] = dados.subarray(8, 13);
+      if (profundidade !== 8 || cor !== 6 || entrelace !== 0) {
+        throw new Error(
+          `PNG fora do formato esperado (bits=${profundidade}, cor=${cor}, entrelace=${entrelace}); `
+          + 'o leitor de scripts/verify-build-assets.mjs só sabe RGBA 8 bits sem entrelace',
+        );
+      }
+    } else if (tipo === 'IDAT') {
+      idat.push(dados);
+    } else if (tipo === 'IEND') {
+      break;
+    }
+    pos += 12 + tamanho; // tamanho(4) + tipo(4) + dados + crc(4)
+  }
+
+  const cru = zlib.inflateSync(Buffer.concat(idat));
+  const canais = 4;
+  const linha = largura * canais;
+  const pixels = Buffer.alloc(altura * linha);
+  // Desfaz os filtros por scanline (PNG §9). Cada linha vem prefixada pelo
+  // filtro usado, e `a`/`b`/`c` são o pixel à esquerda, o de cima e o diagonal.
+  for (let y = 0; y < altura; y += 1) {
+    const filtro = cru[y * (linha + 1)];
+    const origem = y * (linha + 1) + 1;
+    for (let i = 0; i < linha; i += 1) {
+      const x = cru[origem + i];
+      const a = i >= canais ? pixels[y * linha + i - canais] : 0;
+      const b = y > 0 ? pixels[(y - 1) * linha + i] : 0;
+      const c = y > 0 && i >= canais ? pixels[(y - 1) * linha + i - canais] : 0;
+      let valor;
+      if (filtro === 0) valor = x;
+      else if (filtro === 1) valor = x + a;
+      else if (filtro === 2) valor = x + b;
+      else if (filtro === 3) valor = x + ((a + b) >> 1);
+      else if (filtro === 4) {
+        const p = a + b - c;
+        const pa = Math.abs(p - a);
+        const pb = Math.abs(p - b);
+        const pc = Math.abs(p - c);
+        valor = x + (pa <= pb && pa <= pc ? a : pb <= pc ? b : c);
+      } else throw new Error(`filtro PNG desconhecido: ${filtro}`);
+      pixels[y * linha + i] = valor & 0xff;
+    }
+  }
+
+  return {
+    largura,
+    altura,
+    pixel: (x, y) => pixels.subarray(y * linha + x * canais, y * linha + x * canais + canais),
+  };
+}
 
 const distDir = path.resolve(import.meta.dirname, '..', 'dist');
 const assetsDir = path.join(distDir, 'assets');
@@ -50,6 +129,7 @@ const ARQUIVOS_DO_PWA = [
   'icon-512.png',
   'icon-maskable-512.png',
   'apple-touch-icon-180.png',
+  'badge-96.png',
 ];
 
 for (const arquivo of ARQUIVOS_DO_PWA) {
@@ -135,6 +215,48 @@ if (!sw.includes("addEventListener('notificationclick'")) {
     'sw.js sem handler de `notificationclick` — tocar no aviso não abriria a tela da conta',
   );
 }
+
+/*
+ * O `badge` da notificação tem de ser SILHUETA — e este portão existe porque o
+ * defeito já aconteceu.
+ *
+ * O Android descarta as cores do badge e desenha só o canal ALFA. `badge`
+ * apontava para `icon-192.png`, que é 100% opaco: o alfa é o quadrado inteiro, e
+ * a notificação chegava com um retângulo preto no lugar do ícone do app.
+ *
+ * São duas verificações porque são dois jeitos diferentes de reintroduzir o
+ * mesmo defeito: apontar o badge para a arte colorida de novo, ou regerar
+ * `badge-96.png` sem transparência (basta trocar `omitBackground` em
+ * `scripts/gerar-icones.mjs`). Nenhum dos dois quebra teste, aparece em log ou
+ * muda uma linha de tela — só quem recebe a notificação vê.
+ */
+for (const uso of sw.matchAll(/badge:\s*'([^']+)'/g)) {
+  if (uso[1] !== '/badge-96.png') {
+    throw new Error(
+      `sw.js com \`badge: '${uso[1]}'\` — o badge da notificação é desenhado só pelo `
+      + 'canal alfa. Arte opaca (como icon-192.png) vira um quadrado preto na '
+      + 'notificação. Use /badge-96.png, a silhueta de scripts/gerar-icones.mjs.',
+    );
+  }
+}
+
+const badge = lerPngRgba(fs.readFileSync(path.join(distDir, 'badge-96.png')));
+const alfa = (x, y) => badge.pixel(x, y)[3];
+if (alfa(0, 0) !== 0 || alfa(badge.largura - 1, badge.altura - 1) !== 0) {
+  throw new Error(
+    'badge-96.png tem os cantos OPACOS — no Android ele vira um quadrado chapado na '
+    + 'notificação. Regere com `node scripts/gerar-icones.mjs` (o badge sai com '
+    + '`omitBackground: true`).',
+  );
+}
+if (alfa(Math.floor(badge.largura / 2), Math.floor(badge.altura / 2)) === 0) {
+  throw new Error(
+    'badge-96.png está transparente no CENTRO — não há silhueta para o Android '
+    + 'desenhar, e a notificação chega sem símbolo nenhum.',
+  );
+}
+
+console.log('[build] badge da notificação é silhueta (cantos transparentes)');
 
 /*
  * A cor da barra de status precisa servir aos DOIS temas.

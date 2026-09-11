@@ -28,6 +28,9 @@
  * - `apple-touch-icon-180.png` — o iOS NÃO lê o manifesto para o ícone da tela
  *   de início, lê esta tag. E compõe sobre preto o que for transparente, então
  *   este sai com fundo chapado.
+ * - `badge-96.png` — o ícone pequeno da notificação (`badge` do
+ *   `showNotification`). É o ÚNICO que não sai de `favicon.png`, e a razão está
+ *   em `SILHUETA` logo abaixo.
  */
 import fs from 'node:fs';
 import path from 'node:path';
@@ -105,6 +108,48 @@ async function gerar(navegador, lado, saida, { escala = 1, fundo = null } = {}) 
   await pagina.close();
 }
 
+/**
+ * O `badge` da notificação é uma SILHUETA, não um ícone.
+ *
+ * O Android descarta as cores do badge e usa só o canal ALFA para desenhar o
+ * símbolo da barra de status. Apontá-lo para `icon-192.png` — que era o que
+ * estava aqui — entrega uma arte 100% opaca: alfa cheio em todo o quadrado,
+ * então o sistema desenha exatamente isso, um QUADRADO CHAPADO no lugar do
+ * ícone do app. O defeito não aparece em nenhum log e não quebra teste nenhum;
+ * só quem recebe a notificação vê.
+ *
+ * Por isso este ícone é desenhado, e não redimensionado: `favicon.png` é a marca
+ * cheia, com fundo, e nenhum recorte dela vira silhueta. É uma carteira em
+ * branco sobre transparente — no destino ela é reduzida a ~24dp, onde detalhe
+ * não sobrevive e só a forma externa comunica.
+ */
+const SILHUETA = `
+  <svg viewBox="0 0 96 96" xmlns="http://www.w3.org/2000/svg" width="96" height="96">
+    <path fill="#ffffff" fill-rule="evenodd" d="
+      M26 20 h44 a14 14 0 0 1 14 14 v28 a14 14 0 0 1 -14 14 h-44
+      a14 14 0 0 1 -14 -14 v-28 a14 14 0 0 1 14 -14 z
+      M68 40 a8 8 0 0 0 0 16 a8 8 0 0 0 0 -16 z
+    "/>
+  </svg>
+`;
+
+async function gerarBadge(navegador, lado, saida) {
+  const pagina = await navegador.newPage({
+    viewport: { width: lado, height: lado },
+    deviceScaleFactor: 1,
+  });
+  await pagina.setContent(`
+    <style>
+      html, body { margin: 0; padding: 0; width: ${lado}px; height: ${lado}px; }
+      body { background: transparent; }
+      svg { width: ${lado}px; height: ${lado}px; display: block; }
+    </style>
+    ${SILHUETA}
+  `);
+  await pagina.screenshot({ path: path.join(PUBLICO, saida), omitBackground: true });
+  await pagina.close();
+}
+
 const navegador = await chromium.launch();
 try {
   const fundo = await corDeFundoDaArte(navegador);
@@ -112,9 +157,12 @@ try {
   await gerar(navegador, 512, 'icon-512.png');
   await gerar(navegador, 512, 'icon-maskable-512.png', { escala: 0.8, fundo });
   await gerar(navegador, 180, 'apple-touch-icon-180.png', { fundo });
+  await gerarBadge(navegador, 96, 'badge-96.png');
   console.log(`[icones] fundo amostrado da arte: ${fundo}`);
 } finally {
   await navegador.close();
 }
 
-console.log('[icones] icon-192, icon-512, icon-maskable-512 e apple-touch-icon-180 gerados em public/');
+console.log(
+  '[icones] icon-192, icon-512, icon-maskable-512, apple-touch-icon-180 e badge-96 gerados em public/',
+);

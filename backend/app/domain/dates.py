@@ -13,7 +13,7 @@ Paulo pertencia a julho para uma e a agosto para a outra. O fuso vinha só de
 import calendar
 from datetime import UTC, date, datetime, time, tzinfo
 from functools import lru_cache
-from typing import Optional, TypeVar
+from typing import Optional, TypeVar, Union
 from zoneinfo import ZoneInfo
 
 from app.core.config import settings
@@ -116,6 +116,29 @@ def civil_instant(dia: date) -> datetime:
         .astimezone(UTC)
         .replace(tzinfo=None)
     )
+
+
+def civil_day(valor: Union[date, datetime]) -> date:
+    """Dia CIVIL de um valor que JÁ É um dia civil — o LEITOR de `civil_instant`.
+
+    Existe porque faltava a metade de leitura do par, e quem precisava dela
+    alcançava `local_day` — que faz o oposto do necessário. `closing_date` e
+    `due_date` da fatura são `datetime` na coluna, mas o que está guardado ali é
+    um dia do calendário (`credit_card_service._statement_dates` combina a data
+    com meia-noite). Passar isso por `local_day` trata a meia-noite como um
+    INSTANTE UTC e, num fuso negativo, devolve o dia ANTERIOR: um cartão que
+    vence dia 10 era lido como dia 9, e o aviso "vence hoje" saía 24h cedo.
+
+    Serve tanto para a meia-noite crua (o que está gravado hoje) quanto para a
+    âncora de meio-dia de `civil_instant`: em qualquer fuso de UTC-11 a UTC+11
+    as duas caem no mesmo `.date()`. É por isso que ler o dia direto do valor é
+    seguro aqui e ler pelo fuso não é.
+
+    Regra de bolso para escolher entre os dois: `local_day` para o que foi
+    gravado com `datetime.now(UTC)` (um momento que aconteceu), `civil_day` para
+    o que foi gravado a partir de uma data (um dia que alguém escolheu).
+    """
+    return valor.date() if isinstance(valor, datetime) else valor
 
 
 def month_key_local(momento: datetime) -> str:

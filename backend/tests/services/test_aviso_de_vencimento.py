@@ -26,6 +26,7 @@ from app.models.transaction import Transaction, TransactionPayer, TransactionSta
 from app.models.user import User
 from app.models.workspace import Workspace, WorkspaceMembership, WorkspaceRole
 from app.services import due_reminder_service as svc
+from app.services.credit_card_service import CreditCardService
 
 HOJE = date(2026, 9, 10)
 
@@ -79,6 +80,13 @@ def _conta_a_pagar(db: Session, pessoa, *, vence: date, titulo="Aluguel") -> Tra
 
 
 def _fatura(db: Session, pessoa, *, vence: date) -> CardStatement:
+    """Fatura gravada como a PRODUÇÃO grava: dia civil + meia-noite crua.
+
+    A fixture nascera com meio-dia, e era a única razão de a coleta passar verde:
+    `credit_card_service._statement_dates` combina a data com `datetime.min.time()`,
+    e é justamente essa meia-noite que escorregava um dia para trás quando lida
+    como instante. Fixture que não imita o produtor real não protege ninguém.
+    """
     cartao = CreditCard(
         name="Nubank", owner_user_id=pessoa["user"].id,
         limit=Decimal("1000.00"), closing_day=1, due_day=10, currency="BRL",
@@ -88,8 +96,8 @@ def _fatura(db: Session, pessoa, *, vence: date) -> CardStatement:
     db.refresh(cartao)
     fatura = CardStatement(
         card_id=cartao.id, month=vence.strftime("%Y-%m"),
-        closing_date=datetime(vence.year, vence.month, 1, 12, 0, tzinfo=UTC),
-        due_date=datetime(vence.year, vence.month, vence.day, 12, 0, tzinfo=UTC),
+        closing_date=datetime.combine(date(vence.year, vence.month, 1), datetime.min.time()),
+        due_date=datetime.combine(vence, datetime.min.time()),
         status=StatementStatus.closed, total_amount=Decimal("300.00"),
     )
     db.add(fatura)
@@ -136,6 +144,7 @@ def _v(vence: date) -> svc.Vencimento:
     [
         (HOJE, ReminderMilestone.due),
         (HOJE - timedelta(days=1), ReminderMilestone.overdue),
+        (HOJE + timedelta(days=1), ReminderMilestone.eve),
         (HOJE + timedelta(days=3), ReminderMilestone.before),
         (HOJE + timedelta(days=2), None),   # entre os marcos: nada
         (HOJE - timedelta(days=2), None),   # atraso já avisado ontem
@@ -146,10 +155,37 @@ def test_marco_do_dia(vence, esperado):
     assert svc.marco_de(_v(vence), HOJE, dias_antes=3) is esperado
 
 
+def test_a_sequencia_prometida_e_tres_um_e_no_dia():
+    """O que o produto promete com o padrão: D-3, D-1 e no dia.
+
+    Escrito como sequência, e não como três asserções soltas, porque o defeito
+    que importa aqui é um BURACO — um dia da série que para de avisar sem que
+    nenhum caso isolado fique vermelho.
+    """
+    serie = {
+        dias: svc.marco_de(_v(HOJE + timedelta(days=dias)), HOJE, dias_antes=3)
+        for dias in range(0, 5)
+    }
+    assert serie == {
+        0: ReminderMilestone.due,
+        1: ReminderMilestone.eve,
+        2: None,
+        3: ReminderMilestone.before,
+        4: None,
+    }
+
+
 def test_no_dia_ganha_de_antes_quando_a_antecedencia_e_zero():
     """Com `dias_antes=0` os dois testes casariam. "Vence em 0 dias" seria pior
     do que não avisar, então `due` tem de vir primeiro."""
     assert svc.marco_de(_v(HOJE), HOJE, dias_antes=0) is ReminderMilestone.due
+
+
+def test_vespera_ganha_de_antes_quando_a_antecedencia_e_um():
+    """Antecedência de 1 dia cai em cima da véspera. Se `before` vencesse a
+    disputa, o mesmo dia teria dois marcos — e marco entra na chave do dedupe,
+    então seriam DOIS avisos na mesma manhã."""
+    assert svc.marco_de(_v(HOJE + timedelta(days=1)), HOJE, dias_antes=1) is ReminderMilestone.eve
 
 
 # --------------------------------------------------------------------------
@@ -165,6 +201,47 @@ def test_coleta_as_tres_fontes(db_session: Session, pessoa):
     assert fontes == {
         ReminderSource.payable, ReminderSource.statement, ReminderSource.financing
     }, "a fatura do cartão é a conta que mais dói esquecer e não pode ficar de fora"
+
+
+def test_fatura_do_dia_10_nao_avisa_no_dia_9(db_session: Session, pessoa):
+    """A regressão: o cartão configurado para vencer dia 10 recebia "vence hoje"
+    no dia 9.
+
+    A fatura é construída pelo PRODUTOR REAL (`get_or_create_statement`) de
+    propósito. O defeito vivia exatamente na diferença entre o que o serviço
+    grava — dia civil combinado com meia-noite — e o que a coleta lia, tratando
+    essa meia-noite como instante UTC e recuando um dia no fuso de São Paulo.
+    Um `CardStatement` montado à mão com outra hora não reproduz nada.
+    """
+    cartao = CreditCard(
+        name="Nubank", owner_user_id=pessoa["user"].id,
+        limit=Decimal("1000.00"), closing_day=1, due_day=10, currency="BRL",
+    )
+    db_session.add(cartao)
+    db_session.commit()
+    db_session.refresh(cartao)
+
+    fatura = CreditCardService.get_or_create_statement(
+        db_session, cartao, datetime(2026, 9, 3, 12, 0, tzinfo=UTC)
+    )
+    fatura.status = StatementStatus.closed
+    fatura.total_amount = Decimal("300.00")
+    db_session.add(fatura)
+    db_session.commit()
+
+    dia_10 = fatura.due_date.date()
+    assert dia_10.day == 10, "o cartão foi configurado para vencer dia 10"
+    dia_9 = dia_10 - timedelta(days=1)
+
+    def marcos(hoje: date) -> list[ReminderMilestone]:
+        return [
+            svc.marco_de(v, hoje, dias_antes=3)
+            for v in svc.coletar(db_session, pessoa["user"].id, hoje)
+            if v.source is ReminderSource.statement
+        ]
+
+    assert marcos(dia_9) == [ReminderMilestone.eve], "no dia 9 a fatura é véspera"
+    assert marcos(dia_10) == [ReminderMilestone.due], "'vence hoje' é no dia 10"
 
 
 def test_conta_ja_liquidada_nao_e_avisada(db_session: Session, pessoa):
@@ -229,7 +306,7 @@ def test_nao_avisa_a_mesma_conta_duas_vezes(db_session: Session, pessoa):
 
 
 def test_a_mesma_conta_avisa_de_novo_em_marco_diferente(db_session: Session, pessoa):
-    """Três marcos por conta é o TETO, não um só."""
+    """Quatro marcos por conta é o TETO, não um só."""
     _conta_a_pagar(db_session, pessoa, vence=HOJE)
 
     svc.processar_usuario(db_session, pessoa["user"], HOJE)          # 'due'
@@ -241,6 +318,36 @@ def test_a_mesma_conta_avisa_de_novo_em_marco_diferente(db_session: Session, pes
         r.milestone for r in db_session.exec(select(DueReminder)).all()
     }
     assert marcos == {ReminderMilestone.due, ReminderMilestone.overdue}
+
+
+def test_a_conta_avisa_tres_dias_antes_na_vespera_e_no_dia(db_session: Session, pessoa):
+    """A promessa do produto, rodando o job dia a dia como ele roda de verdade.
+
+    Cinco execuções, quatro avisos, e o dia 2 CALADO — o silêncio faz parte da
+    promessa tanto quanto os avisos: é ele que separa "três lembretes" de "um
+    lembrete por dia até você pagar", que é como o canal acaba desligado.
+    """
+    vence = HOJE + timedelta(days=3)
+    _conta_a_pagar(db_session, pessoa, vence=vence)
+
+    saiu = {}
+    for dias in range(3, -2, -1):  # D-3, D-2, D-1, no dia, D+1
+        hoje = vence - timedelta(days=dias)
+        saiu[dias] = svc.processar_usuario(db_session, pessoa["user"], hoje)
+        db_session.commit()
+
+    assert saiu == {3: 1, 2: 0, 1: 1, 0: 1, -1: 1}
+
+    marcos = [
+        r.milestone
+        for r in db_session.exec(select(DueReminder).order_by(DueReminder.id)).all()
+    ]
+    assert marcos == [
+        ReminderMilestone.before,
+        ReminderMilestone.eve,
+        ReminderMilestone.due,
+        ReminderMilestone.overdue,
+    ]
 
 
 def test_conta_que_mudou_de_data_volta_a_avisar(db_session: Session, pessoa):

@@ -93,10 +93,15 @@ self.addEventListener('push', (evento) => {
   const titulo = dados.titulo || 'Controle Financeiro';
   const opcoes = {
     body: dados.corpo || 'Você tem uma conta chegando no vencimento.',
+    // `icon` é a arte GRANDE, colorida — o ícone do app serve.
     icon: '/icon-192.png',
-    // `badge` é o ícone monocromático da barra de status do Android. Sem ele o
-    // sistema desenha um quadrado cinza no lugar.
-    badge: '/icon-192.png',
+    // `badge` é outra coisa, e apontá-lo para o mesmo arquivo era o defeito: o
+    // Android joga fora as cores do badge e desenha só o canal ALFA. Como
+    // `icon-192.png` é 100% opaco, o alfa é o quadrado inteiro — e era isso que
+    // aparecia na notificação, um retângulo preto no lugar do ícone. O badge
+    // precisa ser SILHUETA: branco sobre transparente, gerado por
+    // `scripts/gerar-icones.mjs`.
+    badge: '/badge-96.png',
     lang: 'pt-BR',
     // `tag` fixa: um aviso novo SUBSTITUI o anterior em vez de empilhar. O
     // servidor já agrupa as contas do dia numa mensagem só, então duas
@@ -111,6 +116,7 @@ self.addEventListener('push', (evento) => {
       self.registration.showNotification('Controle Financeiro', {
         body: 'Você tem uma conta chegando no vencimento.',
         icon: '/icon-192.png',
+        badge: '/badge-96.png',
         tag: 'vencimento',
       }),
     ),

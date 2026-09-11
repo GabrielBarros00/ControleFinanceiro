@@ -8,16 +8,28 @@ fatura, e ela vive em Compromissos. A fatura do cartão é a conta que mais dói
 esquecer, e ficaria calada. Por isso são três fontes, cada uma com a data que
 realmente tem:
 
-| Fonte | Vencimento |
-|---|---|
-| conta a pagar | `local_day(transaction_date)` — a mesma de `_vencimento()` |
-| fatura de cartão | `CardStatement.due_date` (data real) |
-| parcela de financiamento | `AmortizationInstallment.due_date` (data real) |
+| Fonte | Vencimento | Como se lê a data |
+|---|---|---|
+| conta a pagar | `transaction_date` | `local_day` — é um INSTANTE |
+| fatura de cartão | `CardStatement.due_date` | `civil_day` — é um DIA em coluna `datetime` |
+| parcela de financiamento | `AmortizationInstallment.due_date` | direto — a coluna já é `date` |
+
+A terceira coluna existe porque foi ali que nasceu o defeito que este arquivo já
+teve: as três fontes guardam a data em tipos diferentes, e usar o mesmo leitor
+para todas parece limpeza e é erro. `local_day` numa meia-noite civil recua um
+dia em fuso negativo — a fatura do dia 10 avisava "vence hoje" no dia 9.
 
 A conta a pagar usa a data do lançamento porque é a única que ela tem. Para um
 boleto lançado no dia em que chegou, essa data é a da CHEGADA, não a do
 vencimento — a ressalva está no ADR e some quando existir `due_date` no
 lançamento.
+
+## Os quatro marcos
+
+Três dias antes (configurável), na véspera, no dia e no dia seguinte. O que cada
+um serve está em `ReminderMilestone`; o que importa aqui é que a sequência é
+FINITA por conta: entre os marcos o job roda e não avisa nada, e é esse silêncio
+que separa "lembrete" de "cobrança diária até você pagar".
 
 ## Por que a varredura é por pessoa, e não uma consulta global
 
@@ -41,7 +53,7 @@ from typing import List, Optional, Sequence
 import structlog
 from sqlmodel import Session, select
 
-from app.domain.dates import local_day, today_local
+from app.domain.dates import civil_day, local_day, today_local
 from app.domain.query_policy import workspaces_do_usuario
 from app.models.credit_card import CardStatement, CreditCard, StatementStatus
 from app.models.due_reminder import DueReminder, ReminderMilestone, ReminderSource
@@ -125,7 +137,12 @@ def coletar_faturas(db: Session, user_id: int, inicio: date, fim: date) -> List[
 
     achados: List[Vencimento] = []
     for statement, cartao in linhas:
-        vence = local_day(statement.due_date)
+        # `civil_day`, e NÃO `local_day`: a coluna é `datetime`, mas o que está
+        # guardado nela é o dia que a pessoa configurou no cartão, combinado com
+        # meia-noite (`credit_card_service._statement_dates`). Lida como instante
+        # UTC, essa meia-noite vira 21h do dia ANTERIOR em São Paulo — e o cartão
+        # que vence dia 10 recebia "vence hoje" no dia 9.
+        vence = civil_day(statement.due_date)
         if inicio <= vence <= fim:
             achados.append(
                 Vencimento(
@@ -176,13 +193,22 @@ def coletar(db: Session, user_id: int, hoje: date) -> List[Vencimento]:
 def marco_de(vencimento: Vencimento, hoje: date, dias_antes: int) -> Optional[ReminderMilestone]:
     """Qual marco esta obrigação dispara HOJE — ou nenhum.
 
-    A ordem do teste importa quando `dias_antes` é 0 ou 1: "no dia" ganha do
-    "antes", porque avisar "vence em 0 dias" seria pior do que não avisar.
+    Com o padrão de `dias_antes=3`, a sequência é a que o produto promete: três
+    dias antes, na véspera e no dia (mais o atraso, no dia seguinte).
+
+    A ordem dos testes é o que impede aviso duplicado quando a antecedência
+    escolhida cai em cima de um marco fixo. `due` vem primeiro porque "vence em
+    0 dias" seria pior do que não avisar; `eve` vem antes de `before` porque a
+    pessoa que escolheu 1 dia de antecedência já é atendida pela véspera — se a
+    ordem fosse inversa, o mesmo dia geraria dois marcos e, como o marco entra na
+    chave do dedupe, DOIS avisos.
     """
     if vencimento.due_date == hoje:
         return ReminderMilestone.due
     if vencimento.due_date == hoje - timedelta(days=1):
         return ReminderMilestone.overdue
+    if vencimento.due_date == hoje + timedelta(days=1):
+        return ReminderMilestone.eve
     if vencimento.due_date == hoje + timedelta(days=dias_antes):
         return ReminderMilestone.before
     return None
@@ -252,6 +278,8 @@ def _texto(
         titulo = f"{quantos} contas venceram e continuam em aberto"
     elif marcos == {ReminderMilestone.due}:
         titulo = f"{quantos} contas vencem hoje"
+    elif marcos == {ReminderMilestone.eve}:
+        titulo = f"{quantos} contas vencem amanhã"
     else:
         titulo = f"{quantos} contas precisam da sua atenção"
 

@@ -30,12 +30,23 @@ class ReminderSource(str, Enum):
 class ReminderMilestone(str, Enum):
     """Quão perto o aviso foi disparado.
 
-    Três marcos são o TETO por conta e por pessoa. Cada aviso a mais é fadiga, e
-    fadiga transforma notificação em ruído que a pessoa desliga — perdendo junto
-    o aviso que importava.
+    Quatro marcos são o TETO por conta e por pessoa. Cada aviso a mais é fadiga,
+    e fadiga transforma notificação em ruído que a pessoa desliga — perdendo
+    junto o aviso que importava. Cada um dos quatro serve a um momento diferente:
+
+    - `before` (D-N) é PLANEJAMENTO: dá tempo de mover dinheiro para a conta.
+    - `eve` (D-1) é a ÚLTIMA CHANCE de agir. Ele não é redundante com o `due`:
+      quem lê "vence hoje" às 9h já pode estar sem saldo, e boleto pago depois do
+      horário bancário compensa no dia seguinte — ou seja, atrasa.
+    - `due` (no dia) é o lembrete de quem ia pagar e esqueceu.
+    - `overdue` (D+1) é o resgate, uma vez só.
+
+    Valor novo aqui NÃO exige migração: a coluna é `String`, não enum nativo do
+    Postgres (ver o comentário em `DueReminder.milestone`).
     """
 
-    before = "before"      # D-N (N configurável pela pessoa)
+    before = "before"      # D-N (N configurável pela pessoa, padrão 3)
+    eve = "eve"            # D-1, a véspera
     due = "due"            # no dia
     overdue = "overdue"    # D+1, uma única vez
 

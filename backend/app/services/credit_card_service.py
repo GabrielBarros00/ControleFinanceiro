@@ -6,7 +6,7 @@ from typing import Optional, Union
 from sqlalchemy import update
 from sqlmodel import Session, select, func
 
-from app.domain.dates import local_day, today_local
+from app.domain.dates import civil_day, local_day, today_local
 from app.domain.query_policy import REALIZED_STATUSES
 from app.models.credit_card import (
     CreditCard,
@@ -549,7 +549,7 @@ class CreditCardService:
         # instante, e em UTC a fatura virava "vencida" três horas antes da
         # meia-noite de quem a olha.
         ref = today or today_local()
-        return ref > statement.due_date.date()
+        return ref > civil_day(statement.due_date)
 
     @staticmethod
     def card_committed(db: Session, card: CreditCard) -> Decimal:

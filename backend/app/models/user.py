@@ -80,8 +80,10 @@ class User(UserBase, table=True):
     )
     # --- Preferências do aviso de vencimento (ADR 0033) ---
     #
-    # Quantos dias antes sai o primeiro aviso. O segundo é sempre no dia e o
-    # terceiro no dia seguinte ao vencimento; só a antecedência é escolha.
+    # Quantos dias antes sai o PRIMEIRO aviso. Os outros três são fixos — na
+    # véspera, no dia e no dia seguinte ao vencimento (`ReminderMilestone`); só a
+    # antecedência do primeiro é escolha. Escolher 1 não gera aviso duplicado: a
+    # véspera atende esse dia sozinha (ver `due_reminder_service.marco_de`).
     notify_days_before: int = Field(
         default=3,
         sa_column=Column(Integer, nullable=False, server_default="3"),

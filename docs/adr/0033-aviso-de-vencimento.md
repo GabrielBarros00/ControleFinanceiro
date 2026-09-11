@@ -39,11 +39,22 @@ conta que mais dói esquecer, e ficaria calada.
 
 O aviso cobre as três, cada uma com a data que ela realmente tem:
 
-| Fonte | Vencimento | Observação |
+| Fonte | Vencimento | Como se lê |
 |---|---|---|
-| Conta a pagar | `local_day(transaction_date)` | é o que a tela já mostra |
-| Fatura de cartão | `Statement.due_date` | data real, no banco |
-| Parcela de financiamento | `FinancingInstallment.due_date` | data real, no banco |
+| Conta a pagar | `transaction_date` | `local_day` — é um **instante** |
+| Fatura de cartão | `Statement.due_date` | `civil_day` — é um **dia** em coluna `datetime` |
+| Parcela de financiamento | `FinancingInstallment.due_date` | direto — a coluna já é `date` |
+
+> **Correção (2026-09-09):** a terceira coluna foi acrescentada depois de o
+> defeito acontecer em produção. As três fontes guardam a data em tipos
+> diferentes, e a implementação usou `local_day` nas três — o que parece
+> uniformidade e é erro. `CardStatement.due_date` é `datetime`, mas o que está
+> guardado ali é um dia civil combinado com **meia-noite**
+> (`credit_card_service._statement_dates`); lida como instante UTC, essa
+> meia-noite vira 21h do dia anterior em São Paulo. O cartão configurado para
+> vencer dia 10 recebia "vence hoje" no dia 9. A regra, agora com um leitor
+> próprio (`domain/dates.civil_day`): **`local_day` para o que foi gravado de um
+> relógio, `civil_day` para o que foi gravado de um calendário.**
 
 A conta a pagar usa a data do lançamento porque é a única que ela tem — e é a
 mesma que a tela de Contas a pagar já chama de vencimento. Documentado aqui para
@@ -51,16 +62,31 @@ que ninguém descubra sozinho depois: para um boleto lançado no dia em que cheg
 essa data é a da chegada, não a do vencimento. **Um `due_date` opcional no
 lançamento resolveria, e fica de fora** (ver "O que fica de fora").
 
-### 2. Três marcos, e nunca mais que três avisos por conta
+### 2. Quatro marcos, e nunca mais que quatro avisos por conta
 
 "Conforme for chegando mais próximo" pede escala, não um aviso só. Mas cada aviso
 a mais é fadiga, e fadiga transforma notificação em ruído que se desliga.
 
 - **D-3** (configurável, 1..15): dá tempo de mover dinheiro.
+- **D-1, a véspera**: a última chance de agir.
 - **No dia**: o lembrete que de fato importa.
 - **D+1, uma única vez**: venceu e continua em aberto.
 
-Três é o teto por conta e por pessoa. O que garante isso é a tabela do item 4.
+Quatro é o teto por conta e por pessoa. O que garante isso é a tabela do item 4.
+
+> **Revisão (2026-09-09):** a véspera não estava na decisão original — eram três
+> marcos, e o D-1 só existia para quem escolhesse antecedência de 1 dia, perdendo
+> o D-3. Ela entrou porque os dois extremos servem a coisas diferentes: o D-3 é
+> planejamento (dá tempo de mover dinheiro entre contas) e o D-1 é ação. Não é
+> redundante com o "no dia": quem lê "vence hoje" às 9h já pode estar sem saldo, e
+> boleto pago depois do horário bancário compensa no dia seguinte — ou seja,
+> atrasa. Como `milestone` é `String` e não enum nativo (item 4), o valor novo não
+> exigiu migração.
+>
+> A antecedência configurável passou a reger **só o primeiro aviso**; véspera, dia
+> e atraso são fixos. Quando a pessoa escolhe 1 dia, a véspera vence a disputa e o
+> marco `before` não dispara — se fosse o contrário, o mesmo dia geraria dois
+> marcos distintos e, como o marco entra na chave do dedupe, **dois avisos**.
 
 ### 3. O sino é o registro; o push é a entrega
 
@@ -130,6 +156,17 @@ O push é o padrão Web Push com VAPID; não há Firebase, nem app nativo.
 não instalou, oferecer "Ativar notificações" é oferecer um botão que não pode
 funcionar. Ali a tela pede a instalação primeiro. Isso não é polimento — é a
 diferença entre a funcionalidade existir ou não naquele aparelho.
+
+> **Correção (2026-09-09):** o `badge` do `showNotification` **não é um ícone, é
+> uma silhueta**. O Android descarta as cores dele e desenha só o canal alfa.
+> Apontá-lo para `icon-192.png` — que foi o que a implementação fez — entrega uma
+> arte 100% opaca, e o sistema desenha o alfa dela: um **quadrado preto** no
+> lugar do ícone do app. Agora existe `public/badge-96.png` (branco sobre
+> transparente, desenhado em `scripts/gerar-icones.mjs`, não recortado da marca),
+> e `verify-build-assets.mjs` reprova o build tanto se o `badge` voltar a apontar
+> para arte colorida quanto se o próprio arquivo perder a transparência. Portão
+> no build porque o sintoma não aparece em log, teste nem tela: só na notificação
+> que chega ao aparelho.
 
 ### 8. A permissão se pede UMA vez, e só depois de explicar
 
