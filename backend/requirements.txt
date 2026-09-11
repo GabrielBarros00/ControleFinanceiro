@@ -4,13 +4,13 @@
 #
 #    pip-compile --no-index --output-file=requirements.txt --strip-extras requirements.in
 #
-alembic==1.19.1
+alembic==1.19.2
     # via -r requirements.in
 annotated-doc==0.0.5
     # via fastapi
 annotated-types==0.8.0
     # via pydantic
-anyio==4.14.2
+anyio==4.15.1
     # via
     #   -r requirements.in
     #   httpx
@@ -111,6 +111,7 @@ structlog==26.1.0
 typing-extensions==4.16.0
     # via
     #   alembic
+    #   anyio
     #   fastapi
     #   pydantic
     #   pydantic-core

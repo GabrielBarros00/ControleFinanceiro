@@ -40,7 +40,7 @@ pydantic[email]==2.13.5
 pydantic-settings==2.15.0
 sqlmodel==0.0.42
 SQLAlchemy==2.0.52
-alembic==1.19.1
+alembic==1.19.2
 
 # --- Banco ---
 psycopg2-binary==2.9.12
@@ -68,7 +68,7 @@ bcrypt==5.0.0
 # --- Infra ---
 httpx==0.28.1
 structlog==26.1.0
-anyio==4.14.2
+anyio==4.15.1
 python-dotenv==1.2.3
 # Base de fusos para `zoneinfo`. O calendário do app é `APP_TIMEZONE`
 # (America/Sao_Paulo por padrão) e o Windows não tem base de fusos do sistema —
