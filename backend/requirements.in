@@ -40,16 +40,16 @@ pydantic[email]==2.13.5
 pydantic-settings==2.15.0
 sqlmodel==0.0.42
 SQLAlchemy==2.0.52
-alembic==1.19.2
+alembic==1.20.0
 
 # --- Banco ---
-psycopg2-binary==2.9.12
+psycopg2-binary==2.9.13
 
 # --- Segurança ---
 # PyJWT no lugar de python-jose: o jose está praticamente sem manutenção e
 # acumula CVEs (confusão de algoritmo, "JWT bomb"). PyJWT é mantido e exige
 # `algorithms=` explícito na verificação.
-PyJWT[crypto]==2.13.0
+PyJWT[crypto]==2.14.0
 # Piso da `cryptography`, que entra pelo extra `[crypto]` acima e não tinha
 # restrição própria: o resolvedor congelou a 49.0.0 e o `pip-audit --strict` do
 # CI passou a reprovar por PYSEC-2026-3552 (oracle Bleichenbacher na
@@ -74,7 +74,7 @@ python-dotenv==1.2.3
 # (America/Sao_Paulo por padrão) e o Windows não tem base de fusos do sistema —
 # sem este pacote, `ZoneInfo` levanta ModuleNotFoundError no desenvolvimento
 # local e o backend degradava para UTC justamente onde a diferença importa.
-tzdata==2026.3
+tzdata==2026.4
 # Criptografia do payload do Web Push (aes128gcm, RFC 8291/8188). É a ÚNICA peça
 # nova do aviso de vencimento (ADR 0033), e de propósito:
 #
