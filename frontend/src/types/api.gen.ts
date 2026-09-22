@@ -2989,6 +2989,11 @@ export interface components {
             financing_id: number;
             /** Paid At */
             paid_at?: string | null;
+            /**
+             * Paid Outside App
+             * @default false
+             */
+            paid_outside_app: boolean;
             /** Account Id */
             account_id?: number | null;
         };

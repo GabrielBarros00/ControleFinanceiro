@@ -387,7 +387,16 @@ def settle_past_installments(
         # `paid_at` recebe o VENCIMENTO de cada parcela, não a data de hoje: elas
         # foram pagas no passado, e carimbar todas com hoje inventaria um dia em
         # que doze parcelas teriam sido quitadas de uma vez.
-        .values(is_paid=True, paid_at=AmortizationInstallment.due_date)
+        #
+        # `paid_outside_app=True` é o que sustenta a promessa do docstring. Sem
+        # ele, `is_paid=True` sem despesa vinculada é exatamente o gatilho da
+        # fonte 4 do `CashFlowService`, e cada parcela quitada aqui virava uma
+        # saída de caixa no mês em que venceu — meses fechados, reescritos.
+        .values(
+            is_paid=True,
+            paid_at=AmortizationInstallment.due_date,
+            paid_outside_app=True,
+        )
     ).rowcount
     session.commit()
 
@@ -615,6 +624,11 @@ def unpay_installment(
 
     installment.is_paid = False
     installment.paid_at = None
+    # Reabrir desfaz também a afirmação "isto foi pago antes de eu cadastrar o
+    # contrato". Sem limpar, uma parcela que veio da quitação em lote e depois
+    # fosse paga de verdade pela rota individual ficaria invisível no caixa para
+    # sempre — o marcador é do fato antigo, não da parcela.
+    installment.paid_outside_app = False
     session.add(installment)
 
     # O vínculo é por ID (`financing_installment_id`): pelo título, renomear o

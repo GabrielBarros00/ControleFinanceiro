@@ -85,6 +85,37 @@ def _quitar(cena, financing_id, **corpo):
     )
 
 
+#: Meses que a varredura do caixa cobre: do mais antigo vencimento usado nos
+#: testes até o mês que vem. `/me/ledger` responde UM mês por vez, e medir só o
+#: corrente foi o defeito da primeira versão deste arquivo — ela enxergava uma
+#: das três saídas criadas, e nenhuma nos dias do mês em que `HOJE-10` caía no
+#: mês anterior. O teste passava por calendário, não por correção.
+#:
+#: A folga de um mês para trás não é enfeite: `paid_at` é gravado à meia-noite do
+#: vencimento e o extrato agrupa por dia LOCAL, então a parcela que vence no dia
+#: 1º aparece no último dia do mês anterior.
+_JANELA = [-3, -2, -1, 0, 1]
+
+
+def _meses_da_janela():
+    meses = []
+    for deslocamento in _JANELA:
+        mes = HOJE.month + deslocamento
+        ano = HOJE.year + (mes - 1) // 12
+        meses.append(f"{ano:04d}-{(mes - 1) % 12 + 1:02d}")
+    return meses
+
+
+def _linhas_de_caixa(cena):
+    """Todo movimento de caixa da janela, mês a mês."""
+    linhas = []
+    for mes in _meses_da_janela():
+        resposta = client.get(f"/api/v1/me/ledger?month={mes}", headers=cena["headers"])
+        assert resposta.status_code == 200, resposta.text
+        linhas += resposta.json()["entries"]
+    return linhas
+
+
 def test_quita_as_vencidas_e_deixa_o_futuro_em_paz(cena):
     fin = _financiamento(cena, vencimentos=[-40, -25, -10, +5, +35])
 
@@ -130,13 +161,72 @@ def test_nao_inventa_movimento_de_caixa(cena):
     """Marcar como paga NÃO cria despesa: o passado não é reescrito (ADR 0023)."""
     fin = _financiamento(cena, vencimentos=[-40, -25, -10, +5])
 
-    caixa_antes = client.get("/api/v1/me/ledger", headers=cena["headers"]).json()
+    antes = _linhas_de_caixa(cena)
     _quitar(cena, fin["id"])
-    caixa_depois = client.get("/api/v1/me/ledger", headers=cena["headers"]).json()
+    depois = _linhas_de_caixa(cena)
 
-    assert len(caixa_depois["entries"]) == len(caixa_antes["entries"]), (
+    de_parcela = [linha for linha in depois if linha["source"] == "financing_installment"]
+    assert de_parcela == [], (
         "a quitação em lote criou movimento de caixa — isso reescreve meses "
-        "fechados e é exatamente o que o ADR 0023 proíbe"
+        f"fechados e é exatamente o que o ADR 0023 proíbe: {de_parcela}"
+    )
+    assert len(depois) == len(antes), (
+        f"a quitação mexeu no caixa por outra fonte: {antes} -> {depois}"
+    )
+
+
+def test_a_parcela_paga_DE_VERDADE_continua_no_caixa(cena):
+    """O controle do teste acima — sem ele, a varredura poderia estar cega.
+
+    Um filtro largo demais (por exemplo, suprimir do caixa toda parcela sem
+    despesa vinculada) deixaria o teste anterior verde e apagaria a fonte 4
+    inteira: quem paga a parcela pelo app, sem lançar despesa em workspace
+    nenhum, tem na parcela a única testemunha de que o dinheiro saiu.
+    """
+    fin = _financiamento(cena, vencimentos=[-10, +5])
+
+    r = client.post(
+        f"/api/v1/me/financing/{fin['id']}/installments/1/pay",
+        json={},
+        headers=cena["headers"],
+    )
+    assert r.status_code == 200, r.text
+
+    de_parcela = [
+        linha for linha in _linhas_de_caixa(cena)
+        if linha["source"] == "financing_installment"
+    ]
+    assert len(de_parcela) == 1, (
+        "pagar a parcela pelo app tem de sair no extrato — a varredura do teste "
+        f"irmão está cega ou o filtro novo comeu a fonte 4: {de_parcela}"
+    )
+
+
+def test_estornar_devolve_a_parcela_ao_caixa(cena):
+    """`unpay` limpa o marcador: ele é do fato antigo, não da parcela.
+
+    Sem isso, uma parcela que veio da quitação em lote e depois fosse paga de
+    verdade ficaria invisível no caixa para sempre.
+    """
+    fin = _financiamento(cena, vencimentos=[-10, +5])
+    _quitar(cena, fin["id"])
+
+    client.post(
+        f"/api/v1/me/financing/{fin['id']}/installments/1/unpay",
+        headers=cena["headers"],
+    )
+    client.post(
+        f"/api/v1/me/financing/{fin['id']}/installments/1/pay",
+        json={},
+        headers=cena["headers"],
+    )
+
+    de_parcela = [
+        linha for linha in _linhas_de_caixa(cena)
+        if linha["source"] == "financing_installment"
+    ]
+    assert len(de_parcela) == 1, (
+        f"a parcela paga depois do estorno não voltou ao caixa: {de_parcela}"
     )
 
 
