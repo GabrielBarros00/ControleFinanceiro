@@ -459,6 +459,12 @@ class CashFlowService:
         vinculada a tira da fonte 1, e sem este termo ela continuaria suprimindo
         a parcela — a saída sumiria dos dois lados de novo.
 
+        **Parcela quitada em lote não é caixa.** `paid_outside_app` marca o que a
+        pessoa declarou já ter pago antes de cadastrar o contrato (`settle-past`).
+        Sem este filtro, adotar um financiamento antigo criava uma saída retroativa
+        em cada mês já fechado — exatamente o que o ADR 0023 proíbe, e o oposto do
+        que aquela rota promete em contrato.
+
         Sem filtro de `Financing.deleted_at` — ver o cabeçalho do módulo.
         """
         ja_lancada = (
@@ -483,6 +489,7 @@ class CashFlowService:
             .join(Financing, Financing.id == AmortizationInstallment.financing_id)
             .where(Financing.owner_user_id == user_id)
             .where(AmortizationInstallment.is_paid.is_(True))
+            .where(AmortizationInstallment.paid_outside_app.is_(False))
             .where(AmortizationInstallment.paid_at >= inicio)
             .where(AmortizationInstallment.paid_at <= fim)
             .where(~ja_lancada)

@@ -67,6 +67,20 @@ class AmortizationInstallment(AmortizationInstallmentBase, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
     financing_id: int = Field(foreign_key="financing.id", index=True)
     paid_at: Optional[datetime] = None
+    # O pagamento aconteceu ANTES de o app existir para esta pessoa (ADR 0023).
+    #
+    # `is_paid` sozinho não distingue dois fatos diferentes: "paguei e não lancei a
+    # despesa" — que é saída de caixa de verdade, e entra no extrato pela fonte 4 —
+    # de "este contrato já existia quando eu o cadastrei, e estas parcelas eu já
+    # tinha pago". A segunda é a quitação em lote (`settle-past`), e contá-la como
+    # caixa reescrevia o extrato e o resultado de meses FECHADOS: quitar doze
+    # parcelas fazia aparecer uma saída retroativa em cada um dos doze meses.
+    #
+    # Por isso o marcador mora na parcela e não na rota: `CashFlowService._parcelas`
+    # precisa saber, meses depois, que aquela linha nunca foi movimento de caixa
+    # deste app. `unpay` o limpa junto com `is_paid` — reabrir a parcela desfaz
+    # também a afirmação sobre a origem dela.
+    paid_outside_app: bool = Field(default=False)
     # De qual conta a parcela saiu (ADR 0034). Mora AQUI e só aqui, mesmo quando o
     # pagamento também vira uma `Transaction` no workspace: nesse caso a rota COPIA
     # o valor para `TransactionPayer.account_id`, e a parcela deixa de ser fonte de
