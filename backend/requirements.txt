@@ -4,7 +4,7 @@
 #
 #    pip-compile --no-index --output-file=requirements.txt --strip-extras requirements.in
 #
-alembic==1.19.2
+alembic==1.20.0
     # via -r requirements.in
 annotated-doc==0.0.5
     # via fastapi
@@ -68,7 +68,7 @@ markupsafe==3.0.3
     # via mako
 passlib==1.7.4
     # via -r requirements.in
-psycopg2-binary==2.9.12
+psycopg2-binary==2.9.13
     # via -r requirements.in
 pycparser==3.0
     # via cffi
@@ -82,7 +82,7 @@ pydantic-core==2.46.5
     # via pydantic
 pydantic-settings==2.15.0
     # via -r requirements.in
-pyjwt==2.13.0
+pyjwt==2.14.0
     # via
     #   -r requirements.in
     #   pyjwt
@@ -95,7 +95,7 @@ python-multipart==0.0.32
     # via -r requirements.in
 pyyaml==6.0.3
     # via uvicorn
-sqlalchemy==2.0.52
+sqlalchemy==2.0.54
     # via
     #   -r requirements.in
     #   alembic
@@ -123,9 +123,9 @@ typing-inspection==0.4.4
     #   fastapi
     #   pydantic
     #   pydantic-settings
-tzdata==2026.3
+tzdata==2026.4
     # via -r requirements.in
-uvicorn==0.52.4
+uvicorn==0.53.0
     # via -r requirements.in
 uvloop==0.22.1
     # via uvicorn
