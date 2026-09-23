@@ -92,10 +92,12 @@ A referência de cada variável está em **[SETUP.md](SETUP.md)**.
 | **[docs/deploy-vps.md](docs/deploy-vps.md)** | Primeiro deploy numa VPS, do zero ao ar: servidor, HTTPS com Caddy ou Cloudflare Tunnel, primeiro acesso, backup automático |
 | **[docs/runbook-deploy.md](docs/runbook-deploy.md)** | Atualizar um deploy existente: backup, ensaio da migração, rollback |
 | **[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)** | Arquitetura: camadas, modelo de dados, tempo real, autenticação, migrações, topologia de deploy |
+| **[CONTEXT.md](CONTEXT.md)** | Glossário do domínio: o que cada termo da tela significa, como se chama no código e em qual ADR está, com as armadilhas de nome |
 | **[docs/API.md](docs/API.md)** | Referência da API: convenções, autenticação, envelope de erro, endpoints por recurso, WebSocket |
 | **[docs/mcp/](docs/mcp/README.md)** | Integração com agentes de IA: tools, OAuth, guias por cliente, segurança, testes e operação |
 | **[docs/adr/](docs/adr/README.md)** | Architecture Decision Records — as 35 decisões-chave e o porquê de cada uma |
-| **[CONTRIBUTING.md](CONTRIBUTING.md)** | Ambiente de dev, testes, lint, migrações Alembic, geração de tipos, convenções |
+| **[CONTRIBUTING.md](CONTRIBUTING.md)** | Ambiente de dev, testes, lint, migrações Alembic, geração de tipos, convenções, e o que conferir no MCP quando uma funcionalidade muda |
+| **[AGENTS.md](AGENTS.md)** | Instruções para agentes de IA que trabalham no código (Codex, Claude Code, Gemini, Cursor); `CLAUDE.md` e `GEMINI.md` só o importam |
 | **[SECURITY.md](SECURITY.md)** | Como reportar vulnerabilidades e o modelo de segurança |
 | **[CHANGELOG.md](CHANGELOG.md)** | Histórico de versões |
 
@@ -107,6 +109,8 @@ controle_financeiro_v4/
 │   ├── app/
 │   │   ├── api/routes/      # rotas REST por recurso (+ deps de autorização)
 │   │   ├── services/        # regras de negócio (splits, dívidas, faturas, forecast...)
+│   │   │   └── commands/    # as escritas, compartilhadas pelo REST e pelo MCP
+│   │   ├── mcp/             # servidor MCP para agentes de IA (tools, OAuth, widget)
 │   │   ├── domain/          # primitivas puras (Money, datas, política de consultas)
 │   │   ├── models/          # entidades SQLModel (tabelas)
 │   │   ├── core/            # config, segurança, CSRF, rate limit, auditoria
@@ -117,13 +121,16 @@ controle_financeiro_v4/
 │   └── scripts/             # utilitários (dump do OpenAPI)
 ├── frontend/                # SPA React + Vite
 │   └── src/{pages,components,hooks,api,stores,lib,types}
-├── docs/                    # arquitetura, API, ADRs e guias de deploy
+├── docs/                    # arquitetura, API, ADRs, MCP e guias de deploy
+├── integrations/            # pacote de plugin para ChatGPT/Codex (não publicado)
 ├── deploy/Caddyfile.example # TLS na frente do Compose (Let's Encrypt automático)
 ├── scripts/
 │   ├── smoke_prod.py        # smoke test do stack de produção
 │   └── backup.sh            # backup dos DOIS artefatos (banco + volume de anexos)
 ├── docker-compose.yml       # nginx + backend + Postgres (+ pgadmin no profile dev)
-└── Makefile                 # atalhos de test/lint/build
+├── Makefile                 # atalhos de test/lint/build
+├── AGENTS.md                # instruções para agentes de IA (CLAUDE.md e GEMINI.md o importam)
+└── CONTEXT.md               # glossário do domínio
 ```
 
 ## Testes e qualidade
