@@ -12,9 +12,11 @@ por decisão, duplicata e inválida.
 """
 from datetime import datetime
 from decimal import Decimal
-from typing import List
+from typing import List, Optional
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
+
+from app.core.config import settings
 
 
 class ParsedCsvRow(BaseModel):
@@ -68,3 +70,30 @@ class BulkImportResult(BaseModel):
     created: int
     skipped: int
     skipped_details: List[BulkSkippedDetail] = []
+
+
+# Entrada do `/commit`. Morava em `api/routes/imports.py` até o ADR 0035 (o
+# comando é compartilhado com o MCP e um serviço não importa de rota).
+class CommitRow(BaseModel):
+    line: Optional[int] = None
+    title: str = "Imported Transaction"
+    total_amount: Decimal
+    transaction_date: datetime
+    decision: str = "import"  # "import" | "ignore"
+
+
+class CommitRequest(BaseModel):
+    filename: Optional[str] = None
+    # DOIS tetos, e a diferença entre eles importa.
+    #
+    # Este, declarativo, é a defesa contra abuso: o corpo é JSON livre, e o
+    # Pydantic checa o COMPRIMENTO da lista antes de construir os itens — um
+    # corpo com dez milhões de linhas é recusado sem que dez milhões de
+    # `CommitRow` cheguem a existir na memória. Ele vem do ambiente e é o teto
+    # absoluto, porque afrouxá-lo pela tela seria entregar ao próprio operador um
+    # jeito de derrubar o processo.
+    #
+    # O outro, operacional e configurável em runtime (`import_max_rows`, ADR
+    # 0026), é checado no handler e serve para o admin apertar o limite abaixo
+    # deste — nunca acima; `app_settings` recusa valor maior.
+    rows: List[CommitRow] = Field(max_length=settings.IMPORT_MAX_ROWS)

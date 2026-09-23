@@ -9,9 +9,13 @@ auth, onboarding, categorias, transações com split, convites, dívidas,
 recorrência, financiamento, orçamento, rendas, faturas, validações de
 borda, rate limit e SPA. Sai com código != 0 se qualquer passo falhar.
 """
+import base64
+import hashlib
 import os
+import secrets
 import sys
 import time
+from urllib.parse import parse_qs, urlencode, urlsplit
 
 import httpx
 
@@ -80,6 +84,96 @@ class Session:
     def put(self, path, **kw): return self.req("PUT", path, **kw)
     def patch(self, path, **kw): return self.req("PATCH", path, **kw)
     def delete(self, path, **kw): return self.req("DELETE", path, **kw)
+
+
+def smoke_mcp(alice: "Session") -> None:
+    """Integração com IA (ADR 0035), pelo nginx: descoberta, OAuth com PKCE e uma tool.
+
+    É o caminho que o ChatGPT/Claude percorrem de verdade: sem token o /mcp
+    responde 401 apontando o metadata; o cliente se registra (DCR), manda a
+    pessoa ao consentimento, troca o código com PKCE e chama uma tool. Qualquer
+    peça fora do lugar no proxy (rota não encaminhada, header perdido, 307) quebra
+    exatamente aqui — e não na suíte, que roda sem nginx.
+    """
+    print("\n--- Integração com IA (MCP) ---")
+    cru = httpx.Client(timeout=30, follow_redirects=False)
+    res = cru.post(f"{BASE}/mcp", json={"jsonrpc": "2.0", "id": 1, "method": "tools/list"},
+                   headers={"Accept": "application/json, text/event-stream"})
+    desafio = res.headers.get("www-authenticate", "")
+    check("/mcp sem token → 401 com resource_metadata", res.status_code == 401 and "resource_metadata=" in desafio,
+          f"{res.status_code} {desafio[:160]}")
+
+    res = cru.get(f"{BASE}/.well-known/oauth-protected-resource/mcp")
+    check("metadata do recurso protegido (RFC 9728) via nginx", res.status_code == 200, f"{res.status_code}")
+    recurso = res.json()["resource"]
+    res = cru.get(f"{BASE}/.well-known/oauth-authorization-server")
+    check("metadata do authorization server (RFC 8414) via nginx",
+          res.status_code == 200 and res.json().get("code_challenge_methods_supported") == ["S256"], f"{res.status_code}")
+    meta = res.json()
+
+    res = cru.options(f"{API}/oauth/token", headers={
+        "Origin": "https://chatgpt.com", "Access-Control-Request-Method": "POST",
+    })
+    check("token endpoint aceita CORS de cliente web", res.headers.get("access-control-allow-origin") == "*",
+          f"{dict(res.headers)}")
+
+    redirect = "https://smoke.example/callback"
+    res = cru.post(meta["registration_endpoint"], json={
+        "client_name": "Smoke MCP", "redirect_uris": [redirect], "token_endpoint_auth_method": "none",
+        "grant_types": ["authorization_code", "refresh_token"], "response_types": ["code"],
+    })
+    check("registro dinâmico de cliente (DCR)", res.status_code == 201, f"{res.status_code} {res.text[:200]}")
+    client_id = res.json()["client_id"]
+
+    verificador = secrets.token_urlsafe(48)
+    desafio_pkce = base64.urlsafe_b64encode(hashlib.sha256(verificador.encode()).digest()).rstrip(b"=").decode()
+    estado = secrets.token_urlsafe(12)
+    res = cru.get(meta["authorization_endpoint"] + "?" + urlencode({
+        "response_type": "code", "client_id": client_id, "redirect_uri": redirect, "state": estado,
+        "code_challenge": desafio_pkce, "code_challenge_method": "S256",
+        "scope": "finance.read transactions.write", "resource": recurso,
+    }))
+    destino = res.headers.get("location", "")
+    check("authorize leva ao consentimento do app", res.status_code == 302 and "/oauth/consent?request=" in destino,
+          f"{res.status_code} {destino[:160]}")
+    pedido = parse_qs(urlsplit(destino).query)["request"][0]
+
+    res = alice.get("/oauth/consent", params={"request": pedido})
+    check("tela de consentimento mostra o cliente e a conta",
+          res.status_code == 200 and res.json()["client"]["name"] == "Smoke MCP", f"{res.status_code} {res.text[:200]}")
+    res = alice.post("/oauth/consent/approve", json={"request": pedido, "scopes": ["finance.read", "transactions.write"]})
+    check("aprovar devolve o redirect com código", res.status_code == 200, f"{res.status_code} {res.text[:200]}")
+    volta = parse_qs(urlsplit(res.json()["redirect_to"]).query)
+    check("redirect carrega state e iss (RFC 9207)",
+          volta.get("state") == [estado] and volta.get("iss") == [meta["issuer"]], f"{volta}")
+
+    res = cru.post(meta["token_endpoint"], data={
+        "grant_type": "authorization_code", "code": volta["code"][0], "redirect_uri": redirect,
+        "client_id": client_id, "code_verifier": verificador, "resource": recurso,
+    })
+    check("troca do código com PKCE", res.status_code == 200 and res.json()["access_token"].startswith("cfm_at_"),
+          f"{res.status_code} {res.text[:200]}")
+    access = res.json()["access_token"]
+
+    res = cru.post(f"{BASE}/mcp", json={
+        "jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": {"name": "profile_get", "arguments": {}},
+    }, headers={"Accept": "application/json, text/event-stream", "Authorization": f"Bearer {access}",
+                "MCP-Protocol-Version": "2025-11-25"})
+    corpo = res.json() if res.status_code == 200 else {}
+    perfil = corpo.get("result", {}).get("structuredContent", {})
+    check("tool call via nginx devolve o perfil da conta", res.status_code == 200 and perfil.get("email"),
+          f"{res.status_code} {res.text[:200]}")
+    res = cru.post(f"{BASE}/mcp/", json={"jsonrpc": "2.0", "id": 3, "method": "tools/list"},
+                   headers={"Accept": "application/json, text/event-stream", "Authorization": f"Bearer {access}",
+                            "MCP-Protocol-Version": "2025-11-25"})
+    check("/mcp/ com barra não redireciona (sem 307)", res.status_code == 200, f"{res.status_code}")
+    check("tools/list publica o catálogo inteiro", len(res.json()["result"]["tools"]) >= 35)
+
+    res = cru.post(meta["revocation_endpoint"], data={"token": access, "client_id": client_id})
+    check("revogação (RFC 7009)", res.status_code == 200, f"{res.status_code}")
+    res = cru.post(f"{BASE}/mcp", json={"jsonrpc": "2.0", "id": 4, "method": "tools/list"},
+                   headers={"Accept": "application/json, text/event-stream", "Authorization": f"Bearer {access}"})
+    check("token revogado deixa de valer na hora", res.status_code == 401, f"{res.status_code}")
 
 
 def main():
@@ -590,6 +684,8 @@ def main():
         "a manutenção foi mesmo desligada", res.status_code != 503,
         "o stack ficou em manutenção — os testes seguintes falhariam todos",
     )
+
+    smoke_mcp(alice)
 
     print(f"\nSMOKE DE PRODUCAO: {_passed} verificacoes OK — stack aprovado.")
 

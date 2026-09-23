@@ -109,7 +109,13 @@ Base: `/api/v1`. `{ws}` = `workspaces/{workspace_id}`.
 | **Importação CSV** | `/{ws}/imports` | `POST /parse` (mapeia colunas + marca duplicatas), `POST /commit` (decisão por linha, idempotente) |
 | **Analytics** | `/{ws}/analytics` | `GET /summary`, `/reports`, `/forecast`, `/exchange-rate`; estimativas: `GET/POST/PUT/DELETE /estimates` |
 | **Auditoria** | `/{ws}/audit` | `GET` (admin+; trilha por workspace) |
+| **Integrações com IA** | `/me/ai-integrations` | `GET` (status, endpoint MCP, escopos, conexões), `GET /activity`, `DELETE /connections/{grant_id}` — sessão do app; token de agente não alcança |
+| **OAuth (consentimento)** | `/oauth/consent` | `GET ?request=` (quem pede, para onde, que escopos), `POST /approve` (`{request, scopes}`), `POST /deny` → `{redirect_to}`. Os endpoints de protocolo (`/oauth/authorize`, `/token`, `/register`, `/revoke`) ficam fora do OpenAPI — ver [docs/mcp/AUTHENTICATION.md](mcp/AUTHENTICATION.md) |
 | **Health** | `/health` | `GET` → `{ "status": "ok", "version": "..." }` |
+
+## MCP (agentes de IA)
+
+O servidor MCP responde em `/mcp` (fora de `/api/v1`), com OAuth 2.1 próprio. As tools, seus schemas e erros estão em [docs/mcp/TOOLS.md](mcp/TOOLS.md) (gerado do código); a relação de cada rota desta página com as tools, em [docs/mcp/CAPABILITY_MAP.md](mcp/CAPABILITY_MAP.md).
 
 ## WebSocket
 

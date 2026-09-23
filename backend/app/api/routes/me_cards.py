@@ -29,8 +29,7 @@ from sqlmodel import Session, select
 
 from app.api.routes.auth import get_current_user
 from app.db.session import get_session
-from app.domain.access_policy import assert_owns, personal_scope
-from app.domain.account_policy import AccountCurrencyMismatch, assert_conta_na_moeda
+from app.domain.access_policy import personal_scope
 from app.domain.query_policy import resolve_personal_currency
 from app.models.credit_card import (
     CardStatement,
@@ -38,7 +37,6 @@ from app.models.credit_card import (
     StatementPayment,
     StatementStatus,
 )
-from app.models.payment_account import PaymentAccount
 from app.models.transaction import (
     STATEMENT_SHIFT_MAX,
     STATEMENT_SHIFT_MIN,
@@ -54,6 +52,9 @@ from app.schemas.credit_card import (
     StatementTargetRead,
 )
 from app.services.credit_card_service import CreditCardService, StatementStateError
+
+from app.services.commands import statements as stmt_cmd
+from app.services.commands.statements import _get_card_or_404, _get_statement_or_404
 
 router = APIRouter(prefix="/me/credit-cards", tags=["me-credit-cards"])
 
@@ -97,21 +98,6 @@ class StatementPayRequest(BaseModel):
     amount: Optional[Decimal] = Field(default=None, gt=0, le=MAX_MONEY)
     paid_at: Optional[datetime] = None
     note: Optional[str] = Field(default=None, max_length=DESCRIPTION_MAX)
-
-
-def _get_card_or_404(session: Session, card_id: int, user_id: int) -> CreditCard:
-    card = session.get(CreditCard, card_id)
-    if not card or card.deleted_at:
-        raise HTTPException(status_code=404, detail="Cartão não encontrado")
-    assert_owns(card.owner_user_id, user_id, detail="Cartão não encontrado")
-    return card
-
-
-def _get_statement_or_404(session: Session, card: CreditCard, statement_id: int) -> CardStatement:
-    stmt = session.get(CardStatement, statement_id)
-    if not stmt or stmt.card_id != card.id:
-        raise HTTPException(status_code=404, detail="Fatura não encontrada")
-    return stmt
 
 
 def _payments_by_statement(
@@ -434,41 +420,10 @@ def pay_statement(
     session: Session = Depends(get_session),
     current_user: User = Depends(get_current_user),
 ):
-    card = _get_card_or_404(session, card_id, current_user.id)
-    stmt = _get_statement_or_404(session, card, statement_id)
-
-    account = None
-    if body.account_id is not None:
-        account = session.get(PaymentAccount, body.account_id)
-        # A conta de origem tem de ser DO DONO do cartão. Antes a checagem era
-        # `account.workspace_id != workspace_id`, que num modelo de recurso
-        # pessoal não quer dizer nada.
-        if not account or account.deleted_at or account.owner_user_id != current_user.id:
-            raise HTTPException(status_code=400, detail="Conta inválida")
-        if not account.active:
-            raise HTTPException(status_code=400, detail="Conta inativa não pode originar pagamento")
-        # O pagamento é somado ao saldo da conta na moeda do CARTÃO (é assim que
-        # `CashFlowService._pagamentos_de_fatura` o expressa). Conta em outra moeda
-        # somaria moedas diferentes no saldo, em silêncio (ADR 0034).
-        try:
-            assert_conta_na_moeda(account, card.currency)
-        except AccountCurrencyMismatch as exc:
-            # 400 como os dois gates de conta logo acima, e não o 422 de validação:
-            # o corpo é válido, a combinação é que não é.
-            raise HTTPException(status_code=400, detail=str(exc))
-
-    try:
-        CreditCardService.pay_statement(
-            session,
-            stmt,
-            account=account,
-            amount=body.amount,
-            paid_at=body.paid_at,
-            note=body.note,
-            user_id=current_user.id,
-        )
-    except StatementStateError as exc:
-        raise HTTPException(status_code=409, detail=str(exc))
+    stmt = stmt_cmd.pay_statement(
+        session, current_user.id, card_id, statement_id,
+        account_id=body.account_id, amount=body.amount, paid_at=body.paid_at, note=body.note,
+    )
     session.commit()
     session.refresh(stmt)
     return _serialize_statement(session, stmt)

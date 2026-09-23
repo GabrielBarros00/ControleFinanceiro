@@ -392,6 +392,10 @@ def _revoga_sessoes(db: Session, alvo: User) -> int:
     for sessao in sessoes:
         sessao.revoked_at = agora
         db.add(sessao)
+    # "Perdi o notebook" vale também para as conexões de IA (ADR 0035): um token
+    # MCP é uma sessão como outra qualquer, só que de um aplicativo.
+    from app.services.oauth.tokens import revoke_all_user_grants
+    revoke_all_user_grants(db, alvo.id, "admin")
     db.flush()
     return len(sessoes)
 

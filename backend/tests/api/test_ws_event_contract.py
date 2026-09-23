@@ -120,11 +120,48 @@ MODULOS_PESSOAIS = {
 # publicando `member.*` pela rota de membros, que não é deste módulo.
 MODULOS_DE_PLATAFORMA = {"admin.py"}
 
+# Integração com agentes de IA (ADR 0035): o authorization server OAuth e a tela
+# "Integrações com IA" mexem em CONEXÕES da própria pessoa (concessões e tokens),
+# que não pertencem a workspace nenhum. Mesma razão dos módulos pessoais: não há
+# sala para a qual transmitir — e transmitir contaria à casa quais aplicativos de
+# IA alguém conectou. O que um agente MUDA em um workspace passa pelos comandos
+# (`services/commands`), que publicam o evento como a tela publicaria.
+MODULOS_DE_CONEXAO = {"oauth.py", "ai_integrations.py"}
+
+
+def _comandos_que_publicam() -> set[str]:
+    """Funções de `services/commands/*` que publicam evento — direto ou por um
+    helper do próprio módulo (um nível, como o `_full_edit` da edição completa).
+
+    Desde o ADR 0035 a rota REST de escrita é uma casca: chama o comando, comita
+    e responde. O evento continua sendo publicado, só que um nível abaixo — e é
+    esse nível que a varredura precisa enxergar para não aprovar uma rota que
+    delega a um comando MUDO.
+    """
+    publicam: set[str] = set()
+    for py in sorted((APP / "services" / "commands").glob("*.py")):
+        tree = ast.parse(py.read_text(encoding="utf-8"))
+        funcoes = {n.name: n for n in tree.body if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))}
+
+        def publica_direto(no) -> bool:
+            return any(
+                isinstance(n, ast.Call) and getattr(n.func, "id", "") == "publish_event"
+                for n in ast.walk(no)
+            )
+
+        diretas = {nome for nome, no in funcoes.items() if publica_direto(no)}
+        for nome, no in funcoes.items():
+            chama = {getattr(n.func, "id", "") for n in ast.walk(no) if isinstance(n, ast.Call)}
+            if nome in diretas or chama & diretas:
+                publicam.add(nome)
+    return publicam
+
 
 def _mutating_routes_without_event() -> list[str]:
     achados = []
+    comandos = _comandos_que_publicam()
     for py in sorted((APP / "api" / "routes").glob("*.py")):
-        if py.name in MODULOS_PESSOAIS or py.name in MODULOS_DE_PLATAFORMA:
+        if py.name in MODULOS_PESSOAIS or py.name in MODULOS_DE_PLATAFORMA or py.name in MODULOS_DE_CONEXAO:
             continue
         tree = ast.parse(py.read_text(encoding="utf-8"))
         for node in ast.walk(tree):
@@ -139,12 +176,23 @@ def _mutating_routes_without_event() -> list[str]:
             if not muta or node.name in SEM_EVENTO_ESPERADO:
                 continue
             publica = any(
-                isinstance(n, ast.Call) and getattr(n.func, "id", "") == "publish_event"
+                isinstance(n, ast.Call)
+                and (
+                    getattr(n.func, "id", "") == "publish_event"
+                    # `tx_cmd.create_transaction(...)`: delega a um comando que publica
+                    or (isinstance(n.func, ast.Attribute) and n.func.attr in comandos)
+                )
                 for n in ast.walk(node)
             )
             if not publica:
                 achados.append(f"{py.name}::{node.name}")
     return achados
+
+
+def test_varredura_de_comandos_enxerga_os_comandos():
+    """Sem denominador a varredura aprova qualquer rota que delegue a um comando
+    — inclusive se a leitura dos comandos quebrar e devolver vazio."""
+    assert {"create_transaction", "update_transaction", "delete_transaction"} <= _comandos_que_publicam()
 
 
 def test_toda_rota_mutante_publica_evento():

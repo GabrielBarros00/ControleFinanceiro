@@ -65,6 +65,15 @@ argon2-cffi==25.1.0
 passlib==1.7.4
 bcrypt==5.0.0
 
+# --- Integração com agentes de IA (ADR 0035) ---
+# SDK OFICIAL do Model Context Protocol. Serve o `/mcp` (Streamable HTTP, sem
+# estado) para ChatGPT, Claude, Codex, Gemini CLI e afins, e atende sozinho as
+# duas gerações do protocolo (2025-11-25 e 2026-07-28). O authorization server
+# OAuth é NOSSO (`app/services/oauth/`): o do SDK está depreciado, e o login a
+# reaproveitar é o do app. Pin exato: a API de servidor mudou entre as 1.x e as
+# 2.x, e o `app/mcp/server.py` depende da 2.x.
+mcp==2.2.0
+
 # --- Infra ---
 httpx==0.28.1
 structlog==26.1.0

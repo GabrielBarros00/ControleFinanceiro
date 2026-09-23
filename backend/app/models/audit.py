@@ -1,6 +1,7 @@
 from datetime import datetime, UTC
 from enum import Enum
 from typing import Optional, Dict, Any
+from sqlalchemy import Column, String
 from sqlmodel import SQLModel, Field, JSON
 
 class ActionType(str, Enum):
@@ -29,4 +30,8 @@ class AuditLog(AuditLogBase, table=True):
     # workspace referenciaria a linha recém-apagada e violaria a FK sob Postgres).
     # A migração b8e3f105c7a9 já cria a coluna sem FK; o modelo agora reflete isso.
     workspace_id: Optional[int] = Field(default=None, index=True)
+    # Por onde a mudança entrou (ADR 0035): `None` = o próprio app; "mcp:<cliente>"
+    # = um agente de IA pela integração MCP. Texto livre e curto, não Enum — a
+    # lista de clientes muda sem migração.
+    origin: Optional[str] = Field(default=None, sa_column=Column(String(80), nullable=True))
     created_at: datetime = Field(default_factory=lambda: datetime.now(UTC), index=True)

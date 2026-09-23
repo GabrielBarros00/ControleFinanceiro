@@ -7,9 +7,9 @@ from app.schemas.common import HealthRead
 from app.core.config import settings
 from app.db.session import get_session
 from app.api.routes import (
-    admin, analytics, attachments, audit, auth, categories, debts, imports, me,
+    admin, ai_integrations, analytics, attachments, audit, auth, categories, debts, imports, me,
     me_accounts, me_balance, me_cards, me_financing, me_income, me_push, me_search,
-    me_settlements, members, notifications, payables, recurring, settlements, tags,
+    me_settlements, members, notifications, oauth, payables, recurring, settlements, tags,
     transactions, workspaces,
 )
 from app.ws import routes as ws_routes
@@ -57,6 +57,13 @@ router.include_router(me_settlements.router)
 
 router.include_router(auth.router)
 router.include_router(notifications.router)
+
+# --- Integração com agentes de IA (ADR 0035) --------------------------------
+# O authorization server OAuth dos clientes MCP (protocolo + tela de
+# consentimento) e a tela "Integrações com IA". O próprio `/mcp` e os
+# `/.well-known/*` moram na RAIZ do app (`main.py`), fora de `/api/v1`.
+router.include_router(oauth.router)
+router.include_router(ai_integrations.router)
 router.include_router(ws_routes.router)
 
 # --- Espaço de PLATAFORMA: quem opera o site (ADR 0026) ----------------------

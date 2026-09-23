@@ -353,3 +353,42 @@ def test_login_oauth_only_account_gets_clear_error(db_session: Session, override
     res = client.post("/api/v1/auth/login", json={"email": "oauthonly@example.com", "password": "whatever"})
     assert res.status_code == 401
     assert "Google" in res.json()["error"]["message"]
+
+
+def test_google_volta_ao_destino_interno_pedido(
+    db_session: Session, override_get_session, google_configured, monkeypatch
+):
+    """ADR 0035: quem sai do consentimento de um agente para logar volta para ele."""
+    from urllib.parse import parse_qs, urlsplit
+
+    _make_user(db_session, email="volta@example.com")
+    monkeypatch.setattr(
+        auth_module, "_fetch_google_user",
+        lambda code: {"email": "volta@example.com", "name": "X", "email_verified": True}
+    )
+    client.cookies.clear()
+    ida = client.get(
+        "/api/v1/auth/google/login", params={"next": "/oauth/consent?request=abc.def"}, follow_redirects=False
+    )
+    state = parse_qs(urlsplit(ida.headers["location"]).query)["state"][0]
+    volta = client.get(f"/api/v1/auth/google/callback?code=x&state={state}", follow_redirects=False)
+    assert volta.status_code == 307
+    assert volta.headers["location"] == f"{settings.FRONTEND_URL.rstrip('/')}/oauth/consent?request=abc.def"
+
+
+@pytest.mark.parametrize("destino", [
+    "https://evil.example/", "//evil.example/x", "/\evil.example", "javascript:alert(1)", "/ok\nSet-Cookie: x=1",
+])
+def test_google_nao_vira_open_redirect(destino, db_session: Session, override_get_session, google_configured, monkeypatch):
+    from urllib.parse import parse_qs, urlsplit
+
+    _make_user(db_session, email="aberto@example.com")
+    monkeypatch.setattr(
+        auth_module, "_fetch_google_user",
+        lambda code: {"email": "aberto@example.com", "name": "X", "email_verified": True}
+    )
+    client.cookies.clear()
+    ida = client.get("/api/v1/auth/google/login", params={"next": destino}, follow_redirects=False)
+    state = parse_qs(urlsplit(ida.headers["location"]).query)["state"][0]
+    volta = client.get(f"/api/v1/auth/google/callback?code=x&state={state}", follow_redirects=False)
+    assert volta.headers["location"] == settings.FRONTEND_URL

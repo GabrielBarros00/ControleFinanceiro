@@ -1,0 +1,24 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "controle-financeiro",
+  "version": "1.0.0",
+  "description": "Consulte e registre finanças pessoais e compartilhadas do Controle Financeiro: gastos, faturas de cartão, contas, rendas, dívidas entre pessoas e orçamentos.",
+  "author": {
+    "name": "Controle Financeiro"
+  },
+  "license": "AGPL-3.0-only",
+  "keywords": ["finanças", "gastos", "cartão de crédito", "orçamento", "despesas compartilhadas"],
+  "extensions": {
+    "com.openai": {
+      "interface": {
+        "displayName": "Controle Financeiro",
+        "shortDescription": "Seus gastos, faturas e dívidas, conversando.",
+        "longDescription": "Pergunte quanto gastou, veja a fatura do cartão, registre despesas (inclusive parceladas e divididas com outras pessoas), marque contas como pagas e acompanhe quem deve a quem. O app aplica as próprias regras — divisão em centavos, fatura derivada, parcelas — e exclusões em massa sempre passam por uma prévia que você confirma.",
+        "category": "Finance",
+        "capabilities": ["Read", "Write"],
+        "logo": "./assets/logo.png",
+        "composerIcon": "./assets/composer-icon.png"
+      }
+    }
+  }
+}

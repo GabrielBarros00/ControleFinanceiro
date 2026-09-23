@@ -1,0 +1,216 @@
+"""Comando de IMPORTAÇÃO de extrato (ADR 0008).
+
+Movido de `api/routes/imports.py` sem mudança de regra (ADR 0035): só o
+`commit` saiu — quem chama (rota REST ou pipeline do MCP) comanda a transação.
+`_mark_duplicates` veio junto porque o MCP usa a mesma heurística na prévia.
+"""
+from datetime import datetime, time, timedelta
+from decimal import Decimal
+from typing import Any, Dict, List
+
+from fastapi import HTTPException
+from sqlmodel import Session, select
+
+from app.db.locks import trava_workspace
+from app.domain.dates import civil_instant, local_day, month_key_local
+from app.domain.query_policy import workspace_base_currency
+from app.domain.settlement import resolve_settled_at
+from app.models.import_batch import (
+    ImportBatch,
+    ImportRow,
+    ImportRowStatus,
+    compute_fingerprint,
+)
+from app.models.transaction import (
+    SplitMethod,
+    Transaction,
+    TransactionPayer,
+    TransactionSplit,
+    TransactionStatus,
+)
+from app.models.workspace import WorkspaceMembership
+from app.schemas.imports import CommitRequest
+from app.services import app_settings
+from app.services.event_service import publish_event
+
+
+def _ancora_data_civil(quando: datetime) -> datetime:
+    """Meia-noite cravada num payload de import É uma data civil — ancora.
+
+    O caminho normal já chega ancorado, porque `/parse` o faz na leitura do CSV.
+    Mas `/commit` aceita as linhas do CLIENTE, e um script que monte o corpo à
+    mão manda `2026-08-01T00:00:00` — a data que o extrato do banco mostra, sem
+    hora nenhuma. Sem esta rede, essa linha nasceria com competência de julho,
+    que é exatamente o defeito que o `csv_parser` deixou de produzir.
+
+    Um instante genuíno passa intacto: só 00:00:00 exato é tratado como data.
+    """
+    if quando.time() == time.min:
+        return civil_instant(local_day(quando.date()))
+    return quando
+
+
+def _mark_duplicates(session: Session, workspace_id: int, rows: List[Dict[str, Any]]) -> None:
+    """Heurística de duplicata: mesma data (dia), valor e título (case-insensitive)
+    de uma transação já existente no workspace."""
+    if not rows:
+        return
+    # Só a JANELA de datas do arquivo. Antes carregava TODAS as transações vivas
+    # do workspace em memória a cada parse: com anos de histórico e um CSV de
+    # 5 MB, o pico crescia sem teto e a resposta ia junto.
+    #
+    # A janela é por DIA CIVIL, com um dia de folga de cada lado. A comparação é
+    # entre um dia de calendário (a linha do CSV) e um INSTANTE (a coluna), e os
+    # dois só coincidem no meio: uma compra das 22h do dia 31 está gravada em
+    # 01/08 01:00Z, e uma compra ancorada ao meio-dia local está em 15:00Z. Sem a
+    # folga, a janela recortada nos extremos crus do arquivo deixava de fora
+    # justamente os lançamentos do primeiro e do último dia — e o import os
+    # reimportava como se fossem novos.
+    datas = [local_day(row["transaction_date"]) for row in rows]
+    inicio = datetime.combine(min(datas) - timedelta(days=1), time.min)
+    fim = datetime.combine(max(datas) + timedelta(days=1), time.max)
+    existing = session.exec(
+        select(Transaction.transaction_date, Transaction.total_amount, Transaction.title)
+        .where(Transaction.workspace_id == workspace_id)
+        .where(Transaction.deleted_at.is_(None))
+        .where(Transaction.transaction_date >= inicio)
+        .where(Transaction.transaction_date <= fim)
+    ).all()
+    existing_keys = {
+        (local_day(tx_date), int(amount * 100), title.strip().lower())
+        for tx_date, amount, title in existing
+    }
+    for row in rows:
+        key = (
+            local_day(row["transaction_date"]),
+            int(row["total_amount"] * 100),
+            row["title"].strip().lower(),
+        )
+        row["duplicate"] = key in existing_keys
+
+
+def commit_import(
+    session: Session,
+    workspace_id: int,
+    body: CommitRequest,
+    membership: WorkspaceMembership,
+) -> dict:
+    """Persiste um lote com DECISÃO por linha (importar/ignorar) e idempotência
+    por fingerprint (ADR 0008): reimportar o mesmo arquivo não duplica."""
+    # Teto operacional (ver o comentário em CommitRequest.rows). O declarativo já
+    # barrou o abuso; este é o número que o admin escolheu.
+    teto_linhas = app_settings.get(session, "import_max_rows")
+    if len(body.rows) > teto_linhas:
+        raise HTTPException(
+            status_code=422,
+            detail=f"Importação limitada a {teto_linhas} linhas por lote",
+        )
+    # ANTES de ler os fingerprints já importados (ver `db/locks.py`): a
+    # idempotência do ADR 0008 é um `set` lido uma vez e consultado no laço, e
+    # dois envios simultâneos do mesmo arquivo leem o mesmo conjunto e inserem os
+    # dois. Medido antes da correção: 8 lançamentos para a MESMA linha de
+    # extrato. O gatilho realista não é ataque nenhum — é o duplo clique no botão
+    # de confirmar.
+    #
+    # `ImportRow.fingerprint` tem índice mas não é único, então não há nada no
+    # banco recusando a segunda inserção. Um índice parcial único resolveria de
+    # forma mais fina (sem serializar o lote inteiro), mas exigiria migração e
+    # tratamento de conflito linha a linha; importar é operação rara e manual, e
+    # aqui a serialização por workspace é o custo menor.
+    trava_workspace(session, workspace_id)
+
+    # Moeda-base do workspace, não "BRL" fixo: com o literal, TODA linha
+    # importada num workspace em outra moeda caía fora das agregações (que
+    # filtram `currency == base`) e sumia sem aviso nenhum.
+    base_currency = workspace_base_currency(session, workspace_id)
+    batch = ImportBatch(
+        workspace_id=workspace_id,
+        filename=body.filename,
+        created_by_user_id=membership.user_id,
+        total_rows=len(body.rows),
+    )
+    session.add(batch)
+    session.flush()
+
+    # Fingerprints já importados neste workspace = fonte da idempotência
+    seen = set(session.exec(
+        select(ImportRow.fingerprint).where(
+            ImportRow.workspace_id == workspace_id,
+            ImportRow.status == ImportRowStatus.imported,
+        )
+    ).all())
+
+    imported = ignored = duplicate = skipped = 0
+    for row in body.rows:
+        title = (row.title or "Imported Transaction").strip()[:200]
+        quando = _ancora_data_civil(row.transaction_date)
+        fp = compute_fingerprint(workspace_id, quando, row.total_amount, title)
+
+        if row.decision == "ignore":
+            status, reason, tx_id = ImportRowStatus.ignored, None, None
+            ignored += 1
+        elif row.total_amount <= 0:
+            status, reason, tx_id = ImportRowStatus.skipped, "valor deve ser positivo", None
+            skipped += 1
+        elif fp in seen:
+            status, reason, tx_id = ImportRowStatus.duplicate, "já importado anteriormente", None
+            duplicate += 1
+        else:
+            tx = Transaction(
+                title=title,
+                total_amount=row.total_amount,
+                transaction_date=quando,
+                # `month_key_local` agora que a data do CSV chega ancorada ao
+                # meio-dia local (`csv_parser`), e não mais como meia-noite UTC.
+                # Enquanto era meia-noite, `strftime` era o único jeito de não
+                # jogar "01/03" para fevereiro; com um instante de verdade, ler o
+                # mês em UTC é que erraria — e a competência tem de ser a mesma
+                # que o extrato e o caixa enxergam.
+                billing_month=month_key_local(quando),
+                workspace_id=workspace_id,
+                created_by_user_id=membership.user_id,
+                currency=base_currency,
+                status=TransactionStatus.confirmed,
+                # Extrato importado é FATO CONSUMADO (ADR 0029): a linha veio do
+                # banco, o dinheiro já saiu. Nasce liquidada na própria data,
+                # senão importar um CSV de seis meses despejaria o histórico
+                # inteiro em Contas a pagar.
+                settled_at=resolve_settled_at(
+                    session, workspace_id, transaction_date=quando, explicit=True
+                ),
+            )
+            session.add(tx)
+            session.flush()
+            session.add(TransactionPayer(
+                transaction_id=tx.id, user_id=membership.user_id, amount=row.total_amount,
+            ))
+            session.add(TransactionSplit(
+                transaction_id=tx.id, user_id=membership.user_id,
+                split_method=SplitMethod.equal, input_value=Decimal("100"),
+                computed_amount=row.total_amount,
+            ))
+            status, reason, tx_id = ImportRowStatus.imported, None, tx.id
+            seen.add(fp)
+            imported += 1
+
+        session.add(ImportRow(
+            batch_id=batch.id, workspace_id=workspace_id, line=row.line,
+            title=title, amount=row.total_amount, transaction_date=quando,
+            fingerprint=fp, status=status, transaction_id=tx_id, reason=reason,
+        ))
+
+    batch.imported_count = imported
+    batch.ignored_count = ignored
+    batch.duplicate_count = duplicate
+    batch.skipped_count = skipped
+    session.add(batch)
+
+    if imported:
+        publish_event(session, workspace_id, "transaction.bulk_created", "transaction", None, membership.user_id)
+    return {
+        "batch_id": batch.id,
+        "imported": imported,
+        "ignored": ignored,
+        "duplicate": duplicate,
+        "skipped": skipped,
+    }

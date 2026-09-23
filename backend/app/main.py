@@ -26,6 +26,12 @@ from app import models  # noqa: F401
 
 from contextlib import asynccontextmanager
 
+from starlette.routing import Route
+
+from app.api.routes import well_known
+from app.core.public_cors import PublicCorsMiddleware
+from app.mcp import asgi as mcp_asgi
+
 # Logging estruturado: JSON em produção (agregável), console legível em dev
 structlog.configure(
     processors=[
@@ -104,7 +110,10 @@ async def lifespan(app: FastAPI):
         _upgrade_database_to_head()
     _promove_superadmin()
     ws_manager.startup()
-    yield
+    # O gerenciador do servidor MCP (ADR 0035) vive o tempo do app. Um app
+    # montado dentro de outro não tem lifespan próprio — é daqui que ele sobe.
+    async with mcp_asgi.lifespan():
+        yield
     await ws_manager.shutdown()
 
 # Docs, CSP e log JSON valem em produção E staging: staging é deploy real
@@ -290,6 +299,20 @@ app.add_exception_handler(DataError, numero_fora_de_faixa_handler)
 app.add_exception_handler(Exception, internal_server_error_handler)
 
 app.include_router(router)
+
+# --- Integração com agentes de IA (ADR 0035) -----------------------------------
+# Na RAIZ, fora de `/api/v1`, porque é onde os clientes procuram: o endpoint MCP
+# em `/mcp` (com e sem barra, sem 307) e os documentos de descoberta OAuth em
+# `/.well-known/*`. O nginx encaminha os dois caminhos para cá.
+app.include_router(well_known.router)
+_mcp_gate = mcp_asgi.McpGate()
+app.router.routes.append(Route("/mcp", endpoint=_mcp_gate, methods=["GET", "POST", "DELETE"]))
+app.router.routes.append(Route("/mcp/", endpoint=_mcp_gate, methods=["GET", "POST", "DELETE"]))
+
+# O MAIS EXTERNO de todos: atende o preflight CORS dos endpoints públicos da
+# integração (metadados OAuth, /token, /register, /revoke e o /mcp para as
+# origens liberadas) antes que o CORS com credenciais do app o recuse.
+app.add_middleware(PublicCorsMiddleware)
 
 
 @app.get("/", response_model=MessageRead)

@@ -54,6 +54,11 @@ export interface AdminSaude {
   sessoes_expiradas_pendentes_de_expurgo: number;
   auditoria_linhas: number;
   auditoria_mais_antiga: string | null;
+  /** Agentes de IA (ADR 0035): só volume, falha e latência. */
+  mcp_conexoes_ativas: number;
+  mcp_chamadas_24h: number;
+  mcp_erros_24h: number;
+  mcp_ferramentas_24h: { tool: string; chamadas: number; erros: number; p95_ms: number }[];
 }
 
 export interface ChaveDeConfiguracao {

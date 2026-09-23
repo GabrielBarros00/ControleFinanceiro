@@ -6,6 +6,19 @@ import path from "path"
 // https://vitejs.dev/config/
 export default defineConfig({
   plugins: [react()],
+  // Só para o DESENVOLVIMENTO da integração com IA (ADR 0035). Em dev o issuer
+  // OAuth é o FRONTEND_URL (http://localhost:5173), então a descoberta
+  // (/.well-known), o /mcp e os endpoints do authorization server (/api/v1/oauth)
+  // precisam responder por esta porta — é o que um MCP Inspector apontado para
+  // http://localhost:5173/mcp percorre. Em produção quem faz isso é o nginx.
+  server: {
+    proxy: {
+      '/mcp': 'http://localhost:8000',
+      '/.well-known/oauth-': 'http://localhost:8000',
+      '/.well-known/openai-apps-challenge': 'http://localhost:8000',
+      '/api': 'http://localhost:8000',
+    },
+  },
   resolve: {
     alias: {
       "@": path.resolve(__dirname, "./src"),

@@ -167,3 +167,24 @@ def rate_limit_account(db: Session, email: Optional[str], path: str) -> None:
         settings.RATE_LIMIT_ACCOUNT_PER_MINUTE,
     )
     account_limiter.check(f"acct:{email.strip().lower()}:{path}")
+
+
+# --- Authorization server OAuth dos clientes MCP (ADR 0035) ------------------
+#
+# Os endpoints do protocolo não têm sessão: quem chama é um aplicativo, não um
+# navegador logado. O balde é por IP + rota, generoso pelo mesmo motivo do de
+# login (IP compartilhado por gente legítima) — o que barra abuso de verdade é o
+# PKCE e o uso único do código, não o teto. O registro dinâmico tem balde próprio
+# e horário: registrar é barato para o atacante e cria linha no banco.
+oauth_limiter = RateLimiter(max_requests=60, window_seconds=60)
+oauth_registration_limiter = RateLimiter(max_requests=20, window_seconds=3600)
+
+
+def rate_limit_oauth(request: Request, *, registration: bool = False) -> None:
+    """Levanta 429 (HTTPException) — a rota do protocolo traduz para o formato OAuth."""
+    if not settings.RATE_LIMIT_ENABLED:
+        return
+    client_ip = request.client.host if request.client else "unknown"
+    if registration:
+        oauth_registration_limiter.check(f"reg:{client_ip}")
+    oauth_limiter.check(f"oauth:{client_ip}:{request.url.path}")

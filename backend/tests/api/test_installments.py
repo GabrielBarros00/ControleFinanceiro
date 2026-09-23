@@ -112,7 +112,9 @@ def test_installments_rollback_atomico_em_falha_no_meio_do_loop(
 ):
     """TX-001: falha na parcela N descarta TUDO — inclusive parcelas anteriores
     e faturas criadas no caminho (nenhum commit interno no loop)."""
-    import app.api.routes.transactions as tx_routes
+    # A lógica mora na camada de comandos desde o ADR 0035 — a falha é injetada
+    # onde o loop de parcelas de fato chama a função.
+    import app.services.commands.transactions as tx_routes
 
     ws1, u1, card = ws_with_card["ws1"], ws_with_card["u1"], ws_with_card["card"]
     original = tx_routes.persist_transaction_children

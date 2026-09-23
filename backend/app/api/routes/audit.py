@@ -21,6 +21,9 @@ class AuditLogRead(BaseModel):
     user_id: Optional[int]
     workspace_id: Optional[int]
     created_at: datetime
+    #: `mcp:<cliente>` quando a mudança veio de um agente de IA (ADR 0035);
+    #: `None` para o que foi feito pelo próprio app.
+    origin: Optional[str] = None
 
 
 @router.get("", response_model=List[AuditLogRead])

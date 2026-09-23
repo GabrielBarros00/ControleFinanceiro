@@ -14,12 +14,19 @@ anyio==4.15.1
     # via
     #   -r requirements.in
     #   httpx
+    #   httpx2
+    #   mcp
+    #   sse-starlette
     #   starlette
     #   watchfiles
 argon2-cffi==25.1.0
     # via -r requirements.in
 argon2-cffi-bindings==26.1.0
     # via argon2-cffi
+attrs==26.1.0
+    # via
+    #   jsonschema
+    #   referencing
 bcrypt==5.0.0
     # via -r requirements.in
 certifi==2026.7.22
@@ -48,24 +55,40 @@ greenlet==3.5.5
 h11==0.16.0
     # via
     #   httpcore
+    #   httpcore2
     #   uvicorn
 http-ece==1.2.1
     # via -r requirements.in
 httpcore==1.0.9
     # via httpx
+httpcore2==2.13.0
+    # via httpx2
 httptools==0.8.0
     # via uvicorn
 httpx==0.28.1
     # via -r requirements.in
+httpx2==2.13.0
+    # via mcp
 idna==3.19
     # via
     #   anyio
     #   email-validator
     #   httpx
+    #   httpx2
+jsonschema==4.26.0
+    # via mcp
+jsonschema-specifications==2025.9.1
+    # via jsonschema
 mako==1.4.1
     # via alembic
 markupsafe==3.0.3
     # via mako
+mcp==2.2.0
+    # via -r requirements.in
+mcp-types==2.2.0
+    # via mcp
+opentelemetry-api==1.44.0
+    # via mcp
 passlib==1.7.4
     # via -r requirements.in
 psycopg2-binary==2.9.13
@@ -76,6 +99,8 @@ pydantic==2.13.5
     # via
     #   -r requirements.in
     #   fastapi
+    #   mcp
+    #   mcp-types
     #   pydantic-settings
     #   sqlmodel
 pydantic-core==2.46.5
@@ -85,6 +110,7 @@ pydantic-settings==2.15.0
 pyjwt==2.14.0
     # via
     #   -r requirements.in
+    #   mcp
     #   pyjwt
 python-dotenv==1.2.3
     # via
@@ -92,9 +118,19 @@ python-dotenv==1.2.3
     #   pydantic-settings
     #   uvicorn
 python-multipart==0.0.32
-    # via -r requirements.in
+    # via
+    #   -r requirements.in
+    #   mcp
 pyyaml==6.0.3
     # via uvicorn
+referencing==0.37.0
+    # via
+    #   jsonschema
+    #   jsonschema-specifications
+rpds-py==2026.6.3
+    # via
+    #   jsonschema
+    #   referencing
 sqlalchemy==2.0.54
     # via
     #   -r requirements.in
@@ -102,17 +138,28 @@ sqlalchemy==2.0.54
     #   sqlmodel
 sqlmodel==0.0.42
     # via -r requirements.in
+sse-starlette==3.4.11
+    # via mcp
 starlette==1.6.0
     # via
     #   -r requirements.in
     #   fastapi
+    #   mcp
+    #   sse-starlette
 structlog==26.1.0
     # via -r requirements.in
+truststore==0.10.4
+    # via
+    #   httpcore2
+    #   httpx2
 typing-extensions==4.16.0
     # via
     #   alembic
     #   anyio
     #   fastapi
+    #   mcp
+    #   mcp-types
+    #   opentelemetry-api
     #   pydantic
     #   pydantic-core
     #   sqlalchemy
@@ -121,12 +168,15 @@ typing-extensions==4.16.0
 typing-inspection==0.4.4
     # via
     #   fastapi
+    #   mcp
     #   pydantic
     #   pydantic-settings
 tzdata==2026.4
     # via -r requirements.in
 uvicorn==0.53.0
-    # via -r requirements.in
+    # via
+    #   -r requirements.in
+    #   mcp
 uvloop==0.22.1
     # via uvicorn
 watchfiles==1.2.0

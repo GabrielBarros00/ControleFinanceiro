@@ -13,13 +13,10 @@ from app.services.event_service import publish_event
 from app.models.category import Category
 from app.models.workspace import WorkspaceMembership, WorkspaceRole
 
+from app.schemas.category import CategoryCreate
+from app.services.commands import planning as plan_cmd
+
 router = APIRouter(prefix="/workspaces/{workspace_id}/categories", tags=["categories"])
-
-
-class CategoryCreate(BaseModel):
-    name: str = Field(min_length=1, max_length=NAME_MAX)
-    color: Optional[str] = None
-    icon: Optional[str] = None
 
 
 class CategoryUpdate(BaseModel):
@@ -56,31 +53,7 @@ def create_category(
     session: Session = Depends(get_session),
     membership: WorkspaceMembership = Depends(require_role(WorkspaceRole.member)),
 ):
-    name = category_in.name.strip()
-    if not name:
-        raise HTTPException(status_code=400, detail="Nome da categoria é obrigatório")
-
-    # Nome único por workspace; criar com nome de categoria excluída reativa a
-    # antiga em vez de bloquear para sempre (CAT-001, mesmo padrão das tags)
-    existing = session.exec(
-        select(Category).where(Category.workspace_id == workspace_id, Category.name == name)
-    ).first()
-    if existing:
-        if existing.deleted_at is None:
-            raise HTTPException(status_code=400, detail=f"Categoria '{name}' já existe neste workspace")
-        existing.deleted_at = None
-        existing.color = category_in.color
-        existing.icon = category_in.icon
-        existing.updated_at = datetime.now(UTC)
-        session.add(existing)
-        category = existing
-    else:
-        category = Category(
-            **{**category_in.model_dump(), "name": name}, workspace_id=workspace_id
-        )
-        session.add(category)
-    session.flush()
-    publish_event(session, workspace_id, "category.created", "category", category.id, membership.user_id)
+    category = plan_cmd.create_category(session, workspace_id, category_in, membership)
     session.commit()
     session.refresh(category)
     return category

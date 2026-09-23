@@ -820,6 +820,38 @@ function Saude() {
           o expurgo diário.
         </p>
       </Card>
+      <div className="space-y-3">
+        <h3 className="text-sm font-semibold text-foreground">Agentes de IA (últimas 24 h)</h3>
+        <div className="grid grid-cols-3 gap-3 sm:gap-4">
+          <Metrica label="Conexões ativas" valor={dados.mcp_conexoes_ativas ?? 0} />
+          <Metrica label="Chamadas" valor={dados.mcp_chamadas_24h ?? 0} />
+          <Metrica label="Falhas" valor={dados.mcp_erros_24h ?? 0} />
+        </div>
+        {(dados.mcp_ferramentas_24h ?? []).length > 0 && (
+          <Card className="overflow-x-auto p-0">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-border text-left text-xs text-muted-foreground">
+                  <th className="px-4 py-2 font-medium">Tool</th>
+                  <th className="px-4 py-2 text-right font-medium">Chamadas</th>
+                  <th className="px-4 py-2 text-right font-medium">Falhas</th>
+                  <th className="px-4 py-2 text-right font-medium">p95</th>
+                </tr>
+              </thead>
+              <tbody>
+                {dados.mcp_ferramentas_24h.map((f) => (
+                  <tr key={f.tool} className="border-b border-border last:border-0">
+                    <td className="px-4 py-2 font-mono text-xs">{f.tool}</td>
+                    <td className="px-4 py-2 text-right tabular-nums">{f.chamadas}</td>
+                    <td className="px-4 py-2 text-right tabular-nums">{f.erros}</td>
+                    <td className="px-4 py-2 text-right tabular-nums">{f.p95_ms} ms</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </Card>
+        )}
+      </div>
     </div>
   );
 }

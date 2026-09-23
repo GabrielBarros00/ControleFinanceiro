@@ -134,6 +134,22 @@ services:
       # backend estiver atrás de um proxy fora dessas faixas — abrir demais
       # devolve ao cliente o poder de forjar o próprio IP no rate limit.
       FORWARDED_ALLOW_IPS: ${FORWARDED_ALLOW_IPS:-}
+      # Integração com agentes de IA — servidor MCP em /mcp + OAuth 2.1 (ADR 0035).
+      # Os padrões espelham `backend/app/core/config.py`. MCP_ENABLED=False tira
+      # do ar o endpoint, os metadados /.well-known e o fluxo OAuth. Ver
+      # docs/mcp/OPERATIONS.md.
+      MCP_ENABLED: ${MCP_ENABLED:-True}
+      MCP_ACCESS_TOKEN_TTL_MINUTES: ${MCP_ACCESS_TOKEN_TTL_MINUTES:-60}
+      MCP_REFRESH_TOKEN_TTL_DAYS: ${MCP_REFRESH_TOKEN_TTL_DAYS:-30}
+      MCP_AUTH_CODE_TTL_SECONDS: ${MCP_AUTH_CODE_TTL_SECONDS:-300}
+      MCP_ALLOWED_ORIGINS: ${MCP_ALLOWED_ORIGINS:-}
+      MCP_CIMD_ENABLED: ${MCP_CIMD_ENABLED:-True}
+      MCP_DCR_ENABLED: ${MCP_DCR_ENABLED:-True}
+      MCP_RATE_LIMIT_UNITS_PER_MINUTE: ${MCP_RATE_LIMIT_UNITS_PER_MINUTE:-120}
+      MCP_WRITE_RATE_LIMIT_PER_MINUTE: ${MCP_WRITE_RATE_LIMIT_PER_MINUTE:-30}
+      MCP_BULK_MAX_ITEMS: ${MCP_BULK_MAX_ITEMS:-200}
+      # Só no dia da submissão do app à OpenAI (verificação de domínio).
+      OPENAI_APPS_CHALLENGE_TOKEN: ${OPENAI_APPS_CHALLENGE_TOKEN:-}
       # Conteúdo dos anexos (ADR 0007): fora do banco, no volume abaixo.
       ATTACHMENT_STORAGE_DIR: /data/attachments
     volumes:

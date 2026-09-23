@@ -193,9 +193,68 @@ class Settings(BaseSettings):
     # "sua conta vence hoje" às 3 da manhã acorda a pessoa e queima o canal.
     DUE_REMINDER_HOUR: int = 9
 
+    # --- Integração com agentes de IA (MCP + OAuth 2.1, ADR 0035) -------------
+    #
+    # O servidor MCP mora no próprio backend, em `/mcp`, e o authorization server
+    # OAuth que emite os tokens dele também: o issuer é a MESMA origem pública do
+    # site (`FRONTEND_URL`), então não há host nem porta nova para expor.
+    #
+    # `MCP_ENABLED=false` tira do ar o endpoint, os metadados e o fluxo OAuth — o
+    # resto do app não percebe. Os TTLs seguem a recomendação do OAuth 2.1 para
+    # cliente público: access curto (é ele que vaza em log de terceiro), refresh
+    # longo mas rotacionado a cada uso (o reuso denuncia roubo e derruba a
+    # conexão inteira) e código de autorização de minutos, de uso único.
+    MCP_ENABLED: bool = True
+    MCP_ACCESS_TOKEN_TTL_MINUTES: int = 60
+    MCP_REFRESH_TOKEN_TTL_DAYS: int = 30
+    MCP_AUTH_CODE_TTL_SECONDS: int = 300
+    # Origens de NAVEGADOR aceitas no `/mcp` além da própria do site. Cliente
+    # servidor-a-servidor (ChatGPT, Claude) não manda `Origin` e não depende
+    # disto; é para uma ferramenta que rode no navegador — o MCP Inspector em
+    # modo direto, por exemplo. Vazio = só a origem do site (proteção contra DNS
+    # rebinding exigida pela especificação).
+    MCP_ALLOWED_ORIGINS: str = ""
+    # Os dois mecanismos de registro de cliente. CIMD é o preferido da
+    # especificação 2026-07-28 (o `client_id` é uma URL https que o servidor
+    # busca); DCR segue ligado porque o Antigravity e o Gemini só fazem DCR.
+    MCP_CIMD_ENABLED: bool = True
+    MCP_DCR_ENABLED: bool = True
+    # Tetos por (pessoa, cliente), em "unidades" por minuto: leitura custa 1,
+    # busca/relatório 2, escrita 3, massa 5 — uma conversa não consegue virar mil
+    # consultas pesadas, e um agente em laço esbarra antes de encher o banco.
+    MCP_RATE_LIMIT_UNITS_PER_MINUTE: int = 120
+    MCP_WRITE_RATE_LIMIT_PER_MINUTE: int = 30
+    # Maior lote aceito por uma exclusão/categorização em massa via agente. Acima
+    # disto a prévia recusa e pede filtro mais estreito: confirmar 5.000 linhas
+    # num diálogo não é confirmação de verdade.
+    MCP_BULK_MAX_ITEMS: int = 200
+    # Token da verificação de domínio da OpenAI (`/.well-known/openai-apps-challenge`).
+    # Só é preciso no dia da submissão do app; ausente, a rota responde 404.
+    OPENAI_APPS_CHALLENGE_TOKEN: Optional[str] = None
+
     @property
     def cors_origins_list(self) -> List[str]:
         return [o.strip() for o in self.CORS_ORIGINS.split(",") if o.strip()]
+
+    @property
+    def oauth_issuer(self) -> str:
+        """Identificador do authorization server = origem pública do site.
+
+        Sem caminho de propósito: com issuer na raiz, os metadados moram em
+        `/.well-known/oauth-authorization-server` — o primeiro lugar em que todo
+        cliente MCP procura (RFC 8414 §3.1).
+        """
+        return self.FRONTEND_URL.rstrip("/")
+
+    @property
+    def mcp_resource_url(self) -> str:
+        """URI canônica do servidor MCP (RFC 8707/9728): o `resource` e o `aud`
+        de todo token emitido para ele."""
+        return f"{self.oauth_issuer}/mcp"
+
+    @property
+    def mcp_allowed_origins_list(self) -> List[str]:
+        return [o.strip().rstrip("/") for o in self.MCP_ALLOWED_ORIGINS.split(",") if o.strip()]
 
     @property
     def allowed_hosts_list(self) -> List[str]:

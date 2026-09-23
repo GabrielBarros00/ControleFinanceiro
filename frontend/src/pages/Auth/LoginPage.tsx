@@ -154,7 +154,7 @@ export function LoginPage() {
             {/* Mesmo token do link "Cadastre-se" logo abaixo: quem chegou por um
                 convite e ainda não tem conta pode entrar pelo Google, e o
                 convite precisa sobreviver ao salto (ADR 0026). */}
-            <GoogleLoginButton inviteToken={tokenDoConvite} />
+            <GoogleLoginButton inviteToken={tokenDoConvite} next={from} />
             <p className="text-center text-sm text-muted-foreground">
               Não tem uma conta? <Link to={linkCadastro} className="font-bold text-primary hover:underline ml-1">Cadastre-se</Link>
             </p>

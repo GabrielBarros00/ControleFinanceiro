@@ -11,7 +11,7 @@ import { CardsOrTable, DataCard } from "@/components/ui/data-card";
 import { Switch } from "@/components/ui/switch";
 import { Avatar } from "@/components/ui/avatar";
 import { AVATAR_ACCEPT, reduzirImagem } from '@/lib/avatar';
-import { User, Shield, Users, Palette, LogOut, Globe, Moon, Sun, Laptop, Loader2, Trash2, LinkIcon, Copy, Check, Tag, Plus, Wallet, History, Ticket, Camera } from 'lucide-react';
+import { User, Shield, Users, Palette, LogOut, Globe, Moon, Sun, Laptop, Loader2, Trash2, LinkIcon, Copy, Check, Tag, Plus, Wallet, History, Ticket, Camera, Bot } from 'lucide-react';
 import { useAuthStore } from '@/stores';
 import { useTheme } from '@/hooks/use-theme';
 import { InstallAppCard } from '@/components/pwa/InstallApp';
@@ -20,7 +20,7 @@ import { useAuth } from '@/hooks/use-auth';
 import { useWorkspaces } from '@/hooks/use-workspaces';
 import { workspacePath } from '@/hooks/use-workspace-id';
 import { useWorkspaceRole } from '@/hooks/use-workspace-role';
-import { useAudit } from '@/hooks/use-audit';
+import { useAudit, origemDaAcao } from '@/hooks/use-audit';
 import { useMembers, type FinancialAccess, type WorkspaceRole } from '@/hooks/use-members';
 import { useCategories } from '@/hooks/use-categories';
 import { usePaymentAccounts, ACCOUNT_TYPE_OPTIONS, accountTypeLabel, type PaymentAccountType } from '@/hooks/use-payment-accounts';
@@ -34,6 +34,7 @@ import { copiarTexto } from '@/lib/clipboard';
 import { toast } from '@/stores/toast';
 import { useConfirm } from '@/components/ui/confirm';
 import { useTabParam } from '@/hooks/use-tab-param';
+import { AiIntegrationsTab } from '@/components/ai-integrations/AiIntegrationsTab';
 import { CategoryGlyph } from '@/components/money/CategoryGlyph';
 import { parseApiDate } from '@/lib/date';
 import type { components } from '@/types/api.gen';
@@ -41,10 +42,10 @@ import { CURRENCIES } from '@/lib/currencies';
 import { PageHeader } from '@/components/layout/PageHeader';
 import { rotuloDeEspaco } from '@/components/layout/nav-items';
 
-type Tab = 'profile' | 'security' | 'members' | 'categories' | 'accounts' | 'appearance' | 'audit' | 'convites';
+type Tab = 'profile' | 'security' | 'members' | 'categories' | 'accounts' | 'appearance' | 'audit' | 'convites' | 'ai';
 
 /** As abas de cada tela — o `useTabParam` usa isto para descartar valor inventado na URL. */
-const ABAS_PESSOAIS = ['profile', 'security', 'accounts', 'convites', 'appearance'] as const satisfies readonly Tab[];
+const ABAS_PESSOAIS = ['profile', 'security', 'accounts', 'ai', 'convites', 'appearance'] as const satisfies readonly Tab[];
 const ABAS_DO_ESPACO = ['members', 'categories', 'audit'] as const satisfies readonly Tab[];
 
 // Moeda-base do workspace: a lista curada de moedas do app, com o código à mostra
@@ -1271,6 +1272,21 @@ const AUDIT_RESOURCE_LABELS: Record<string, string> = {
 
 // Trilha de auditoria (read-only) — só admin/owner chegam aqui (o backend também
 // recusa com 403). Mostra quando, quem, ação e recurso das 100 ações recentes.
+/** Quem fez + a marca "via IA" quando a ação veio de um agente conectado. */
+function QuemFez({ nome, origin }: { nome: string; origin?: string | null }) {
+  const origem = origemDaAcao(origin);
+  return (
+    <span className="inline-flex flex-wrap items-center gap-1.5">
+      {nome}
+      {origem && (
+        <Badge variant="secondary" className="gap-1" title="Feito por um agente de IA conectado à conta desta pessoa">
+          <Bot className="h-3 w-3" aria-hidden="true" /> {origem}
+        </Badge>
+      )}
+    </span>
+  );
+}
+
 function AuditTab() {
   const { entries, isLoading } = useAudit();
   const { members } = useMembers();
@@ -1326,7 +1342,7 @@ function AuditTab() {
                         day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit',
                       })}
                       fields={[
-                        { label: 'Quem', value: who(e.user_id) },
+                        { label: 'Quem', value: <QuemFez nome={who(e.user_id)} origin={e.origin} /> },
                         { label: 'Recurso', value: resource(e.resource_type, e.resource_id) },
                       ]}
                     />
@@ -1349,7 +1365,9 @@ function AuditTab() {
                         <TableCell className="text-sm text-muted-foreground">
                           {parseApiDate(e.created_at).toLocaleString('pt-BR')}
                         </TableCell>
-                        <TableCell className="text-sm font-medium text-foreground">{who(e.user_id)}</TableCell>
+                        <TableCell className="text-sm font-medium text-foreground">
+                          <QuemFez nome={who(e.user_id)} origin={e.origin} />
+                        </TableCell>
                         <TableCell className="text-sm">{AUDIT_ACTION_LABELS[e.action] ?? e.action}</TableCell>
                         <TableCell className="text-sm text-foreground">{resource(e.resource_type, e.resource_id)}</TableCell>
                       </TableRow>
@@ -1474,6 +1492,9 @@ const MENU_PESSOAL: MenuItem[] = [
   { id: 'profile', label: 'Perfil', icon: User },
   { id: 'security', label: 'Segurança', icon: Shield },
   { id: 'accounts', label: 'Contas', icon: Wallet },
+  // Agentes de IA (ADR 0035): a conexão é da PESSOA — o token carrega o
+  // usuário, e o agente alcança todos os espaços dele —, por isso mora aqui.
+  { id: 'ai', label: 'Integrações com IA', icon: Bot },
   // Convidar alguém para o SITE (ADR 0026) — diferente de convidar para um
   // workspace, que vive em `/w/:id/settings`. Fica aqui porque é um ato da
   // pessoa, não de uma casa: o convite não põe ninguém dentro do seu workspace.
@@ -1596,6 +1617,7 @@ export function PersonalSettingsPage() {
       case 'profile': return <ProfileTab />;
       case 'security': return <SecurityTab />;
       case 'accounts': return <AccountsTab />;
+      case 'ai': return <AiIntegrationsTab />;
       case 'convites': return <ConvitesDeCadastroTab />;
       case 'appearance': return <AppearanceTab />;
       default: return null;
@@ -1605,7 +1627,7 @@ export function PersonalSettingsPage() {
   return (
     <SettingsShell
       title="Suas configurações"
-      subtitle="Perfil, segurança, contas e aparência — seus, em qualquer espaço."
+      subtitle="Perfil, segurança, contas, agentes de IA e aparência — seus, em qualquer espaço."
       menuItems={MENU_PESSOAL}
       activeTab={activeTab}
       onSelect={setActiveTab}

@@ -20,16 +20,13 @@ from sqlmodel import Session, select
 
 from app.api.routes.auth import get_current_user
 from app.db.session import get_session
-from app.domain.access_policy import assert_owns, personal_scope
+from app.domain.access_policy import personal_scope
 from app.domain.dates import (
     InvalidMonth,
-    civil_instant,
     month_bounds_utc,
     parse_month,
-    today_local,
 )
 from app.domain.query_policy import resolve_personal_currency
-from app.models.account_ledger import AccountEntry, AccountEntryKind
 from app.models.payment_account import PaymentAccount, PaymentAccountType
 from app.models.user import User
 from app.schemas.balance import (
@@ -40,6 +37,9 @@ from app.schemas.balance import (
 )
 from app.schemas.common import NAME_MAX, OptionalCurrencyCode, StatusRead
 from app.services.account_balance_service import AccountBalanceService
+
+from app.services.commands import accounts as acc_cmd
+from app.services.commands.accounts import _get_account_or_404
 
 router = APIRouter(prefix="/me/payment-accounts", tags=["me-payment-accounts"])
 
@@ -86,14 +86,6 @@ class PaymentAccountRead(BaseModel):
     #: existe para o movimento que declara conta, e um padrão bom é o que impede o
     #: contador de "movimentos sem conta" de crescer sozinho.
     is_default: bool = False
-
-
-def _get_account_or_404(session: Session, account_id: int, user_id: int) -> PaymentAccount:
-    account = session.get(PaymentAccount, account_id)
-    if not account or account.deleted_at:
-        raise HTTPException(status_code=404, detail="Conta não encontrada")
-    assert_owns(account.owner_user_id, user_id, detail="Conta não encontrada")
-    return account
 
 
 @_colecao("get", "", response_model=List[PaymentAccountRead])
@@ -292,47 +284,9 @@ def adjust_balance(
     não aparece em `cash_in`/`cash_out`, não muda consumo e não muda o resultado do
     mês.
     """
-    account = _get_account_or_404(session, account_id, current_user.id)
-    quando = body.occurred_on or today_local()
-
-    anterior = AccountBalanceService.saldo_em(session, current_user.id, account, quando)
-    if anterior is None:
-        raise HTTPException(
-            status_code=409,
-            detail=(
-                f"A conta '{account.name}' ainda não tem saldo inicial. Informe o "
-                "saldo e a data dele antes de conciliar — sem ponto de partida não "
-                "há diferença a calcular."
-            ),
-        )
-
-    delta = body.real_balance - anterior
-    if delta == Decimal("0.00"):
-        raise HTTPException(
-            status_code=422,
-            detail="O saldo informado é igual ao calculado: não há o que ajustar",
-        )
-
-    entrada = AccountEntry(
-        account_id=account.id,
-        kind=AccountEntryKind.adjustment,
-        amount=delta,
-        occurred_at=civil_instant(quando),
-        description=body.note or "Ajuste de saldo",
-        created_by_user_id=current_user.id,
-    )
-    session.add(entrada)
+    resultado = acc_cmd.adjust_balance(session, current_user.id, account_id, body)
     session.commit()
-    session.refresh(entrada)
-    return {
-        "id": entrada.id,
-        "account_id": account.id,
-        "amount": delta,
-        "occurred_on": quando,
-        "description": entrada.description,
-        "previous_balance": anterior,
-        "new_balance": body.real_balance,
-    }
+    return resultado
 
 
 @router.get("/{account_id}/statement", response_model=AccountStatementRead)

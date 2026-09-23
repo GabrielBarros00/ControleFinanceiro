@@ -1,3 +1,4 @@
+import secrets
 from datetime import datetime, UTC
 from enum import Enum
 from typing import Optional
@@ -49,6 +50,15 @@ class UserBase(SQLModel):
 class User(UserBase, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
     password_hash: str
+    # Identificador PÚBLICO, opaco e estável da conta (ADR 0035). É o `id` que a
+    # tool de perfil do MCP devolve — a OpenAI exige que ele não mude com
+    # refresh, reconexão, troca de e-mail ou de nome e que nunca seja
+    # reaproveitado. O `id` inteiro não serve: é sequencial (revela quantas
+    # contas existem) e não é nosso para expor como identidade de terceiros.
+    public_id: str = Field(
+        default_factory=lambda: f"usr_{secrets.token_hex(12)}",
+        sa_column=Column(String(32), nullable=False, unique=True, index=True),
+    )
     needs_onboarding: bool = Field(default=True)
     # Papel no SITE (ADR 0026). `server_default` é o valor FECHADO: conta nova —
     # venha de cadastro, convite ou OAuth — nasce sem poder nenhum de plataforma,

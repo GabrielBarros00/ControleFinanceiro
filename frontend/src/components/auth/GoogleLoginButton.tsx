@@ -11,10 +11,23 @@ import { baseURL } from '@/api/client';
 export function GoogleLoginButton({
   label = "Entrar com Google",
   inviteToken,
-}: { label?: string; inviteToken?: string }) {
-  const destino = inviteToken
-    ? `${baseURL}/auth/google/login?invite=${encodeURIComponent(inviteToken)}`
-    : `${baseURL}/auth/google/login`;
+  next,
+}: {
+  label?: string;
+  inviteToken?: string;
+  /**
+   * Para onde voltar depois do login (caminho RELATIVO do app). Existe para o
+   * consentimento de agente de IA (ADR 0035): quem estava em
+   * `/oauth/consent?request=…` tem de voltar para lá, e o backend só aceita
+   * caminho interno (nada de `//outro-site`).
+   */
+  next?: string;
+}) {
+  const query = new URLSearchParams();
+  if (inviteToken) query.set("invite", inviteToken);
+  if (next && next.startsWith("/") && !next.startsWith("//")) query.set("next", next);
+  const sufixo = query.toString();
+  const destino = `${baseURL}/auth/google/login${sufixo ? `?${sufixo}` : ""}`;
   return (
     <div className="w-full space-y-4">
       <div className="relative flex items-center">

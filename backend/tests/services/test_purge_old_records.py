@@ -91,3 +91,64 @@ def test_expurgo_alcanca_as_tabelas_de_importacao(db_session: Session, seed_ws):
 
     assert db_session.exec(select(ImportRow)).all() == []
     assert db_session.exec(select(ImportBatch)).all() == []
+
+
+def test_expurgo_alcanca_o_que_venceu_da_integracao_com_ia(db_session: Session, seed_ws):
+    """Códigos, tokens, confirmações e chaves de idempotência vencidos saem; os vivos ficam."""
+    from app.models.mcp import McpConfirmation, McpOperation, McpToolCall
+    from app.models.oauth import OAuthAuthorizationCode, OAuthClient, OAuthGrant, OAuthToken
+
+    user_id = seed_ws["user"].id
+    agora = datetime.now(UTC)
+    vencido = agora - timedelta(days=1)
+    cliente = OAuthClient(client_id="cfm_dcr_purge", kind="dcr", client_name="X", redirect_uris=["https://x.example/cb"],
+                          grant_types=["authorization_code"])
+    db_session.add(cliente)
+    db_session.flush()
+    concessao = OAuthGrant(user_id=user_id, client_pk=cliente.id, client_name="X", scopes="finance.read",
+                           resource="https://app.example/mcp")
+    db_session.add(concessao)
+    db_session.flush()
+    for i, expira in enumerate((agora - timedelta(days=3), agora + timedelta(hours=1))):
+        db_session.add(OAuthAuthorizationCode(code_hash=f"c{i}", client_pk=cliente.id, user_id=user_id,
+                                              redirect_uri="https://x.example/cb", scopes="finance.read",
+                                              resource="r", code_challenge="x" * 43, expires_at=expira))
+        db_session.add(OAuthToken(grant_id=concessao.id, kind="access", token_hash=f"t{i}", scopes="finance.read",
+                                  expires_at=expira))
+        db_session.add(McpConfirmation(token_hash=f"k{i}", user_id=user_id, action="bulk_delete", target_ids=[1],
+                                       expires_at=expira))
+        db_session.add(McpOperation(user_id=user_id, tool="transactions_create", idempotency_key=f"chave-{i}",
+                                    request_hash="h", expires_at=expira))
+    db_session.add(McpToolCall(user_id=user_id, tool="spaces_list", op_type="read", outcome="ok",
+                               duration_ms=1, request_id="r", created_at=_velho(300)))
+    db_session.commit()
+
+    assert _delete_older(db_session, OAuthAuthorizationCode, OAuthAuthorizationCode.expires_at, vencido) == 1
+    assert _delete_older(db_session, OAuthToken, OAuthToken.expires_at, vencido) == 1
+    assert _delete_older(db_session, McpConfirmation, McpConfirmation.expires_at, vencido) == 1
+    assert _delete_older(db_session, McpOperation, McpOperation.expires_at, agora) == 1
+    assert _delete_older(db_session, McpToolCall, McpToolCall.created_at, agora - timedelta(days=180)) == 1
+    db_session.commit()
+    assert len(db_session.exec(select(OAuthToken)).all()) == 1
+    assert len(db_session.exec(select(McpOperation)).all()) == 1
+
+
+def test_expurgo_de_cliente_oauth_nunca_autorizado(db_session: Session, seed_ws):
+    from app.models.oauth import OAuthClient
+
+    from scripts.purge_old_records import _clientes_nunca_usados
+
+    agora = datetime.now(UTC)
+    velho = OAuthClient(client_id="cfm_dcr_velho", kind="dcr", client_name="Lixo", redirect_uris=["https://x.example/cb"],
+                        grant_types=["authorization_code"], created_at=agora - timedelta(days=30))
+    usado = OAuthClient(client_id="cfm_dcr_usado", kind="dcr", client_name="Em uso", redirect_uris=["https://x.example/cb"],
+                        grant_types=["authorization_code"], created_at=agora - timedelta(days=30),
+                        last_used_at=agora - timedelta(days=20))
+    novo = OAuthClient(client_id="cfm_dcr_novo", kind="dcr", client_name="Recente", redirect_uris=["https://x.example/cb"],
+                       grant_types=["authorization_code"], created_at=agora - timedelta(days=1))
+    db_session.add_all([velho, usado, novo])
+    db_session.commit()
+    assert _clientes_nunca_usados(db_session, agora, contar=True) == 1
+    assert _clientes_nunca_usados(db_session, agora, contar=False) == 1
+    db_session.commit()
+    assert {c.client_id for c in db_session.exec(select(OAuthClient)).all()} == {"cfm_dcr_usado", "cfm_dcr_novo"}
