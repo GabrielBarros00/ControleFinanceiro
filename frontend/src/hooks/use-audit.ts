@@ -12,6 +12,19 @@ export interface AuditEntry {
   user_id?: number | null;
   workspace_id?: number | null;
   created_at: string;
+  /** `mcp:<cliente>` quando a mudança veio de um agente de IA (ADR 0035). */
+  origin?: string | null;
+}
+
+/**
+ * "via IA · ChatGPT" para o que um agente fez em nome da pessoa; `null` para o
+ * que ela fez pelo app. A pessoa continua sendo quem fez — o agente age com a
+ * permissão dela —, então isto complementa o "Quem", não o substitui.
+ */
+export function origemDaAcao(origin?: string | null): string | null {
+  if (!origin || !origin.startsWith('mcp:')) return null;
+  const cliente = origin.slice(4).trim();
+  return cliente ? `via IA · ${cliente}` : 'via IA';
 }
 
 // Trilha de auditoria do workspace (admin+). `enabled` deixa o chamador segurar

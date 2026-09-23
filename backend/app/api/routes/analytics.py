@@ -31,6 +31,9 @@ from app.services.recurring_service import RecurringMaterializationService
 from app.api.deps import get_workspace_membership, require_role
 from app.services.event_service import publish_event
 
+from app.services.commands import planning as plan_cmd
+from app.services.commands.planning import _ensure_estimate_owner
+
 router = APIRouter(prefix="/workspaces/{workspace_id}/analytics", tags=["analytics"])
 
 
@@ -175,34 +178,6 @@ def get_exchange_rate(
     }
 
 
-def _validate_estimate_category(session: Session, workspace_id: int, category_id) -> None:
-    if category_id is None:
-        return
-    from app.models.category import Category
-    category = session.get(Category, category_id)
-    if not category or category.workspace_id != workspace_id or category.deleted_at:
-        raise HTTPException(status_code=400, detail="Categoria inválida para este workspace")
-
-
-def _ensure_estimate_owner(estimate: MonthlyEstimate, membership: WorkspaceMembership) -> None:
-    """Meta PESSOAL só o próprio dono altera ou remove.
-
-    Não é uma questão de papel: é a meta de gasto de uma pessoa, não um número
-    do workspace. Admin manda no orçamento da casa; na meta pessoal de outro
-    membro, não.
-    """
-    if estimate.owner_user_id is not None and estimate.owner_user_id != membership.user_id:
-        raise HTTPException(
-            status_code=403, detail="Esta é a meta pessoal de outro membro"
-        )
-
-
-def _estimate_owner(estimate_in: MonthlyEstimateCreate, membership: WorkspaceMembership):
-    """Escopo → dono. `personal` é sempre do PRÓPRIO usuário: ninguém define a
-    meta pessoal de outra pessoa (nem admin — é dado dela, não do workspace)."""
-    return membership.user_id if estimate_in.scope == "personal" else None
-
-
 @router.post("/estimates", response_model=MonthlyEstimateRead)
 def create_estimate(
     workspace_id: int,
@@ -211,45 +186,10 @@ def create_estimate(
     estimate_in: MonthlyEstimateCreate,
     membership: WorkspaceMembership = Depends(require_role(WorkspaceRole.member))
 ):
-    _validate_estimate_category(session, workspace_id, estimate_in.category_id)
-    owner_user_id = _estimate_owner(estimate_in, membership)
-    campos = estimate_in.model_dump(exclude={"scope"})
-
-    # Idempotente por (workspace, DONO, category_id, mês). A chave é o
-    # category_id (FK), não o rótulo de texto: com o texto, um `category`
-    # vazio/constante colapsava TODOS os orçamentos do mês num só, e dois textos
-    # diferentes para a mesma categoria criavam duplicatas. O dono entrou junto
-    # quando o orçamento ganhou escopo — senão definir a minha meta sobrescreveria
-    # a da casa. (`== None` vira `IS NULL` no SQLAlchemy.)
-    existing = session.exec(
-        select(MonthlyEstimate)
-        .where(MonthlyEstimate.workspace_id == workspace_id)
-        .where(MonthlyEstimate.owner_user_id == owner_user_id)
-        .where(MonthlyEstimate.category_id == estimate_in.category_id)
-        .where(MonthlyEstimate.month == estimate_in.month)
-        .where(MonthlyEstimate.deleted_at.is_(None))
-    ).first()
-    if existing:
-        for key, value in campos.items():
-            setattr(existing, key, value)
-        session.add(existing)
-        publish_event(session, workspace_id, "estimate.updated", "estimate", existing.id, membership.user_id)
-        session.commit()
-        session.refresh(existing)
-        return existing
-
-    db_estimate = MonthlyEstimate(
-        **campos,
-        workspace_id=workspace_id,
-        user_id=membership.user_id,
-        owner_user_id=owner_user_id,
-    )
-    session.add(db_estimate)
-    session.flush()
-    publish_event(session, workspace_id, "estimate.created", "estimate", db_estimate.id, membership.user_id)
+    estimate, _criada = plan_cmd.create_estimate(session, workspace_id, estimate_in, membership)
     session.commit()
-    session.refresh(db_estimate)
-    return db_estimate
+    session.refresh(estimate)
+    return estimate
 
 
 @router.put("/estimates/{estimate_id}", response_model=MonthlyEstimateRead)
@@ -261,16 +201,7 @@ def update_estimate(
     estimate_in: MonthlyEstimateCreate,
     membership: WorkspaceMembership = Depends(require_role(WorkspaceRole.member))
 ):
-    estimate = session.get(MonthlyEstimate, estimate_id)
-    if not estimate or estimate.workspace_id != workspace_id or estimate.deleted_at:
-        raise HTTPException(status_code=404, detail="Estimativa não encontrada")
-    _ensure_estimate_owner(estimate, membership)
-
-    _validate_estimate_category(session, workspace_id, estimate_in.category_id)
-    for key, value in estimate_in.model_dump(exclude={"scope"}).items():
-        setattr(estimate, key, value)
-    session.add(estimate)
-    publish_event(session, workspace_id, "estimate.updated", "estimate", estimate.id, membership.user_id)
+    estimate = plan_cmd.update_estimate(session, workspace_id, estimate_id, estimate_in, membership)
     session.commit()
     session.refresh(estimate)
     return estimate

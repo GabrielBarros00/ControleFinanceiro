@@ -7,7 +7,7 @@ from urllib.parse import urlencode
 import httpx
 import structlog
 from fastapi import (
-    APIRouter, Cookie, Depends, File, HTTPException, Request, Response, UploadFile, status,
+    APIRouter, Cookie, Depends, File, HTTPException, Query, Request, Response, UploadFile, status,
 )
 from fastapi.responses import RedirectResponse
 from sqlmodel import Session, select
@@ -52,6 +52,7 @@ from app.services.session_service import (
     SessionError,
 )
 from app.core.context import set_current_user_id
+from app.services.oauth.tokens import revoke_all_user_grants
 from app.core.rate_limit import rate_limit_account, rate_limit_auth
 from app.models.audit import ActionType
 from app.services.audit_service import AuditService
@@ -881,6 +882,10 @@ async def change_password(
     # token copiado valia os 7 dias inteiros mesmo depois da troca. Em seguida
     # emitimos uma sessão nova para quem trocou — quem age não é deslogado.
     revoke_all_user_sessions(db, current_user.id)
+    # As conexões de IA (MCP) caem junto: um agente com o token de antes da troca
+    # continuaria agindo em nome da pessoa depois de ela "trocar a senha por
+    # segurança". Reconectar é um clique no cliente de IA (ADR 0035).
+    revoke_all_user_grants(db, current_user.id, "password_change")
     new_access = create_access_token(data={"sub": str(current_user.id)})
     new_refresh = start_session(db, current_user.id)
     set_auth_cookies(response, new_access, new_refresh)
@@ -947,6 +952,7 @@ def reset_password(
     # Recuperação de conta é o caso em que a sessão do atacante PRECISA cair:
     # revoga tudo e limpa os cookies deste navegador (o fluxo termina no login).
     revoke_all_user_sessions(db, user.id)
+    revoke_all_user_grants(db, user.id, "password_change")
     clear_auth_cookies(response)
 
     db.commit()
@@ -986,8 +992,30 @@ def _fetch_google_user(code: str) -> dict:
     return info_res.json()
 
 
+def _caminho_interno(valor: Optional[str]) -> Optional[str]:
+    """Destino pós-login aceito: só um caminho RELATIVO do próprio app.
+
+    Existe para o consentimento de agentes de IA (ADR 0035) sobreviver ao login
+    com Google: quem chega em `/oauth/consent?request=…` sem sessão vai ao
+    Google e precisa VOLTAR para lá. Um destino livre seria um open redirect com
+    a nossa marca — então nada de esquema, host (`//evil.com`), barra invertida
+    (que alguns navegadores leem como `/`) nem caractere de controle.
+    """
+    if not valor or len(valor) > 2048:
+        return None
+    if not valor.startswith("/") or valor.startswith("//") or "\\" in valor:
+        return None
+    if any(ord(ch) < 32 or ord(ch) == 127 for ch in valor):
+        return None
+    return valor
+
+
 @router.get("/google/login")
-def google_login(response: Response, invite: Optional[str] = None):
+def google_login(
+    response: Response,
+    invite: Optional[str] = None,
+    next_path: Optional[str] = Query(None, alias="next", max_length=2048),
+):
     if not _google_configured():
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
@@ -1002,8 +1030,10 @@ def google_login(response: Response, invite: Optional[str] = None):
     # o token se perderia no salto e quem foi convidado não conseguiria entrar
     # pelo botão do Google. O state é assinado, então o token não pode ser
     # trocado no caminho.
+    # O destino pós-login também viaja assinado no state: vem do navegador e
+    # volta do Google intacto, sem cookie nem sessão para guardá-lo.
     state = create_purpose_token(
-        {"nonce": nonce, "invite": invite}, purpose="oauth_state",
+        {"nonce": nonce, "invite": invite, "next": _caminho_interno(next_path)}, purpose="oauth_state",
         expires_delta=timedelta(minutes=10),
     )
     params = urlencode({
@@ -1064,6 +1094,7 @@ def google_callback(
         if not nonce or not oauth_state or not secrets.compare_digest(nonce, oauth_state):
             raise ValueError("Nonce do state não confere com o navegador")
         invite_token = payload.get("invite")
+        destino = _caminho_interno(payload.get("next"))
     except Exception:
         return fail("google_state_invalido")
 
@@ -1139,7 +1170,9 @@ def google_callback(
     if not user.avatar_key:
         _importar_foto_do_google(db, user, info.get("picture"))
 
-    redirect = RedirectResponse(settings.FRONTEND_URL)
+    redirect = RedirectResponse(
+        f"{settings.FRONTEND_URL.rstrip('/')}{destino}" if destino else settings.FRONTEND_URL
+    )
     access_token = create_access_token(data={"sub": str(user.id)})
     refresh_token = start_session(db, user.id)  # sessão persistida (SEC-004)
     set_auth_cookies(redirect, access_token, refresh_token)

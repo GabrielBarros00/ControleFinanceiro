@@ -18,7 +18,6 @@ transferência de outra pessoa — dividir despesa com alguém não dá acesso a
 extrato bancário dele.
 """
 from datetime import UTC, datetime
-from decimal import Decimal
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -29,9 +28,7 @@ from app.db.session import get_session
 from app.domain.access_policy import assert_owns
 from app.domain.dates import (
     InvalidMonth,
-    civil_instant,
     parse_month,
-    today_local,
 )
 from app.models.account_ledger import AccountTransfer
 from app.models.payment_account import PaymentAccount
@@ -44,6 +41,8 @@ from app.schemas.balance import (
 )
 from app.services.account_balance_service import AccountBalanceService
 from app.services.projection_service import ProjectionService
+
+from app.services.commands import accounts as acc_cmd
 
 router = APIRouter(prefix="/me", tags=["me-balance"])
 
@@ -62,14 +61,6 @@ def _colecao(metodo: str, caminho: str, **kwargs):
             )(func)
         return func
     return decorador
-
-
-def _conta_do_usuario(session: Session, account_id: int, user_id: int) -> PaymentAccount:
-    conta = session.get(PaymentAccount, account_id)
-    if not conta or conta.deleted_at:
-        raise HTTPException(status_code=404, detail="Conta não encontrada")
-    assert_owns(conta.owner_user_id, user_id, detail="Conta não encontrada")
-    return conta
 
 
 @_colecao("get", "/balance", response_model=BalanceRead)
@@ -150,53 +141,7 @@ def create_transfer(
     é derivada e conferida contra os dois. Três números que podem discordar dariam
     um saldo que depende de qual deles se lê.
     """
-    if body.from_account_id == body.to_account_id:
-        raise HTTPException(
-            status_code=400, detail="A conta de origem e a de destino são a mesma"
-        )
-    origem = _conta_do_usuario(session, body.from_account_id, current_user.id)
-    destino = _conta_do_usuario(session, body.to_account_id, current_user.id)
-    for conta in (origem, destino):
-        if not conta.active:
-            raise HTTPException(
-                status_code=400, detail=f"Conta '{conta.name}' está desativada"
-            )
-
-    mesma_moeda = origem.currency == destino.currency
-    to_amount = body.to_amount if body.to_amount is not None else body.from_amount
-    if mesma_moeda:
-        if body.to_amount is not None and body.to_amount != body.from_amount:
-            raise HTTPException(
-                status_code=400,
-                detail=(
-                    f"As duas contas são em {origem.currency}: o valor que sai e o "
-                    "que entra têm de ser o mesmo"
-                ),
-            )
-        taxa = None
-    else:
-        if body.to_amount is None:
-            raise HTTPException(
-                status_code=400,
-                detail=(
-                    f"Transferência de {origem.currency} para {destino.currency}: "
-                    "informe também quanto entrou na conta de destino. O sistema "
-                    "não converte por conta própria"
-                ),
-            )
-        taxa = (body.to_amount / body.from_amount).quantize(Decimal("0.000001"))
-
-    transferencia = AccountTransfer(
-        from_account_id=origem.id,
-        to_account_id=destino.id,
-        from_amount=body.from_amount,
-        to_amount=to_amount,
-        exchange_rate=taxa,
-        occurred_at=civil_instant(body.occurred_on or today_local()),
-        note=body.note,
-        created_by_user_id=current_user.id,
-    )
-    session.add(transferencia)
+    transferencia, origem, destino = acc_cmd.create_transfer(session, current_user.id, body)
     session.commit()
     session.refresh(transferencia)
     return {

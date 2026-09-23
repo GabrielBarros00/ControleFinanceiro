@@ -34,6 +34,7 @@ const LoginPage = React.lazy(() => import('./pages/Auth/LoginPage').then(m => ({
 const RegisterPage = React.lazy(() => import('./pages/Auth/RegisterPage').then(m => ({ default: m.RegisterPage })));
 const ForgotPasswordPage = React.lazy(() => import('./pages/Auth/ForgotPasswordPage').then(m => ({ default: m.ForgotPasswordPage })));
 const ResetPasswordPage = React.lazy(() => import('./pages/Auth/ResetPasswordPage').then(m => ({ default: m.ResetPasswordPage })));
+const OAuthConsentPage = React.lazy(() => import('./pages/OAuthConsentPage').then(m => ({ default: m.OAuthConsentPage })));
 const InviteAcceptPage = React.lazy(() => import('./pages/InviteAcceptPage').then(m => ({ default: m.InviteAcceptPage })));
 const WorkspaceHome = React.lazy(() => import('./pages/Home').then(m => ({ default: m.Home })));
 const CommitmentsPage = React.lazy(() => import('./pages/CommitmentsPage').then(m => ({ default: m.CommitmentsPage })));
@@ -284,6 +285,12 @@ function AppContent() {
             <ProtectedRoute><Layout><PersonalSettingsPage /></Layout></ProtectedRoute>
           } />
 
+          {/* Consentimento de agente de IA (ADR 0035): fora do Layout, como o
+              login — é uma decisão isolada, e o menu do app ao lado só
+              distrairia de "quem está pedindo acesso a quê". */}
+          <Route path="/oauth/consent" element={
+            <ProtectedRoute><OAuthConsentPage /></ProtectedRoute>
+          } />
           <Route path="/invite/:token" element={
             <ProtectedRoute><InviteAcceptPage /></ProtectedRoute>
           } />

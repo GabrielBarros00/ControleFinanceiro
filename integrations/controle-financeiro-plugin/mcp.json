@@ -1,0 +1,9 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/mcp.schema.json",
+  "mcpServers": {
+    "controle-financeiro": {
+      "type": "streamable-http",
+      "url": "https://financas.capamericagod.com/mcp"
+    }
+  }
+}

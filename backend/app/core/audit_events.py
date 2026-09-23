@@ -5,7 +5,7 @@ from sqlalchemy import event
 from sqlalchemy.orm import Mapper
 from app.models.audit import AuditLog, ActionType
 from app.models.sync_event import SyncEvent
-from app.core.context import get_current_user_id
+from app.core.context import get_current_user_id, get_request_origin
 from typing import Any, Dict
 
 # Modelos de infraestrutura que não devem gerar trilha de auditoria
@@ -104,6 +104,7 @@ def register_audit_listeners():
             AuditLog.__table__.insert().values(
                 action=ActionType.create,
                 user_id=user_id,
+                origin=get_request_origin(),
                 resource_type=resource_type,
                 resource_id=resource_id,
                 workspace_id=_workspace_id_of(target),
@@ -129,6 +130,7 @@ def register_audit_listeners():
             AuditLog.__table__.insert().values(
                 action=ActionType.update,
                 user_id=user_id,
+                origin=get_request_origin(),
                 resource_type=resource_type,
                 resource_id=resource_id,
                 workspace_id=_workspace_id_of(target),
@@ -149,6 +151,7 @@ def register_audit_listeners():
             AuditLog.__table__.insert().values(
                 action=ActionType.delete,
                 user_id=user_id,
+                origin=get_request_origin(),
                 resource_type=resource_type,
                 resource_id=resource_id,
                 workspace_id=_workspace_id_of(target),

@@ -1,5 +1,6 @@
 import { test, expect } from '@playwright/test';
 import fs from 'fs';
+import { createHash, randomBytes } from 'node:crypto';
 import path from 'path';
 
 /**
@@ -110,6 +111,8 @@ const appRoutes = (wsId: number): Array<{ path: string; slug: string }> => [
   { path: '/me/reports', slug: 'meus-relatorios' },
   { path: '/me/ledger', slug: 'extrato' },
   { path: '/me/settings', slug: 'configuracoes-pessoais' },
+  // Integrações com IA (ADR 0035): a aba vive em `?tab=ai`.
+  { path: '/me/settings?tab=ai', slug: 'integracoes-ia' },
   // --- Colaboração: o workspace ---
   { path: `/w/${wsId}`, slug: 'painel-workspace' },
   { path: `/w/${wsId}/transactions`, slug: 'lancamentos' },
@@ -702,6 +705,31 @@ test('seed data and capture all screens', async ({ page, playwright }) => {
     await shot(`aviso-contas-a-pagar-${theme}`);
   };
 
+  /**
+   * URL da tela de consentimento de um agente de IA (ADR 0035). Ela só existe
+   * com um pedido assinado de 10 minutos, então cada captura registra um cliente
+   * de terminal (loopback — o caso que mostra o aviso extra) e pega o redirect
+   * do `/oauth/authorize` sem segui-lo.
+   */
+  const urlDoConsentimento = async (): Promise<string> => {
+    const registro = await page.request.post(u('/oauth/register'), {
+      data: {
+        client_name: 'Claude Code', redirect_uris: ['http://127.0.0.1:33418/callback'],
+        token_endpoint_auth_method: 'none', grant_types: ['authorization_code', 'refresh_token'],
+      },
+    });
+    const { client_id } = await registro.json();
+    const verificador = randomBytes(48).toString('base64url');
+    const params = new URLSearchParams({
+      response_type: 'code', client_id, redirect_uri: 'http://127.0.0.1:33418/callback', state: 'shots',
+      code_challenge: createHash('sha256').update(verificador).digest('base64url'), code_challenge_method: 'S256',
+      scope: 'finance.read transactions.write accounts.write income.write settlements.write planning.write',
+      resource: 'http://localhost:5173/mcp',
+    });
+    const ida = await page.request.get(u(`/oauth/authorize?${params}`), { maxRedirects: 0 });
+    return new URL(ida.headers()['location']).pathname + new URL(ida.headers()['location']).search;
+  };
+
   const captureAll = async (theme: 'light' | 'dark') => {
     // aplica o theme e recarrega (addInitScript re-seta só o workspace)
     await page.goto('/');
@@ -720,6 +748,10 @@ test('seed data and capture all screens', async ({ page, playwright }) => {
     await page.goto(`/invite/${tokenConvite}`);
     await settle();
     await shot(`convite-${theme}`);
+
+    await page.goto(await urlDoConsentimento());
+    await settle();
+    await shot(`consentimento-ia-${theme}`);
 
     // Modal Nova Despesa (a partir do painel do workspace)
     await page.goto(`/w/${wsId}`);
@@ -872,6 +904,9 @@ test('seed data and capture all screens', async ({ page, playwright }) => {
     await page.goto(`/invite/${tokenConvite}`);
     await settle();
     await shot(`mobile-convite-${theme}`);
+    await page.goto(await urlDoConsentimento());
+    await settle();
+    await shot(`mobile-consentimento-ia-${theme}`);
 
     // A gaveta "Mais" e o seletor de escopo só existem no celular: são a
     // navegação inteira abaixo de `md`, e nunca tinham sido fotografados.

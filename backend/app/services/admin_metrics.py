@@ -244,6 +244,7 @@ def saude(db: Session) -> Dict[str, Any]:
     auditoria_mais_antiga = db.exec(select(func.min(AuditLog.created_at))).one()
 
     return {
+        **_metricas_mcp(db, agora),
         "cambio_ultima_data": ultima_cotacao,
         "cambio_cotacoes": cotacoes,
         "banco_bytes": tamanho_do_banco(db),
@@ -253,4 +254,43 @@ def saude(db: Session) -> Dict[str, Any]:
         "sessoes_expiradas_pendentes_de_expurgo": sessoes_expiradas,
         "auditoria_linhas": auditoria_linhas,
         "auditoria_mais_antiga": _aware(auditoria_mais_antiga),
+    }
+
+
+def _metricas_mcp(db: Session, agora: datetime) -> Dict[str, Any]:
+    """Agentes de IA (ADR 0035): conexões vivas e o que as tools fizeram em 24 h.
+
+    METADADO puro, como o resto desta tela: quantas chamadas, quantas falharam e
+    quanto demoraram, por tool. O `mcptoolcall` nem guarda argumento ou valor —
+    não há o que vazar daqui.
+    """
+    from app.models.mcp import McpToolCall
+    from app.models.oauth import OAuthGrant
+
+    conexoes = db.exec(select(func.count(OAuthGrant.id)).where(OAuthGrant.revoked_at.is_(None))).one()
+    desde = agora - timedelta(hours=24)
+    linhas = db.exec(
+        select(McpToolCall.tool, McpToolCall.outcome, McpToolCall.duration_ms)
+        .where(McpToolCall.created_at >= desde)
+        .limit(50_000)
+    ).all()
+    por_tool: Dict[str, List[Any]] = {}
+    for tool, resultado, duracao in linhas:
+        por_tool.setdefault(tool, []).append((resultado, int(duracao or 0)))
+    ferramentas = []
+    for tool, itens in por_tool.items():
+        duracoes = sorted(d for _, d in itens)
+        p95 = duracoes[min(len(duracoes) - 1, int(round(0.95 * (len(duracoes) - 1))))]
+        ferramentas.append({
+            "tool": tool,
+            "chamadas": len(itens),
+            "erros": sum(1 for r, _ in itens if r != "ok"),
+            "p95_ms": p95,
+        })
+    ferramentas.sort(key=lambda f: (-f["chamadas"], f["tool"]))
+    return {
+        "mcp_conexoes_ativas": int(conexoes),
+        "mcp_chamadas_24h": len(linhas),
+        "mcp_erros_24h": sum(f["erros"] for f in ferramentas),
+        "mcp_ferramentas_24h": ferramentas[:20],
     }

@@ -39,12 +39,16 @@ def test_deploy_sem_cloudflare_cai_na_conexao_direta():
 
     assert "default $remote_addr;" in config
     assert "default $scheme;" in config
+    # TODO bloco que encaminha ao backend define os dois headers — contados
+    # contra os `proxy_pass`, para uma location nova não escapar do contrato.
+    encaminhamentos = config.count("proxy_pass http://backend:8000;")
+    assert encaminhamentos >= 5  # ws, api, mcp, 2× well-known
     assert config.count(
         "proxy_set_header X-Forwarded-For $trusted_client_ip;"
-    ) == 2
+    ) == encaminhamentos
     assert config.count(
         "proxy_set_header X-Forwarded-Proto $trusted_forwarded_proto;"
-    ) == 2
+    ) == encaminhamentos
 
 
 def test_nginx_nao_preserva_x_forwarded_for_do_cliente():
@@ -175,3 +179,19 @@ def test_abordagem_antiga_de_segredo_foi_removida():
         conteudo = arquivo.read_text(encoding="utf-8")
         assert "CLOUDFLARE_ORIGIN_SECRET" not in conteudo
         assert "X-Origin-Verify" not in conteudo
+
+
+def test_mcp_e_descoberta_oauth_chegam_ao_backend_sem_abrir_o_resto():
+    """ADR 0035: /mcp (rota exata) e os /.well-known do OAuth vão ao backend."""
+    config = NGINX.read_text(encoding="utf-8")
+
+    assert "location ~ ^/mcp/?$ {" in config
+    assert "location ^~ /.well-known/oauth- {" in config
+    assert "location = /.well-known/openai-apps-challenge {" in config
+    # Nada de prefixo aberto: /mcpqualquercoisa e /.well-known/* genérico ficam na SPA.
+    assert "location /mcp" not in config
+    assert "location ^~ /.well-known/ {" not in config
+    bloco = config[config.index("location ~ ^/mcp/?$ {"):]
+    bloco = bloco[: bloco.index("}")]
+    assert "proxy_buffering off;" in bloco
+    assert "add_header" not in bloco  # apagaria os headers de segurança herdados

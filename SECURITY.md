@@ -20,6 +20,7 @@ O projeto adota, por design:
 - **Validação de boot**: em `APP_ENV=production` o backend **recusa subir** com `SECRET_KEY` fraca, `COOKIE_SECURE=False` ou banco não-Postgres.
 - **Uploads**: whitelist de tipo + verificação de *magic bytes* + limite de tamanho + hash SHA-256.
 - **Auditoria**: trilha por workspace; o hash de senha nunca é registrado.
+- **Agentes de IA (MCP)**: OAuth 2.1 próprio com PKCE S256, tokens opacos guardados só como hash, refresh rotativo com detecção de reuso, identidade exclusivamente do token, autorização = escopo ∩ papel ∩ política de visibilidade, idempotência por chave e confirmação de massa por token emitido pelo servidor. Modelo de ameaças completo em [docs/mcp/SECURITY.md](docs/mcp/SECURITY.md).
 
 ## Boas práticas ao operar
 

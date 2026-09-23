@@ -32,6 +32,7 @@ Aplicação full-stack para controlar gastos, **dividir despesas entre pessoas**
 - **Renda, orçamento e previsão** — estimativas por categoria; forecast de fim de mês com tendência, fixos pendentes e faturas a vencer.
 - **Tempo real** — WebSocket por workspace; mudanças de um cliente invalidam as queries dos outros; resync automático em lacuna de sequência.
 - **Segurança** — sessão em cookies HttpOnly com rotação de refresh e detecção de reuso, Google OAuth, reset de senha, CSRF por Origin, rate limit, cabeçalhos de hardening, trilha de auditoria por workspace.
+- **Agentes de IA (MCP)** — ChatGPT, Claude, Claude Code, Codex, Gemini CLI e Antigravity conectam à sua conta por OAuth 2.1 e consultam/registram lançamentos conversando, com as MESMAS regras e permissões do app: 35 tools, nomes resolvidos no servidor, idempotência por chave e exclusão em massa só com prévia confirmada. Configurações › Integrações com IA mostra o endereço, os guias por cliente e as conexões ([ADR 0035](docs/adr/0035-integracao-com-agentes-de-ia-mcp.md), [docs/mcp](docs/mcp/README.md)).
 - **Administração do site** — cadastro **por convite** por padrão, papel de plataforma (`user`/`admin`/`superadmin`), painel com uso por pessoa, configuração em runtime (quotas, limites, modo manutenção) e trilha global. O administrador vê contagem e espaço em disco — **nunca o dinheiro de ninguém** ([ADR 0026](docs/adr/0026-papel-de-plataforma-e-cadastro-por-convite.md)).
 
 ## Screenshots
@@ -92,7 +93,8 @@ A referência de cada variável está em **[SETUP.md](SETUP.md)**.
 | **[docs/runbook-deploy.md](docs/runbook-deploy.md)** | Atualizar um deploy existente: backup, ensaio da migração, rollback |
 | **[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)** | Arquitetura: camadas, modelo de dados, tempo real, autenticação, migrações, topologia de deploy |
 | **[docs/API.md](docs/API.md)** | Referência da API: convenções, autenticação, envelope de erro, endpoints por recurso, WebSocket |
-| **[docs/adr/](docs/adr/README.md)** | Architecture Decision Records — as 32 decisões-chave e o porquê de cada uma |
+| **[docs/mcp/](docs/mcp/README.md)** | Integração com agentes de IA: tools, OAuth, guias por cliente, segurança, testes e operação |
+| **[docs/adr/](docs/adr/README.md)** | Architecture Decision Records — as 35 decisões-chave e o porquê de cada uma |
 | **[CONTRIBUTING.md](CONTRIBUTING.md)** | Ambiente de dev, testes, lint, migrações Alembic, geração de tipos, convenções |
 | **[SECURITY.md](SECURITY.md)** | Como reportar vulnerabilidades e o modelo de segurança |
 | **[CHANGELOG.md](CHANGELOG.md)** | Histórico de versões |

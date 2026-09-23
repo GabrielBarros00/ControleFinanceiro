@@ -11,6 +11,34 @@ segue [SemVer](https://semver.org/lang/pt-BR/).
 
 ## [Não lançado]
 
+### Agentes de IA conectam à sua conta (MCP)
+
+Dá para usar o app conversando: "quanto gastei com alimentação este mês?",
+"adicione R$ 89,90 de gasolina no Nubank", "comprei uma TV de R$ 3.000 em 10x",
+"metade dessa compra é do João", "quanto o João está me devendo?". Funciona com
+**ChatGPT, Claude, Claude Code, Codex, Gemini CLI, Antigravity** e qualquer
+cliente MCP ([ADR 0035](docs/adr/0035-integracao-com-agentes-de-ia-mcp.md)).
+
+- **Configurações › Integrações com IA**: o endereço para conectar (com "Copiar"),
+  o passo a passo de cada cliente com o comando pronto, as conexões autorizadas
+  (com "Desconectar") e o que os agentes fizeram.
+- **Você autoriza no próprio app**, escolhendo o que o agente pode fazer (ler;
+  registrar lançamentos; mexer em contas e faturas; rendas; acertos;
+  planejamento). Sem senha nem token para colar em lugar nenhum.
+- **As mesmas regras do app**: divisão em centavos, fatura calculada pelo
+  servidor, parcelas, moeda estrangeira, quem pode editar o quê. O agente nunca
+  vê mais do que você vê.
+- **Nada em dobro, nada apagado sem querer**: uma despesa repetida por falha de
+  rede não vira duas; exclusões em massa mostram antes o que vai sumir e só
+  acontecem depois do seu "sim".
+- Na auditoria do espaço, o que foi feito por agente aparece marcado **"via IA"**.
+- Trocar a senha desconecta todos os agentes.
+
+Por dentro: servidor MCP em `/mcp` (SDK oficial 2.2), OAuth 2.1 com PKCE e
+registro por CIMD/DCR, 35 tools documentadas em `docs/mcp/TOOLS.md` (geradas do
+código), e as escritas das rotas REST passaram a morar em comandos
+compartilhados (`app/services/commands/`) — sem mudança de comportamento.
+
 ### O app passou a saber quanto dinheiro você tem, e onde
 
 Antes ele respondia duas perguntas e achava que eram quatro. Sabia **de quem é o

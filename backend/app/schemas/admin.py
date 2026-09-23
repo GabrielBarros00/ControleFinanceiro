@@ -33,6 +33,14 @@ class AdminOverviewRead(BaseModel):
     banco_bytes: Optional[int] = None
 
 
+class McpToolStatRead(BaseModel):
+    """Uma tool de agente de IA nas últimas 24 h: volume, falhas e latência."""
+    tool: str
+    chamadas: int
+    erros: int
+    p95_ms: int
+
+
 class AdminHealthRead(BaseModel):
     """Saúde operacional: o que está crescendo e o que ficou para trás."""
     #: Data da cotação mais recente no store — se atrasa, a conversão para de
@@ -44,6 +52,12 @@ class AdminHealthRead(BaseModel):
     sessoes_expiradas_pendentes_de_expurgo: int
     auditoria_linhas: int
     auditoria_mais_antiga: Optional[datetime] = None
+    # Integração com agentes de IA (ADR 0035) — só contagem e latência, nunca
+    # o que foi lido ou escrito.
+    mcp_conexoes_ativas: int = 0
+    mcp_chamadas_24h: int = 0
+    mcp_erros_24h: int = 0
+    mcp_ferramentas_24h: List[McpToolStatRead] = []
 
 
 class AdminUserRead(BaseModel):

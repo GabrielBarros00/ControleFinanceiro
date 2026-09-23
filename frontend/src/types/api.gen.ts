@@ -2425,6 +2425,119 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/oauth/consent": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Consent Details
+         * @description O que a tela de consentimento mostra: quem pede, para onde vai, o quê.
+         */
+        get: operations["consent_details_api_v1_oauth_consent_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/oauth/consent/approve": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Consent Approve */
+        post: operations["consent_approve_api_v1_oauth_consent_approve_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/oauth/consent/deny": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Consent Deny */
+        post: operations["consent_deny_api_v1_oauth_consent_deny_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/me/ai-integrations": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Ai Integrations */
+        get: operations["get_ai_integrations_api_v1_me_ai_integrations_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/me/ai-integrations/activity": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Ai Activity
+         * @description O que os aplicativos de IA fizeram em nome da pessoa, mais recente primeiro.
+         *
+         *     Só metadado — tool, resultado, quando —, nunca argumentos ou valores.
+         */
+        get: operations["get_ai_activity_api_v1_me_ai_integrations_activity_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/me/ai-integrations/connections/{grant_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Revoke Ai Connection
+         * @description Desconecta o aplicativo: a próxima chamada dele já recebe 401.
+         */
+        delete: operations["revoke_ai_connection_api_v1_me_ai_integrations_connections__grant_id__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/admin/overview": {
         parameters: {
             query?: never;
@@ -2860,6 +2973,26 @@ export interface components {
             auditoria_linhas: number;
             /** Auditoria Mais Antiga */
             auditoria_mais_antiga?: string | null;
+            /**
+             * Mcp Conexoes Ativas
+             * @default 0
+             */
+            mcp_conexoes_ativas: number;
+            /**
+             * Mcp Chamadas 24H
+             * @default 0
+             */
+            mcp_chamadas_24h: number;
+            /**
+             * Mcp Erros 24H
+             * @default 0
+             */
+            mcp_erros_24h: number;
+            /**
+             * Mcp Ferramentas 24H
+             * @default []
+             */
+            mcp_ferramentas_24h: components["schemas"]["McpToolStatRead"][];
         };
         /**
          * AdminOverviewRead
@@ -2961,6 +3094,100 @@ export interface components {
             /** Anexos Bytes */
             anexos_bytes: number;
         };
+        /** AiAccountRead */
+        AiAccountRead: {
+            /** Name */
+            name: string;
+            /** Email */
+            email: string;
+            /** Public Id */
+            public_id: string;
+        };
+        /** AiActivityRead */
+        AiActivityRead: {
+            /** Id */
+            id: number;
+            /** Tool */
+            tool: string;
+            /** Title */
+            title: string;
+            /** Kind */
+            kind: string;
+            /** Outcome */
+            outcome: string;
+            /** Error Code */
+            error_code?: string | null;
+            /** Client Name */
+            client_name?: string | null;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Duration Ms */
+            duration_ms: number;
+            /** Replayed */
+            replayed: boolean;
+        };
+        /** AiConnectionRead */
+        AiConnectionRead: {
+            /** Grant Id */
+            grant_id: number;
+            /** Client Name */
+            client_name: string;
+            /** Client Kind */
+            client_kind: string;
+            /** Client Host */
+            client_host?: string | null;
+            /** Redirect Host */
+            redirect_host?: string | null;
+            /** Scopes */
+            scopes: string[];
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Last Used At */
+            last_used_at?: string | null;
+            /** Status */
+            status: string;
+        };
+        /** AiIntegrationsRead */
+        AiIntegrationsRead: {
+            /** Enabled */
+            enabled: boolean;
+            /** Mcp Url */
+            mcp_url: string;
+            /** Transport */
+            transport: string;
+            /** Authentication */
+            authentication: string;
+            /** Server Name */
+            server_name: string;
+            /** Server Version */
+            server_version: string;
+            /** Environment */
+            environment: string;
+            account: components["schemas"]["AiAccountRead"];
+            /** Scopes */
+            scopes: components["schemas"]["AiScopeRead"][];
+            /** Connections */
+            connections: components["schemas"]["AiConnectionRead"][];
+            /** Last Used At */
+            last_used_at?: string | null;
+        };
+        /** AiScopeRead */
+        AiScopeRead: {
+            /** Scope */
+            scope: string;
+            /** Label */
+            label: string;
+            /** Description */
+            description: string;
+            /** Required */
+            required: boolean;
+        };
         /** AmortizationInstallment */
         AmortizationInstallment: {
             /** Installment Number */
@@ -3040,6 +3267,8 @@ export interface components {
              * Format: date-time
              */
             created_at: string;
+            /** Origin */
+            origin?: string | null;
         };
         /** AuditRead */
         AuditRead: {
@@ -3573,6 +3802,61 @@ export interface components {
             next_installments: components["schemas"]["CommitmentInstallment"][];
             /** Excluded Foreign Count */
             excluded_foreign_count: number;
+        };
+        /** ConsentAccountRead */
+        ConsentAccountRead: {
+            /** Name */
+            name: string;
+            /** Email */
+            email: string;
+        };
+        /** ConsentClientRead */
+        ConsentClientRead: {
+            /** Name */
+            name: string;
+            /** Kind */
+            kind: string;
+            /** Client Host */
+            client_host?: string | null;
+            /** Redirect Host */
+            redirect_host: string;
+            /** Loopback Only */
+            loopback_only: boolean;
+        };
+        /** ConsentDecisionRead */
+        ConsentDecisionRead: {
+            /** Redirect To */
+            redirect_to: string;
+        };
+        /** ConsentDecisionRequest */
+        ConsentDecisionRequest: {
+            /** Request */
+            request: string;
+            /** Scopes */
+            scopes?: string[];
+        };
+        /** ConsentDenyRequest */
+        ConsentDenyRequest: {
+            /** Request */
+            request: string;
+        };
+        /** ConsentRequestRead */
+        ConsentRequestRead: {
+            client: components["schemas"]["ConsentClientRead"];
+            account: components["schemas"]["ConsentAccountRead"];
+            /** Scopes */
+            scopes: components["schemas"]["ConsentScopeRead"][];
+        };
+        /** ConsentScopeRead */
+        ConsentScopeRead: {
+            /** Scope */
+            scope: string;
+            /** Label */
+            label: string;
+            /** Description */
+            description: string;
+            /** Required */
+            required: boolean;
         };
         /**
          * CreatedCountRead
@@ -4369,6 +4653,20 @@ export interface components {
             status: string;
             /** Marked */
             marked: number;
+        };
+        /**
+         * McpToolStatRead
+         * @description Uma tool de agente de IA nas últimas 24 h: volume, falhas e latência.
+         */
+        McpToolStatRead: {
+            /** Tool */
+            tool: string;
+            /** Chamadas */
+            chamadas: number;
+            /** Erros */
+            erros: number;
+            /** P95 Ms */
+            p95_ms: number;
         };
         /** MemberRead */
         MemberRead: {
@@ -11945,6 +12243,7 @@ export interface operations {
         parameters: {
             query?: {
                 invite?: string | null;
+                next?: string | null;
             };
             header?: never;
             path?: never;
@@ -12091,6 +12390,206 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["MarkAllReadRead"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    consent_details_api_v1_oauth_consent_get: {
+        parameters: {
+            query: {
+                request: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: {
+                access_token?: string | null;
+            };
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConsentRequestRead"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    consent_approve_api_v1_oauth_consent_approve_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: {
+                access_token?: string | null;
+            };
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ConsentDecisionRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConsentDecisionRead"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    consent_deny_api_v1_oauth_consent_deny_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: {
+                access_token?: string | null;
+            };
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ConsentDenyRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConsentDecisionRead"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_ai_integrations_api_v1_me_ai_integrations_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: {
+                access_token?: string | null;
+            };
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AiIntegrationsRead"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_ai_activity_api_v1_me_ai_integrations_activity_get: {
+        parameters: {
+            query?: {
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: {
+                access_token?: string | null;
+            };
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AiActivityRead"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    revoke_ai_connection_api_v1_me_ai_integrations_connections__grant_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                grant_id: number;
+            };
+            cookie?: {
+                access_token?: string | null;
+            };
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StatusRead"];
                 };
             };
             /** @description Validation Error */

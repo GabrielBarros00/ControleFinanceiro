@@ -1,0 +1,77 @@
+/* Estilo do componente MCP Apps (ADR 0035).
+
+   Tailwind v4 restrito a ESTA pasta (`source(none)` + `@source`): sem isso a
+   varredura automática puxaria as classes do SPA inteiro para dentro de um HTML
+   que é carregado a cada resposta de tool no ChatGPT/Claude.
+
+   `./*.tsx` (não `./`): só os arquivos do componente, sem `__tests__/`. Com a
+   pasta inteira, a palavra `container` de um teste virava a utilidade
+   `.container` — e só no Linux: o scanner do Tailwind não varria a subpasta
+   igual no Windows, e o widget gerado saía diferente nos dois sistemas (o gate
+   do CI compara o arquivo byte a byte).
+
+   O tema segue o HOST: o `dark` vem do contexto do MCP Apps (ou do
+   `window.openai.theme`), e não do `prefers-color-scheme` — o iframe pode estar
+   num chat claro dentro de um sistema escuro. */
+@import 'tailwindcss' source(none);
+@source './*.tsx';
+
+@custom-variant dark (&:is(.dark *));
+
+@theme {
+  --color-bg: var(--w-bg);
+  --color-fg: var(--w-fg);
+  --color-muted: var(--w-muted);
+  --color-muted-fg: var(--w-muted-fg);
+  --color-border: var(--w-border);
+  --color-brand: var(--w-brand);
+  --color-brand-fg: var(--w-brand-fg);
+  --color-income: var(--w-income);
+  --color-expense: var(--w-expense);
+  --color-warn: var(--w-warn);
+  --color-warn-bg: var(--w-warn-bg);
+}
+
+:root {
+  --w-bg: #ffffff;
+  --w-fg: #0f172a;
+  --w-muted: #f1f5f9;
+  --w-muted-fg: #64748b;
+  --w-border: #e2e8f0;
+  --w-brand: #4f46e5;
+  --w-brand-fg: #ffffff;
+  --w-income: #047857;
+  --w-expense: #b91c1c;
+  --w-warn: #92400e;
+  --w-warn-bg: #fef3c7;
+  color-scheme: light;
+}
+
+.dark {
+  --w-bg: #0b1120;
+  --w-fg: #e2e8f0;
+  --w-muted: #1e293b;
+  --w-muted-fg: #94a3b8;
+  --w-border: #334155;
+  --w-brand: #818cf8;
+  --w-brand-fg: #0b1120;
+  --w-income: #34d399;
+  --w-expense: #f87171;
+  --w-warn: #fcd34d;
+  --w-warn-bg: #422006;
+  color-scheme: dark;
+}
+
+html,
+body {
+  margin: 0;
+  background: transparent;
+  color: var(--w-fg);
+  font-family: ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  font-size: 14px;
+  -webkit-font-smoothing: antialiased;
+}
+
+.num {
+  font-variant-numeric: tabular-nums;
+}

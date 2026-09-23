@@ -209,6 +209,17 @@ jobs:
       - name: Run build
         run: |
           cd frontend && npm run build
+      # O componente MCP Apps (ADR 0035) é um HTML único gerado do código em
+      # src/mcp-widget e VERSIONADO em backend/app/mcp/ui/widget.html — o
+      # backend serve o arquivo sem precisar de Node. Reconstruir e comparar
+      # impede que o código do componente e o arquivo servido divirjam.
+      - name: Componente MCP Apps em dia
+        run: |
+          cd frontend && npm run build:mcp-widget
+          git diff --exit-code -- ../backend/app/mcp/ui/widget.html || {
+            echo "::error::backend/app/mcp/ui/widget.html está desatualizado — rode 'npm run build:mcp-widget' e commite"
+            exit 1
+          }
 
   # api.gen.ts é COMMITADO e gerado a partir do OpenAPI do backend. Sem esta
   # checagem ele diverge em silêncio e os tipos do frontend passam a mentir.

@@ -24,6 +24,8 @@ O backend é FastAPI + SQLModel, organizado em camadas com dependências apontan
 | Camada | Pasta | Responsabilidade | Regras |
 |---|---|---|---|
 | **Rotas** | `app/api/routes/` | HTTP: valida entrada (Pydantic), autoriza (`deps.require_role`), **comanda a transação** (único `commit`) | Não contém regra de negócio pesada |
+| **Comandos** | `app/services/commands/` | O corpo das ESCRITAS (criar/editar/excluir lançamento, acerto, fatura, conta, renda, recorrência, meta, categoria, importação), compartilhado pelo REST e pelo MCP | `flush()`, nunca `commit()`; devolvem o que precisa acontecer depois do commit (ADR 0035) |
+| **MCP** | `app/mcp/` | Servidor MCP em `/mcp` (SDK oficial), pipeline das tools, idempotência, confirmação de massa, trilha | Tools chamam comandos e serviços; nunca regra própria |
 | **Serviços** | `app/services/` | Regras de negócio: splits, dívidas, faturas, recorrência, financiamento, forecast, eventos | Usam `flush()`, **nunca `commit()`** (ADR 0010) |
 | **Domínio** | `app/domain/` | Primitivas puras e sem I/O: `Money` (centavos), `dates.add_months`, `query_policy` (status/moeda), `access_policy` (visibilidade) | Testável isoladamente |
 | **Modelos** | `app/models/` | Entidades SQLModel = tabelas; listeners de auditoria e de carimbo de status | Fonte do schema (via Alembic) |
@@ -135,6 +137,14 @@ PESSOA; transação, divisão, acerto, categoria e anexo são do WORKSPACE.
 - **Hardening**: CSRF por `Origin`/`Referer`, rate limit em `/auth/*`, `TrustedHost`, CSP/`X-Frame-Options`/`Permissions-Policy`, `/docs` desligado em produção.
 
 Erros saem sempre no envelope `{"error": {"code", "message", "details"}}` (ver [API](API.md)).
+
+## Agentes de IA (MCP) — ADR 0035
+
+- **`/mcp`** (Streamable HTTP, sem estado) montado no mesmo app; o nginx encaminha só a rota exata.
+- **OAuth 2.1 próprio**: issuer = `FRONTEND_URL`, endpoints em `/api/v1/oauth/*`, metadados em `/.well-known/*`; PKCE S256, CIMD/DCR, tokens opacos (SHA-256 no banco), refresh rotativo com detecção de reuso; consentimento na tela `/oauth/consent` do SPA.
+- **Identidade só do token**; autorização = escopo OAuth ∩ papel no espaço ∩ `access_policy`.
+- **Pipeline** (`app/mcp/invoke.py`): escopo → teto de uso → validação → sessão com `origin="mcp:<cliente>"` na auditoria → [idempotência] → comando → commit único → efeitos pós-commit → trilha `mcptoolcall` (sem conteúdo).
+- Leituras do MCP não materializam nada (o `cron` faz isso). Detalhes em [docs/mcp](mcp/README.md).
 
 ## Tempo real (WebSocket)
 

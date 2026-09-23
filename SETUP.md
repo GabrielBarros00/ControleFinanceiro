@@ -65,6 +65,12 @@ que entra sem convite — o cadastro do site já nasce fechado (veja
 | `SQL_ECHO` | manter `False` | Log detalhado de SQL | Pode expor parâmetros sensíveis; habilite só durante diagnóstico controlado |
 | `EXCHANGE_RATE_TIMEOUT_SECONDS` | padrão serve | Timeout por tentativa contra a fonte de câmbio | `4.0`; o look-back pode fazer até cinco tentativas |
 | `IOF_INTERNATIONAL_CARD_RATE` | confira no deploy | Alíquota decimal para novas compras internacionais | `0.035` = 3,5%; lançamentos antigos preservam o valor já congelado |
+| `MCP_ENABLED` | padrão serve | Liga a integração com agentes de IA (servidor MCP em `/mcp` + OAuth) | `True`. `False` tira do ar o endpoint, os `/.well-known/*` e o fluxo OAuth. Ver [docs/mcp](docs/mcp/README.md) |
+| `MCP_ACCESS_TOKEN_TTL_MINUTES` / `MCP_REFRESH_TOKEN_TTL_DAYS` / `MCP_AUTH_CODE_TTL_SECONDS` | padrão serve | Validade do token de acesso do agente, do refresh (renovado a cada uso) e do código de autorização | `60` min / `30` dias / `300` s |
+| `MCP_ALLOWED_ORIGINS` | deixar vazio | Origens de navegador aceitas no `/mcp` além do próprio site | Vazio em produção. Para testar com o MCP Inspector em modo direto: `http://localhost:6274` |
+| `MCP_CIMD_ENABLED` / `MCP_DCR_ENABLED` | padrão serve | Registro de cliente por URL (CIMD) e dinâmico (DCR) | `True` / `True` — o Antigravity e o Gemini só fazem DCR |
+| `MCP_RATE_LIMIT_UNITS_PER_MINUTE` / `MCP_WRITE_RATE_LIMIT_PER_MINUTE` / `MCP_BULK_MAX_ITEMS` | padrão serve | Teto por conexão de IA (unidades e escritas por minuto) e maior lote de ação em massa | `120` / `30` / `200` |
+| `OPENAI_APPS_CHALLENGE_TOKEN` | só na submissão | Token da verificação de domínio da OpenAI | Vazio; preencha apenas no dia de publicar o app (ver [docs/mcp/OPENAI_APP.md](docs/mcp/OPENAI_APP.md)) |
 
 ### Decisão HTTPS vs HTTP (a mais importante)
 
