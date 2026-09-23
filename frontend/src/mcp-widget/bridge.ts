@@ -65,11 +65,32 @@ export function createBridge(): Bridge {
 
   const legado = () => (typeof window !== 'undefined' ? window.openai : undefined);
 
+  // No ChatGPT o `toolOutput` pode chegar DEPOIS do carregamento (é `null` até
+  // lá), e o aviso é o evento `openai:set_globals`. Lido uma vez só no início, o
+  // componente ficava em "Carregando…" para sempre. O mesmo evento dispara em
+  // toda mudança de global (altura, tema…), então só entrega resultado NOVO:
+  // reentregar o mesmo objeto re-renderizaria à toa.
+  let ultimoLegado: unknown = null;
+  if (typeof window !== 'undefined') {
+    window.addEventListener('openai:set_globals', () => {
+      const oa = legado();
+      if (oa?.toolOutput && oa.toolOutput !== ultimoLegado) {
+        ultimoLegado = oa.toolOutput;
+        const r = { structuredContent: oa.toolOutput, _meta: oa.toolResponseMetadata ?? null };
+        ouvintes.forEach((cb) => cb(r));
+      }
+      if (oa?.theme) temas.forEach((cb) => cb(oa.theme === 'dark' ? 'dark' : 'light'));
+    });
+  }
+
   return {
     onResult(cb) {
       ouvintes.push(cb);
       const oa = legado();
-      if (oa?.toolOutput) cb({ structuredContent: oa.toolOutput, _meta: oa.toolResponseMetadata ?? null });
+      if (oa?.toolOutput) {
+        ultimoLegado = oa.toolOutput;
+        cb({ structuredContent: oa.toolOutput, _meta: oa.toolResponseMetadata ?? null });
+      }
     },
     onTheme(cb) {
       temas.push(cb);

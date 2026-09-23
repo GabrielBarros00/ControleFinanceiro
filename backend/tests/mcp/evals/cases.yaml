@@ -16,7 +16,7 @@
 - id: gasto-alimentacao-mes
   prompt: "Quanto eu gastei com alimentação este mês?"
   expected_tools: [reports_summary]
-  forbidden_tools: [transactions_create, transactions_bulk_delete]
+  forbidden_tools: [transactions_create, transactions_bulk_delete, reports_show]
   max_calls: 3
   risk: read
   golden:
@@ -85,8 +85,21 @@
 
 - id: fatura-nubank
   prompt: "Mostre minha fatura do Nubank."
-  expected_tools: [statements_get]
+  expected_tools: [statements_show]
   forbidden_tools: [statements_pay]
+  max_calls: 2
+  risk: read
+  golden:
+    - tool: statements_show
+      args: {card: "Nubank"}
+      expect: {ok: true, path: "card.name", equals: "Nubank"}
+
+# Pergunta sobre a fatura NÃO desenha componente: no modo agente, uma consulta
+# que desenha a cada chamada enche a conversa de iframes (e a memória do navegador).
+- id: quanto-vem-na-fatura
+  prompt: "Quanto vem na fatura do Nubank?"
+  expected_tools: [statements_get]
+  forbidden_tools: [statements_show, statements_pay]
   max_calls: 2
   risk: read
   golden:

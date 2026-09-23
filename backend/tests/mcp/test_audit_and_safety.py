@@ -124,12 +124,79 @@ def test_recurso_de_ui_e_vinculo_das_tools(mcp_client, db_session, c):
     ui = lido["_meta"]["ui"]
     assert ui["csp"]["connectDomains"] == [] and ui["prefersBorder"] is True
     ferramentas = {t["name"]: t for t in rpc(mcp_client, c.token, "tools/list").json()["result"]["tools"]}
-    assert ferramentas["transactions_get"]["_meta"]["ui"]["resourceUri"] == WIDGET_URI
+    assert ferramentas["transactions_show"]["_meta"]["ui"]["resourceUri"] == WIDGET_URI
+    assert "ui" not in ferramentas["transactions_get"]["_meta"]
     # A tool funciona igual sem UI: o resultado traz structuredContent e texto.
     criado = cria_despesa(mcp_client, c.alice, c.pessoal, title="Sem UI", amount="1.00", day=c.hoje)
-    resultado = call_tool(mcp_client, c.token, "transactions_get", {"transaction_id": criado["id"]})
+    resultado = call_tool(mcp_client, c.token, "transactions_show", {"transaction_id": criado["id"]})
     assert resultado["structuredContent"]["transaction"]["title"] == "Sem UI"
     assert "Sem UI" in resultado["content"][0]["text"]
+    assert resultado["_meta"]["view"] == "transaction"
+    # A de dados devolve o mesmo, sem o `_meta` de tela.
+    dados = call_tool(mcp_client, c.token, "transactions_get", {"transaction_id": criado["id"]})
+    assert dados["structuredContent"] == resultado["structuredContent"]
+    assert "view" not in (dados.get("_meta") or {})
+
+
+def test_mudou_o_componente_mudou_a_uri():
+    """A URI do componente é chave de cache no ChatGPT.
+
+    Mudar o `widget.html` mantendo a URI faria o ChatGPT seguir servindo o
+    componente velho, sem erro nenhum. O hash do HTML publicado fica ao lado da
+    versão (`app/mcp/ui/__init__.py`), e este teste reprova quando divergem.
+    """
+    import hashlib
+
+    from app.mcp.server import _WIDGET_FILE
+    from app.mcp.ui import WIDGET_SHA256, WIDGET_URI, WIDGET_VERSION
+
+    atual = hashlib.sha256(_WIDGET_FILE.read_bytes().replace(b"\r\n", b"\n")).hexdigest()
+    assert atual == WIDGET_SHA256, (
+        f"o widget.html mudou e a URI continua {WIDGET_URI}: o ChatGPT serviria o componente "
+        f"velho do cache. Em backend/app/mcp/ui/__init__.py, some 1 em WIDGET_VERSION e use "
+        f"WIDGET_SHA256 = {atual!r}"
+    )
+    assert WIDGET_URI == f"ui://controle-financeiro/widget-v{WIDGET_VERSION}.html"
+
+
+# Só as tools de EXIBIÇÃO desenham componente (mais a prévia da massa, que tem o
+# botão de confirmar). A OpenAI: "If you attach a widget template to every tool
+# call, ChatGPT can re-render your iframe too often. A better pattern is to
+# separate data-processing tools from render tools." Com o componente nas tools
+# de dados, um agente no modo Work criava um iframe a cada consulta, e a memória
+# do navegador subia sem parar.
+COM_COMPONENTE = {"transactions_show", "statements_show", "reports_show", "transactions_bulk_preview"}
+
+
+def test_so_as_tools_de_exibicao_desenham_componente():
+    from app.mcp.registry import REGISTRY
+    from app.mcp.server import get_server
+
+    get_server()
+    com_ui = {nome for nome, spec in REGISTRY.items() if spec.ui}
+    assert com_ui == COM_COMPONENTE, (
+        f"tool com componente fora da lista: {sorted(com_ui - COM_COMPONENTE)}; "
+        f"faltando: {sorted(COM_COMPONENTE - com_ui)}. Tool de dados não desenha: crie uma *_show"
+    )
+    for nome in com_ui:
+        spec = REGISTRY[nome]
+        assert spec.read_only, f"{nome}: tool que desenha é só leitura"
+        assert "cada chamada desenha um componente novo" in spec.description or nome == "transactions_bulk_preview", (
+            f"{nome}: a descrição tem de avisar o modelo do custo de chamar de novo"
+        )
+
+
+@pytest.mark.parametrize(("exibe", "dados", "args"), [
+    ("statements_show", "statements_get", {}),
+    ("reports_show", "reports_summary", {}),
+])
+def test_tool_de_exibicao_devolve_os_mesmos_numeros_da_de_dados(mcp_client, db_session, c, exibe, dados, args):
+    tela = call_tool(mcp_client, c.token, exibe, args)
+    base = call_tool(mcp_client, c.token, dados, args)
+    assert not tela.get("isError") and not base.get("isError")
+    campos = ("total", "balance", "month") if exibe == "statements_show" else ("income", "consumption", "result", "month")
+    assert {k: tela["structuredContent"][k] for k in campos} == {k: base["structuredContent"][k] for k in campos}
+    assert tela["_meta"]["view"] in ("statement", "summary")
 
 
 def test_saude_do_admin_mostra_os_agentes_sem_conteudo(mcp_client, db_session, c):

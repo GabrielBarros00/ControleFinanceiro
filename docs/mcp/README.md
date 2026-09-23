@@ -8,7 +8,7 @@ e permissões do app. A decisão e suas razões estão no
 
 | Documento | Para quê |
 |---|---|
-| [TOOLS.md](TOOLS.md) | Referência das 35 tools (gerada do código) |
+| [TOOLS.md](TOOLS.md) | Referência das 38 tools (gerada do código) |
 | [CAPABILITY_MAP.md](CAPABILITY_MAP.md) | Toda rota do app → tool que a cobre ou motivo de não haver (gerado) |
 | [AUTHENTICATION.md](AUTHENTICATION.md) | OAuth 2.1: descoberta, PKCE, CIMD/DCR, tokens, revogação |
 | [CLIENT_SETUP.md](CLIENT_SETUP.md) | Como conectar cada cliente (verificado em 22/09/2026) |
@@ -66,7 +66,7 @@ backend/app/
     money.py dates.py  fronteira de dinheiro e datas
     capability_map.py  rota REST → tool ou motivo
     docs.py            gera TOOLS.md e CAPABILITY_MAP.md
-    tools/             as 35 tools
+    tools/             as 38 tools
     ui/widget.html     componente MCP Apps (gerado de frontend/src/mcp-widget)
   services/oauth/      authorization server (clientes, CIMD, códigos, tokens, concessões)
   services/commands/   comandos de escrita compartilhados com o REST

@@ -13,6 +13,7 @@ from app.mcp import resolve
 from app.mcp.dates import CivilDate, MonthKey
 from app.mcp.errors import ErrorCode, McpToolError
 from app.mcp.money import MoneyInOrZero, fmt_brl
+from app.mcp.ui import WIDGET_URI
 from app.mcp.registry import ToolCall, ToolInput, ToolOutput, tool
 from app.mcp.schemas import MoneyTotal, Ref, TransactionBrief, TransactionOut
 from app.mcp.serializers import load_bundle, one, to_brief
@@ -20,7 +21,7 @@ from app.models.transaction import Transaction
 from app.services import transaction_query
 from app.services.oauth import scopes as escopos
 
-WIDGET = "ui://controle-financeiro/widget-v1.html"
+WIDGET = WIDGET_URI
 
 PaymentMethodIn = Literal["credit_card", "debit_card", "pix", "cash", "bank_transfer", "boleto", "other"]
 StatusIn = Literal["draft", "pending", "confirmed", "paid", "cancelled"]
@@ -228,12 +229,13 @@ class TransactionResult(BaseModel):
     name="transactions_get",
     title="Ver lançamento",
     description=(
-        "Mostra um lançamento completo pelo `transaction_id`: valor, data, espaço, quem pagou, "
+        "Devolve um lançamento completo pelo `transaction_id`: valor, data, espaço, quem pagou, "
         "como foi dividido (a parte de cada pessoa), categoria, tags, cartão/fatura, parcelas e "
-        "moeda original.\n"
+        "moeda original. Só dados; para DESENHAR o lançamento na conversa, use transactions_show.\n"
         "Use quando: já tiver o id (de transactions_search ou de uma criação) e precisar dos "
         "detalhes antes de explicar ou editar.\n"
-        "Não use quando: ainda não souber o id — busque com transactions_search."
+        "Não use quando: ainda não souber o id (busque com transactions_search), ou o usuário "
+        "pedir para ver/mostrar o lançamento (transactions_show)."
     ),
     input_model=GetIn,
     output_model=TransactionResult,
@@ -242,9 +244,8 @@ class TransactionResult(BaseModel):
     read_only=True,
     destructive=False,
     idempotent=True,
-    ui=WIDGET,
-    invoking="Abrindo o lançamento…",
-    invoked="Lançamento aberto",
+    invoking="Lendo o lançamento…",
+    invoked="Lançamento lido",
 )
 def transactions_get(call: ToolCall) -> ToolOutput:
     tx = visible_transaction(call, call.args.transaction_id)
@@ -257,3 +258,29 @@ def transactions_get(call: ToolCall) -> ToolOutput:
         space_id=tx.workspace_id,
         widget={"view": "transaction", "app_url": saida.app_url},
     )
+
+
+@tool(
+    name="transactions_show",
+    title="Mostrar lançamento na conversa",
+    description=(
+        "Desenha UM lançamento como cartão visual na conversa (valor, divisão, sua parte, "
+        "cartão/fatura, parcelas) e devolve os mesmos dados de transactions_get.\n"
+        "Use quando: o usuário pedir para VER ou MOSTRAR um lançamento, ou quiser conferir "
+        "visualmente o que acabou de ser registrado ou editado. Chame uma vez, no fim.\n"
+        "Não use quando: precisar dos dados para responder, analisar ou editar (transactions_get): "
+        "cada chamada desenha um componente novo na conversa."
+    ),
+    input_model=GetIn,
+    output_model=TransactionResult,
+    scope=escopos.FINANCE_READ,
+    kind="read",
+    read_only=True,
+    destructive=False,
+    idempotent=True,
+    ui=WIDGET,
+    invoking="Abrindo o lançamento…",
+    invoked="Lançamento aberto",
+)
+def transactions_show(call: ToolCall) -> ToolOutput:
+    return transactions_get(call)

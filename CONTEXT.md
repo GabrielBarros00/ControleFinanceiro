@@ -201,6 +201,11 @@ Ver [docs/mcp/](docs/mcp/README.md) e o ADR 0035.
 
 - **Tool**: uma ação por intenção ("registrar despesa", "mostrar fatura"), nunca um
   endpoint cru.
+- **Tool de dados × tool de exibição**: as de dados (`transactions_get`,
+  `statements_get`, `reports_summary`…) só devolvem dados. As de exibição
+  (`transactions_show`, `statements_show`, `reports_show`) fazem a mesma consulta e
+  desenham o componente na conversa. Componente em tool de dados fazia o ChatGPT criar
+  um iframe a cada consulta do agente (ADR 0035).
 - **Escopo** (`finance.read`, `transactions.write`, …): o que a conexão pode fazer. Vale
   junto com o papel e a visibilidade, nunca no lugar deles.
 - **Conexão / concessão** (`OAuthGrant`): a autorização que a pessoa deu a um

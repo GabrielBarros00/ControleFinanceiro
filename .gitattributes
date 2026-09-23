@@ -16,3 +16,11 @@ Dockerfile text eol=lf
 *.Dockerfile text eol=lf
 docker-compose*.yml text eol=lf
 .env.example text eol=lf
+
+# Componente MCP Apps (ADR 0035). O texto dos fontes entra NO bundle, e o CI
+# reconstrói o `widget.html` no Linux e compara byte a byte. Com CRLF no checkout
+# do Windows, o build local saía com `\r\n` misturado: o gate reprovava, e o git não
+# normaliza arquivo com fins de linha misturados, então o CRLF ia parar no commit.
+frontend/src/mcp-widget/** text eol=lf
+frontend/vite.mcp-widget.config.ts text eol=lf
+backend/app/mcp/ui/widget.html text eol=lf

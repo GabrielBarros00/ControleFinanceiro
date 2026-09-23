@@ -22,7 +22,7 @@ from app.mcp.money import MoneyIn, fmt_brl
 from app.mcp.registry import ToolCall, ToolInput, ToolOutput, tool
 from app.mcp.schemas import TransactionBrief, TransactionOut
 from app.mcp.serializers import load_bundle, one, to_brief
-from app.mcp.tools.transactions import WIDGET, PaymentMethodIn, visible_transaction
+from app.mcp.tools.transactions import PaymentMethodIn, visible_transaction
 from app.mcp.writes import DivisionIn, IdempotencyKey, build_division, membership_for_write
 from app.models.attachment import Attachment
 from app.models.transaction import (
@@ -198,7 +198,6 @@ def _replay_create(call: ToolCall, ref: dict) -> ToolOutput:
     cost=3,
     idempotency_key=True,
     replay=_replay_create,
-    ui=WIDGET,
     invoking="Registrando a despesa…",
     invoked="Despesa registrada",
     examples=(
@@ -582,7 +581,6 @@ def _update_purchase(call: ToolCall, tx: Transaction, a: UpdateIn, membership) -
     destructive=True,
     idempotent=True,
     cost=3,
-    ui=WIDGET,
     invoking="Atualizando o lançamento…",
     invoked="Lançamento atualizado",
     examples=(
@@ -735,7 +733,6 @@ class RestoreIn(ToolInput):
     destructive=False,
     idempotent=True,
     cost=3,
-    ui=WIDGET,
     invoking="Restaurando…",
     invoked="Restaurado",
     examples=({"transaction_id": 123},),

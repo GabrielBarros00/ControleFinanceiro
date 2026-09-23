@@ -3,7 +3,8 @@
  *
  * Sai UM arquivo HTML autocontido (JS e CSS embutidos pelo
  * `vite-plugin-singlefile`) em `backend/app/mcp/ui/widget.html`, que o servidor
- * MCP publica como o recurso `ui://controle-financeiro/widget-v1.html`. Tudo
+ * MCP publica como o recurso `ui://controle-financeiro/widget-vN.html` (versão em
+ * `backend/app/mcp/ui/__init__.py`: mudou o HTML, sobe a versão). Tudo
  * embutido porque a CSP do recurso é vazia: o componente não busca nada fora.
  *
  * O arquivo gerado é versionado, e o CI reconstrói e confere que não há diff —
