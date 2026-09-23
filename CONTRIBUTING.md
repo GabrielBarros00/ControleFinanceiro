@@ -84,11 +84,55 @@ cd frontend && npm run typegen   # dump do OpenAPI + openapi-typescript → src/
 ```
 Zod é usado só para UX de formulário; o contrato de dados vem do backend.
 
+## Mudou uma funcionalidade? Confira o MCP
+
+Os agentes de IA (ChatGPT, Claude, Codex, Gemini…) usam o app pelo servidor MCP em
+`backend/app/mcp/` ([ADR 0035](docs/adr/0035-integracao-com-agentes-de-ia-mcp.md)).
+Toda funcionalidade **adicionada, alterada ou removida** tem de ser conferida lá
+também, senão o agente fica com uma versão velha do app: recusa o que o app aceita,
+ou aceita o que o app deixou de aceitar.
+
+**O que o CI já barra sozinho:**
+
+- Rota REST nova ou removida sem decisão em `backend/app/mcp/capability_map.py`
+  (`tests/mcp/test_capability_map.py`). Toda rota diz qual tool a expõe, ou por
+  que não expõe.
+- Valor novo num enum espelhado pelas tools: forma de pagamento, status do
+  lançamento, frequência (`tests/mcp/test_espelhos_do_app.py`).
+- `docs/mcp/TOOLS.md` e `docs/mcp/CAPABILITY_MAP.md` desatualizados: rode
+  `cd backend && python -m app.mcp.docs` e comite o resultado.
+- Tool que recebe id sem caso de isolamento entre usuários
+  (`tests/mcp/test_isolation.py`).
+- Componente visual desatualizado: rode `cd frontend && npm run build:mcp-widget`
+  e comite `backend/app/mcp/ui/widget.html`.
+
+**O que nenhum gate pega, e você confere à mão:**
+
+- **A regra mora no comando, não na rota.** As escritas vivem em
+  `backend/app/services/commands/`, e o REST e o MCP chamam o mesmo código. Regra
+  escrita direto na rota o agente não vê.
+- **Campo novo, renomeado ou removido** num schema de entrada ou de saída: a tool
+  correspondente (`backend/app/mcp/tools/`) e a saída (`backend/app/mcp/schemas.py`,
+  `serializers.py`) precisam acompanhar?
+- **Caminho diferente para o mesmo pedido.** O app às vezes manda a edição
+  completa onde uma tool mandaria a parcial. Foi assim que "trocar a moeda" passou
+  sem converter até a verificação final do PR #104. Teste o caso pela tool, em
+  `backend/tests/mcp/`.
+- **Visibilidade**: as leituras do MCP usam os predicados da `access_policy`. Filtro
+  novo feito à mão numa rota tem de ir para lá.
+- **Textos que descrevem o comportamento**: descrição da tool ("Use quando / Não
+  use quando"), instruções do servidor (`backend/app/mcp/instructions.py`), skills
+  (`integrations/controle-financeiro-plugin/skills/`) e casos de eval
+  (`backend/tests/mcp/evals/cases.yaml`).
+- **Remoção**: o nome de uma tool publicada não muda nem some de uma vez. A política
+  de versões está em [docs/mcp/OPERATIONS.md](docs/mcp/OPERATIONS.md).
+
 ## Convenções
 
 - **Commits**: mensagens no estilo convencional (`feat:`, `fix:`, `docs:`, `chore:`, `test:`), imperativo, em PT-BR. Uma mudança coesa por commit.
 - **Erros**: sempre no envelope `{"error": {...}}` (ver [docs/API.md](docs/API.md)); mensagens de negócio em PT-BR.
 - **Transações**: serviços usam `flush()`, a rota faz o `commit` (ADR 0010). Não commite dentro de um serviço.
+- **Escritas**: a regra vai em `app/services/commands/` (a rota só faz o commit e responde). É o que mantém o app e os agentes de IA com a mesma regra (ADR 0035).
 - **Dinheiro**: `Decimal`/centavos, nunca `float`. Use `app/domain/money.py`.
 - **Decisões**: mudanças arquiteturais relevantes viram um ADR em [docs/adr/](docs/adr/README.md).
 - **WebSocket**: o backend roda com **1 worker** (gerenciador in-process); não altere isso sem introduzir um broker.
