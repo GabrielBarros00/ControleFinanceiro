@@ -1,0 +1,13 @@
+name: "CodeQL — Controle Financeiro"
+
+# O que fica FORA da análise, e por quê. Cada entrada precisa de um motivo, e
+# nunca é código-fonte do projeto.
+paths-ignore:
+  # Componente MCP Apps (ADR 0035): HTML GERADO por `npm run build:mcp-widget`,
+  # com o JavaScript das dependências embutido e minificado. O fonte dele
+  # (`frontend/src/mcp-widget/*.tsx`) continua analisado. O que o CodeQL
+  # enxergava aqui era código de terceiros: o JIT do zod (dependência da ponte
+  # oficial `@modelcontextprotocol/ext-apps`) monta `new Function` com as chaves
+  # dos schemas da própria biblioteca. É o mesmo código que a análise já ignora
+  # em `node_modules/`, só que copiado para dentro do bundle.
+  - backend/app/mcp/ui/widget.html

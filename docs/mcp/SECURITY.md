@@ -12,7 +12,7 @@
 | Confusão de audiência | `resource` conferido na autorização e na troca; token vale só no `/mcp`; JWT de sessão do app não vale no `/mcp` e token de agente não vale no REST |
 | Redirect aberto no OAuth | `redirect_uri` exato (loopback ignora só a porta); redirect inválido nunca é seguido; `next` do login Google só aceita caminho interno (testado contra `//`, esquema, barra invertida e controle) |
 | Consentimento enganoso | A tela mostra o **host** que recebe o acesso (não só o nome que o cliente escolheu), a conta e as permissões; aviso extra para cliente só-loopback |
-| SSRF pelo CIMD | Só https/443, sem redirect, sem credencial; IP global conferido na resolução e no peer; 64 KB; 5 s |
+| SSRF pelo CIMD | Só https/443, sem redirect, sem credencial; nome resolvido UMA vez, todo IP tem de ser global e a conexão vai para esse IP (nome no `Host` e no SNI, certificado conferido contra o nome) — um DNS rebinding não tem segunda resolução para explorar; IP do par conferido de novo; 64 KB; 5 s |
 | DNS rebinding / Origin | `Origin` fora da allowlist → 403 no `/mcp`; `ALLOWED_HOSTS` do app vale |
 | CSRF | Endpoints de cookie mantêm a checagem de Origin; só `token`, `register`, `revoke` e `/mcp` (autenticados por Bearer/PKCE, sem cookie) são isentos. CORS `*` sem credenciais apenas nos endpoints públicos do OAuth |
 | Prompt injection por dado armazenado | Títulos/descrições voltam como campos JSON, nunca concatenados em instruções; as instruções do servidor dizem que texto armazenado é dado; ações destrutivas em massa exigem token do servidor |

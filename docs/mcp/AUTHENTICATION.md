@@ -30,8 +30,10 @@ Os endpoints do AS ficam em `/api/v1/oauth/*` (o nginx já encaminha `/api/`).
 - **CIMD** (preferido pela especificação 2026-07-28): o `client_id` é uma URL
   https com o documento de metadados do cliente (ex.: o do Claude Code). O servidor
   busca o documento com proteção de SSRF — só https na porta 443, sem redirect,
-  sem credencial na URL, IP público conferido na resolução **e** no socket, até
-  64 KB, 5 s de timeout, `client_id` do documento igual à URL — e guarda em cache
+  sem credencial na URL, IP público conferido na resolução e a conexão feita
+  **nesse** IP (o nome vai no `Host` e no SNI, e o certificado é conferido contra
+  ele — sem segunda resolução para um DNS rebinding explorar), IP do socket
+  conferido de novo, até 64 KB, 5 s de timeout, `client_id` do documento igual à URL — e guarda em cache
   entre 5 min e 24 h conforme o `Cache-Control`.
 - **DCR** (RFC 7591, por compatibilidade: Antigravity, Gemini, MCP Inspector):
   `POST /api/v1/oauth/register` com `redirect_uris`, `client_name`,

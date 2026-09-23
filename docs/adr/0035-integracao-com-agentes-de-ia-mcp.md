@@ -49,7 +49,8 @@ a pessoa tem é o do app. Então o AS é nosso:
 - **Authorization Code + PKCE S256 obrigatório**; `iss` na resposta (RFC 9207);
   `resource` conferido (audiência = `{issuer}/mcp`).
 - **Cliente por CIMD** (preferido; busca com proteção de SSRF: https na 443, sem
-  redirect, IP global conferido na resolução e no socket, 64 KB, 5 s) **ou DCR**
+  redirect, IP global conferido na resolução, conexão fixada nesse IP com o nome
+  no SNI, IP do socket conferido de novo, 64 KB, 5 s) **ou DCR**
   (compatibilidade: Antigravity, Gemini, Inspector). Loopback aceito em qualquer
   porta para agentes de terminal.
 - **Consentimento é uma tela do SPA** (`/oauth/consent`) atrás do login normal

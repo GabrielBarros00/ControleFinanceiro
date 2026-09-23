@@ -110,6 +110,71 @@ def test_conteudo_nao_json():
         cimd_fetch.fetch_client_metadata(URL, resolver=_publico, transport=transporte)
 
 
+# --- DNS rebinding: a conexão vai para o IP que foi validado ----------------------------
+#
+# Se a URL pedida ao httpx levasse o NOME, ele resolveria de novo na hora de
+# conectar — e um DNS malicioso responderia IP público na checagem e interno na
+# conexão. A URL leva o IP validado; o nome vai no Host e no SNI (o certificado
+# continua conferido contra ele).
+
+def _captura(pedidos, falha_em=()):
+    def responde(request):
+        pedidos.append(request)
+        if request.url.host in falha_em:
+            raise httpx.ConnectError("recusada", request=request)
+        return httpx.Response(200, json=DOC)
+    return httpx.MockTransport(responde)
+
+
+def test_conecta_no_ip_validado_com_o_nome_no_host_e_no_sni():
+    pedidos = []
+    cimd_fetch.fetch_client_metadata(URL, resolver=_publico, transport=_captura(pedidos))
+    (pedido,) = pedidos
+    assert pedido.url.host == "160.79.104.10"
+    assert pedido.url.path == "/oauth/claude-code-client-metadata"
+    assert pedido.headers["host"] == "claude.ai"
+    assert pedido.extensions["sni_hostname"] == "claude.ai"
+
+
+def test_ipv6_vai_entre_colchetes():
+    pedidos = []
+    cimd_fetch.fetch_client_metadata(URL, resolver=lambda h: ["2606:4700::6810:84e5"], transport=_captura(pedidos))
+    assert pedidos[0].url.host == "2606:4700::6810:84e5"
+    assert str(pedidos[0].url).startswith("https://[2606:4700::6810:84e5]/")
+
+
+def test_tenta_o_proximo_ip_validado_quando_o_primeiro_nao_conecta():
+    pedidos = []
+    doc, _ = cimd_fetch.fetch_client_metadata(
+        URL, resolver=lambda h: ["160.79.104.10", "160.79.104.11"],
+        transport=_captura(pedidos, falha_em={"160.79.104.10"}),
+    )
+    assert doc["client_name"] == "Claude Code"
+    assert [p.url.host for p in pedidos] == ["160.79.104.10", "160.79.104.11"]
+
+
+def test_nenhum_ip_conecta_vira_erro_sem_detalhe():
+    with pytest.raises(cimd_fetch.CimdFetchError, match="não foi possível buscar"):
+        cimd_fetch.fetch_client_metadata(
+            URL, resolver=lambda h: ["160.79.104.10"], transport=_captura([], falha_em={"160.79.104.10"}),
+        )
+
+
+def test_nome_internacional_vai_em_idna_no_dns_no_host_e_no_sni():
+    pedidos, consultas = [], []
+
+    def resolver(host):
+        consultas.append(host)
+        return ["160.79.104.10"]
+
+    doc = dict(DOC, client_id="https://bücher.example/meta")
+    transporte = httpx.MockTransport(lambda r: pedidos.append(r) or httpx.Response(200, json=doc))
+    cimd_fetch.fetch_client_metadata("https://bücher.example/meta", resolver=resolver, transport=transporte)
+    assert consultas == ["xn--bcher-kva.example"]
+    assert pedidos[0].headers["host"] == "xn--bcher-kva.example"
+    assert pedidos[0].extensions["sni_hostname"] == "xn--bcher-kva.example"
+
+
 # --- O fluxo com cliente CIMD ---------------------------------------------------------
 
 @pytest.fixture
