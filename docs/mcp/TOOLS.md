@@ -2,7 +2,7 @@
 
 <!-- GERADO por `python -m app.mcp.docs` a partir de `backend/app/mcp/registry.py`. Não edite à mão. -->
 
-Servidor `controle-financeiro` versão `1.1.0` · 38 tools · endpoint `/mcp` (Streamable HTTP).
+Servidor `controle-financeiro` versão `1.2.0` · 38 tools · endpoint `/mcp` (Streamable HTTP).
 
 Convenções que valem para todas: dinheiro em string decimal com ponto (`"89.90"`, até 2 casas, nunca arredondado); datas `YYYY-MM-DD` e meses `YYYY-MM` no fuso da conta (`profile_get.timezone`); nomes resolvidos no servidor (ambíguo → `AMBIGUOUS` com candidatos); nenhuma tool aceita `user_id` — a identidade vem do token.
 
@@ -211,8 +211,8 @@ Não use quando: quiser o resumo do mês por categoria (reports_summary) ou a fa
 | `payment_method` | `credit_card` \| `debit_card` \| `pix` \| `cash` \| `bank_transfer` \| `boleto` \| `other` | não |  |
 | `status` | lista de `draft` \| `pending` \| `confirmed` \| `paid` \| `cancelled` | não | máx. 5 |
 | `settled` | boolean | não | true = já pago; false = a pagar (fora do cartão). |
-| `min_amount` | string | não | padrão `^\d{1,16}([.,]\d{1,2})?$` |
-| `max_amount` | string | não | padrão `^\d{1,16}([.,]\d{1,2})?$` |
+| `min_amount` | string | não | Valor em string decimal com ponto e até 2 casas, ex.: "89.90". (padrão `^\d{1,16}([.,]\d{1,2})?$`) |
+| `max_amount` | string | não | Valor em string decimal com ponto e até 2 casas, ex.: "89.90". (padrão `^\d{1,16}([.,]\d{1,2})?$`) |
 | `installment_group_id` | string | não | Parcelas de uma mesma compra. (máx. 64) |
 | `sort` | `date_desc` \| `date_asc` \| `amount_desc` \| `amount_asc` | não |  |
 | `limit` | integer | não | ≥ 1, ≤ 50 |
@@ -243,7 +243,7 @@ Não use quando: ainda não souber o id (busque com transactions_search), ou o u
 
 - **Classe:** Leitura · **Escopo:** `finance.read` · **Custo:** 1 unidade(s)
 - **Annotations:** readOnlyHint=true, destructiveHint=false, idempotentHint=true, openWorldHint=false
-- **UI (MCP Apps):** `ui://controle-financeiro/widget-v2.html`
+- **UI (MCP Apps):** `ui://controle-financeiro/widget-v3.html`
 
 Desenha UM lançamento como cartão visual na conversa (valor, divisão, sua parte, cartão/fatura, parcelas) e devolve os mesmos dados de transactions_get.
 
@@ -277,7 +277,7 @@ Não use quando: o usuário pedir para ver/mostrar a fatura (statements_show); q
 | `card` | string | não | Nome do cartão. Omitido: seu único cartão. (máx. 120) |
 | `card_id` | integer | não |  |
 | `month` | string | não | Mês da fatura (YYYY-MM). Omitido: a fatura do ciclo atual. (padrão `^\d{4}-(0[1-9]|1[0-2])$`) |
-| `limit` | integer | não | Compras por página. (≥ 1, ≤ 100) |
+| `limit` | integer | não | Compras por página (o total e as categorias já cobrem a fatura inteira). (≥ 1, ≤ 100) |
 | `cursor` | string | não | máx. 512 |
 
 **Saída (`structuredContent`)**: `card`, `currency`, `month`, `exists`, `status`, `closing_date`, `due_date`, `total`, `paid`, `balance`, `overdue`, `purchases_count`, `purchases`, `next_cursor`, `by_category`, `available_months`, `app_url`
@@ -286,7 +286,7 @@ Não use quando: o usuário pedir para ver/mostrar a fatura (statements_show); q
 
 - **Classe:** Leitura · **Escopo:** `finance.read` · **Custo:** 2 unidade(s)
 - **Annotations:** readOnlyHint=true, destructiveHint=false, idempotentHint=true, openWorldHint=false
-- **UI (MCP Apps):** `ui://controle-financeiro/widget-v2.html`
+- **UI (MCP Apps):** `ui://controle-financeiro/widget-v3.html`
 
 Desenha a fatura de um cartão como componente visual na conversa (total, saldo, vencimento, as maiores categorias e as compras mais recentes) e devolve os mesmos dados de statements_get, só com a primeira página de compras.
 
@@ -332,7 +332,7 @@ Não use quando: o usuário pedir para ver/mostrar o resumo (reports_show); prec
 
 - **Classe:** Leitura · **Escopo:** `finance.read` · **Custo:** 2 unidade(s)
 - **Annotations:** readOnlyHint=true, destructiveHint=false, idempotentHint=true, openWorldHint=false
-- **UI (MCP Apps):** `ui://controle-financeiro/widget-v2.html`
+- **UI (MCP Apps):** `ui://controle-financeiro/widget-v3.html`
 
 Desenha o resumo de UM mês como componente visual na conversa (renda, seu consumo, caixa, a pagar, resultado e consumo por categoria) e devolve os mesmos dados de reports_summary.
 
@@ -555,7 +555,7 @@ Despesa paga não muda até ser reaberta (`status=confirmed`); cancelada é defi
 | `description` | string | não | Texto novo; "" apaga a observação. (máx. 2000) |
 | `amount` | string | não | Novo valor total, na moeda DA COMPRA: a de `currency`, se informada; senão a original (`foreign.original_currency`) quando o lançamento foi convertido. (padrão `^\d{1,16}([.,]\d{1,2})?$`) |
 | `currency` | string | não | Moeda ISO 4217 da compra (ex.: USD). Estrangeira é convertida para a moeda do espaço na data (PTAX; IOF no cartão). (padrão `^[A-Za-z]{3}$`) |
-| `date` | data `YYYY-MM-DD` | não |  |
+| `date` | data `YYYY-MM-DD` | não | Dia civil no fuso da conta (ver profile_get.timezone), formato YYYY-MM-DD. |
 | `category` | string | não | Nova categoria (existente no espaço). (máx. 120) |
 | `category_id` | integer | não |  |
 | `remove_category` | boolean | não | true = deixa o lançamento sem categoria. |
@@ -664,7 +664,7 @@ Exemplo:
 
 - **Classe:** Leitura · **Escopo:** `finance.read` · **Custo:** 3 unidade(s)
 - **Annotations:** readOnlyHint=true, destructiveHint=false, idempotentHint=true, openWorldHint=false
-- **UI (MCP Apps):** `ui://controle-financeiro/widget-v2.html`
+- **UI (MCP Apps):** `ui://controle-financeiro/widget-v3.html`
 
 Primeiro passo OBRIGATÓRIO para excluir ou categorizar vários lançamentos (ou um lançamento com anexos). Não altera nada: calcula o conjunto exato, o total, uma amostra e o que ficou de fora, e devolve um `confirmation_token` válido por 10 minutos.
 
@@ -1130,7 +1130,7 @@ Não use quando: quiser mudar uma única ocorrência (transactions_update nela).
 |---|---|---|---|
 | `recurring_id` | integer | sim |  |
 | `title` | string | não | mín. 1, máx. 200 |
-| `amount` | string | não | padrão `^\d{1,16}([.,]\d{1,2})?$` |
+| `amount` | string | não | Valor em string decimal com ponto e até 2 casas, ex.: "89.90". (padrão `^\d{1,16}([.,]\d{1,2})?$`) |
 | `active` | boolean | não | false = pausar (para de lançar); true = retomar. |
 | `remove_card` | boolean | não | true = a cobrança deixa de ser no cartão. |
 | `remove_category` | boolean | não |  |

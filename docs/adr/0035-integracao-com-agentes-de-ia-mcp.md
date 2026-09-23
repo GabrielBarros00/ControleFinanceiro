@@ -150,7 +150,8 @@ sem SQL. A trilha `mcptoolcall` guarda tool, cliente, resultado, duração e ids
 Um HTML único (`ui://controle-financeiro/widget-vN.html`, construído de
 `frontend/src/mcp-widget` e versionado) desenha lançamento, fatura, resumo do mês
 e a prévia de massa — com o botão "Confirmar" que chama a execução com o token.
-A ponte é a oficial (`@modelcontextprotocol/ext-apps`), com `window.openai` só por
+A ponte começou sendo a oficial (`@modelcontextprotocol/ext-apps`) e hoje é escrita à
+mão, pelo peso (ver a revisão de 2026-09-24 abaixo), com `window.openai` só por
 detecção. CSP vazia: o componente não busca nada. Toda tool funciona igual sem UI.
 
 **Só tool de EXIBIÇÃO desenha** (revisto em 2026-09-23). A primeira versão prendia o
@@ -184,6 +185,45 @@ make a breaking change to the HTML, JavaScript, or CSS, publish a new URI". A ve
 o hash do HTML publicado ficam em `app/mcp/ui/__init__.py` (`WIDGET_VERSION`,
 `WIDGET_SHA256`), e `test_mudou_o_componente_mudou_a_uri` reprova quando o
 `widget.html` muda sem a versão mudar junto. Esta revisão publica a `widget-v2`.
+
+**Leve, nativo e sem perder o resultado** (revisto em 2026-09-24, `widget-v3`). Medido
+antes de mexer: o componente tinha 460 KB, sendo ~227 KB da ponte oficial (zod e os
+schemas do MCP) e ~215 KB do React, para quatro vistas e seis mensagens de protocolo.
+
+- **A ponte oficial saiu do bundle.** No lugar, a ponte é escrita à mão
+  (`frontend/src/mcp-widget/bridge.ts`), e o componente usa Preact.
+  - O risco dessa troca é seguir o protocolo sozinho. Ele é coberto por um teste de
+    conformidade: o `AppBridge` oficial, que é o lado do host na mesma biblioteca e
+    valida cada mensagem com os schemas dela, conversa com a nossa ponte. Mandar algo
+    fora do contrato reprova, e isso foi visto com duas mutações.
+  - A biblioteca oficial ficou só nos testes.
+  - Resultado: 37 KB (13 KB com gzip). Com 30 componentes na conversa, cada um passou
+    de 12,8 MB para 4,1 MB de memória, e carregar os 30 caiu de 1,5 s para 0,3 s.
+- **Corrida corrigida.** O host manda o resultado logo depois do `initialized`, e isso
+  pode chegar antes de o componente registrar o ouvinte. A ponte antiga, e a oficial
+  com o mesmo desenho, perdiam esse resultado, e a tela ficava no "Carregando…". Agora
+  a ponte guarda o último resultado para quem chega depois (teste reproduz a corrida).
+- **Visual nativo.**
+  - O fundo é transparente, e sem `color-scheme`, que fazia o navegador pintar um fundo
+    opaco atrás do iframe.
+  - Cores, fonte e raio vêm das variáveis padrão do MCP Apps (`--color-*`,
+    `--font-sans`, `--border-radius-*`), com o visual próprio como reserva.
+  - Textos em português: "Aberta" em vez de "open", mês por extenso, plural sem "(s)".
+  - A parcela não repete mais o "(10/10)" que já está no título.
+  - A compra da fatura aparece na moeda do CARTÃO (`statement_amount`).
+- **O modelo sabe o que a tela mostra.** Cada tool que desenha declara
+  `openai/widgetDescription` ("o componente já mostra a fatura… não liste as compras de
+  novo"), para a resposta em texto não repetir o que está na tela.
+- **CSP legada do ChatGPT.** O recurso também declara `openai/widgetCSP` (vazia) com
+  `redirect_domains` = o app, que é o que libera o botão "Abrir no Controle Financeiro"
+  pelo `openExternal`.
+
+**O catálogo também emagreceu.** O `tools/list` entra no contexto do modelo em toda
+conversa e tinha ~200 mil caracteres.
+- O schema de entrada perdeu o ruído do Pydantic: `title` automático em cada campo,
+  `anyOf` com `null`, `default: null` e a docstring interna da classe.
+- O que o modelo lê (descrição + entrada) caiu de ~80 mil para ~56 mil caracteres.
+- `test_catalogo_cabe_no_orcamento_de_contexto` põe teto de 60 mil.
 
 ## Divergências do pedido original (e por quê)
 

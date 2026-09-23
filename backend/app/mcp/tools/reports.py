@@ -219,6 +219,10 @@ class ReportsShowIn(ToolInput):
     ui=WIDGET,
     invoking="Montando o resumo…",
     invoked="Resumo na tela",
+    meta={"openai/widgetDescription": (
+        "O componente já mostra o resumo do mês: resultado, renda, consumo, caixa, a pagar e as "
+        "maiores categorias. Não repita os números; destaque só o que importa para a pergunta."
+    )},
     **_LEITURA,
 )
 def reports_show(call: ToolCall) -> ToolOutput:

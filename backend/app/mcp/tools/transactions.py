@@ -281,6 +281,10 @@ def transactions_get(call: ToolCall) -> ToolOutput:
     ui=WIDGET,
     invoking="Abrindo o lançamento…",
     invoked="Lançamento aberto",
+    meta={"openai/widgetDescription": (
+        "O componente já mostra o lançamento: valor, divisão, sua parte, cartão e parcelas. "
+        "Não repita esses campos; responda só o que o usuário perguntou."
+    )},
 )
 def transactions_show(call: ToolCall) -> ToolOutput:
     return transactions_get(call)

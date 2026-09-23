@@ -31,11 +31,24 @@ para uma submissão, se o dono decidir submeter.
     "Confirmar" da prévia envia só o `confirmation_token`.
 - Textos de progresso `openai/toolInvocation/invoking|invoked` nas tools.
 
-A ponte do componente é a **oficial do MCP Apps** (`@modelcontextprotocol/ext-apps`);
-`window.openai` é lido só se existir. Por que sem `@openai/apps-sdk-ui`: o
-componente tem quatro vistas simples e o tamanho importa (é baixado a cada
-resposta); componentes próprios com Tailwind, restritos à pasta do widget, bastam.
-Gzip atual: ~130 KB, com teto de 160 KB no build.
+O componente é **Preact com uma ponte MCP Apps escrita à mão** (~37 KB, 13 KB com
+gzip; teto de 64/24 KB no build). Antes eram 460 KB: a ponte oficial
+(`@modelcontextprotocol/ext-apps`, com zod) e o React.
+- **Por que o peso importa:** o componente é baixado e executado de novo em cada
+  resposta que o desenha. Medido num host falso, com 30 componentes na conversa, cada
+  um passou de 12,8 MB para 4,1 MB de memória, e carregar os 30 caiu de 1,5 s para
+  0,3 s.
+- **Conformidade provada, não presumida:**
+  `frontend/src/mcp-widget/__tests__/bridge.conformidade.test.ts` põe o host OFICIAL
+  (`AppBridge`, da mesma biblioteca) para conversar com a ponte. Ele valida cada
+  mensagem com os schemas do protocolo, e duas mutações (sem `appInfo`, tamanho com
+  campo errado) foram vistas reprovando.
+- **`window.openai`:** é lido só se existir, inclusive o evento `openai:set_globals`.
+- **Visual nativo:** fundo transparente, e cores, fonte e raio vêm das variáveis padrão
+  do MCP Apps (`--color-*`, `--font-sans`, `--border-radius-*`), com o visual próprio
+  como reserva.
+- **Por que sem `@openai/apps-sdk-ui`:** quatro vistas simples não pedem uma biblioteca
+  de componentes, e o tamanho manda.
 
 ## Testar no Developer Mode
 
@@ -90,10 +103,10 @@ conciliar-extrato) e `assets/`. Ver o README do pacote.
       submission", com padrão `https://web-sandbox.oaiusercontent.com`. Hoje não é
       declarado: o formato aceito muda de host para host, e um valor que o Claude
       recuse quebraria o componente lá. Defina no dia da submissão e teste nos dois.
-- [ ] `_meta["openai/widgetCSP"].redirect_domains` com o domínio do app, para o botão
-      "Abrir no Controle Financeiro" abrir sem bloqueio pelo `openExternal`. O SDK
-      Python só escreve o `ui.csp` padrão, então isso exige acrescentar a chave
-      legada ao recurso.
+- [x] `_meta["openai/widgetCSP"].redirect_domains` com o domínio do app, para o botão
+      "Abrir no Controle Financeiro" abrir sem bloqueio pelo `openExternal`. Está no
+      recurso junto do `ui.csp` padrão (`app/mcp/server.py`). Conferir no Developer
+      Mode se o selo "CSP desativado" some com ela.
 - [ ] `python -m app.mcp.docs --check` e a suíte `tests/mcp` verdes.
 
 ## Limitações conhecidas

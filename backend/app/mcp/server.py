@@ -13,7 +13,7 @@ from pathlib import Path
 from typing import Any
 
 from mcp.server import MCPServer
-from mcp.server.apps import Apps, ResourceCsp
+from mcp.server.apps import APP_MIME_TYPE, Apps, TextResource
 from mcp.server.mcpserver.tools import Tool
 from mcp.server.mcpserver.utilities.func_metadata import ArgModelBase, FuncMetadata
 from mcp_types import CallToolResult, Icon, ToolAnnotations
@@ -27,7 +27,7 @@ SERVER_NAME = "controle-financeiro"
 #: Versão do CONTRATO das tools (semver), independente da versão do app. Tool
 #: publicada nunca é renomeada; argumento novo só entra opcional; quebra vira
 #: tool nova `_v2` com a antiga marcada [DEPRECATED] por >= 90 dias.
-SERVER_VERSION = "1.1.0"
+SERVER_VERSION = "1.2.0"
 _WIDGET_FILE = Path(__file__).parent / "ui" / "widget.html"
 
 
@@ -76,16 +76,29 @@ def get_server() -> MCPServer:
     import app.mcp.tools  # noqa: F401 — registra as tools no REGISTRY
 
     apps = Apps()
-    apps.add_html_resource(
-        WIDGET_URI,
-        widget_html(),
-        name="controle-financeiro-widget",
-        title="Controle Financeiro",
-        description="Cartões de lançamento, fatura, resumo do mês e prévia de ações em massa.",
-        # Tudo embutido no HTML: o componente não busca nada fora (os dados
-        # chegam pelo resultado da tool e pela ponte do host).
-        csp=ResourceCsp(connect_domains=[], resource_domains=[]),
-        prefers_border=True,
+    # `add_resource` direto (e não `add_html_resource`) para declarar, junto do
+    # `_meta.ui` padrão, a chave LEGADA do ChatGPT. A referência da OpenAI: o
+    # `openExternal` só libera sem aviso os domínios de
+    # `openai/widgetCSP.redirect_domains`, e é por ele que sai o botão "Abrir no
+    # Controle Financeiro". A CSP continua vazia: o componente não busca nada fora
+    # (os dados chegam pelo resultado da tool e pela ponte do host).
+    apps.add_resource(
+        TextResource(
+            uri=WIDGET_URI,
+            name="controle-financeiro-widget",
+            title="Controle Financeiro",
+            description="Cartões de lançamento, fatura, resumo do mês e prévia de ações em massa.",
+            mime_type=APP_MIME_TYPE,
+            meta={
+                "ui": {"csp": {"connectDomains": [], "resourceDomains": []}, "prefersBorder": True},
+                "openai/widgetCSP": {
+                    "connect_domains": [],
+                    "resource_domains": [],
+                    "redirect_domains": [settings.oauth_issuer],
+                },
+            },
+            text=widget_html(),
+        )
     )
     return MCPServer(
         name=SERVER_NAME,

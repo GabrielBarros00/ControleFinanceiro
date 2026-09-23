@@ -8,6 +8,7 @@ declarada nas escritas que criam.
 """
 from __future__ import annotations
 
+import json
 import re
 
 import pytest
@@ -95,6 +96,26 @@ def test_schema_de_entrada_fechado(spec):
         assert caminho == "$" or obj.get("properties"), f"{caminho} é objeto genérico"
     for nome in esquema.get("properties", {}):
         assert nome not in {"user_id", "owner_user_id", "created_by_user_id", "sql", "query_sql", "where"}
+
+
+#: O que o modelo lê do catálogo em TODA conversa: descrição + schema de entrada
+#: das 38 tools (~56,6 mil caracteres hoje; eram ~80 mil antes de o schema perder
+#: `title` automático e `anyOf` com nulo). Passar do teto é decisão consciente:
+#: suba o número aqui, e diga no PR por que a tool nova vale os tokens.
+TETO_DO_CATALOGO = 60_000
+
+
+def test_catalogo_cabe_no_orcamento_de_contexto():
+    visivel = sum(len(s.description) + len(json.dumps(input_schema(s), ensure_ascii=False)) for s in todas())
+    assert visivel <= TETO_DO_CATALOGO, f"catálogo com {visivel:,} caracteres (teto {TETO_DO_CATALOGO:,})"
+
+
+@pytest.mark.parametrize("spec", todas(), ids=lambda s: s.name)
+def test_schema_de_entrada_sem_ruido(spec):
+    texto = json.dumps(input_schema(spec), ensure_ascii=False)
+    assert '"title": "' not in texto.replace('"title": {', ""), "title automático do Pydantic"
+    assert '{"type": "null"}' not in texto, "anyOf com nulo: omitir o campo já é o nulo"
+    assert '"default": null' not in texto
 
 
 @pytest.mark.parametrize("spec", todas(), ids=lambda s: s.name)

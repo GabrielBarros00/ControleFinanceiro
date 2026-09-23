@@ -14,13 +14,14 @@ import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 
 const ARQUIVO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../backend/app/mcp/ui/widget.html');
-// O grosso não é o componente: é a ponte OFICIAL do MCP Apps, que valida o
-// protocolo com zod (~2/3 do arquivo). Reimplementar o postMessage à mão
-// economizaria ~300 KB e trocaria por um protocolo que a gente teria de seguir
-// sozinho a cada versão — não compensa. O teto que importa para quem carrega é
-// o comprimido (o host serve o recurso com gzip); o bruto só barra o absurdo.
-const TETO_BYTES = 512 * 1024;
-const TETO_GZIP = 160 * 1024;
+// Era 460 KB: a ponte oficial do MCP Apps (com zod, ~227 KB) e o React 19
+// (~215 KB). O componente é baixado e executado de novo em cada resposta que o
+// desenha, e no ChatGPT, em modo agente, isso virou memória do navegador sem
+// parar. Hoje são ~37 KB: Preact e uma ponte escrita à mão, cuja conformidade é
+// provada contra o host OFICIAL (`bridge.conformidade.test.ts`) em vez de
+// presumida. Os tetos seguram a volta do peso: passar deles é decisão consciente.
+const TETO_BYTES = 64 * 1024;
+const TETO_GZIP = 24 * 1024;
 
 const html = readFileSync(ARQUIVO, 'utf8');
 const tamanho = statSync(ARQUIVO).size;

@@ -36,6 +36,18 @@ cliente MCP ([ADR 0035](docs/adr/0035-integracao-com-agentes-de-ia-mcp.md)).
 - **No ChatGPT, o cartão visual aparece quando você pede para ver** a fatura, o resumo
   do mês ou um lançamento. Antes cada consulta do agente desenhava um, e numa análise
   longa a memória do navegador subia sem parar.
+- **O cartão visual ficou 12× mais leve e com a cara do app de chat**: de 460 KB para
+  37 KB, cada cartão aberto na conversa passou de ~13 MB para ~4 MB de memória, e ele
+  segue as cores e a fonte do app de chat quando ele as informa. Não fica mais preso em "Carregando…"
+  quando o resultado chega antes da tela, mostra a situação da fatura em português,
+  a compra na moeda do cartão e não repete o "(10/10)" da parcela.
+- **Os agentes gastam menos contexto**: a lista de ferramentas que o modelo lê em toda
+  conversa encolheu ~30%, e a fatura vem com 20 compras por página (o total e as
+  categorias já cobrem a fatura inteira).
+- **Contas, Cartões e Contas a pagar ficaram mais rápidos com histórico longo**: o
+  total e o saldo de cada fatura eram calculados um por um, e o custo crescia com a
+  idade do cartão (18 meses de dois cartões: ~70 consultas por tela). Agora é uma
+  consulta agrupada, com o mesmo resultado.
 
 Por dentro: servidor MCP em `/mcp` (SDK oficial 2.2), OAuth 2.1 com PKCE e
 registro por CIMD/DCR, 38 tools documentadas em `docs/mcp/TOOLS.md` (geradas do
