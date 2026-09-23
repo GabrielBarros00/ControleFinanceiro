@@ -1,8 +1,14 @@
 # Instruções para agentes de IA
 
 Vale para qualquer agente que trabalhe neste repositório (Codex, Claude Code,
-Gemini, Cursor…). O guia completo para humanos é o [CONTRIBUTING.md](CONTRIBUTING.md);
-este arquivo resume o que não pode ser esquecido e aponta para lá.
+Gemini, Cursor…). O `CLAUDE.md` e o `GEMINI.md` só importam este arquivo. O guia
+completo para humanos é o [CONTRIBUTING.md](CONTRIBUTING.md); este arquivo resume o
+que não pode ser esquecido e aponta para lá.
+
+**Antes de mexer em dinheiro, datas, faturas, dívidas ou acertos, leia o
+[CONTEXT.md](CONTEXT.md).** É o glossário do domínio: o que cada termo da tela
+significa e como ele se chama no código. Vários nomes enganam. Por exemplo,
+`Income.received_at` é a competência, não o dia em que a renda caiu.
 
 ## O projeto
 
@@ -16,6 +22,11 @@ pessoas, cartões e faturas, contas, rendas, dívidas e acertos).
   ([ADR 0035](docs/adr/0035-integracao-com-agentes-de-ia-mcp.md), [docs/mcp/](docs/mcp/README.md)).
 - Decisões de arquitetura ficam em [docs/adr/](docs/adr/README.md). Mudança
   arquitetural relevante vira um ADR novo, com o próximo número.
+- **Fonte de verdade** é o código, os ADRs, o [ARCHITECTURE.md](docs/ARCHITECTURE.md)
+  e o [CONTEXT.md](CONTEXT.md). Os documentos datados da raiz (`ANALISE_PRODUTO_*`,
+  `PLANO_PRODUTO_*`, `EXECUCAO_PLANO_*`, `AUDITORIA_UX_*`),
+  `docs/frontend-redesign/` e `docs/estudo-*.md` são planos e estudos de um momento:
+  podem ter sido executados em parte ou superados. Não os trate como o estado atual.
 
 Tudo é em **português do Brasil**: código, comentários, mensagens de erro, commits,
 PRs e documentação.
@@ -80,6 +91,9 @@ cd frontend && npm run test:e2e              # Playwright, sobe backend e fronte
 ## Git
 
 - Branch a partir da `main`. PRs são mergeados por squash.
+- A descrição do PR segue o `.github/pull_request_template.md` (o checklist inclui
+  MCP, arquivos gerados, CONTEXT.md, ADR e CHANGELOG), inclusive quando o PR é
+  aberto por `gh pr create --body`, que não aplica o template sozinho.
 - Commits convencionais em pt-BR (`feat(escopo): …`, `fix(escopo): …`), uma mudança
   coesa por commit.
 - Não comite artefatos locais (`*.db`, `frontend/openapi.json`, resultados de teste)

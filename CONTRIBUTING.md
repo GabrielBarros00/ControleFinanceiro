@@ -135,4 +135,5 @@ ou aceita o que o app deixou de aceitar.
 - **Escritas**: a regra vai em `app/services/commands/` (a rota só faz o commit e responde). É o que mantém o app e os agentes de IA com a mesma regra (ADR 0035).
 - **Dinheiro**: `Decimal`/centavos, nunca `float`. Use `app/domain/money.py`.
 - **Decisões**: mudanças arquiteturais relevantes viram um ADR em [docs/adr/](docs/adr/README.md).
+- **Vocabulário**: termo novo na tela ou no código entra no [CONTEXT.md](CONTEXT.md), o glossário do domínio. Renomeou um campo citado lá? `tests/test_context_md.py` reprova até o glossário acompanhar.
 - **WebSocket**: o backend roda com **1 worker** (gerenciador in-process); não altere isso sem introduzir um broker.
