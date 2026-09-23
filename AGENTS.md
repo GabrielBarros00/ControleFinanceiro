@@ -86,7 +86,7 @@ cd frontend && npm run test:e2e              # Playwright, sobe backend e fronte
 |---|---|---|
 | Rota ou schema da API | `cd frontend && npm run typegen` | `frontend/src/types/api.gen.ts` |
 | Tool MCP ou `capability_map.py` | `cd backend && python -m app.mcp.docs` | `docs/mcp/TOOLS.md`, `docs/mcp/CAPABILITY_MAP.md` |
-| `frontend/src/mcp-widget/` | `cd frontend && npm run build:mcp-widget` | `backend/app/mcp/ui/widget.html` |
+| `frontend/src/mcp-widget/` ou dependência do frontend | `cd frontend && npm run build:mcp-widget`, e some 1 em `WIDGET_VERSION` com o `WIDGET_SHA256` novo (`backend/app/mcp/ui/__init__.py`) | `backend/app/mcp/ui/widget.html` |
 
 ## Git
 

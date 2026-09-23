@@ -33,9 +33,12 @@ cliente MCP ([ADR 0035](docs/adr/0035-integracao-com-agentes-de-ia-mcp.md)).
   acontecem depois do seu "sim".
 - Na auditoria do espaço, o que foi feito por agente aparece marcado **"via IA"**.
 - Trocar a senha desconecta todos os agentes.
+- **No ChatGPT, o cartão visual aparece quando você pede para ver** a fatura, o resumo
+  do mês ou um lançamento. Antes cada consulta do agente desenhava um, e numa análise
+  longa a memória do navegador subia sem parar.
 
 Por dentro: servidor MCP em `/mcp` (SDK oficial 2.2), OAuth 2.1 com PKCE e
-registro por CIMD/DCR, 35 tools documentadas em `docs/mcp/TOOLS.md` (geradas do
+registro por CIMD/DCR, 38 tools documentadas em `docs/mcp/TOOLS.md` (geradas do
 código), e as escritas das rotas REST passaram a morar em comandos
 compartilhados (`app/services/commands/`) — sem mudança de comportamento.
 

@@ -1,4 +1,6 @@
-"""`statements_get` — a fatura de um cartão, com as compras e o resumo por categoria.
+"""`statements_get` e `statements_show`: a fatura de um cartão, com as compras e o
+resumo por categoria. A primeira só devolve dados; a segunda faz a mesma consulta e
+desenha o componente (ADR 0035, seção 8).
 
 Somente leitura de verdade: se a fatura do ciclo ainda não existe (mês sem
 compras), a resposta diz `exists: false` com as datas previstas — não cria a
@@ -19,6 +21,7 @@ from app.mcp import resolve
 from app.mcp.dates import MonthKey
 from app.mcp.errors import ErrorCode, McpToolError
 from app.mcp.money import MoneyOut, fmt_brl
+from app.mcp.ui import WIDGET_URI
 from app.mcp.registry import ToolCall, ToolInput, ToolOutput, tool
 from app.mcp.schemas import Ref, TransactionBrief
 from app.mcp.serializers import app_url, civil, load_bundle, to_brief
@@ -28,7 +31,7 @@ from app.services import transaction_query
 from app.services.credit_card_service import CreditCardService
 from app.services.oauth import scopes as escopos
 
-WIDGET = "ui://controle-financeiro/widget-v1.html"
+WIDGET = WIDGET_URI
 
 
 def card_or_only(call: ToolCall, card_id: Optional[int], card: Optional[str]) -> CreditCard:
@@ -87,30 +90,8 @@ class StatementOut(BaseModel):
     app_url: str
 
 
-@tool(
-    name="statements_get",
-    title="Ver fatura do cartão",
-    description=(
-        "Mostra a fatura de um cartão de crédito: total, quanto já foi pago, saldo, vencimento, as "
-        "compras (paginadas) e o total por categoria.\n"
-        "Use quando: o usuário pedir 'minha fatura do Nubank', 'quanto vem na fatura', 'o que tem "
-        "na fatura de outubro'.\n"
-        "Não use quando: quiser só o limite disponível (cards_list) ou pagar a fatura (statements_pay)."
-    ),
-    input_model=StatementIn,
-    output_model=StatementOut,
-    scope=escopos.FINANCE_READ,
-    kind="read",
-    read_only=True,
-    destructive=False,
-    idempotent=True,
-    cost=2,
-    ui=WIDGET,
-    invoking="Abrindo a fatura…",
-    invoked="Fatura aberta",
-)
-def statements_get(call: ToolCall) -> ToolOutput:
-    a: StatementIn = call.args
+def _fatura(call: ToolCall, a: StatementIn) -> ToolOutput:
+    """A consulta da fatura, compartilhada por `statements_get` (dados) e `statements_show` (tela)."""
     cartao = card_or_only(call, a.card_id, a.card)
     hoje = today_local()
     alvo = CreditCardService.preview_statement_target(call.session, cartao, hoje)
@@ -212,3 +193,69 @@ def statements_get(call: ToolCall) -> ToolOutput:
         entity_ids=[fatura.id] if fatura else [],
         widget={"view": "statement", "app_url": saida.app_url},
     )
+
+
+@tool(
+    name="statements_get",
+    title="Ver fatura do cartão",
+    description=(
+        "Devolve a fatura de um cartão de crédito: total, quanto já foi pago, saldo, vencimento, as "
+        "compras (paginadas) e o total por categoria. Só dados; para DESENHAR a fatura na conversa, "
+        "use statements_show.\n"
+        "Use quando: precisar dos números para responder ou analisar ('quanto vem na fatura', 'o que "
+        "tem na fatura de outubro', comparar faturas).\n"
+        "Não use quando: o usuário pedir para ver/mostrar a fatura (statements_show); quiser só o "
+        "limite disponível (cards_list); ou for pagar a fatura (statements_pay)."
+    ),
+    input_model=StatementIn,
+    output_model=StatementOut,
+    scope=escopos.FINANCE_READ,
+    kind="read",
+    read_only=True,
+    destructive=False,
+    idempotent=True,
+    cost=2,
+    invoking="Lendo a fatura…",
+    invoked="Fatura lida",
+)
+def statements_get(call: ToolCall) -> ToolOutput:
+    return _fatura(call, call.args)
+
+
+class StatementShowIn(ToolInput):
+    card: Optional[str] = Field(None, max_length=120, description="Nome do cartão. Omitido: seu único cartão.")
+    card_id: Optional[int] = None
+    month: Optional[MonthKey] = Field(None, description="Mês da fatura (YYYY-MM). Omitido: a fatura do ciclo atual.")
+
+
+#: O componente mostra as compras mais recentes; o resto fica no app ("Abrir no Controle Financeiro").
+COMPRAS_NA_TELA = 6
+
+
+@tool(
+    name="statements_show",
+    title="Mostrar fatura na conversa",
+    description=(
+        "Desenha a fatura de um cartão como componente visual na conversa (total, saldo, vencimento, "
+        "as maiores categorias e as compras mais recentes) e devolve os mesmos dados de "
+        "statements_get, só com a primeira página de compras.\n"
+        "Use quando: o usuário pedir para ver ou mostrar a fatura ('mostre minha fatura do Nubank'). "
+        "Chame uma vez, com a fatura final.\n"
+        "Não use quando: precisar dos números para analisar, somar ou comparar (statements_get): "
+        "cada chamada desenha um componente novo na conversa."
+    ),
+    input_model=StatementShowIn,
+    output_model=StatementOut,
+    scope=escopos.FINANCE_READ,
+    kind="read",
+    read_only=True,
+    destructive=False,
+    idempotent=True,
+    cost=2,
+    ui=WIDGET,
+    invoking="Abrindo a fatura…",
+    invoked="Fatura aberta",
+)
+def statements_show(call: ToolCall) -> ToolOutput:
+    a: StatementShowIn = call.args
+    return _fatura(call, StatementIn(card=a.card, card_id=a.card_id, month=a.month, limit=COMPRAS_NA_TELA))

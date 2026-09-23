@@ -1,4 +1,5 @@
-"""Relatórios e orçamento: `reports_summary` e `budgets_list`.
+"""Relatórios e orçamento: `reports_summary`, `reports_show` (a mesma consulta,
+desenhada no componente) e `budgets_list`.
 
 Os números vêm dos MESMOS serviços das telas "Seu mês" (`OverviewService`) e
 Relatórios (`ReportService`) — a IA e o app não têm como discordar sobre quanto a
@@ -21,6 +22,7 @@ from app.mcp import resolve
 from app.mcp.dates import MonthKey
 from app.mcp.errors import ErrorCode, McpToolError
 from app.mcp.money import MoneyOut, fmt_brl
+from app.mcp.ui import WIDGET_URI
 from app.mcp.registry import ToolCall, ToolInput, ToolOutput, tool
 from app.mcp.schemas import Ref
 from app.mcp.serializers import app_url
@@ -29,7 +31,7 @@ from app.services.oauth import scopes as escopos
 from app.services.overview_service import OverviewService
 from app.services.report_service import ReportService
 
-WIDGET = "ui://controle-financeiro/widget-v1.html"
+WIDGET = WIDGET_URI
 _LEITURA = dict(scope=escopos.FINANCE_READ, kind="read", read_only=True, destructive=False, idempotent=True)
 
 
@@ -97,28 +99,8 @@ class ReportsOut(BaseModel):
     app_url: str
 
 
-@tool(
-    name="reports_summary",
-    title="Resumo financeiro do mês",
-    description=(
-        "Resumo do mês da pessoa somando todos os espaços: renda, SEU consumo (sua parte das "
-        "despesas), resultado, caixa (entrou/saiu), quanto deve e tem a receber, contas a pagar e "
-        "o consumo por categoria. Com `months` > 1, traz a evolução mês a mês.\n"
-        "Use quando: 'quanto gastei com alimentação este mês?', 'como está meu mês?', 'gastei mais "
-        "que em agosto?'.\n"
-        "Não use quando: precisar dos lançamentos individuais (transactions_search) ou da fatura "
-        "(statements_get)."
-    ),
-    input_model=ReportsIn,
-    output_model=ReportsOut,
-    cost=2,
-    ui=WIDGET,
-    invoking="Calculando o resumo…",
-    invoked="Resumo pronto",
-    **_LEITURA,
-)
-def reports_summary(call: ToolCall) -> ToolOutput:
-    a: ReportsIn = call.args
+def _resumo(call: ToolCall, a: ReportsIn) -> ToolOutput:
+    """O resumo do mês, compartilhado por `reports_summary` (dados) e `reports_show` (tela)."""
     me = call.identity.user_id
     mes = _mes(a.month)
     moeda = _moeda(a.currency)
@@ -186,6 +168,64 @@ def reports_summary(call: ToolCall) -> ToolOutput:
     if a.category:
         resumo += " " + ("; ".join(f"{x.category}: {fmt_brl(x.amount, x.currency)}" for x in linhas) or f"Nada em '{a.category}' no mês.")
     return ToolOutput(structured=saida, summary=resumo, widget={"view": "summary", "app_url": saida.app_url})
+
+
+@tool(
+    name="reports_summary",
+    title="Resumo financeiro do mês",
+    description=(
+        "Resumo do mês da pessoa somando todos os espaços: renda, SEU consumo (sua parte das "
+        "despesas), resultado, caixa (entrou/saiu), quanto deve e tem a receber, contas a pagar e "
+        "o consumo por categoria. Com `months` > 1, traz a evolução mês a mês. Só dados; para "
+        "DESENHAR o resumo na conversa, use reports_show.\n"
+        "Use quando: 'quanto gastei com alimentação este mês?', 'como está meu mês?', 'gastei mais "
+        "que em agosto?'.\n"
+        "Não use quando: o usuário pedir para ver/mostrar o resumo (reports_show); precisar dos "
+        "lançamentos individuais (transactions_search) ou da fatura (statements_get)."
+    ),
+    input_model=ReportsIn,
+    output_model=ReportsOut,
+    cost=2,
+    invoking="Calculando o resumo…",
+    invoked="Resumo pronto",
+    **_LEITURA,
+)
+def reports_summary(call: ToolCall) -> ToolOutput:
+    return _resumo(call, call.args)
+
+
+class ReportsShowIn(ToolInput):
+    month: Optional[MonthKey] = Field(None, description="Mês (YYYY-MM). Omitido: o mês atual.")
+    space: Optional[str] = Field(None, max_length=120, description="Restringe as categorias a um espaço.")
+    space_id: Optional[int] = None
+    category: Optional[str] = Field(None, max_length=120, description="Mostra só esta categoria.")
+    currency: Optional[str] = Field(None, min_length=3, max_length=3, description="Moeda dos totais pessoais (ISO-4217).")
+
+
+@tool(
+    name="reports_show",
+    title="Mostrar resumo do mês na conversa",
+    description=(
+        "Desenha o resumo de UM mês como componente visual na conversa (renda, seu consumo, caixa, "
+        "a pagar, resultado e consumo por categoria) e devolve os mesmos dados de reports_summary.\n"
+        "Use quando: o usuário pedir para VER ou MOSTRAR o resumo ou o painel do mês ('mostre meu "
+        "resumo de setembro'). Chame uma vez, com o mês final.\n"
+        "Não use quando: precisar dos números para responder ou analisar, ou da evolução de vários "
+        "meses (reports_summary): cada chamada desenha um componente novo na conversa."
+    ),
+    input_model=ReportsShowIn,
+    output_model=ReportsOut,
+    cost=2,
+    ui=WIDGET,
+    invoking="Montando o resumo…",
+    invoked="Resumo na tela",
+    **_LEITURA,
+)
+def reports_show(call: ToolCall) -> ToolOutput:
+    a: ReportsShowIn = call.args
+    return _resumo(call, ReportsIn(
+        month=a.month, months=1, space=a.space, space_id=a.space_id, category=a.category, currency=a.currency,
+    ))
 
 
 # --- budgets_list -----------------------------------------------------------------------

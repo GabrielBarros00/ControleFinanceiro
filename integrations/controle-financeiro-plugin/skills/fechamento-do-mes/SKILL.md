@@ -20,5 +20,8 @@ Use quando o usuário pedir o fechamento, balanço ou resumo do mês.
    acerto (`settlements_create`), confirmar renda recebida (`income_update` com
    `status: received`). Cada ação só depois do "sim" do usuário, uma
    `idempotency_key` nova por intenção.
+8. Se o usuário quiser VER o resumo desenhado na conversa, chame `reports_show`
+   uma vez, no fim. Para calcular e comparar, use só as tools de dados: cada
+   `*_show` desenha um componente novo.
 
 Não invente números nem arredonde: repita os valores das tools, na moeda indicada.

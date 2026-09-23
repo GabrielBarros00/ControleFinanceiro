@@ -1,6 +1,6 @@
 """Eval AO VIVO das tools MCP com um modelo de verdade (opcional; fora do CI).
 
-Roda cada caso de `tests/mcp/evals/cases.yaml` num LLM com as 35 tools do
+Roda cada caso de `tests/mcp/evals/cases.yaml` num LLM com as tools do
 servidor, executando as chamadas no app em memória (banco SQLite temporário,
 cenário igual ao das trajetórias-ouro), e pontua:
 

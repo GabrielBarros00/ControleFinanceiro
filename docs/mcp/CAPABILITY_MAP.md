@@ -18,8 +18,11 @@ Confirmação: `host` = o cliente pede confirmação por não ser `readOnlyHint`
 | `accounts_list` | Leitura | `finance.read` | Saldo derivado (ADR 0034) | `AccountBalanceService, ProjectionService` | médio — saldos | nenhum | — | natural |
 | `transactions_search` | Leitura | `finance.read` | transaction_scope (ADR 0018), minha parte | `services/transaction_query` | médio — lançamentos | nenhum | — | natural |
 | `transactions_get` | Leitura | `finance.read` | get_visible_transaction | `access_policy` | médio | nenhum | — | natural |
+| `transactions_show` | Leitura | `finance.read` | A mesma leitura de transactions_get, desenhada no componente | `transactions_get` | médio | nenhum (desenha um componente na conversa) | — | natural |
 | `statements_get` | Leitura | `finance.read` | Fatura cumulativa (ADR 0023) | `CreditCardService.statement_population` | médio | nenhum (não cria fatura) | — | natural |
+| `statements_show` | Leitura | `finance.read` | A mesma leitura de statements_get, com a 1ª página de compras | `statements_get` | médio | nenhum (desenha um componente na conversa) | — | natural |
 | `reports_summary` | Leitura | `finance.read` | Consumo = minha parte; caixa ≠ competência | `OverviewService, ReportService` | médio | nenhum | — | natural |
+| `reports_show` | Leitura | `finance.read` | A mesma leitura de reports_summary, de um mês | `reports_summary` | médio | nenhum (desenha um componente na conversa) | — | natural |
 | `budgets_list` | Leitura | `finance.read` | Meta pessoal × da casa | `MonthlyEstimate, ReportService` | baixo | nenhum | — | natural |
 | `debts_summary` | Leitura | `finance.read` | Espaços não se compensam (ADR 0031) | `PersonalDebtService` | médio | nenhum | — | natural |
 | `payables_list` | Leitura | `finance.read` | A pagar = não liquidado (ADR 0029) | `PayablesService, OverviewService` | médio | nenhum | — | natural |
@@ -107,7 +110,7 @@ Confirmação: `host` = o cliente pede confirmação por não ser `readOnlyHint`
 | `PUT /api/v1/me/credit-cards/{card_id}` | Editar cartão | **não exposta** | Cadastro de cartão/conta é raro, tem efeitos em fatura e saldo, e é feito uma vez no app. |
 | `GET /api/v1/me/credit-cards/{card_id}/statement-for` | Fatura de destino de uma data | `cards_list`, `transactions_create` | O agente não escolhe fatura: o servidor deriva ao criar (ADR 0002). |
 | `GET /api/v1/me/credit-cards/{card_id}/statements` | Faturas do cartão | `statements_get` |  |
-| `GET /api/v1/me/credit-cards/{card_id}/statements/{statement_id}` | Detalhe da fatura | `statements_get` |  |
+| `GET /api/v1/me/credit-cards/{card_id}/statements/{statement_id}` | Detalhe da fatura | `statements_get`, `statements_show` |  |
 | `POST /api/v1/me/credit-cards/{card_id}/statements/{statement_id}/close` | Fechar fatura | `statements_pay` | Só fechada junto com o pagamento, e só com o ciclo já encerrado. |
 | `POST /api/v1/me/credit-cards/{card_id}/statements/{statement_id}/pay` | Pagar fatura | `statements_pay` |  |
 | `POST /api/v1/me/credit-cards/{card_id}/statements/{statement_id}/reopen` | Reabrir fatura | **não exposta** | Operação rara e destrutiva, sem pedido real de uso por agente; fica no app, com a confirmação da tela. |
@@ -134,7 +137,7 @@ Confirmação: `host` = o cliente pede confirmação por não ser `readOnlyHint`
 | `GET /api/v1/me/ledger` | Extrato global | `transactions_search`, `accounts_list` |  |
 | `GET /api/v1/me/notification-preferences` | Preferências de aviso | **não exposta** | Recurso de interface do app (notificações, push, avatar, preferências), sem sentido para um agente. |
 | `PUT /api/v1/me/notification-preferences` | Alterar preferências de aviso | **não exposta** | Recurso de interface do app (notificações, push, avatar, preferências), sem sentido para um agente. |
-| `GET /api/v1/me/overview` | Visão do mês | `reports_summary` |  |
+| `GET /api/v1/me/overview` | Visão do mês | `reports_summary`, `reports_show` |  |
 | `GET /api/v1/me/payables` | Contas a pagar | `payables_list` |  |
 | `GET /api/v1/me/payment-accounts` | Contas de pagamento | `accounts_list` |  |
 | `POST /api/v1/me/payment-accounts` | Cadastrar conta | **não exposta** | Cadastro de cartão/conta é raro, tem efeitos em fatura e saldo, e é feito uma vez no app. |
@@ -213,7 +216,7 @@ Confirmação: `host` = o cliente pede confirmação por não ser `readOnlyHint`
 | `POST /api/v1/workspaces/{workspace_id}/transactions/bulk-categorize` | Categorizar em lote | `transactions_bulk_preview`, `transactions_bulk_categorize` |  |
 | `POST /api/v1/workspaces/{workspace_id}/transactions/preview` | Prévia da divisão | `transactions_create` | A saída da criação já traz a divisão calculada. |
 | `DELETE /api/v1/workspaces/{workspace_id}/transactions/{transaction_id}` | Excluir lançamento | `transactions_delete`, `transactions_bulk_preview`, `transactions_bulk_delete` |  |
-| `GET /api/v1/workspaces/{workspace_id}/transactions/{transaction_id}` | Ver lançamento | `transactions_get` |  |
+| `GET /api/v1/workspaces/{workspace_id}/transactions/{transaction_id}` | Ver lançamento | `transactions_get`, `transactions_show` |  |
 | `PUT /api/v1/workspaces/{workspace_id}/transactions/{transaction_id}` | Editar lançamento | `transactions_update` |  |
 | `GET /api/v1/workspaces/{workspace_id}/transactions/{transaction_id}/attachments` | Anexos do lançamento | `transactions_get` | O agente vê só a contagem de anexos. Arquivo binário: o envio por agente depende de API específica de cada host — próxima etapa. |
 | `POST /api/v1/workspaces/{workspace_id}/transactions/{transaction_id}/attachments` | Enviar anexo | **não exposta** | Arquivo binário: o envio por agente depende de API específica de cada host — próxima etapa. |

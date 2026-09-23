@@ -22,7 +22,7 @@ De dentro de `backend/`:
 | `test_registry_contract.py` | Contrato de cada tool (nome, título, "Use quando/Não use", 4 annotations coerentes, schema fechado, saída, meta de segurança/UI, idempotência declarada), `tools/list` = registro, `TOOLS.md` em dia |
 | `test_capability_map.py` | Toda rota REST tem decisão; toda tool é citada; `CAPABILITY_MAP.md` em dia |
 | `test_espelhos_do_app.py` | Os `Literal` das tools (forma de pagamento, status, frequência, `materialize`) têm exatamente os valores dos enums do app. Valor novo no app reprova até a tool acompanhar |
-| `test_audit_and_safety.py` | Trilha sem conteúdo; `origin` no auditlog; log sem token; teto de uso e de escrita; erro interno sem SQL/stack; injeção por título; recurso de UI; métricas do admin sem conteúdo |
+| `test_audit_and_safety.py` | Trilha sem conteúdo; `origin` no auditlog; log sem token; teto de uso e de escrita; erro interno sem SQL/stack; injeção por título; recurso de UI; URI do componente versionada com o hash do HTML (mudou o componente, muda a URI); a regra de que só as tools de exibição (`*_show`, mais a prévia de massa) desenham componente; métricas do admin sem conteúdo |
 | `test_plugin_package.py` | Manifestos do plugin válidos e skills citando só tools existentes |
 | `evals/test_evals_golden.py` | As 30 trajetórias-ouro de `evals/cases.yaml` executadas contra o banco |
 

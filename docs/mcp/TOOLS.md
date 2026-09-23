@@ -2,7 +2,7 @@
 
 <!-- GERADO por `python -m app.mcp.docs` a partir de `backend/app/mcp/registry.py`. Não edite à mão. -->
 
-Servidor `controle-financeiro` versão `1.0.0` · 35 tools · endpoint `/mcp` (Streamable HTTP).
+Servidor `controle-financeiro` versão `1.1.0` · 38 tools · endpoint `/mcp` (Streamable HTTP).
 
 Convenções que valem para todas: dinheiro em string decimal com ponto (`"89.90"`, até 2 casas, nunca arredondado); datas `YYYY-MM-DD` e meses `YYYY-MM` no fuso da conta (`profile_get.timezone`); nomes resolvidos no servidor (ambíguo → `AMBIGUOUS` com candidatos); nenhuma tool aceita `user_id` — a identidade vem do token.
 
@@ -35,8 +35,11 @@ Toda falha volta com `isError: true` e `{"error": {code, message, details, retry
 | [`accounts_list`](#accounts_list--contas-e-saldo) | Contas e saldo | Leitura | `finance.read` |
 | [`transactions_search`](#transactions_search--buscar-lançamentos) | Buscar lançamentos | Leitura | `finance.read` |
 | [`transactions_get`](#transactions_get--ver-lançamento) | Ver lançamento | Leitura | `finance.read` |
+| [`transactions_show`](#transactions_show--mostrar-lançamento-na-conversa) | Mostrar lançamento na conversa | Leitura | `finance.read` |
 | [`statements_get`](#statements_get--ver-fatura-do-cartão) | Ver fatura do cartão | Leitura | `finance.read` |
+| [`statements_show`](#statements_show--mostrar-fatura-na-conversa) | Mostrar fatura na conversa | Leitura | `finance.read` |
 | [`reports_summary`](#reports_summary--resumo-financeiro-do-mês) | Resumo financeiro do mês | Leitura | `finance.read` |
+| [`reports_show`](#reports_show--mostrar-resumo-do-mês-na-conversa) | Mostrar resumo do mês na conversa | Leitura | `finance.read` |
 | [`budgets_list`](#budgets_list--orçamentos-do-mês) | Orçamentos do mês | Leitura | `finance.read` |
 | [`debts_summary`](#debts_summary--quem-deve-a-quem) | Quem deve a quem | Leitura | `finance.read` |
 | [`payables_list`](#payables_list--contas-a-pagar) | Contas a pagar | Leitura | `finance.read` |
@@ -221,13 +224,32 @@ Não use quando: quiser o resumo do mês por categoria (reports_summary) ou a fa
 
 - **Classe:** Leitura · **Escopo:** `finance.read` · **Custo:** 1 unidade(s)
 - **Annotations:** readOnlyHint=true, destructiveHint=false, idempotentHint=true, openWorldHint=false
-- **UI (MCP Apps):** `ui://controle-financeiro/widget-v1.html`
 
-Mostra um lançamento completo pelo `transaction_id`: valor, data, espaço, quem pagou, como foi dividido (a parte de cada pessoa), categoria, tags, cartão/fatura, parcelas e moeda original.
+Devolve um lançamento completo pelo `transaction_id`: valor, data, espaço, quem pagou, como foi dividido (a parte de cada pessoa), categoria, tags, cartão/fatura, parcelas e moeda original. Só dados; para DESENHAR o lançamento na conversa, use transactions_show.
 
 Use quando: já tiver o id (de transactions_search ou de uma criação) e precisar dos detalhes antes de explicar ou editar.
 
-Não use quando: ainda não souber o id — busque com transactions_search.
+Não use quando: ainda não souber o id (busque com transactions_search), ou o usuário pedir para ver/mostrar o lançamento (transactions_show).
+
+**Entrada**
+
+| Parâmetro | Tipo | Obrigatório | Descrição |
+|---|---|---|---|
+| `transaction_id` | integer | sim | ≥ 1 |
+
+**Saída (`structuredContent`)**: `transaction`
+
+### `transactions_show` — Mostrar lançamento na conversa
+
+- **Classe:** Leitura · **Escopo:** `finance.read` · **Custo:** 1 unidade(s)
+- **Annotations:** readOnlyHint=true, destructiveHint=false, idempotentHint=true, openWorldHint=false
+- **UI (MCP Apps):** `ui://controle-financeiro/widget-v2.html`
+
+Desenha UM lançamento como cartão visual na conversa (valor, divisão, sua parte, cartão/fatura, parcelas) e devolve os mesmos dados de transactions_get.
+
+Use quando: o usuário pedir para VER ou MOSTRAR um lançamento, ou quiser conferir visualmente o que acabou de ser registrado ou editado. Chame uma vez, no fim.
+
+Não use quando: precisar dos dados para responder, analisar ou editar (transactions_get): cada chamada desenha um componente novo na conversa.
 
 **Entrada**
 
@@ -241,13 +263,12 @@ Não use quando: ainda não souber o id — busque com transactions_search.
 
 - **Classe:** Leitura · **Escopo:** `finance.read` · **Custo:** 2 unidade(s)
 - **Annotations:** readOnlyHint=true, destructiveHint=false, idempotentHint=true, openWorldHint=false
-- **UI (MCP Apps):** `ui://controle-financeiro/widget-v1.html`
 
-Mostra a fatura de um cartão de crédito: total, quanto já foi pago, saldo, vencimento, as compras (paginadas) e o total por categoria.
+Devolve a fatura de um cartão de crédito: total, quanto já foi pago, saldo, vencimento, as compras (paginadas) e o total por categoria. Só dados; para DESENHAR a fatura na conversa, use statements_show.
 
-Use quando: o usuário pedir 'minha fatura do Nubank', 'quanto vem na fatura', 'o que tem na fatura de outubro'.
+Use quando: precisar dos números para responder ou analisar ('quanto vem na fatura', 'o que tem na fatura de outubro', comparar faturas).
 
-Não use quando: quiser só o limite disponível (cards_list) ou pagar a fatura (statements_pay).
+Não use quando: o usuário pedir para ver/mostrar a fatura (statements_show); quiser só o limite disponível (cards_list); ou for pagar a fatura (statements_pay).
 
 **Entrada**
 
@@ -261,17 +282,38 @@ Não use quando: quiser só o limite disponível (cards_list) ou pagar a fatura 
 
 **Saída (`structuredContent`)**: `card`, `currency`, `month`, `exists`, `status`, `closing_date`, `due_date`, `total`, `paid`, `balance`, `overdue`, `purchases_count`, `purchases`, `next_cursor`, `by_category`, `available_months`, `app_url`
 
+### `statements_show` — Mostrar fatura na conversa
+
+- **Classe:** Leitura · **Escopo:** `finance.read` · **Custo:** 2 unidade(s)
+- **Annotations:** readOnlyHint=true, destructiveHint=false, idempotentHint=true, openWorldHint=false
+- **UI (MCP Apps):** `ui://controle-financeiro/widget-v2.html`
+
+Desenha a fatura de um cartão como componente visual na conversa (total, saldo, vencimento, as maiores categorias e as compras mais recentes) e devolve os mesmos dados de statements_get, só com a primeira página de compras.
+
+Use quando: o usuário pedir para ver ou mostrar a fatura ('mostre minha fatura do Nubank'). Chame uma vez, com a fatura final.
+
+Não use quando: precisar dos números para analisar, somar ou comparar (statements_get): cada chamada desenha um componente novo na conversa.
+
+**Entrada**
+
+| Parâmetro | Tipo | Obrigatório | Descrição |
+|---|---|---|---|
+| `card` | string | não | Nome do cartão. Omitido: seu único cartão. (máx. 120) |
+| `card_id` | integer | não |  |
+| `month` | string | não | Mês da fatura (YYYY-MM). Omitido: a fatura do ciclo atual. (padrão `^\d{4}-(0[1-9]|1[0-2])$`) |
+
+**Saída (`structuredContent`)**: `card`, `currency`, `month`, `exists`, `status`, `closing_date`, `due_date`, `total`, `paid`, `balance`, `overdue`, `purchases_count`, `purchases`, `next_cursor`, `by_category`, `available_months`, `app_url`
+
 ### `reports_summary` — Resumo financeiro do mês
 
 - **Classe:** Leitura · **Escopo:** `finance.read` · **Custo:** 2 unidade(s)
 - **Annotations:** readOnlyHint=true, destructiveHint=false, idempotentHint=true, openWorldHint=false
-- **UI (MCP Apps):** `ui://controle-financeiro/widget-v1.html`
 
-Resumo do mês da pessoa somando todos os espaços: renda, SEU consumo (sua parte das despesas), resultado, caixa (entrou/saiu), quanto deve e tem a receber, contas a pagar e o consumo por categoria. Com `months` > 1, traz a evolução mês a mês.
+Resumo do mês da pessoa somando todos os espaços: renda, SEU consumo (sua parte das despesas), resultado, caixa (entrou/saiu), quanto deve e tem a receber, contas a pagar e o consumo por categoria. Com `months` > 1, traz a evolução mês a mês. Só dados; para DESENHAR o resumo na conversa, use reports_show.
 
 Use quando: 'quanto gastei com alimentação este mês?', 'como está meu mês?', 'gastei mais que em agosto?'.
 
-Não use quando: precisar dos lançamentos individuais (transactions_search) ou da fatura (statements_get).
+Não use quando: o usuário pedir para ver/mostrar o resumo (reports_show); precisar dos lançamentos individuais (transactions_search) ou da fatura (statements_get).
 
 **Entrada**
 
@@ -279,6 +321,30 @@ Não use quando: precisar dos lançamentos individuais (transactions_search) ou 
 |---|---|---|---|
 | `month` | string | não | Mês (YYYY-MM). Omitido: o mês atual. (padrão `^\d{4}-(0[1-9]|1[0-2])$`) |
 | `months` | integer | não | Com N > 1, traz também a evolução dos últimos N meses (até o mês atual). (≥ 1, ≤ 12) |
+| `space` | string | não | Restringe as categorias a um espaço. (máx. 120) |
+| `space_id` | integer | não |  |
+| `category` | string | não | Mostra só esta categoria. (máx. 120) |
+| `currency` | string | não | Moeda dos totais pessoais (ISO-4217). (mín. 3, máx. 3) |
+
+**Saída (`structuredContent`)**: `month`, `currency`, `income`, `consumption`, `result`, `cash_in`, `cash_out`, `to_pay`, `to_receive`, `payables_total`, `my_categories`, `spaces`, `series`, `excluded_foreign_count`, `app_url`
+
+### `reports_show` — Mostrar resumo do mês na conversa
+
+- **Classe:** Leitura · **Escopo:** `finance.read` · **Custo:** 2 unidade(s)
+- **Annotations:** readOnlyHint=true, destructiveHint=false, idempotentHint=true, openWorldHint=false
+- **UI (MCP Apps):** `ui://controle-financeiro/widget-v2.html`
+
+Desenha o resumo de UM mês como componente visual na conversa (renda, seu consumo, caixa, a pagar, resultado e consumo por categoria) e devolve os mesmos dados de reports_summary.
+
+Use quando: o usuário pedir para VER ou MOSTRAR o resumo ou o painel do mês ('mostre meu resumo de setembro'). Chame uma vez, com o mês final.
+
+Não use quando: precisar dos números para responder ou analisar, ou da evolução de vários meses (reports_summary): cada chamada desenha um componente novo na conversa.
+
+**Entrada**
+
+| Parâmetro | Tipo | Obrigatório | Descrição |
+|---|---|---|---|
+| `month` | string | não | Mês (YYYY-MM). Omitido: o mês atual. (padrão `^\d{4}-(0[1-9]|1[0-2])$`) |
 | `space` | string | não | Restringe as categorias a um espaço. (máx. 120) |
 | `space_id` | integer | não |  |
 | `category` | string | não | Mostra só esta categoria. (máx. 120) |
@@ -402,7 +468,6 @@ Não use quando: quiser os lançamentos já gerados (transactions_search).
 - **Classe:** Escrita · **Escopo:** `transactions.write` · **Custo:** 3 unidade(s)
 - **Annotations:** readOnlyHint=false, destructiveHint=false, idempotentHint=true, openWorldHint=false
 - **Idempotência:** `idempotency_key` obrigatória (replay devolve o mesmo resultado; outra carga com a mesma chave = `CONFLICT`).
-- **UI (MCP Apps):** `ui://controle-financeiro/widget-v1.html`
 
 Registra uma despesa (compra, conta, gasto) numa única chamada atômica: valor, data, categoria, tags, cartão e parcelas, quem pagou, divisão com outras pessoas, conta de origem, moeda estrangeira e se já foi paga. O servidor calcula a fatura, as parcelas e os centavos da divisão — não calcule nada disso.
 
@@ -469,7 +534,6 @@ Exemplo:
 
 - **Classe:** Escrita · **Escopo:** `transactions.write` · **Custo:** 3 unidade(s)
 - **Annotations:** readOnlyHint=false, destructiveHint=true, idempotentHint=true, openWorldHint=false
-- **UI (MCP Apps):** `ui://controle-financeiro/widget-v1.html`
 
 Altera um lançamento existente: título, observação, valor, data, categoria, tags, cartão, forma de pagamento, quem pagou, divisão, moeda (o valor é convertido na data, com IOF no cartão), "já paguei" (settled) ou cancelamento. Só os campos informados mudam. Devolve como estava ANTES (`previous`) e o que mudou (`changed`).
 
@@ -575,7 +639,6 @@ Exemplo:
 
 - **Classe:** Escrita · **Escopo:** `transactions.write` · **Custo:** 3 unidade(s)
 - **Annotations:** readOnlyHint=false, destructiveHint=false, idempotentHint=true, openWorldHint=false
-- **UI (MCP Apps):** `ui://controle-financeiro/widget-v1.html`
 
 Desfaz a exclusão de um lançamento (volta a contar em tudo). Anexos apagados não voltam.
 
@@ -601,7 +664,7 @@ Exemplo:
 
 - **Classe:** Leitura · **Escopo:** `finance.read` · **Custo:** 3 unidade(s)
 - **Annotations:** readOnlyHint=true, destructiveHint=false, idempotentHint=true, openWorldHint=false
-- **UI (MCP Apps):** `ui://controle-financeiro/widget-v1.html`
+- **UI (MCP Apps):** `ui://controle-financeiro/widget-v2.html`
 
 Primeiro passo OBRIGATÓRIO para excluir ou categorizar vários lançamentos (ou um lançamento com anexos). Não altera nada: calcula o conjunto exato, o total, uma amostra e o que ficou de fora, e devolve um `confirmation_token` válido por 10 minutos.
 

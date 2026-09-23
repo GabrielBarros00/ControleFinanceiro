@@ -30,8 +30,10 @@ def todas():
     return list(REGISTRY.values())
 
 
-def test_catalogo_tem_as_35_tools_do_plano():
-    assert len(REGISTRY) == 35
+def test_catalogo_tem_as_38_tools():
+    # 35 do plano + 3 de exibição (`*_show`), separadas das de dados para o
+    # ChatGPT não desenhar um componente a cada consulta.
+    assert len(REGISTRY) == 38
 
 
 @pytest.mark.parametrize("spec", todas(), ids=lambda s: s.name)

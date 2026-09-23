@@ -104,7 +104,10 @@ ou aceita o que o app deixou de aceitar.
 - Tool que recebe id sem caso de isolamento entre usuários
   (`tests/mcp/test_isolation.py`).
 - Componente visual desatualizado: rode `cd frontend && npm run build:mcp-widget`
-  e comite `backend/app/mcp/ui/widget.html`.
+  e comite `backend/app/mcp/ui/widget.html`. Se o HTML mudou (inclusive por
+  atualização de dependência), some 1 em `WIDGET_VERSION` e atualize `WIDGET_SHA256`
+  em `backend/app/mcp/ui/__init__.py`. A URI é chave de cache no ChatGPT, e o teste
+  `test_mudou_o_componente_mudou_a_uri` mostra o hash novo.
 
 **O que nenhum gate pega, e você confere à mão:**
 

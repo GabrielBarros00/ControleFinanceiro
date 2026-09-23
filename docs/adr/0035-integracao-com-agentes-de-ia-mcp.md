@@ -93,7 +93,8 @@ algumas telas fazem (o `cron` horário cuida disso).
 
 ### 5. Tools orientadas a intenção, não espelho de endpoint
 
-35 tools com nome `dominio_acao` (ver `docs/mcp/TOOLS.md`, gerado do código). Cada
+38 tools com nome `dominio_acao` (ver `docs/mcp/TOOLS.md`, gerado do código): as 35 do
+plano e as três de exibição da seção 8. Cada
 uma tem título, descrição com "Use quando / Não use quando", schema de entrada
 fechado (`additionalProperties: false`, sem objeto genérico), schema de saída, as
 quatro annotations explícitas e o escopo exigido. Não há `execute_sql`,
@@ -146,11 +147,43 @@ sem SQL. A trilha `mcptoolcall` guarda tool, cliente, resultado, duração e ids
 
 ### 8. UI como melhoria progressiva (MCP Apps)
 
-Um HTML único (`ui://controle-financeiro/widget-v1.html`, construído de
+Um HTML único (`ui://controle-financeiro/widget-vN.html`, construído de
 `frontend/src/mcp-widget` e versionado) desenha lançamento, fatura, resumo do mês
 e a prévia de massa — com o botão "Confirmar" que chama a execução com o token.
 A ponte é a oficial (`@modelcontextprotocol/ext-apps`), com `window.openai` só por
 detecção. CSP vazia: o componente não busca nada. Toda tool funciona igual sem UI.
+
+**Só tool de EXIBIÇÃO desenha** (revisto em 2026-09-23). A primeira versão prendia o
+componente a sete tools, incluindo as de dados (`transactions_get`, `statements_get`,
+`reports_summary`) e as de escrita (`create`/`update`/`restore`). No ChatGPT, em modo
+agente, o modelo chama essas tools em série para analisar. Cada chamada desenhava um
+iframe novo, que o ChatGPT ainda re-renderiza, e a memória do navegador passou de 11 GB
+e seguia subindo.
+
+Medido fora do ChatGPT, o componente sozinho é estável: um único aviso de tamanho e o
+heap parado em ~5 MB; cada instância custa ~10 MB. O custo vinha da quantidade. A
+própria OpenAI desaconselha o desenho antigo: "If you attach a widget template to every
+tool call, ChatGPT can re-render your iframe too often. A better pattern is to separate
+data-processing tools from render tools."
+
+Agora:
+
+- as tools de dados e de escrita devolvem só dados;
+- `transactions_show`, `statements_show` e `reports_show` fazem a MESMA consulta e
+  desenham o componente. A descrição diz para chamar só quando o usuário pede para
+  *ver*, uma vez, e avisa que cada chamada desenha um componente novo;
+- `transactions_bulk_preview` continua com componente, porque é ele que leva o botão de
+  confirmar;
+- `test_so_as_tools_de_exibicao_desenham_componente` trava a regra.
+
+A ponte também passou a ouvir `openai:set_globals`: no ChatGPT, o `toolOutput` pode chegar
+depois do carregamento, e o componente ficava em "Carregando…".
+
+**A URI é chave de cache.** A OpenAI: "Treat the resource URI as a cache key. When you
+make a breaking change to the HTML, JavaScript, or CSS, publish a new URI". A versão e
+o hash do HTML publicado ficam em `app/mcp/ui/__init__.py` (`WIDGET_VERSION`,
+`WIDGET_SHA256`), e `test_mudou_o_componente_mudou_a_uri` reprova quando o
+`widget.html` muda sem a versão mudar junto. Esta revisão publica a `widget-v2`.
 
 ## Divergências do pedido original (e por quê)
 
