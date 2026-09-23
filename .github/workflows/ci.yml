@@ -39,9 +39,17 @@ env:
   PYTHON_VERSION: '3.14'
   NODE_VERSION: '24'
 
+# O SISTEMA do runner também é versão de plataforma, e fica fixo: `ubuntu-24.04`,
+# não `ubuntu-latest`. O GitHub avisou em todo job que o `ubuntu-latest` passa a ser
+# Ubuntu 26 a partir de 19/10/2026. Seguir o apelido faria a imagem do CI trocar
+# sozinha num dia qualquer, e a primeira falha pareceria culpa do PR em revisão.
+# Subir para o 26.04 é um PR próprio, que roda a suíte na imagem nova antes de
+# trocar. O `windows-latest` do e2e-windows segue o apelido: lá só se confere que
+# o ambiente de dev no Windows funciona, não se reproduz produção.
+
 jobs:
   backend:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7
       - name: Set up Python
@@ -116,7 +124,7 @@ jobs:
           DATABASE_URL=sqlite:///./mig_ci.db python -m alembic check
 
   backend-postgres:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     services:
       postgres:
         image: postgres:18-alpine
@@ -171,7 +179,7 @@ jobs:
           cd backend && python -m pytest -q
 
   frontend:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7
       - name: Set up Node.js
@@ -226,7 +234,7 @@ jobs:
   # Job próprio porque precisa de Python E Node — o job `frontend` não instala
   # Python, e o `backend` não instala Node.
   typegen:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-python@v7
@@ -253,7 +261,7 @@ jobs:
           }
 
   e2e:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7
       - name: Set up Python
@@ -370,7 +378,7 @@ jobs:
   # Um gate de deploy que só roda quando alguém lembra apodrece em silêncio, e o
   # dia em que ele é lembrado é o dia do deploy.
   prod-stack:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-python@v7

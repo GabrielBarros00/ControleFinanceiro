@@ -51,7 +51,7 @@ jobs:
   # A matriz do GitHub não aceita um número como tamanho, só uma lista. Este job
   # transforma o input em `["1","2",...]` para o `strategy.matrix` consumir.
   matriz:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     outputs:
       lista: ${{ steps.gerar.outputs.lista }}
     steps:
@@ -65,7 +65,7 @@ jobs:
 
   cacar:
     needs: matriz
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     strategy:
       # SEM fail-fast: o primeiro vermelho é o que se está procurando, e cancelar
       # os outros nove jogaria fora as amostras que ainda podiam cair — sendo que
