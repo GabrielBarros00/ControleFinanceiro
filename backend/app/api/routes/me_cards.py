@@ -253,7 +253,7 @@ def delete_credit_card(
     abertas = [
         s for s in overview["statements"]
         if s.status != StatementStatus.paid
-        and CreditCardService.effective_total(session, s) > 0
+        and overview["total_by_statement"][s.id] > 0
     ]
     if abertas:
         meses = ", ".join(s.month for s in abertas[:3])

@@ -216,8 +216,11 @@ class ProjectionService:
                 .where(CardStatement.status != StatementStatus.paid)
                 .where(CardStatement.due_date <= civil_instant(fim_do_mes))
             ).all()
+            # Saldos em lote: `statement_balance` por fatura eram duas consultas por
+            # linha, e a lista cresce com toda fatura antiga ainda aberta.
+            saldos = CreditCardService.balances(db, card, list(faturas))
             for stmt in faturas:
-                saldo = CreditCardService.statement_balance(db, stmt)
+                saldo = saldos[stmt.id]
                 if saldo <= ZERO:
                     continue
                 convertido = converte(db, saldo, card.currency, destino, hoje)

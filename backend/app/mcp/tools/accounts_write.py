@@ -109,7 +109,7 @@ def _fatura_a_pagar(call: ToolCall, cartao, mes: Optional[str]) -> CardStatement
             raise McpToolError(ErrorCode.NOT_FOUND, f"Não há fatura de {mes} no {cartao.name}.", details={"month": mes})
         return fatura
     hoje = today_local()
-    fechadas = [
+    candidatas = [
         f for f in call.session.exec(
             select(CardStatement)
             .where(
@@ -118,9 +118,10 @@ def _fatura_a_pagar(call: ToolCall, cartao, mes: Optional[str]) -> CardStatement
             )
             .order_by(CardStatement.month)
         ).all()
-        if (f.status == StatementStatus.closed or civil(f.closing_date) <= hoje)
-        and CreditCardService.statement_balance(call.session, f) > 0
+        if f.status == StatementStatus.closed or civil(f.closing_date) <= hoje
     ]
+    saldos = CreditCardService.balances(call.session, cartao, candidatas)
+    fechadas = [f for f in candidatas if saldos[f.id] > 0]
     if len(fechadas) == 1:
         return fechadas[0]
     if not fechadas:
@@ -132,7 +133,7 @@ def _fatura_a_pagar(call: ToolCall, cartao, mes: Optional[str]) -> CardStatement
         ErrorCode.AMBIGUOUS,
         "Há mais de uma fatura fechada em aberto. Pergunte ao usuário qual pagar e informe `month`.",
         candidates=[
-            {"id": f.id, "name": f.month, "balance": str(CreditCardService.statement_balance(call.session, f)),
+            {"id": f.id, "name": f.month, "balance": str(saldos[f.id]),
              "due_date": civil(f.due_date).isoformat()}
             for f in fechadas
         ],
