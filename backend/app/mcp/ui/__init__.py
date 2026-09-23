@@ -13,7 +13,8 @@ atualize `WIDGET_SHA256` com o valor que o teste mostrar.
 """
 WIDGET_VERSION = 2
 WIDGET_URI = f"ui://controle-financeiro/widget-v{WIDGET_VERSION}.html"
-#: sha256 do `widget.html` desta versão, com fim de linha normalizado para LF. No
-#: Windows, os fontes são baixados com CRLF e o CRLF entra no bundle; o git grava LF,
-#: e o build do Linux (CI) sai com LF. Normalizado, o hash é o mesmo nos dois.
-WIDGET_SHA256 = "f21576ad92cba29551bdbb2f9723e1a428c2e09d3c6d37ff7208aad9b2c9ccbd"
+#: sha256 do `widget.html` desta versão. Os fontes do componente e o HTML gerado são
+#: LF em qualquer sistema (`.gitattributes`); com CRLF, o texto dos fontes entrava no
+#: bundle e o build do Windows divergia do build do CI. O teste ainda normaliza o fim
+#: de linha antes de comparar, por garantia.
+WIDGET_SHA256 = "39f3e36c59a3a158223638f391e1d4ae75fb8e00c60b0611f7eec0de38331013"
