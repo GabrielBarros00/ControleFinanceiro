@@ -309,7 +309,12 @@ def breakdown(
         select(
             sub.c.id, sub.c.currency, sub.c.total_amount, sub.c.split_mode, sub.c.credit_card_id,
             sub.c.payment_method, sub.c.billing_month, sub.c.workspace_id, sub.c.title,
-        ).limit(BREAKDOWN_MAX_ROWS + 1)
+        )
+        # Ordem fixa: o nome exibido de um grupo por título é o do lançamento MAIS
+        # ANTIGO. Sem ordem, SQLite e Postgres devolviam as linhas em ordens
+        # diferentes e o grupo "Mercado Lela" saía como "MERCADO LELA" num deles.
+        .order_by(sub.c.id)
+        .limit(BREAKDOWN_MAX_ROWS + 1)
     ).all()
     if len(linhas) > BREAKDOWN_MAX_ROWS:
         raise BreakdownTooLarge("filtro largo demais para agrupar: use um período menor")
