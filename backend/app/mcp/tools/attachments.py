@@ -18,6 +18,7 @@ from app.core.config import settings
 from app.domain.dates import local_day, to_local
 from app.mcp import confirmation, uploads
 from app.mcp.errors import ErrorCode, McpToolError
+from app.mcp.ui import WIDGET_URI as WIDGET
 from app.mcp.registry import ToolCall, ToolInput, ToolOutput, tool
 from app.mcp.schemas import AttachmentOut, Ref
 from app.mcp.tools.transactions import visible_transaction
@@ -170,6 +171,7 @@ class AttachmentGetOut(BaseModel):
     cost=3,
     invoking="Abrindo o anexo…",
     invoked="Anexo aberto",
+    app_callable=True,
 )
 def attachments_get(call: ToolCall) -> ToolOutput:
     a: AttachmentGetIn = call.args
@@ -237,6 +239,9 @@ class AttachmentDeleteOut(BaseModel):
     cost=3,
     invoking="Apagando o anexo…",
     invoked="Anexo apagado",
+    ui=WIDGET,
+    app_callable=True,
+    meta={"openai/widgetDescription": "O componente mostra o resultado com as ações possíveis (desfazer, editar). Confirme em uma frase, sem repetir os números."},
 )
 def attachments_delete(call: ToolCall) -> ToolOutput:
     a: AttachmentDeleteIn = call.args
@@ -298,7 +303,9 @@ class AttachmentAddOut(BaseModel):
     cost=3,
     invoking="Anexando…",
     invoked="Anexado",
-    meta={"openai/fileParams": ["file"]},
+    meta={"openai/widgetDescription": "O componente mostra o resultado com as ações possíveis (desfazer, editar). Confirme em uma frase, sem repetir os números.", "openai/fileParams": ["file"]},
+    ui=WIDGET,
+    app_callable=True,
 )
 def attachments_add(call: ToolCall) -> ToolOutput:
     a: AttachmentAddIn = call.args

@@ -22,6 +22,7 @@ from app.mcp import resolve
 from app.mcp.dates import CivilDate
 from app.mcp.errors import ErrorCode, McpToolError
 from app.mcp.money import MoneyOut, fmt_brl
+from app.mcp.ui import WIDGET_URI as WIDGET
 from app.mcp.registry import ToolCall, ToolInput, ToolOutput, tool
 from app.mcp.schemas import Ref
 from app.mcp.serializers import app_url
@@ -174,6 +175,7 @@ class FinancingsOut(BaseModel):
     destructive=False,
     idempotent=True,
     cost=2,
+    app_callable=True,
 )
 def financings_list(call: ToolCall) -> ToolOutput:
     a: FinancingsIn = call.args
@@ -279,6 +281,9 @@ class InstallmentActionOut(BaseModel):
     invoking="Atualizando a parcela…",
     invoked="Parcela atualizada",
     examples=({"action": "pay", "financing": "Carro", "account": "Itaú"}, {"action": "unpay", "financing": "Carro", "installment": 12}),
+    ui=WIDGET,
+    app_callable=True,
+    meta={"openai/widgetDescription": "O componente mostra o resultado com as ações possíveis (desfazer, editar). Confirme em uma frase, sem repetir os números."},
 )
 def financings_installment(call: ToolCall) -> ToolOutput:
     a: InstallmentActionIn = call.args

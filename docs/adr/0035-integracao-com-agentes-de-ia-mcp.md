@@ -334,6 +334,57 @@ As decisões que importam:
   caracteres. Hoje são ~83 mil. As descrições de dinheiro e de item foram enxugadas
   para caber.
 
+### 11. A escrita desenha o resultado, e uma tool de exibição para as telas (2026-09-24, `widget-v4`)
+
+O dono pediu para ver, na conversa, tudo o que a IA faz: o lançamento que ela criou
+(e corrigi-lo ali mesmo), a diferença do que ela editou, o que ela excluiu (com
+Desfazer), e as telas do app com detalhe, expansão e paginação. Isso revê a regra
+"só tool de exibição desenha" do §8, sem voltar ao problema que a criou.
+
+- **Escrita desenha; dado continua sem componente.** O vazamento do §8 vinha de tool
+  de DADOS chamada em série pelo agente. Escrita é rara e sempre intencional. Toda
+  escrita com efeito visível declara o componente, e
+  `test_so_exibicao_e_escrita_desenham_componente` trava a regra (a única escrita sem
+  componente é `attachments_upload_link`, que só emite um link).
+- **O `_meta` do resultado diz o que desenhar.** `view` (qual tela), `mode`
+  (`created | updated | deleted | restored | read`), `form` (o vocabulário do espaço
+  para o editor: categorias, tags, cartões, contas, pessoas), `can_edit` e `undo` (a
+  tool e os argumentos que desfazem). O modelo não lê o `_meta`. Tudo é montado num
+  lugar só (`app/mcp/ui_results.py` e `ui_meta.py`), a partir da saída que a tool já
+  devolve. O `undo` é só um convite: no clique, o servidor reaplica toda regra
+  (permissão, trava de paga, e `expected_version`, que faz o desfazer recusar se
+  alguém mudou o lançamento depois).
+- **Uma tool de exibição, não dez.** `view_show(view=…)` desenha a lista de
+  lançamentos, a análise agrupada, o extrato da conta, o caixa do mês, dívidas, a
+  pagar, metas, recorrências, rendas, financiamento, histórico e importações. Ela
+  monta a entrada da tool de dados e chama o MESMO handler; o `_meta.query` leva
+  essa consulta, e o componente pagina, troca o mês ou expande uma linha chamando a
+  tool de dados, sem desenhar outro componente. Os três `*_show` publicados ficam.
+- **O componente chama as tools de sempre.** Não há tool "só do componente": cliente
+  de terminal que ignora `visibility` a mostraria ao modelo. As tools que o
+  componente chama são `app_callable` (`visibility: ["model","app"]`,
+  `openai/widgetAccessible`), e `test_toda_tool_que_o_componente_chama_e_chamavel_por_ele`
+  lê o código do componente e o `ui_results.py` e reprova quem ficou de fora (com
+  denominador, para a varredura não passar vazia).
+- **O editor manda só o que mudou**, com a versão lida. `CONFLICT` vira "mudou
+  enquanto você editava". Acerto, pagamento de fatura e ajuste de saldo geram uma
+  `idempotency_key` nova por clique. Exclusão pede confirmação no próprio componente
+  (dois cliques; `confirm()` não existe no iframe); a massa segue pelo token da prévia.
+- **Depois de cada ação, o modelo fica sabendo.** `ui/update-model-context` conta o
+  que a pessoa fez ("editou #12: valor…"), só quando o host anuncia a capacidade.
+  Sem isso, ele continuaria falando do estado de antes.
+- **Ponte:** tela cheia (`ui/request-display-mode`, só se o host a oferece), prévia do
+  que está sendo registrado enquanto a tool roda (`ui/notifications/tool-input`) e
+  `ui/message`. Conformidade testada contra o `AppBridge` oficial, como no §8.
+- **Um campo inesperado não apaga a tela.** Um limite de erro no roteador troca a
+  tela por um aviso. Foi a medição de memória que achou o caso: uma compra sem
+  `space` derrubava a fatura inteira.
+- **Peso, medido antes de subir o teto:** 128 KiB (36 KiB com gzip), contra 37 KB da
+  v3, todo código nosso. O teto foi de 64/24 para 160/48 KiB. No host falso, com 30
+  componentes seguidos, cada um custa ~4 MB de memória do navegador (a v3, ~3 MB);
+  um componente fica 30 s com o heap parado em ~1,2 MB e sem laço de
+  redimensionamento.
+
 ## Divergências do pedido original (e por quê)
 
 - **Nomes com sublinhado** (`transactions_create`), não ponto: Claude Desktop e

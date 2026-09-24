@@ -45,7 +45,7 @@ class LedgerLine(BaseModel):
         description=(
             "Origem: transaction (despesa), income (renda), statement_payment (pagamento de fatura), "
             "settlement_sent/settlement_received (acerto), financing_installment, transfer_in/"
-            "transfer_out, adjustment (conciliação), opening (saldo inicial)."
+            "transfer_out, adjustment (conciliação), opening_balance (saldo inicial)."
         ),
     )
     title: Optional[str] = None
@@ -126,6 +126,7 @@ def _nomes_de_espacos(call: ToolCall, ids) -> dict[int, str]:
     invoking="Lendo o extrato…",
     invoked="Extrato lido",
     **_LEITURA,
+    app_callable=True,
 )
 def accounts_statement(call: ToolCall) -> ToolOutput:
     a: AccountStatementIn = call.args
@@ -269,6 +270,7 @@ class TransfersOut(BaseModel):
     input_model=TransfersIn,
     output_model=TransfersOut,
     **_LEITURA,
+    app_callable=True,
 )
 def transfers_list(call: ToolCall) -> ToolOutput:
     a: TransfersIn = call.args

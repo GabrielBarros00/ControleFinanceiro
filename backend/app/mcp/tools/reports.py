@@ -191,6 +191,7 @@ def _resumo(call: ToolCall, a: ReportsIn) -> ToolOutput:
     invoking="Calculando o resumo…",
     invoked="Resumo pronto",
     **_LEITURA,
+    app_callable=True,
 )
 def reports_summary(call: ToolCall) -> ToolOutput:
     return _resumo(call, call.args)
@@ -272,6 +273,7 @@ class BudgetsOut(BaseModel):
     output_model=BudgetsOut,
     cost=2,
     **_LEITURA,
+    app_callable=True,
 )
 def budgets_list(call: ToolCall) -> ToolOutput:
     a: BudgetsIn = call.args
@@ -372,6 +374,7 @@ class BreakdownOut(BaseModel):
     invoking="Somando…",
     invoked="Soma pronta",
     **_LEITURA,
+    app_callable=True,
 )
 def reports_breakdown(call: ToolCall) -> ToolOutput:
     a: BreakdownIn = call.args

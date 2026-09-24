@@ -21,6 +21,7 @@ from app.mcp import resolve
 from app.mcp.dates import CivilDate, MonthKey
 from app.mcp.errors import ErrorCode, McpToolError
 from app.mcp.money import MoneyIn, MoneyOut, fmt_brl
+from app.mcp.ui import WIDGET_URI as WIDGET
 from app.mcp.registry import ToolCall, ToolInput, ToolOutput, tool
 from app.mcp.schemas import Ref
 from app.mcp.writes import IdempotencyKey, membership_for_write
@@ -150,6 +151,9 @@ def _replay_settlement(call: ToolCall, ref: dict) -> ToolOutput:
     invoking="Registrando o acerto…",
     invoked="Acerto registrado",
     examples=({"idempotency_key": "e1f2a3b4-0001", "person": "João", "direction": "they_paid_me", "amount": "45.00"},),
+    ui=WIDGET,
+    app_callable=True,
+    meta={"openai/widgetDescription": "O componente mostra o resultado com as ações possíveis (desfazer, editar). Confirme em uma frase, sem repetir os números."},
 )
 def settlements_create(call: ToolCall) -> ToolOutput:
     a: SettlementCreateIn = call.args
@@ -212,6 +216,9 @@ class SettlementDeleteOut(BaseModel):
     invoking="Desfazendo o acerto…",
     invoked="Acerto desfeito",
     examples=({"settlement_id": 31},),
+    ui=WIDGET,
+    app_callable=True,
+    meta={"openai/widgetDescription": "O componente mostra o resultado com as ações possíveis (desfazer, editar). Confirme em uma frase, sem repetir os números."},
 )
 def settlements_delete(call: ToolCall) -> ToolOutput:
     a: SettlementDeleteIn = call.args

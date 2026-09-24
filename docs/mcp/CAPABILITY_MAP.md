@@ -35,6 +35,7 @@ Confirmação: `host` = o cliente pede confirmação por não ser `readOnlyHint`
 | `transfers_list` | Leitura | `finance.read` | Só contas da pessoa | `AccountTransfer` | baixo | nenhum | — | natural |
 | `financings_list` | Leitura | `finance.read` | Contrato pessoal (ADR 0021); saldo devedor = principal em aberto | `Financing, AmortizationInstallment` | médio | nenhum | — | natural |
 | `financings_installment` | Escrita | `accounts.write` | Reivindicação atômica da parcela; estorno apaga a despesa vinculada | `commands.financing.pay_/unpay_installment` | alto — caixa | lança despesa no espaço se pedido; WS | host | por estado (definir X) |
+| `view_show` | Leitura | `finance.read` | A mesma leitura da tool de dados, desenhada (§11) | `o handler da tool de dados` | médio | nenhum (desenha um componente na conversa) | — | natural |
 | `transactions_create` | Escrita | `transactions.write` | Divisão em centavos (0001), fatura (0002), parcelas, moeda (0006/0015), liquidação (0029) | `commands.transactions.create_transaction` | alto — cria dívida entre pessoas | WS + auditoria; cria fatura se preciso | host | `idempotency_key` |
 | `transactions_update` | Escrita | `transactions.write` | Máquina de estados (0003), trava de paga, vínculo de financiamento | `commands.transactions.update_*` | alto — reescreve valor/divisão | WS + auditoria; reroteia fatura | host | por estado (definir X) |
 | `transactions_delete` | Destrutiva | `transactions.write` | Soft delete; paga é imutável; anexos exigem prévia | `commands.transactions.delete_*` | alto | WS + auditoria; blobs de anexo liberados após o commit | host | por estado (definir X) |
@@ -230,7 +231,7 @@ Confirmação: `host` = o cliente pede confirmação por não ser `readOnlyHint`
 | `POST /api/v1/workspaces/{workspace_id}/recurring/{recurring_id}/preview` | Prévia da revisão | **não exposta** | Revisão ocorrência a ocorrência é interação de tela; o agente usa apply_to. |
 | `POST /api/v1/workspaces/{workspace_id}/imports/parse` | Ler CSV | `imports_preview` | O agente extrai as linhas do extrato (PDF, foto, texto); o app confere duplicatas. |
 | `POST /api/v1/workspaces/{workspace_id}/imports/commit` | Importar lote | `imports_commit`, `imports_list` | Os lotes feitos (e desfazer um) em imports_list + transactions_bulk_preview com import_batch_id. |
-| `GET /api/v1/workspaces/{workspace_id}/transactions/` | Lançamentos do espaço | `transactions_search` |  |
+| `GET /api/v1/workspaces/{workspace_id}/transactions/` | Lançamentos do espaço | `transactions_search`, `view_show` | view_show(view=transactions) desenha a lista paginada. |
 | `POST /api/v1/workspaces/{workspace_id}/transactions/` | Criar lançamento | `transactions_create` |  |
 | `POST /api/v1/workspaces/{workspace_id}/transactions/bulk` | Criar em lote | `imports_commit`, `transactions_create` | Lote pela importação (com dedup) ou uma criação por despesa (com idempotency_key). |
 | `POST /api/v1/workspaces/{workspace_id}/transactions/bulk-categorize` | Categorizar em lote | `transactions_bulk_preview`, `transactions_bulk_categorize`, `transactions_bulk_update` | Recategorizar, tag e marcar como pago em lote: transactions_bulk_update, pela mesma prévia. |

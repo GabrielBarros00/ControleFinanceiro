@@ -31,7 +31,7 @@ from sqlalchemy.exc import DataError, IntegrityError
 from app.core.config import settings
 from app.core.context import set_current_user_id, set_request_origin
 from app.db import session as db_session
-from app.mcp import audit, idempotency, rate_limit
+from app.mcp import audit, idempotency, rate_limit, ui_results
 from app.mcp.errors import (
     ErrorCode,
     McpToolError,
@@ -55,8 +55,10 @@ def _texto(saida: ToolOutput, estruturado: dict[str, Any]) -> str:
 def success_result(spec: ToolSpec, saida: ToolOutput) -> CallToolResult:
     estruturado = saida.structured.model_dump(mode="json", by_alias=True)
     meta: dict[str, Any] = {}
-    if spec.ui and saida.widget:
-        meta.update(saida.widget)
+    if spec.ui:
+        meta.update(saida.widget or {"view": "receipt"})
+        # Qual tool gerou o resultado: o componente desenha o recibo certo.
+        meta["tool"] = spec.name
     if saida.replayed:
         meta["controle-financeiro/replayed"] = True
     return CallToolResult(
@@ -159,6 +161,15 @@ def run(spec: ToolSpec, arguments: dict[str, Any]) -> CallToolResult:
                 )
                 saida = idempotency.execute(chamada) if spec.idempotency_key else spec.handler(chamada)
                 sessao.commit()
+                if spec.ui and spec.kind != "read":
+                    # O `_meta` do componente (editar, desfazer, opções do editor) é
+                    # montado DEPOIS do commit e nunca derruba uma escrita já gravada.
+                    try:
+                        saida.widget = ui_results.build(
+                            chamada, saida, saida.structured.model_dump(mode="json", by_alias=True),
+                        )
+                    except Exception:  # noqa: BLE001
+                        logger.warning("mcp_meta_do_componente_falhou", tool=spec.name, exc_info=True)
             except BaseException:
                 sessao.rollback()
                 raise

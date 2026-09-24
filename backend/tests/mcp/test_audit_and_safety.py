@@ -131,7 +131,10 @@ def test_recurso_de_ui_e_vinculo_das_tools(mcp_client, db_session, c):
     assert legado == {"connect_domains": [], "resource_domains": [], "redirect_domains": [settings.oauth_issuer]}
     ferramentas = {t["name"]: t for t in rpc(mcp_client, c.token, "tools/list").json()["result"]["tools"]}
     assert ferramentas["transactions_show"]["_meta"]["ui"]["resourceUri"] == WIDGET_URI
-    assert "ui" not in ferramentas["transactions_get"]["_meta"]
+    # Tool de dados não desenha (sem `resourceUri`); pode ser CHAMADA pelo componente
+    # (paginar, expandir), e por isso declara a visibilidade.
+    assert "resourceUri" not in ferramentas["transactions_get"]["_meta"].get("ui", {})
+    assert ferramentas["transactions_get"]["_meta"]["ui"]["visibility"] == ["model", "app"]
     # A tool funciona igual sem UI: o resultado traz structuredContent e texto.
     criado = cria_despesa(mcp_client, c.alice, c.pessoal, title="Sem UI", amount="1.00", day=c.hoje)
     resultado = call_tool(mcp_client, c.token, "transactions_show", {"transaction_id": criado["id"]})
@@ -165,34 +168,37 @@ def test_mudou_o_componente_mudou_a_uri():
     assert WIDGET_URI == f"ui://controle-financeiro/widget-v{WIDGET_VERSION}.html"
 
 
-# Só as tools de EXIBIÇÃO desenham componente (mais a prévia da massa, que tem o
-# botão de confirmar). A OpenAI: "If you attach a widget template to every tool
-# call, ChatGPT can re-render your iframe too often. A better pattern is to
-# separate data-processing tools from render tools." Com o componente nas tools
-# de dados, um agente no modo Work criava um iframe a cada consulta, e a memória
-# do navegador subia sem parar.
-COM_COMPONENTE = {"transactions_show", "statements_show", "reports_show", "transactions_bulk_preview"}
+# Desenham componente: as tools de EXIBIÇÃO (`*_show`, `view_show`, a prévia da
+# massa com o botão de confirmar) e as ESCRITAS (o resultado com Editar e
+# Desfazer, ADR 0035 §11). Tool de DADOS não desenha. A OpenAI: "If you attach a
+# widget template to every tool call, ChatGPT can re-render your iframe too
+# often. A better pattern is to separate data-processing tools from render
+# tools." Com o componente nas tools de dados, um agente no modo Work criava um
+# iframe a cada consulta, e a memória do navegador passou de 11 GB (#106).
+EXIBICAO = {"transactions_show", "statements_show", "reports_show", "view_show", "transactions_bulk_preview"}
 
 
-def test_so_as_tools_de_exibicao_desenham_componente():
+def test_so_exibicao_e_escrita_desenham_componente():
     from app.mcp.registry import REGISTRY
     from app.mcp.server import get_server
 
     get_server()
-    com_ui = {nome for nome, spec in REGISTRY.items() if spec.ui}
-    assert com_ui == COM_COMPONENTE, (
-        f"tool com componente fora da lista: {sorted(com_ui - COM_COMPONENTE)}; "
-        f"faltando: {sorted(COM_COMPONENTE - com_ui)}. Tool de dados não desenha: crie uma *_show"
-    )
-    for nome in com_ui:
-        spec = REGISTRY[nome]
-        assert spec.read_only, f"{nome}: tool que desenha é só leitura"
-        assert "cada chamada desenha um componente novo" in spec.description or nome == "transactions_bulk_preview", (
-            f"{nome}: a descrição tem de avisar o modelo do custo de chamar de novo"
-        )
+    for nome, spec in REGISTRY.items():
+        if spec.kind == "read" and nome not in EXIBICAO:
+            assert not spec.ui, f"{nome}: tool de dados não desenha componente (crie uma *_show ou use view_show)"
+        if not spec.ui:
+            continue
         # O que o componente já mostra, dito ao modelo: sem isso ele repete em texto
         # tudo o que está na tela (mais tokens, resposta mais lenta).
         assert spec.tool_meta().get("openai/widgetDescription"), f"{nome}: falta o openai/widgetDescription"
+        if spec.kind == "read" and nome != "transactions_bulk_preview":
+            assert "cada chamada desenha um componente novo" in spec.description, (
+                f"{nome}: a descrição tem de avisar o modelo do custo de chamar de novo"
+            )
+    assert EXIBICAO <= {n for n, s in REGISTRY.items() if s.ui}
+    escritas_sem_ui = {n for n, s in REGISTRY.items() if s.kind != "read" and not s.ui}
+    # O link de envio é do terminal: não há o que desenhar, e o CLI não tem componente.
+    assert escritas_sem_ui == {"attachments_upload_link"}, escritas_sem_ui
 
 
 @pytest.mark.parametrize(("exibe", "dados", "args"), [

@@ -27,6 +27,7 @@ from app.mcp import resolve
 from app.mcp.dates import CivilDate
 from app.mcp.errors import ErrorCode, McpToolError
 from app.mcp.money import MoneyIn, MoneyOut, fmt_brl
+from app.mcp.ui import WIDGET_URI as WIDGET
 from app.mcp.registry import ToolCall, ToolInput, ToolOutput, tool
 from app.mcp.schemas import Ref
 from app.mcp.writes import IdempotencyKey, membership_for_write
@@ -229,6 +230,9 @@ def _replay_commit(call: ToolCall, ref: dict) -> ToolOutput:
     invoked="Importação concluída",
     examples=({"idempotency_key": "a9b8c7d6-0001", "space": "Meu espaço", "label": "Extrato Itaú",
                "rows": [{"date": "2026-09-20", "title": "PADARIA PAO QUENTE", "amount": "12.50"}]},),
+    ui=WIDGET,
+    app_callable=True,
+    meta={"openai/widgetDescription": "O componente mostra as linhas importadas e oferece desfazer a importação. Confirme em uma frase."},
 )
 def imports_commit(call: ToolCall) -> ToolOutput:
     a: ImportCommitIn = call.args
@@ -334,6 +338,7 @@ def _lote_out(call: ToolCall, b: ImportBatch, espacos: dict[int, str]) -> Import
     destructive=False,
     idempotent=True,
     cost=2,
+    app_callable=True,
 )
 def imports_list(call: ToolCall) -> ToolOutput:
     from app.services import transaction_query

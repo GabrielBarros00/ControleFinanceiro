@@ -105,6 +105,7 @@ class PeopleOut(BaseModel):
     input_model=PeopleIn,
     output_model=PeopleOut,
     **_LEITURA,
+    app_callable=True,
 )
 def people_list(call: ToolCall) -> ToolOutput:
     a: PeopleIn = call.args
@@ -149,6 +150,7 @@ class CategoriesOut(BaseModel):
     input_model=CategoriesIn,
     output_model=CategoriesOut,
     **_LEITURA,
+    app_callable=True,
 )
 def categories_list(call: ToolCall) -> ToolOutput:
     a: CategoriesIn = call.args
@@ -211,6 +213,7 @@ class CardsOut(BaseModel):
     input_model=NoInput,
     output_model=CardsOut,
     **_LEITURA,
+    app_callable=True,
 )
 def cards_list(call: ToolCall) -> ToolOutput:
     hoje = today_local()
@@ -290,6 +293,7 @@ class AccountsOut(BaseModel):
     input_model=NoInput,
     output_model=AccountsOut,
     **_LEITURA,
+    app_callable=True,
 )
 def accounts_list(call: ToolCall) -> ToolOutput:
     hoje = today_local()
