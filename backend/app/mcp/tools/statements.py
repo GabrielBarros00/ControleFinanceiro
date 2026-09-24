@@ -56,7 +56,7 @@ class StatementIn(ToolInput):
     card: Optional[str] = Field(None, max_length=120, description="Nome do cartão. Omitido: seu único cartão.")
     card_id: Optional[int] = None
     month: Optional[MonthKey] = Field(None, description="Mês da fatura (YYYY-MM). Omitido: a fatura do ciclo atual.")
-    limit: int = Field(50, ge=1, le=100, description="Compras por página.")
+    limit: int = Field(20, ge=1, le=100, description="Compras por página (o total e as categorias já cobrem a fatura inteira).")
     cursor: Optional[str] = Field(None, max_length=512)
 
 
@@ -255,6 +255,10 @@ COMPRAS_NA_TELA = 6
     ui=WIDGET,
     invoking="Abrindo a fatura…",
     invoked="Fatura aberta",
+    meta={"openai/widgetDescription": (
+        "O componente já mostra a fatura: total, saldo, vencimento, categorias e as compras mais "
+        "recentes. Não liste as compras de novo; responda em uma ou duas frases."
+    )},
 )
 def statements_show(call: ToolCall) -> ToolOutput:
     a: StatementShowIn = call.args

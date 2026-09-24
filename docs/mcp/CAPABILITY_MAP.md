@@ -48,10 +48,11 @@ Confirmação: `host` = o cliente pede confirmação por não ser `readOnlyHint`
 | `recurring_update` | Escrita | `planning.write` | Pagas congeladas; escopo das não pagas (0012) | `commands.recurring.update_recurring` | médio | reescreve ocorrências não pagas; WS | host | por estado (definir X) |
 | `budgets_set` | Escrita | `planning.write` | Upsert por (espaço, dono, categoria, mês) | `commands.planning.create_estimate` | baixo | WS | host | por estado (definir X) |
 | `categories_create` | Escrita | `planning.write` | Nome único por espaço; excluída é reativada | `commands.planning.create_category` | baixo | WS | host | por estado (definir X) |
+| `attachments_upload_link` | Escrita | `transactions.write` | Anexo pelo mesmo comando da tela (tipos, conteúdo real, cota; ADR 0007); link de uso único, 10 min | `commands/attachments.add_attachment` | médio — o link de envio aparece na conversa | emite o link; o curl cria 1 anexo | host | por estado (definir X) |
 
 ## Por rota REST
 
-172 rotas.
+173 rotas.
 
 | Rota | Funcionalidade | Tool(s) | Observação |
 |---|---|---|---|
@@ -170,6 +171,7 @@ Confirmação: `host` = o cliente pede confirmação por não ser `readOnlyHint`
 | `GET /api/v1/oauth/consent` | Consentimento: detalhes do pedido | **não exposta** | Tela da própria integração com IA — alcançável só pela sessão do app, nunca por token de agente. |
 | `POST /api/v1/oauth/consent/approve` | Consentimento: autorizar | **não exposta** | Tela da própria integração com IA — alcançável só pela sessão do app, nunca por token de agente. |
 | `POST /api/v1/oauth/consent/deny` | Consentimento: negar | **não exposta** | Tela da própria integração com IA — alcançável só pela sessão do app, nunca por token de agente. |
+| `POST /api/v1/mcp/uploads` | Envio de anexo pelo link do MCP | `attachments_upload_link` | O destino do link de uso único: sem cookie, autorizado pelo token no cabeçalho. |
 | `GET /api/v1/workspaces/` | Espaços | `spaces_list` |  |
 | `POST /api/v1/workspaces/` | Criar espaço | **não exposta** | Criar/excluir espaço ou trocar a moeda-base reescreve a visão de todos os membros: raro e amplo demais para um agente. |
 | `DELETE /api/v1/workspaces/{workspace_id}` | Excluir espaço | **não exposta** | Criar/excluir espaço ou trocar a moeda-base reescreve a visão de todos os membros: raro e amplo demais para um agente. |
@@ -218,10 +220,10 @@ Confirmação: `host` = o cliente pede confirmação por não ser `readOnlyHint`
 | `DELETE /api/v1/workspaces/{workspace_id}/transactions/{transaction_id}` | Excluir lançamento | `transactions_delete`, `transactions_bulk_preview`, `transactions_bulk_delete` |  |
 | `GET /api/v1/workspaces/{workspace_id}/transactions/{transaction_id}` | Ver lançamento | `transactions_get`, `transactions_show` |  |
 | `PUT /api/v1/workspaces/{workspace_id}/transactions/{transaction_id}` | Editar lançamento | `transactions_update` |  |
-| `GET /api/v1/workspaces/{workspace_id}/transactions/{transaction_id}/attachments` | Anexos do lançamento | `transactions_get` | O agente vê só a contagem de anexos. Arquivo binário: o envio por agente depende de API específica de cada host — próxima etapa. |
-| `POST /api/v1/workspaces/{workspace_id}/transactions/{transaction_id}/attachments` | Enviar anexo | **não exposta** | Arquivo binário: o envio por agente depende de API específica de cada host — próxima etapa. |
-| `DELETE /api/v1/workspaces/{workspace_id}/attachments/{attachment_id}` | Excluir anexo | **não exposta** | Arquivo binário: o envio por agente depende de API específica de cada host — próxima etapa. |
-| `GET /api/v1/workspaces/{workspace_id}/attachments/{attachment_id}` | Baixar anexo | **não exposta** | Arquivo binário: o envio por agente depende de API específica de cada host — próxima etapa. |
+| `GET /api/v1/workspaces/{workspace_id}/transactions/{transaction_id}/attachments` | Anexos do lançamento | `transactions_get` | O agente vê só a contagem de anexos. Arquivo binário: o agente não lê nem apaga anexos. |
+| `POST /api/v1/workspaces/{workspace_id}/transactions/{transaction_id}/attachments` | Enviar anexo | `attachments_upload_link` | Pelo terminal: `attachments_upload_link` emite um link de uso único e o arquivo vai do disco direto para o app (curl), pelo mesmo comando da tela. Nos apps de chat na web, pela tela. |
+| `DELETE /api/v1/workspaces/{workspace_id}/attachments/{attachment_id}` | Excluir anexo | **não exposta** | Arquivo binário: o agente não lê nem apaga anexos. |
+| `GET /api/v1/workspaces/{workspace_id}/attachments/{attachment_id}` | Baixar anexo | **não exposta** | Arquivo binário: o agente não lê nem apaga anexos. |
 | `DELETE /api/v1/workspaces/{workspace_id}/transactions/{transaction_id}/installment-group` | Excluir compra parcelada | `transactions_delete` | scope=purchase |
 | `GET /api/v1/workspaces/{workspace_id}/transactions/{transaction_id}/installment-group` | Compra parcelada inteira | `transactions_search`, `transactions_get` |  |
 | `PUT /api/v1/workspaces/{workspace_id}/transactions/{transaction_id}/installment-group` | Editar compra parcelada | `transactions_update` | scope=purchase |

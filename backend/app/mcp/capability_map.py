@@ -26,7 +26,12 @@ PESSOAS = "Quem participa de um espaço e com que papel muda quem vê o dinheiro
 ESPACO = "Criar/excluir espaço ou trocar a moeda-base reescreve a visão de todos os membros: raro e amplo demais para um agente."
 CADASTRO = "Cadastro de cartão/conta é raro, tem efeitos em fatura e saldo, e é feito uma vez no app."
 FINANCIAMENTO = "Financiamento é contrato com cronograma e quitação; o agente só lê as parcelas (payables_list)."
-ANEXO = "Arquivo binário: o envio por agente depende de API específica de cada host — próxima etapa."
+ANEXO = "Arquivo binário: o agente não lê nem apaga anexos."
+#: O envio sim, pelos agentes de terminal: link de uso único + curl (app/mcp/uploads.py).
+ANEXO_ENVIO = (
+    "Pelo terminal: `attachments_upload_link` emite um link de uso único e o arquivo vai do disco "
+    "direto para o app (curl), pelo mesmo comando da tela. Nos apps de chat na web, pela tela."
+)
 INTERFACE = "Recurso de interface do app (notificações, push, avatar, preferências), sem sentido para um agente."
 INFRA = "Infraestrutura (saúde, raiz)."
 PROPRIA = "Tela da própria integração com IA — alcançável só pela sessão do app, nunca por token de agente."
@@ -166,6 +171,10 @@ ROTAS: dict[str, Rota] = {
     f"GET {API}/oauth/consent": Rota("Consentimento: detalhes do pedido", nota=PROPRIA),
     f"POST {API}/oauth/consent/approve": Rota("Consentimento: autorizar", nota=PROPRIA),
     f"POST {API}/oauth/consent/deny": Rota("Consentimento: negar", nota=PROPRIA),
+    f"POST {API}/mcp/uploads": Rota(
+        "Envio de anexo pelo link do MCP", ("attachments_upload_link",),
+        "O destino do link de uso único: sem cookie, autorizado pelo token no cabeçalho.",
+    ),
 
     # --- Espaços --------------------------------------------------------------------------
     f"GET {API}/workspaces/": Rota("Espaços", ("spaces_list",)),
@@ -230,7 +239,7 @@ ROTAS: dict[str, Rota] = {
     f"GET {W}/transactions/{{transaction_id}}": Rota("Ver lançamento", ("transactions_get", "transactions_show")),
     f"PUT {W}/transactions/{{transaction_id}}": Rota("Editar lançamento", ("transactions_update",)),
     f"GET {W}/transactions/{{transaction_id}}/attachments": Rota("Anexos do lançamento", ("transactions_get",), "O agente vê só a contagem de anexos. " + ANEXO),
-    f"POST {W}/transactions/{{transaction_id}}/attachments": Rota("Enviar anexo", nota=ANEXO),
+    f"POST {W}/transactions/{{transaction_id}}/attachments": Rota("Enviar anexo", ("attachments_upload_link",), ANEXO_ENVIO),
     f"DELETE {W}/attachments/{{attachment_id}}": Rota("Excluir anexo", nota=ANEXO),
     f"GET {W}/attachments/{{attachment_id}}": Rota("Baixar anexo", nota=ANEXO),
     f"DELETE {W}/transactions/{{transaction_id}}/installment-group": Rota("Excluir compra parcelada", ("transactions_delete",), "scope=purchase"),
@@ -268,6 +277,11 @@ FICHAS: dict[str, Ficha] = {
     "transactions_show": Ficha("A mesma leitura de transactions_get, desenhada no componente", "transactions_get", "médio", "nenhum (desenha um componente na conversa)"),
     "statements_show": Ficha("A mesma leitura de statements_get, com a 1ª página de compras", "statements_get", "médio", "nenhum (desenha um componente na conversa)"),
     "reports_show": Ficha("A mesma leitura de reports_summary, de um mês", "reports_summary", "médio", "nenhum (desenha um componente na conversa)"),
+    "attachments_upload_link": Ficha(
+        "Anexo pelo mesmo comando da tela (tipos, conteúdo real, cota; ADR 0007); link de uso único, 10 min",
+        "commands/attachments.add_attachment", "médio — o link de envio aparece na conversa",
+        "emite o link; o curl cria 1 anexo",
+    ),
     "budgets_list": Ficha("Meta pessoal × da casa", "MonthlyEstimate, ReportService", "baixo", "nenhum"),
     "debts_summary": Ficha("Espaços não se compensam (ADR 0031)", "PersonalDebtService", "médio", "nenhum"),
     "payables_list": Ficha("A pagar = não liquidado (ADR 0029)", "PayablesService, OverviewService", "médio", "nenhum"),

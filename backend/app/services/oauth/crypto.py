@@ -16,6 +16,8 @@ REFRESH_PREFIX = "cfm_rt_"
 CODE_PREFIX = "cfm_ac_"
 CLIENT_SECRET_PREFIX = "cfm_cs_"
 CONFIRMATION_PREFIX = "cfm_cf_"
+#: Link de envio de arquivo pelo terminal (`attachments_upload_link`).
+UPLOAD_PREFIX = "cfm_up_"
 
 _PKCE_CHARSET = frozenset("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~")
 

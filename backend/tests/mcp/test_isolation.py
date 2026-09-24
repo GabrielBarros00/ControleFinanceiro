@@ -82,6 +82,7 @@ def _casos(m: dict) -> dict[str, list[dict]]:
                                 {"transaction_id": m["parcela"], "scope": "purchase", "amount": "1.00"}],
         "transactions_delete": [{"transaction_id": m["tx"]}, {"transaction_id": m["parcela"], "scope": "purchase"}],
         "transactions_restore": [{"transaction_id": m["tx"]}],
+        "attachments_upload_link": [{"transaction_id": m["tx"]}, {"transaction_id": m["parcela"]}],
         "transactions_bulk_preview": [{"action": "delete", "transaction_ids": [m["tx"], m["parcela"]]},
                                       {"action": "delete", "filters": {"space_id": c.casa.id}}],
         "imports_preview": [{"space_id": c.casa.id, "rows": [{"date": c.hoje.isoformat(), "title": SEGREDO, "amount": "777.77"}]}],

@@ -141,6 +141,10 @@ def _totais(txs: list[Transaction]) -> List[MoneyTotal]:
     ui=WIDGET,
     invoking="Calculando a prévia…",
     invoked="Prévia pronta",
+    meta={"openai/widgetDescription": (
+        "O componente já mostra a prévia: quantos lançamentos, o total, uma amostra e o botão de "
+        "confirmar. Não repita a lista; peça a confirmação ao usuário."
+    )},
     examples=(
         {"action": "delete", "filters": {"text": "McDonald's", "month": "2026-09"}},
         {"action": "categorize", "filters": {"uncategorized": True, "month": "2026-09"}, "category": "Mercado"},

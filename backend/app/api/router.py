@@ -7,7 +7,7 @@ from app.schemas.common import HealthRead
 from app.core.config import settings
 from app.db.session import get_session
 from app.api.routes import (
-    admin, ai_integrations, analytics, attachments, audit, auth, categories, debts, imports, me,
+    admin, ai_integrations, analytics, attachments, audit, auth, categories, debts, imports, mcp_uploads, me,
     me_accounts, me_balance, me_cards, me_financing, me_income, me_push, me_search,
     me_settlements, members, notifications, oauth, payables, recurring, settlements, tags,
     transactions, workspaces,
@@ -64,6 +64,8 @@ router.include_router(notifications.router)
 # `/.well-known/*` moram na RAIZ do app (`main.py`), fora de `/api/v1`.
 router.include_router(oauth.router)
 router.include_router(ai_integrations.router)
+# Envio de anexo pelo terminal (link de uso único do MCP, ADR 0035).
+router.include_router(mcp_uploads.router)
 router.include_router(ws_routes.router)
 
 # --- Espaço de PLATAFORMA: quem opera o site (ADR 0026) ----------------------

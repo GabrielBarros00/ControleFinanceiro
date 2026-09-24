@@ -1,6 +1,8 @@
 # Conectando cada cliente
 
-Passos conferidos na documentação oficial de cada produto em **22/09/2026**.
+Passos conferidos na documentação oficial de cada produto em **22/09/2026**;
+Claude Code, Codex e Gemini CLI testados na prática em **23/09/2026** (ver
+[TESTING.md](TESTING.md#agentes-de-terminal-de-verdade-manual)).
 Menus e planos mudam com frequência: o link oficial vale mais que esta página, e a
 tela **Configurações › Integrações com IA** do app mostra os mesmos guias com a URL
 da conta já preenchida.
@@ -68,6 +70,13 @@ gemini mcp add --transport http --scope user controle-financeiro https://<seu-si
 Dentro do Gemini CLI: `/mcp auth controle-financeiro`. **Não use `--trust`**: ele
 pula a confirmação de TODAS as tools do servidor.
 
+> **Conta Google pessoal (plano gratuito) não funciona mais.** Em 23/09/2026 o Google
+> recusa esse login no Gemini CLI: *"This client is no longer supported for Gemini Code
+> Assist for individuals… please migrate to the Antigravity suite"*. O Gemini CLI
+> segue funcionando com chave da API do Gemini (`GEMINI_API_KEY`) ou com Vertex AI.
+> Para conta pessoal, use o **Antigravity** (abaixo). Conferido na prática: o servidor
+> aparece como *Connected* no `gemini mcp list`, com as tools listadas.
+
 Docs: <https://geminicli.com/docs/tools/mcp-server/>
 
 ## Antigravity
@@ -105,6 +114,25 @@ Docs: <https://support.google.com/gemini/answer/17209137?hl=en>
 - Autorização: OAuth 2.1 com PKCE S256; descoberta pelo 401 do `/mcp`; registro
   por CIMD ou DCR. Detalhes em [AUTHENTICATION.md](AUTHENTICATION.md).
 
+## Anexar arquivos pelo terminal
+
+Nos agentes que rodam comandos no seu computador (Claude Code, Codex, Gemini
+CLI), dá para pedir *"anexe o recibo.pdf dos Downloads à compra do
+mercado"*. O agente chama `attachments_upload_link`, que devolve um comando `curl`
+pronto, e roda esse comando. O arquivo vai do disco direto para o app, sem passar
+pela conversa.
+
+- O link vale **uma vez**, por **10 minutos**, e só para aquele lançamento. Precisa da
+  permissão *registrar lançamentos* (`transactions.write`) na conexão.
+- Valem as regras da tela: JPG, PNG, WebP ou PDF, o tamanho máximo e a cota do espaço.
+- O agente pede sua permissão para rodar o `curl`, como faz com qualquer comando.
+- No **PowerShell do Windows**, `curl` é outro comando; o certo é `curl.exe`. O Codex
+  percebeu isso sozinho no teste.
+- No **Codex**, o sandbox padrão não tem rede. Para o `curl` chegar ao app, aprove o
+  comando quando ele pedir ou rode com a rede do sandbox liberada.
+- No **ChatGPT e no Claude na web** não há terminal: o anexo continua pela tela do
+  lançamento no app.
+
 ## Problemas comuns
 
 | Sintoma | Causa provável |
@@ -114,3 +142,5 @@ Docs: <https://support.google.com/gemini/answer/17209137?hl=en>
 | Ferramentas antigas no ChatGPT | Falta **Refresh** na conexão |
 | `PERMISSION_DENIED` numa escrita | A conexão foi autorizada sem aquele escopo: reconecte marcando a permissão |
 | 401 depois de um tempo | Refresh expirado (30 dias) ou senha trocada: reconecte |
+| "Link de envio inválido ou expirado" no `curl` | O link já foi usado ou passou dos 10 minutos: peça ao agente um novo |
+| `curl` do PowerShell pede "Uri" ou falha no `-F` | É o `Invoke-WebRequest`: use `curl.exe` |

@@ -122,7 +122,13 @@ def test_recurso_de_ui_e_vinculo_das_tools(mcp_client, db_session, c):
     lido = rpc(mcp_client, c.token, "resources/read", {"uri": WIDGET_URI}).json()["result"]["contents"][0]
     assert lido["mimeType"] == "text/html;profile=mcp-app" and "<html" in lido["text"].lower()
     ui = lido["_meta"]["ui"]
-    assert ui["csp"]["connectDomains"] == [] and ui["prefersBorder"] is True
+    assert ui["csp"]["connectDomains"] == [] and ui["csp"]["resourceDomains"] == [] and ui["prefersBorder"] is True
+    # A chave legada do ChatGPT: CSP igualmente vazia, e o próprio app como destino
+    # liberado do `openExternal` (o botão "Abrir no Controle Financeiro").
+    from app.core.config import settings
+
+    legado = lido["_meta"]["openai/widgetCSP"]
+    assert legado == {"connect_domains": [], "resource_domains": [], "redirect_domains": [settings.oauth_issuer]}
     ferramentas = {t["name"]: t for t in rpc(mcp_client, c.token, "tools/list").json()["result"]["tools"]}
     assert ferramentas["transactions_show"]["_meta"]["ui"]["resourceUri"] == WIDGET_URI
     assert "ui" not in ferramentas["transactions_get"]["_meta"]
@@ -184,6 +190,9 @@ def test_so_as_tools_de_exibicao_desenham_componente():
         assert "cada chamada desenha um componente novo" in spec.description or nome == "transactions_bulk_preview", (
             f"{nome}: a descrição tem de avisar o modelo do custo de chamar de novo"
         )
+        # O que o componente já mostra, dito ao modelo: sem isso ele repete em texto
+        # tudo o que está na tela (mais tokens, resposta mais lenta).
+        assert spec.tool_meta().get("openai/widgetDescription"), f"{nome}: falta o openai/widgetDescription"
 
 
 @pytest.mark.parametrize(("exibe", "dados", "args"), [

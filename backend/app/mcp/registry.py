@@ -12,6 +12,7 @@ devolve o erro no envelope estruturado em vez da mensagem crua do Pydantic.
 from __future__ import annotations
 
 import copy
+import json
 from dataclasses import dataclass, field
 from typing import Any, Callable, Literal, Optional, TYPE_CHECKING
 
@@ -174,15 +175,69 @@ def _inline_refs(schema: dict[str, Any]) -> dict[str, Any]:
     return expande(schema)
 
 
+def _enxuga(no: Any, *, colapsa_nulo: bool) -> Any:
+    """Tira do schema o que o Pydantic gera e ninguém lê.
+
+    O catálogo (`tools/list`) entra no contexto do modelo em TODA conversa, e
+    media ~200 mil caracteres. Sai:
+
+    - o `title` automático de cada campo ("Space Id"), que só repete o nome;
+    - em schema de ENTRADA, `anyOf: [X, {"type": "null"}]` com `default: null`
+      vira só `X`. O campo é opcional, então omitir já é o nulo, e o pipeline
+      valida com o modelo Pydantic, que segue aceitando `null`. A descrição do
+      CAMPO prevalece sobre a do tipo, que era repetida em cada data.
+
+    Em schema de SAÍDA o nulo fica: a resposta traz `null` de verdade, e o cliente
+    valida o `structuredContent` contra o `outputSchema`.
+    """
+    if isinstance(no, list):
+        return [_enxuga(v, colapsa_nulo=colapsa_nulo) for v in no]
+    if not isinstance(no, dict):
+        return no
+    no = {k: v for k, v in no.items() if k != "title"}
+    if colapsa_nulo:
+        ramos = no.get("anyOf")
+        if (
+            isinstance(ramos, list) and len(ramos) == 2 and {"type": "null"} in ramos
+            and no.get("default") is None
+        ):
+            valor = next(r for r in ramos if r != {"type": "null"})
+            externo = {k: v for k, v in no.items() if k not in ("anyOf", "default")}
+            interno = {
+                k: v for k, v in valor.items()
+                if k != "title" and not ("description" in externo and k == "description")
+            }
+            no = {**interno, **externo}
+        elif "default" in no and no["default"] is None:
+            no.pop("default")
+        # `examples` não está no schema que a API do Gemini documenta (ela usa
+        # `example`, no singular), e o Gemini CLI e o Antigravity mandam o schema
+        # quase cru para o modelo. O exemplo vai para o fim da descrição, onde
+        # todo modelo o lê, e a palavra-chave sai.
+        if isinstance(no.get("examples"), list):
+            exemplos = ", ".join(json.dumps(x, ensure_ascii=False) for x in no.pop("examples"))
+            no["description"] = f"{no.get('description', '').rstrip()} Ex.: {exemplos}.".strip()
+    saida: dict[str, Any] = {}
+    for chave, valor in no.items():
+        if chave == "properties" and isinstance(valor, dict):
+            # As CHAVES aqui são nomes de campo (há um campo chamado `title`).
+            saida[chave] = {nome: _enxuga(esq, colapsa_nulo=colapsa_nulo) for nome, esq in valor.items()}
+        else:
+            saida[chave] = _enxuga(valor, colapsa_nulo=colapsa_nulo)
+    return saida
+
+
 def input_schema(spec: ToolSpec) -> dict[str, Any]:
-    esquema = _inline_refs(spec.input_model.model_json_schema())
+    esquema = _enxuga(_inline_refs(spec.input_model.model_json_schema()), colapsa_nulo=True)
     esquema.setdefault("type", "object")
     esquema.setdefault("additionalProperties", False)
-    esquema.pop("title", None)
+    # A docstring da classe de entrada é nota de quem programa, não do modelo:
+    # o que ele precisa saber está na descrição da tool.
+    esquema.pop("description", None)
     return esquema
 
 
 def output_schema(spec: ToolSpec) -> dict[str, Any]:
-    esquema = _inline_refs(spec.output_model.model_json_schema(mode="serialization"))
-    esquema.pop("title", None)
+    esquema = _enxuga(_inline_refs(spec.output_model.model_json_schema(mode="serialization")), colapsa_nulo=False)
+    esquema.pop("description", None)
     return esquema

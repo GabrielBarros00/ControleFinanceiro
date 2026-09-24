@@ -8,6 +8,7 @@ declarada nas escritas que criam.
 """
 from __future__ import annotations
 
+import json
 import re
 
 import pytest
@@ -30,10 +31,11 @@ def todas():
     return list(REGISTRY.values())
 
 
-def test_catalogo_tem_as_38_tools():
+def test_catalogo_tem_as_39_tools():
     # 35 do plano + 3 de exibição (`*_show`), separadas das de dados para o
-    # ChatGPT não desenhar um componente a cada consulta.
-    assert len(REGISTRY) == 38
+    # ChatGPT não desenhar um componente a cada consulta, + o link de envio de
+    # anexo pelo terminal (`attachments_upload_link`).
+    assert len(REGISTRY) == 39
 
 
 @pytest.mark.parametrize("spec", todas(), ids=lambda s: s.name)
@@ -95,6 +97,60 @@ def test_schema_de_entrada_fechado(spec):
         assert caminho == "$" or obj.get("properties"), f"{caminho} é objeto genérico"
     for nome in esquema.get("properties", {}):
         assert nome not in {"user_id", "owner_user_id", "created_by_user_id", "sql", "query_sql", "where"}
+
+
+#: O que o modelo lê do catálogo em TODA conversa: descrição + schema de entrada
+#: das 38 tools (~56,6 mil caracteres hoje; eram ~80 mil antes de o schema perder
+#: `title` automático e `anyOf` com nulo). Passar do teto é decisão consciente:
+#: suba o número aqui, e diga no PR por que a tool nova vale os tokens.
+TETO_DO_CATALOGO = 60_000
+
+
+def test_catalogo_cabe_no_orcamento_de_contexto():
+    visivel = sum(len(s.description) + len(json.dumps(input_schema(s), ensure_ascii=False)) for s in todas())
+    assert visivel <= TETO_DO_CATALOGO, f"catálogo com {visivel:,} caracteres (teto {TETO_DO_CATALOGO:,})"
+
+
+@pytest.mark.parametrize("spec", todas(), ids=lambda s: s.name)
+def test_schema_de_entrada_sem_ruido(spec):
+    texto = json.dumps(input_schema(spec), ensure_ascii=False)
+    assert '"title": "' not in texto.replace('"title": {', ""), "title automático do Pydantic"
+    assert '{"type": "null"}' not in texto, "anyOf com nulo: omitir o campo já é o nulo"
+    assert '"default": null' not in texto
+
+
+#: As palavras-chave do objeto `Schema` que a API do Gemini documenta
+#: (ai.google.dev/api/generate-content), mais `additionalProperties`, que o Gemini
+#: CLI tira antes de mandar. O Gemini CLI e o Antigravity passam o `inputSchema`
+#: quase cru ao modelo (`parametersJsonSchema`): uma palavra-chave fora disto pode
+#: ser recusada e derrubar o catálogo inteiro para quem usa Gemini, sem erro
+#: nenhum do nosso lado. Claude, ChatGPT e Codex aceitam este subconjunto também.
+PALAVRAS_DO_GEMINI = {
+    "type", "format", "title", "description", "example", "nullable", "enum", "minItems", "maxItems",
+    "minLength", "maxLength", "minimum", "maximum", "pattern", "minProperties", "maxProperties",
+    "properties", "required", "items", "anyOf", "default", "propertyOrdering", "additionalProperties",
+}
+
+
+def _palavras(no, achadas: set):
+    if isinstance(no, dict):
+        for chave, valor in no.items():
+            if chave == "properties" and isinstance(valor, dict):
+                for esquema in valor.values():  # as chaves aqui são NOMES de campo
+                    _palavras(esquema, achadas)
+                continue
+            achadas.add(chave)
+            _palavras(valor, achadas)
+    elif isinstance(no, list):
+        for item in no:
+            _palavras(item, achadas)
+    return achadas
+
+
+@pytest.mark.parametrize("spec", todas(), ids=lambda s: s.name)
+def test_schema_de_entrada_so_com_palavras_que_o_gemini_aceita(spec):
+    fora = _palavras(input_schema(spec), set()) - PALAVRAS_DO_GEMINI
+    assert not fora, f"{spec.name}: {sorted(fora)} fora do schema documentado do Gemini"
 
 
 @pytest.mark.parametrize("spec", todas(), ids=lambda s: s.name)

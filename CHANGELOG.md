@@ -36,9 +36,32 @@ cliente MCP ([ADR 0035](docs/adr/0035-integracao-com-agentes-de-ia-mcp.md)).
 - **No ChatGPT, o cartão visual aparece quando você pede para ver** a fatura, o resumo
   do mês ou um lançamento. Antes cada consulta do agente desenhava um, e numa análise
   longa a memória do navegador subia sem parar.
+- **O cartão visual ficou 12× mais leve e com a cara do app de chat**: de 460 KB para
+  37 KB, cada cartão aberto na conversa passou de ~13 MB para ~4 MB de memória, e ele
+  segue as cores e a fonte do app de chat quando ele as informa. Não fica mais preso em "Carregando…"
+  quando o resultado chega antes da tela, mostra a situação da fatura em português,
+  a compra na moeda do cartão e não repete o "(10/10)" da parcela.
+- **Os agentes gastam menos contexto**: a lista de ferramentas que o modelo lê em toda
+  conversa encolheu ~30%, e a fatura vem com 20 compras por página (o total e as
+  categorias já cobrem a fatura inteira).
+- **Nos agentes de terminal, dá para anexar o recibo que está no computador**: peça
+  "anexe o recibo.pdf dos Downloads à compra do mercado" ao Claude Code, ao Codex ou
+  ao Gemini CLI. O arquivo vai do disco direto para o app por um link de uso único
+  (10 minutos, só aquele lançamento) — não passa pela conversa — e segue as mesmas
+  regras do envio pela tela: JPG, PNG, WebP ou PDF, conferência do conteúdo e cota do
+  espaço. Nos apps de chat na web, o anexo continua sendo pela tela do lançamento.
+- **Testado de verdade em mais de um agente**: Claude Code e Codex consultaram, leram a
+  fatura e anexaram arquivo contra o servidor; as ferramentas agora só usam o que o
+  Gemini aceita no formato dos parâmetros (há um teste que barra o resto). O guia do
+  Gemini CLI avisa que o Google deixou de aceitar o login com conta pessoal gratuita —
+  para conta pessoal, o caminho é o Antigravity ou uma chave de API.
+- **Contas, Cartões e Contas a pagar ficaram mais rápidos com histórico longo**: o
+  total e o saldo de cada fatura eram calculados um por um, e o custo crescia com a
+  idade do cartão (18 meses de dois cartões: ~70 consultas por tela). Agora é uma
+  consulta agrupada, com o mesmo resultado.
 
 Por dentro: servidor MCP em `/mcp` (SDK oficial 2.2), OAuth 2.1 com PKCE e
-registro por CIMD/DCR, 38 tools documentadas em `docs/mcp/TOOLS.md` (geradas do
+registro por CIMD/DCR, 39 tools documentadas em `docs/mcp/TOOLS.md` (geradas do
 código), e as escritas das rotas REST passaram a morar em comandos
 compartilhados (`app/services/commands/`) — sem mudança de comportamento.
 

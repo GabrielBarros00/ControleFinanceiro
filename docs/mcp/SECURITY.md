@@ -8,7 +8,7 @@
 | IDOR: ids de outra pessoa nos argumentos | Toda leitura/escrita passa pela `access_policy` (a mesma do REST); invisível = `NOT_FOUND`, nunca "sem permissão"; matriz A×B em `tests/mcp/test_isolation.py` cobre toda tool que recebe id (com teste de denominador) |
 | Escalada por escopo | Escopo checado antes de tudo; autorização = escopo ∩ papel ∩ `access_policy` |
 | Roubo de código/refresh | PKCE S256 obrigatório; código de uso único (UPDATE condicional); refresh rotativo com detecção de reuso que revoga a concessão |
-| Token vazado em log/repositório | Tokens opacos com prefixo (`cfm_at_`, `cfm_rt_`) reconhecíveis por scanner; banco guarda SHA-256; logs nunca carregam token (teste em `test_audit_and_safety.py`) |
+| Token vazado em log/repositório | Tokens opacos com prefixo (`cfm_at_`, `cfm_rt_`, `cfm_up_`) reconhecíveis por scanner; banco guarda SHA-256; logs nunca carregam token (teste em `test_audit_and_safety.py`) |
 | Confusão de audiência | `resource` conferido na autorização e na troca; token vale só no `/mcp`; JWT de sessão do app não vale no `/mcp` e token de agente não vale no REST |
 | Redirect aberto no OAuth | `redirect_uri` exato (loopback ignora só a porta); redirect inválido nunca é seguido; `next` do login Google só aceita caminho interno (testado contra `//`, esquema, barra invertida e controle) |
 | Consentimento enganoso | A tela mostra o **host** que recebe o acesso (não só o nome que o cliente escolheu), a conta e as permissões; aviso extra para cliente só-loopback |
@@ -22,6 +22,8 @@
 | Abuso / laço de agente | Teto por pessoa + cliente com custo por tool (120 unidades/min; 30 escritas/min); massa limitada a 200 itens; página ≤ 50; OAuth com limite por IP |
 | Vazamento por erro | Envelope estável; exceção inesperada vira `INTERNAL_ERROR` genérico com `correlation_id`; stack só no log do servidor (teste com erro de banco injetado) |
 | Consulta arbitrária | Não há SQL nem tool genérica; filtros são de domínio; texto de busca é escapado (`%` não casa tudo) |
+| Link de envio de anexo vazado ou reaproveitado | `cfm_up_` de uso único, 10 min, amarrado a usuário + concessão + UM lançamento; só o SHA-256 no banco; vai no cabeçalho `Authorization`, nunca na URL (que acaba em log de app, nginx e proxy). Na hora do envio tudo é conferido de novo: concessão revogada, conta inativa ou papel rebaixado a viewer recusam; o uso é marcado por UPDATE condicional (dois envios simultâneos não anexam duas vezes) e o reenvio devolve o resultado anterior |
+| Arquivo malicioso pelo terminal | O envio pelo link passa pelo MESMO comando da tela: só JPG/PNG/WebP/PDF, conteúdo conferido pelos bytes (PDF disfarçado de PNG é recusado), teto por arquivo e cota do espaço com trava; o agente não lê nem apaga anexos |
 | Anexo apagado sem aviso | Exclusão de lançamento com anexo exige o fluxo de prévia, que mostra quantos recibos serão apagados |
 | Conta desativada/senha trocada | Usuário recarregado a cada chamada; troca/redefinição de senha e "encerrar sessões" revogam as concessões |
 
@@ -36,5 +38,10 @@ O conteúdo das mudanças fica no `auditlog` da entidade, com `origin="mcp:<clie
 - Mutações dos testes de segurança principais (token de outra concessão, papel
   viewer, conflito de idempotência, conjunto mudado, open redirect, participante
   de acerto) foram aplicadas e **mataram** os testes correspondentes.
+- No link de envio de anexo, sete mutações — aceitar papel viewer, concessão
+  revogada, link expirado e registro de outra ação; anexar de novo no reenvio;
+  marcar o uso antes de o arquivo passar pelas regras; perder a origem "via IA" —
+  **mataram** `test_anexo_pelo_terminal.py`. A de "outra ação" sobreviveu na
+  primeira rodada e ganhou teste próprio.
 - `tests/security/*` (varreduras já existentes do app) seguem verdes com as rotas
   novas.

@@ -523,7 +523,9 @@ class OverviewService:
             for stmt in overview["statements"]:
                 if stmt.status == StatementStatus.paid:
                     continue
-                valor = CreditCardService.effective_total(db, stmt)
+                # O total já veio agrupado no `card_overview`; recalcular aqui era
+                # um SUM por fatura aberta, logo depois de o mesmo número sair de lá.
+                valor = overview["total_by_statement"][stmt.id]
                 if valor <= ZERO:
                     continue
                 convertido = _conv(valor, card.currency)

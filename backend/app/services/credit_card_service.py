@@ -366,8 +366,16 @@ class CreditCardService:
         mostrava N linhas e o rodapé somava outro conjunto. Um item da fatura é
         agora, por definição, o que este predicado devolve.
         """
+        return (Transaction.statement_id == statement_id, *CreditCardService._filtros_da_fatura(card))
+
+    @staticmethod
+    def _filtros_da_fatura(card: CreditCard) -> tuple:
+        """O que `statement_population` exige além da fatura: vivo, realizado, na moeda do cartão.
+
+        Separado para a versão em lote (`open_totals`) usar os MESMOS filtros com
+        `statement_id IN (...)`, em vez de uma segunda redação deles.
+        """
         return (
-            Transaction.statement_id == statement_id,
             Transaction.deleted_at.is_(None),
             Transaction.status.in_(REALIZED_STATUSES),
             Transaction.statement_currency == card.currency,
@@ -489,6 +497,43 @@ class CreditCardService:
         return total or Decimal("0.00")
 
     @staticmethod
+    def open_totals(db: Session, card: CreditCard, statement_ids: list[int]) -> dict[int, Decimal]:
+        """`compute_statement_total` de várias faturas do MESMO cartão, num `GROUP BY`.
+
+        Por fatura, era um SUM por linha: a visão do mês, a projeção, o limite do
+        cartão e o MCP percorrem o histórico inteiro, e o custo crescia com ele
+        (18 meses de dois cartões: ~70 consultas numa chamada só).
+        """
+        if not statement_ids:
+            return {}
+        linhas = db.exec(
+            select(Transaction.statement_id, func.sum(Transaction.statement_amount))
+            .where(Transaction.statement_id.in_(statement_ids), *CreditCardService._filtros_da_fatura(card))
+            .group_by(Transaction.statement_id)
+        ).all()
+        totais = {sid: (total or Decimal("0.00")) for sid, total in linhas}
+        return {sid: totais.get(sid, Decimal("0.00")) for sid in statement_ids}
+
+    @staticmethod
+    def effective_totals(db: Session, card: CreditCard, statements: list[CardStatement]) -> dict[int, Decimal]:
+        """`effective_total` de várias faturas do mesmo cartão (uma consulta, só para as abertas)."""
+        abertas = CreditCardService.open_totals(
+            db, card, [s.id for s in statements if s.status == StatementStatus.open]
+        )
+        return {s.id: abertas[s.id] if s.id in abertas else s.total_amount for s in statements}
+
+    @staticmethod
+    def balances(db: Session, card: CreditCard, statements: list[CardStatement]) -> dict[int, Decimal]:
+        """`statement_balance` de várias faturas do mesmo cartão, em duas consultas no total."""
+        totais = CreditCardService.effective_totals(db, card, statements)
+        pagos = CreditCardService._paid_by_statement(db, [s.id for s in statements])
+        saldos = {}
+        for s in statements:
+            saldo = totais[s.id] - pagos.get(s.id, Decimal("0.00"))
+            saldos[s.id] = saldo if saldo > 0 else Decimal("0.00")
+        return saldos
+
+    @staticmethod
     def statement_balance(db: Session, statement: CardStatement) -> Decimal:
         """O que ainda falta pagar: total efetivo − já pago.
 
@@ -568,10 +613,10 @@ class CreditCardService:
         nada a pagar. A tela de cartões precisa disso para avisar de fatura
         fechada/vencendo/vencida sem buscar as faturas de cada cartão.
 
-        Uma passada porque `effective_total` dispara um SUM por fatura aberta:
-        calcular comprometido e alerta em varreduras separadas dobrava as
-        consultas por cartão. Os pagamentos vêm numa consulta agrupada só, pelo
-        mesmo motivo — chamar `paid_amount` por fatura seria um SELECT por linha.
+        Totais e pagamentos vêm em consultas AGRUPADAS (`effective_totals`,
+        `_paid_by_statement`): por fatura, seriam dois SELECT por linha do
+        histórico, e o custo cresceria com a idade do cartão. O número de
+        consultas aqui é fixo; `tests/services/test_faturas_em_lote.py` confere.
         """
         statements = db.exec(
             select(CardStatement)
@@ -580,6 +625,7 @@ class CreditCardService:
         ).all()
 
         pagos = CreditCardService._paid_by_statement(db, [s.id for s in statements])
+        totais = CreditCardService.effective_totals(db, card, list(statements))
 
         committed = Decimal("0.00")
         attention: Optional[CardStatement] = None
@@ -595,9 +641,7 @@ class CreditCardService:
             #
             # SALDO, não total: com pagamento parcial a fatura segue `closed`, e
             # comprometer o valor cheio manteria preso um limite que já foi pago.
-            saldo = CreditCardService.effective_total(db, stmt) - pagos.get(
-                stmt.id, Decimal("0.00")
-            )
+            saldo = totais[stmt.id] - pagos.get(stmt.id, Decimal("0.00"))
             if saldo <= 0:
                 continue
             committed += saldo
@@ -615,6 +659,9 @@ class CreditCardService:
             # Saldo já pago por fatura, para quem serializa a lista não repetir
             # a consulta por linha.
             "paid_by_statement": pagos,
+            # Total efetivo por fatura, pelo mesmo motivo: a visão do mês somava
+            # `effective_total` de novo, fatura a fatura, logo depois daqui.
+            "total_by_statement": totais,
         }
 
     @staticmethod

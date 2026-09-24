@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it } from 'vitest';
 
 /**
  * A ponte com o host, pelo lado do ChatGPT (`window.openai`).
@@ -8,21 +8,9 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
  * "Carregando…" para sempre. O mesmo evento dispara em toda mudança de global,
  * então o resultado só é reentregue quando é outro.
  *
- * O `App` do MCP Apps é trocado por um que nunca conecta: aqui só interessa o
- * caminho do `window.openai`.
+ * Sem host MCP Apps (`createBridge(null)`): aqui só interessa o caminho do
+ * `window.openai`. O caminho do MCP Apps está em `bridge.conformidade.test.ts`.
  */
-vi.mock('@modelcontextprotocol/ext-apps', () => ({
-  App: class {
-    ontoolresult: unknown = null;
-    onhostcontextchanged: unknown = null;
-    connect() {
-      return new Promise(() => {});
-    }
-    getHostContext() {
-      return undefined;
-    }
-  },
-}));
 
 const avisar = () => window.dispatchEvent(new Event('openai:set_globals'));
 
@@ -34,7 +22,7 @@ describe('ponte com window.openai', () => {
   it('entrega o resultado que chega depois do carregamento', async () => {
     window.openai = { toolOutput: null, theme: 'light' };
     const { createBridge } = await import('../bridge');
-    const ponte = createBridge();
+    const ponte = createBridge(null);
     const recebidos: unknown[] = [];
     ponte.onResult((r) => recebidos.push(r.structuredContent));
     expect(recebidos).toEqual([]);
@@ -59,7 +47,7 @@ describe('ponte com window.openai', () => {
     const fatura = { month: '2026-10', total: '10.00' };
     window.openai = { toolOutput: fatura };
     const { createBridge } = await import('../bridge');
-    const ponte = createBridge();
+    const ponte = createBridge(null);
     const recebidos: unknown[] = [];
     ponte.onResult((r) => recebidos.push(r.structuredContent));
     avisar();
@@ -69,7 +57,7 @@ describe('ponte com window.openai', () => {
   it('segue o tema que muda depois', async () => {
     window.openai = { toolOutput: null, theme: 'light' };
     const { createBridge } = await import('../bridge');
-    const ponte = createBridge();
+    const ponte = createBridge(null);
     const temas: string[] = [];
     ponte.onTheme((t) => temas.push(t));
     window.openai.theme = 'dark';

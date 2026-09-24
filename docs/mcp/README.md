@@ -8,10 +8,10 @@ e permissões do app. A decisão e suas razões estão no
 
 | Documento | Para quê |
 |---|---|
-| [TOOLS.md](TOOLS.md) | Referência das 38 tools (gerada do código) |
+| [TOOLS.md](TOOLS.md) | Referência das 39 tools (gerada do código) |
 | [CAPABILITY_MAP.md](CAPABILITY_MAP.md) | Toda rota do app → tool que a cobre ou motivo de não haver (gerado) |
 | [AUTHENTICATION.md](AUTHENTICATION.md) | OAuth 2.1: descoberta, PKCE, CIMD/DCR, tokens, revogação |
-| [CLIENT_SETUP.md](CLIENT_SETUP.md) | Como conectar cada cliente (verificado em 22/09/2026) |
+| [CLIENT_SETUP.md](CLIENT_SETUP.md) | Como conectar cada cliente e anexar arquivo pelo terminal (verificado em 23/09/2026) |
 | [OPENAI_APP.md](OPENAI_APP.md) | Apps no ChatGPT: UI, pacote de plugin, Developer Mode, submissão |
 | [SECURITY.md](SECURITY.md) | Modelo de ameaças e controles |
 | [PRIVACY.md](PRIVACY.md) | O que o agente vê, o que fica registrado, como revogar |
@@ -59,6 +59,7 @@ backend/app/
     identity.py        quem chama (do token)
     idempotency.py     chave de idempotência (mcpoperation)
     confirmation.py    token de confirmação de massa (mcpconfirmation)
+    uploads.py         link de envio de anexo pelo terminal (cfm_up_, uso único)
     rate_limit.py      teto por pessoa + cliente, com custo por tool
     audit.py           trilha mcptoolcall + log estruturado
     resolve.py         nomes → ids (AMBIGUOUS / NOT_FOUND)
@@ -66,13 +67,14 @@ backend/app/
     money.py dates.py  fronteira de dinheiro e datas
     capability_map.py  rota REST → tool ou motivo
     docs.py            gera TOOLS.md e CAPABILITY_MAP.md
-    tools/             as 38 tools
+    tools/             as 39 tools
     ui/widget.html     componente MCP Apps (gerado de frontend/src/mcp-widget)
   services/oauth/      authorization server (clientes, CIMD, códigos, tokens, concessões)
   services/commands/   comandos de escrita compartilhados com o REST
   api/routes/oauth.py          authorize/token/register/revoke + API do consentimento
   api/routes/well_known.py     metadados RFC 8414 / 9728 e verificação da OpenAI
   api/routes/ai_integrations.py  tela "Integrações com IA"
+  api/routes/mcp_uploads.py      POST /api/v1/mcp/uploads (o curl do agente de terminal)
 frontend/src/
   pages/OAuthConsentPage.tsx
   components/ai-integrations/  aba "Integrações com IA" e guias por cliente

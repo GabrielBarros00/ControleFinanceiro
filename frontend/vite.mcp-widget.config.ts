@@ -10,21 +10,23 @@
  * O arquivo gerado é versionado, e o CI reconstrói e confere que não há diff —
  * o backend não depende do Node para subir.
  *
+ * Preact, não React: o componente é baixado e executado de novo em cada
+ * resposta que o desenha, e o React 19 sozinho eram ~215 KB. O JSX compila para
+ * `preact` (o pragma `@jsxImportSource preact` nos arquivos diz o mesmo ao TS e
+ * ao vitest). O SPA continua em React; nada daqui é compartilhado com ele.
+ *
  *   npm run build:mcp-widget
  */
 import path from 'path';
 import { defineConfig } from 'vite';
-import react from '@vitejs/plugin-react';
 import { viteSingleFile } from 'vite-plugin-singlefile';
 
 const RAIZ = path.resolve(__dirname, 'src/mcp-widget');
 
 export default defineConfig({
   root: RAIZ,
-  plugins: [react(), viteSingleFile({ removeViteModuleLoader: true })],
-  resolve: {
-    alias: { '@': path.resolve(__dirname, './src') },
-  },
+  plugins: [viteSingleFile({ removeViteModuleLoader: true })],
+  oxc: { jsx: { runtime: 'automatic', importSource: 'preact' } },
   build: {
     outDir: path.resolve(__dirname, '../backend/app/mcp/ui'),
     // A pasta tem o `__init__.py` do pacote Python: não se apaga nada lá.

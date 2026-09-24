@@ -19,14 +19,18 @@ De dentro de `backend/`:
 | `test_tools_write.py` | Lançamentos: criação composta (cartão, parcelas somando ao centavo, divisão 3-vias, espaço implícito), idempotência (replay, conflito, chave livre após falha), **rollback** com falha injetada, escopo, papel viewer, edição (anterior/mudanças, divisão, valor com divisão, compra inteira), exclusão/restauração, anexo exige prévia, massa (prévia, token de outra pessoa/concessão/ação, conjunto mudou, teto) |
 | `test_tools_write_more.py` | Fatura (fecha se o ciclo acabou, parcial, sobrepagamento, em curso, escopo, dono), transferência, conciliação, renda, acertos (teto, member só como pagador, terceiro não vê), recorrência, meta, categoria duplicada, importação |
 | `test_isolation.py` | **Matriz A×B**: toda tool com id, chamada com os ids de outra pessoa, não vaza nem altera nada — com teste de denominador que reprova tool nova sem caso |
-| `test_registry_contract.py` | Contrato de cada tool (nome, título, "Use quando/Não use", 4 annotations coerentes, schema fechado, saída, meta de segurança/UI, idempotência declarada), `tools/list` = registro, `TOOLS.md` em dia |
+| `test_registry_contract.py` | Contrato de cada tool (nome, título, "Use quando/Não use", 4 annotations coerentes, schema fechado, saída, meta de segurança/UI, idempotência declarada), `tools/list` = registro, `TOOLS.md` em dia; **orçamento de contexto** do catálogo (descrição + entrada ≤ 60 mil caracteres) e schema de entrada sem o ruído do Pydantic (`title`, `anyOf` com nulo, `default: null`) e **só com as palavras de JSON Schema que o Gemini aceita** (`examples` vira texto na descrição) |
+| `test_anexo_pelo_terminal.py` | O anexo pelo terminal: do link ao anexo (token no cabeçalho e nunca na URL, auditoria "via IA"), reenvio que não anexa de novo, arquivo recusado (tipo, conteúdo disfarçado) que não gasta o link, cabeçalho ausente/inventado/de outro tipo, registro de outra ação mesmo com o prefixo certo, link expirado e de conexão revogada, papel rebaixado a viewer depois do link, sem escopo de escrita, cota do espaço |
 | `test_capability_map.py` | Toda rota REST tem decisão; toda tool é citada; `CAPABILITY_MAP.md` em dia |
 | `test_espelhos_do_app.py` | Os `Literal` das tools (forma de pagamento, status, frequência, `materialize`) têm exatamente os valores dos enums do app. Valor novo no app reprova até a tool acompanhar |
-| `test_audit_and_safety.py` | Trilha sem conteúdo; `origin` no auditlog; log sem token; teto de uso e de escrita; erro interno sem SQL/stack; injeção por título; recurso de UI; URI do componente versionada com o hash do HTML (mudou o componente, muda a URI); a regra de que só as tools de exibição (`*_show`, mais a prévia de massa) desenham componente; métricas do admin sem conteúdo |
+| `test_audit_and_safety.py` | Trilha sem conteúdo; `origin` no auditlog; log sem token; teto de uso e de escrita; erro interno sem SQL/stack; injeção por título; recurso de UI (CSP vazia, `openai/widgetCSP` com `redirect_domains`); URI do componente versionada com o hash do HTML (mudou o componente, muda a URI); a regra de que só as tools de exibição (`*_show`, mais a prévia de massa) desenham componente, e cada uma declara `openai/widgetDescription`; métricas do admin sem conteúdo |
 | `test_plugin_package.py` | Manifestos do plugin válidos e skills citando só tools existentes |
-| `evals/test_evals_golden.py` | As 30 trajetórias-ouro de `evals/cases.yaml` executadas contra o banco |
+| `evals/test_evals_golden.py` | As 31 trajetórias-ouro de `evals/cases.yaml` executadas contra o banco |
 
-Também tocados: `tests/api/test_auth_session.py` (o `next` do login Google e o
+Também tocados: `tests/services/test_faturas_em_lote.py` (totais e saldos de fatura em
+lote dão o mesmo número que fatura a fatura, e o número de consultas não cresce
+com o histórico — era ~70 por chamada de `accounts_list` com 18 meses de dois
+cartões), `tests/api/test_auth_session.py` (o `next` do login Google e o
 open redirect), `tests/services/test_purge_old_records.py`,
 `tests/test_nginx_proxy_config.py`, `tests/api/test_ws_event_contract.py` (segue os
 comandos extraídos).
@@ -49,6 +53,17 @@ npx vitest run src/components/ai-integrations src/pages/__tests__/OAuthConsentPa
 npm run typecheck && npm run lint
 npm run build:mcp-widget        # reconstrói backend/app/mcp/ui/widget.html e confere tamanho/CSP
 ```
+
+- `mcp-widget/__tests__/Widget.test.tsx`: as quatro vistas com o **Preact de verdade** (o
+  mesmo do build), situação da fatura em português, valor da compra na moeda do
+  cartão, parcela sem o "(10/10)" repetido, plural sem "(s)".
+- `mcp-widget/__tests__/bridge.conformidade.test.ts`: a ponte escrita à mão contra o
+  host **oficial** do MCP Apps (`AppBridge`), que valida cada mensagem com os schemas
+  do protocolo. Cobre handshake, tamanho, resultado, tema e variáveis de estilo,
+  `tools/call`, `ui/open-link`, desmontagem e a corrida do resultado que chega antes
+  de o componente se registrar.
+- `mcp-widget/__tests__/bridge.test.ts`: o caminho do `window.openai`
+  (`openai:set_globals`, resultado tardio, tema).
 
 ## Evals com um modelo de verdade (opcional)
 
@@ -74,3 +89,42 @@ se pedir) e volta com o token. Roteiro: `tools/list` → `profile_get` →
 `replayed: true`) → `transactions_update` → `transactions_bulk_preview` →
 `transactions_bulk_delete` com o token. Depois, **Desconectar** na tela do app e
 ver o próximo call responder 401.
+
+## Agentes de terminal de verdade (manual)
+
+A suíte prova o servidor; ela não prova que um cliente real entende as tools. Em
+23/09/2026 os binários de cada cliente foram apontados para o backend local, com um
+token de acesso emitido para um usuário de teste (o login OAuth de cada CLI abre o
+navegador; para rodar sem interação, o token entra pelo cabeçalho):
+
+```bash
+# backend local com o issuer no próprio backend (sem Vite)
+cd backend && FRONTEND_URL=http://localhost:8000 ../.venv/Scripts/python.exe -m uvicorn app.main:app --port 8000
+
+# Claude Code — mcp.json: {"mcpServers":{"cf":{"type":"http","url":"http://localhost:8000/mcp",
+#                          "headers":{"Authorization":"Bearer cfm_at_…"}}}}
+claude -p "Anexe o arquivo recibo-mercado.png (que está nesta pasta) a uma compra recente de mercado" \
+  --mcp-config mcp.json --strict-mcp-config \
+  --allowedTools "mcp__cf__transactions_search,mcp__cf__transactions_get,mcp__cf__attachments_upload_link,Bash(curl:*),Bash(curl.exe:*)"
+
+# Codex — o sandbox precisa de rede para o curl chegar ao app
+CF_TOKEN=cfm_at_… codex exec --skip-git-repo-check --sandbox workspace-write \
+  -c 'sandbox_workspace_write.network_access=true' \
+  -c 'mcp_servers.cf.url="http://localhost:8000/mcp"' -c 'mcp_servers.cf.bearer_token_env_var="CF_TOKEN"' \
+  -c 'approval_policy="never"' "Anexe o arquivo recibo-mercado.png desta pasta ao lançamento #16"
+
+# Gemini CLI — .gemini/settings.json na pasta do teste:
+#   {"mcpServers":{"controle-financeiro":{"httpUrl":"http://localhost:8000/mcp",
+#                  "headers":{"Authorization":"Bearer cfm_at_…"}}}}
+gemini mcp list        # espera "Connected"
+```
+
+O que rodou: Claude Code e Codex consultaram (`profile_get`, `statements_get`,
+`reports_summary`) e **anexaram um arquivo ponta a ponta** — a tool emitiu o link, o
+agente rodou o `curl` (no PowerShell, o Codex usou `curl.exe` sozinho) e o anexo
+apareceu no lançamento com a origem `mcp:<cliente>` na auditoria. O Gemini CLI conectou
+e listou as tools, mas o modelo não rodou: o Google deixou de aceitar o login com conta
+pessoal gratuita no Gemini CLI. Com `GEMINI_API_KEY` ou Vertex AI, funciona.
+
+Repita ao mexer no catálogo, no formato do schema ou no fluxo de anexo. O token de teste
+vale 60 minutos; apague o banco de teste depois.

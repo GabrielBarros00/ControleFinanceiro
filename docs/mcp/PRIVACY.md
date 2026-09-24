@@ -8,6 +8,10 @@ envolve" continua vendo só isso). O agente **não** vê: outras contas, espaço
 que a pessoa não participa, anexos (só a contagem), senhas, sessões, a trilha de
 auditoria de outros membros, nem nada da administração do site.
 
+No anexo pelo terminal, o arquivo vai do computador direto para o app pelo link de
+envio: ele não passa pela conversa nem pelo provedor do agente. O agente recebe de
+volta só o nome, o tipo e o tamanho.
+
 ## Para onde vai
 
 O que uma tool devolve entra na conversa com o agente e passa a estar sob a

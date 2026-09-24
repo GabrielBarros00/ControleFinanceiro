@@ -2,13 +2,24 @@
 
    Tailwind v4 restrito a ESTA pasta (`source(none)` + `@source`): sem isso a
    varredura automática puxaria as classes do SPA inteiro para dentro de um HTML
-   que é carregado a cada resposta de tool no ChatGPT/Claude.
+   que é carregado a cada resposta que o desenha.
 
    `./*.tsx` (não `./`): só os arquivos do componente, sem `__tests__/`. Com a
    pasta inteira, a palavra `container` de um teste virava a utilidade
    `.container` — e só no Linux: o scanner do Tailwind não varria a subpasta
    igual no Windows, e o widget gerado saía diferente nos dois sistemas (o gate
    do CI compara o arquivo byte a byte).
+
+   CORES E FONTE DO HOST. O MCP Apps manda variáveis padronizadas
+   (`--color-background-primary`, `--color-text-primary`, `--font-sans`,
+   `--border-radius-md`…), e a ponte as aplica no `<html>`. Cada token daqui lê a
+   do host com o nosso valor como reserva: no Claude o componente fica com a cara
+   do Claude, e num host que não manda nada ele segue com o visual próprio. O
+   fundo é transparente, porque o host já desenha o cartão (`prefersBorder`).
+
+   Sem `color-scheme`: quando o do iframe difere do da página do host, o
+   navegador pinta um fundo OPACO atrás do iframe, e o componente vira um
+   retângulo preto dentro do cartão transparente do chat.
 
    O tema segue o HOST: o `dark` vem do contexto do MCP Apps (ou do
    `window.openai.theme`), e não do `prefers-color-scheme` — o iframe pode estar
@@ -19,47 +30,58 @@
 @custom-variant dark (&:is(.dark *));
 
 @theme {
-  --color-bg: var(--w-bg);
   --color-fg: var(--w-fg);
   --color-muted: var(--w-muted);
   --color-muted-fg: var(--w-muted-fg);
   --color-border: var(--w-border);
-  --color-brand: var(--w-brand);
-  --color-brand-fg: var(--w-brand-fg);
+  --color-accent: var(--w-accent);
+  --color-primary: var(--w-primary);
+  --color-primary-fg: var(--w-primary-fg);
+  --color-danger: var(--w-danger);
+  --color-danger-fg: var(--w-danger-fg);
+  --color-danger-bg: var(--w-danger-bg);
   --color-income: var(--w-income);
+  --color-ok-bg: var(--w-ok-bg);
   --color-expense: var(--w-expense);
   --color-warn: var(--w-warn);
   --color-warn-bg: var(--w-warn-bg);
+  --radius-md: var(--border-radius-md, 0.5rem);
+  --radius-full: var(--border-radius-full, 9999px);
 }
 
 :root {
-  --w-bg: #ffffff;
-  --w-fg: #0f172a;
-  --w-muted: #f1f5f9;
-  --w-muted-fg: #64748b;
-  --w-border: #e2e8f0;
-  --w-brand: #4f46e5;
-  --w-brand-fg: #ffffff;
-  --w-income: #047857;
-  --w-expense: #b91c1c;
-  --w-warn: #92400e;
-  --w-warn-bg: #fef3c7;
-  color-scheme: light;
+  --w-fg: var(--color-text-primary, #0f172a);
+  --w-muted: var(--color-background-secondary, #f1f5f9);
+  --w-muted-fg: var(--color-text-secondary, #64748b);
+  --w-border: var(--color-border-primary, #e2e8f0);
+  --w-accent: var(--color-ring-primary, #4f46e5);
+  --w-primary: var(--color-background-inverse, #0f172a);
+  --w-primary-fg: var(--color-text-inverse, #ffffff);
+  --w-danger: var(--color-text-danger, #b91c1c);
+  --w-danger-fg: #ffffff;
+  --w-danger-bg: var(--color-background-danger, #fee2e2);
+  --w-income: var(--color-text-success, #047857);
+  --w-ok-bg: var(--color-background-success, #dcfce7);
+  --w-expense: var(--color-text-danger, #b91c1c);
+  --w-warn: var(--color-text-warning, #92400e);
+  --w-warn-bg: var(--color-background-warning, #fef3c7);
 }
 
 .dark {
-  --w-bg: #0b1120;
-  --w-fg: #e2e8f0;
-  --w-muted: #1e293b;
-  --w-muted-fg: #94a3b8;
-  --w-border: #334155;
-  --w-brand: #818cf8;
-  --w-brand-fg: #0b1120;
-  --w-income: #34d399;
-  --w-expense: #f87171;
-  --w-warn: #fcd34d;
-  --w-warn-bg: #422006;
-  color-scheme: dark;
+  --w-fg: var(--color-text-primary, #e5e7eb);
+  --w-muted: var(--color-background-secondary, #2a2a2e);
+  --w-muted-fg: var(--color-text-secondary, #a1a1aa);
+  --w-border: var(--color-border-primary, #3f3f46);
+  --w-accent: var(--color-ring-primary, #818cf8);
+  --w-primary: var(--color-background-inverse, #f4f4f5);
+  --w-primary-fg: var(--color-text-inverse, #18181b);
+  --w-danger: var(--color-text-danger, #ef4444);
+  --w-danger-bg: var(--color-background-danger, #3f1d1d);
+  --w-income: var(--color-text-success, #34d399);
+  --w-ok-bg: var(--color-background-success, #10291f);
+  --w-expense: var(--color-text-danger, #f87171);
+  --w-warn: var(--color-text-warning, #fcd34d);
+  --w-warn-bg: var(--color-background-warning, #3a2a0a);
 }
 
 html,
@@ -67,11 +89,18 @@ body {
   margin: 0;
   background: transparent;
   color: var(--w-fg);
-  font-family: ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  font-family: var(--font-sans, ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif);
   font-size: 14px;
+  line-height: 1.4;
   -webkit-font-smoothing: antialiased;
 }
 
 .num {
   font-variant-numeric: tabular-nums;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-pulse {
+    animation: none;
+  }
 }
