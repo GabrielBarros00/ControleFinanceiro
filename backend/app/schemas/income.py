@@ -4,7 +4,8 @@ from decimal import Decimal
 from pydantic import BaseModel, Field, model_validator
 
 from app.domain.income_settlement import income_status
-from app.schemas.common import DESCRIPTION_MAX, MAX_MONEY, OptionalCurrencyCode, TITLE_MAX
+from app.models.recurring import RecurrenceFrequency
+from app.schemas.common import DESCRIPTION_MAX, MAX_MONEY, NAME_MAX, OptionalCurrencyCode, TITLE_MAX
 
 class IncomeBase(BaseModel):
     title: str = Field(min_length=1, max_length=TITLE_MAX)
@@ -93,3 +94,46 @@ class IncomeRead(IncomeBase):
             ),
         )
         return self
+
+
+class RecurringIncomeCreate(BaseModel):
+    title: str = Field(min_length=1, max_length=TITLE_MAX)
+    description: Optional[str] = Field(default=None, max_length=DESCRIPTION_MAX)
+    base_amount: Decimal = Field(gt=0, le=MAX_MONEY)
+    # None = "não informada" → a rota resolve para a moeda de relatório do dono
+    currency: OptionalCurrencyCode = None
+    category: Optional[str] = Field(default=None, max_length=NAME_MAX)
+    frequency: RecurrenceFrequency = RecurrenceFrequency.monthly
+    interval: int = Field(default=1, ge=1)
+    start_date: Optional[date] = None
+    # Fim da série (ADR 0030) — espelho do que a despesa recorrente ganhou. Uma
+    # bolsa de dois anos e um aluguel recebido por prazo determinado têm fim, e
+    # sem a coluna eles projetavam renda para sempre na previsão.
+    end_date: Optional[date] = None
+    day_of_month: int = Field(default=1, ge=1, le=31)
+    day_of_week: Optional[int] = Field(default=None, ge=0, le=6)
+    month_of_year: Optional[int] = Field(default=None, ge=1, le=12)
+    is_active: bool = True
+    # Ligado por padrão (ADR 0034): renda recorrente é tipicamente salário, e o
+    # comportamento de sempre foi "chegou a data, entrou". Desligue para renda
+    # incerta — freela, aluguel recebido —, que aí a ocorrência fica em "A receber".
+    auto_confirm: bool = True
+    account_id: Optional[int] = None
+
+
+class RecurringIncomeUpdate(BaseModel):
+    title: Optional[str] = Field(default=None, min_length=1, max_length=TITLE_MAX)
+    description: Optional[str] = Field(default=None, max_length=DESCRIPTION_MAX)
+    base_amount: Optional[Decimal] = Field(default=None, gt=0, le=MAX_MONEY)
+    currency: OptionalCurrencyCode = None
+    category: Optional[str] = Field(default=None, max_length=NAME_MAX)
+    frequency: Optional[RecurrenceFrequency] = None
+    interval: Optional[int] = Field(default=None, ge=1)
+    start_date: Optional[date] = None
+    end_date: Optional[date] = None
+    day_of_month: Optional[int] = Field(default=None, ge=1, le=31)
+    day_of_week: Optional[int] = Field(default=None, ge=0, le=6)
+    month_of_year: Optional[int] = Field(default=None, ge=1, le=12)
+    is_active: Optional[bool] = None
+    auto_confirm: Optional[bool] = None
+    account_id: Optional[int] = None

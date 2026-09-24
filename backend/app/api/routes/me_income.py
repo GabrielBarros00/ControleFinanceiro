@@ -16,17 +16,14 @@ O gate é `get_current_user` e o recorte é `Income.user_id`. Não há papel nem
 `financial_access` que alcance a renda de outra pessoa — salário é o dado mais
 sensível do sistema.
 """
-from datetime import UTC, date, datetime
-from decimal import Decimal
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from pydantic import BaseModel, Field
 from sqlmodel import Session, select
 
 from app.api.routes.auth import get_current_user
 from app.db.session import get_session
-from app.domain.access_policy import assert_owns, personal_scope
+from app.domain.access_policy import personal_scope
 from app.domain.dates import (
     InvalidMonth,
     month_bounds_utc,
@@ -34,21 +31,24 @@ from app.domain.dates import (
     parse_month,
     today_local,
 )
-from app.domain.query_policy import resolve_personal_currency
-from app.domain.recurrence_rules import validate_frequency_fields as _validate_frequency_fields
 from app.models.income import Income
-from app.models.recurring import RecurrenceFrequency, RecurringIncome
+from app.models.recurring import RecurringIncome
 from app.models.user import User
-from app.schemas.common import CreatedCountRead, DESCRIPTION_MAX, MAX_MONEY, NAME_MAX, OptionalCurrencyCode, StatusRead, TITLE_MAX
-from app.schemas.income import IncomeCreate, IncomeReceiveRequest, IncomeRead, IncomeUpdate
+from app.schemas.common import CreatedCountRead, StatusRead
+from app.schemas.income import (
+    IncomeCreate,
+    IncomeReceiveRequest,
+    IncomeRead,
+    IncomeUpdate,
+    RecurringIncomeCreate,
+    RecurringIncomeUpdate,
+)
 from app.services.recurring_service import (
-    MATERIALIZE_SCOPES,
     RecurringIncomeService,
     RecurringMaterializationService,
 )
 
 from app.services.commands import income as inc_cmd
-from app.services.commands.income import _get_income_or_404, _valida_conta
 
 router = APIRouter(prefix="/me", tags=["me-income"])
 
@@ -212,9 +212,7 @@ def delete_income(
     session: Session = Depends(get_session),
     current_user: User = Depends(get_current_user),
 ):
-    income = _get_income_or_404(session, income_id, current_user.id)
-    income.deleted_at = datetime.now(UTC)
-    session.add(income)
+    inc_cmd.delete_income(session, current_user.id, income_id)
     session.commit()
     return {"status": "ok"}
 
@@ -222,64 +220,6 @@ def delete_income(
 # ---------------------------------------------------------------------------
 # Renda recorrente
 # ---------------------------------------------------------------------------
-
-class RecurringIncomeCreate(BaseModel):
-    title: str = Field(min_length=1, max_length=TITLE_MAX)
-    description: Optional[str] = Field(default=None, max_length=DESCRIPTION_MAX)
-    base_amount: Decimal = Field(gt=0, le=MAX_MONEY)
-    # None = "não informada" → a rota resolve para a moeda de relatório do dono
-    currency: OptionalCurrencyCode = None
-    category: Optional[str] = Field(default=None, max_length=NAME_MAX)
-    frequency: RecurrenceFrequency = RecurrenceFrequency.monthly
-    interval: int = Field(default=1, ge=1)
-    start_date: Optional[date] = None
-    # Fim da série (ADR 0030) — espelho do que a despesa recorrente ganhou. Uma
-    # bolsa de dois anos e um aluguel recebido por prazo determinado têm fim, e
-    # sem a coluna eles projetavam renda para sempre na previsão.
-    end_date: Optional[date] = None
-    day_of_month: int = Field(default=1, ge=1, le=31)
-    day_of_week: Optional[int] = Field(default=None, ge=0, le=6)
-    month_of_year: Optional[int] = Field(default=None, ge=1, le=12)
-    is_active: bool = True
-    # Ligado por padrão (ADR 0034): renda recorrente é tipicamente salário, e o
-    # comportamento de sempre foi "chegou a data, entrou". Desligue para renda
-    # incerta — freela, aluguel recebido —, que aí a ocorrência fica em "A receber".
-    auto_confirm: bool = True
-    account_id: Optional[int] = None
-
-
-class RecurringIncomeUpdate(BaseModel):
-    title: Optional[str] = Field(default=None, min_length=1, max_length=TITLE_MAX)
-    description: Optional[str] = Field(default=None, max_length=DESCRIPTION_MAX)
-    base_amount: Optional[Decimal] = Field(default=None, gt=0, le=MAX_MONEY)
-    currency: OptionalCurrencyCode = None
-    category: Optional[str] = Field(default=None, max_length=NAME_MAX)
-    frequency: Optional[RecurrenceFrequency] = None
-    interval: Optional[int] = Field(default=None, ge=1)
-    start_date: Optional[date] = None
-    end_date: Optional[date] = None
-    day_of_month: Optional[int] = Field(default=None, ge=1, le=31)
-    day_of_week: Optional[int] = Field(default=None, ge=0, le=6)
-    month_of_year: Optional[int] = Field(default=None, ge=1, le=12)
-    is_active: Optional[bool] = None
-    auto_confirm: Optional[bool] = None
-    account_id: Optional[int] = None
-
-
-def _get_template_or_404(session: Session, recurring_id: int, user_id: int) -> RecurringIncome:
-    rec = session.get(RecurringIncome, recurring_id)
-    if not rec:
-        raise HTTPException(status_code=404, detail="Renda recorrente não encontrada")
-    assert_owns(rec.user_id, user_id, detail="Renda recorrente não encontrada")
-    return rec
-
-
-def _check_materialize(scope: str) -> None:
-    if scope not in MATERIALIZE_SCOPES:
-        raise HTTPException(
-            status_code=400, detail=f"materialize deve ser um de {list(MATERIALIZE_SCOPES)}"
-        )
-
 
 @_colecao("post", "/recurring-income", response_model=RecurringIncome)
 def create_recurring_income(
@@ -291,20 +231,7 @@ def create_recurring_income(
         description="Escopo da materialização com start_date retroativa: past | current | future",
     ),
 ):
-    _check_materialize(materialize)
-    _validate_frequency_fields(
-        recurring_in.frequency, recurring_in.day_of_week, recurring_in.month_of_year,
-        recurring_in.interval, recurring_in.start_date, recurring_in.end_date,
-    )
-    data = recurring_in.model_dump()
-    data["currency"] = resolve_personal_currency(session, current_user.id, recurring_in.currency)
-    _valida_conta(session, current_user.id, data.get("account_id"), data["currency"])
-    db_rec = RecurringIncome(**data, user_id=current_user.id)
-    session.add(db_rec)
-    session.flush()
-    RecurringMaterializationService.apply_scope(
-        session, None, db_rec, materialize, is_income=True
-    )
+    db_rec = inc_cmd.create_recurring_income(session, current_user.id, recurring_in, materialize)
     session.commit()
     session.refresh(db_rec)
     return db_rec
@@ -346,24 +273,8 @@ def update_recurring_income(
         description="Escopo da materialização com start_date retroativa: past | current | future",
     ),
 ):
-    _check_materialize(materialize)
-    db_rec = _get_template_or_404(session, recurring_id, current_user.id)
-
-    for key, value in recurring_in.model_dump(exclude_unset=True).items():
-        setattr(db_rec, key, value)
-    _validate_frequency_fields(
-        db_rec.frequency, db_rec.day_of_week, db_rec.month_of_year,
-        db_rec.interval, db_rec.start_date, db_rec.end_date,
-    )
-    _valida_conta(session, current_user.id, db_rec.account_id, db_rec.currency)
-    db_rec.updated_at = datetime.now(UTC)
-    session.add(db_rec)
-    session.flush()
-    # A edição vale do mês visualizado pra frente: reaplica ao lançamento do mês
-    # corrente; meses anteriores (fechados) ficam congelados.
-    RecurringIncomeService.sync_current_month_income(session, db_rec, today_local())
-    RecurringMaterializationService.apply_scope(
-        session, None, db_rec, materialize, is_income=True
+    db_rec = inc_cmd.update_recurring_income(
+        session, current_user.id, recurring_id, recurring_in, materialize
     )
     session.commit()
     session.refresh(db_rec)
@@ -376,15 +287,6 @@ def delete_recurring_income(
     session: Session = Depends(get_session),
     current_user: User = Depends(get_current_user),
 ):
-    db_rec = _get_template_or_404(session, recurring_id, current_user.id)
-
-    # Desvincula rendas já geradas antes de excluir o template (evita violar FK)
-    for inc in session.exec(
-        select(Income).where(Income.recurring_income_id == recurring_id)
-    ).all():
-        inc.recurring_income_id = None
-        session.add(inc)
-
-    session.delete(db_rec)
+    inc_cmd.delete_recurring_income(session, current_user.id, recurring_id)
     session.commit()
     return {"status": "ok"}

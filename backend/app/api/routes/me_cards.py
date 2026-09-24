@@ -436,12 +436,7 @@ def reopen_statement(
     session: Session = Depends(get_session),
     current_user: User = Depends(get_current_user),
 ):
-    card = _get_card_or_404(session, card_id, current_user.id)
-    stmt = _get_statement_or_404(session, card, statement_id)
-    try:
-        CreditCardService.reopen_statement(session, stmt)
-    except StatementStateError as exc:
-        raise HTTPException(status_code=409, detail=str(exc))
+    stmt = stmt_cmd.reopen_statement(session, current_user.id, card_id, statement_id)
     session.commit()
     session.refresh(stmt)
     return _serialize_statement(session, stmt)

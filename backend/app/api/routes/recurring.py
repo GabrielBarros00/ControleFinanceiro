@@ -10,9 +10,7 @@ from app.models.recurring import (
     RecurringExpenseBase,
 )
 from app.models.transaction import (
-    Transaction,
     PaymentMethod,
-    TransactionStatus,
 )
 from app.api.deps import get_workspace_membership, require_role
 from app.services.event_service import publish_event
@@ -284,35 +282,6 @@ def delete_recurring(
     mantém o rastro do que já esteve no mês, e é a mesma decisão do cancelamento
     de parcelas futuras de uma compra parcelada.
     """
-    db_recurring = _get_recurring_or_404(session, workspace_id, recurring_id, membership)
-    _check_ownership(membership, db_recurring)
-
-    # Desvincula instâncias já geradas antes de excluir o template — sem isso
-    # a FK transaction.recurring_expense_id viola no Postgres (500)
-    instances = session.exec(
-        select(Transaction).where(Transaction.recurring_expense_id == recurring_id)
-    ).all()
-    escolhidos = set(cancel_instance or [])
-    for tx in instances:
-        # Cancela ANTES de desvincular: depois do `recurring_expense_id = None` a
-        # linha deixa de ser identificável como ocorrência desta recorrência.
-        # Paga não se toca (ADR 0003) — ela é pulada, não recusada, senão excluir
-        # um template inteiro falharia por causa de um mês já quitado.
-        if tx.id in escolhidos and tx.status not in (
-            TransactionStatus.paid, TransactionStatus.cancelled
-        ):
-            tx.status = TransactionStatus.cancelled
-        tx.recurring_expense_id = None
-        session.add(tx)
-
-    session.delete(db_recurring)
-    publish_event(session, workspace_id, "recurring.deleted", "recurring", recurring_id, membership.user_id)
-    if escolhidos:
-        # Cancelar lançamento muda caixa, dívidas e relatórios — o evento de
-        # recorrência sozinho não alcança quem está com o extrato aberto.
-        publish_event(
-            session, workspace_id, "transaction.bulk_updated",
-            "transaction", None, membership.user_id,
-        )
+    rec_cmd.delete_recurring(session, workspace_id, recurring_id, membership, cancel_instance)
     session.commit()
     return {"status": "ok"}

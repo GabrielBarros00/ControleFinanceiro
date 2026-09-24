@@ -79,3 +79,15 @@ def pay_statement(
     except StatementStateError as exc:
         raise HTTPException(status_code=409, detail=str(exc))
     return stmt
+
+
+def reopen_statement(session: Session, user_id: int, card_id: int, statement_id: int) -> CardStatement:
+    """Desfaz um passo do ciclo (paga → fechada, fechada → aberta), estornando
+    os pagamentos. Movido de `api/routes/me_cards.py` sem mudança de regra."""
+    card = _get_card_or_404(session, card_id, user_id)
+    stmt = _get_statement_or_404(session, card, statement_id)
+    try:
+        CreditCardService.reopen_statement(session, stmt)
+    except StatementStateError as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
+    return stmt

@@ -1,35 +1,19 @@
-from datetime import datetime, UTC
-from typing import List, Optional
+from typing import List
 
-from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel, Field
+from fastapi import APIRouter, Depends
 
-from app.schemas.common import NAME_MAX, StatusRead
+from app.schemas.common import StatusRead
 from sqlmodel import Session, select
 
 from app.api.deps import get_workspace_membership, require_role
 from app.db.session import get_session
-from app.services.event_service import publish_event
 from app.models.category import Category
 from app.models.workspace import WorkspaceMembership, WorkspaceRole
 
-from app.schemas.category import CategoryCreate
+from app.schemas.category import CategoryCreate, CategoryUpdate
 from app.services.commands import planning as plan_cmd
 
 router = APIRouter(prefix="/workspaces/{workspace_id}/categories", tags=["categories"])
-
-
-class CategoryUpdate(BaseModel):
-    name: Optional[str] = Field(default=None, min_length=1, max_length=NAME_MAX)
-    color: Optional[str] = None
-    icon: Optional[str] = None
-
-
-def _get_category_or_404(session: Session, workspace_id: int, category_id: int) -> Category:
-    category = session.get(Category, category_id)
-    if not category or category.workspace_id != workspace_id or category.deleted_at:
-        raise HTTPException(status_code=404, detail="Categoria não encontrada")
-    return category
 
 
 @router.get("", response_model=List[Category])
@@ -67,27 +51,7 @@ def update_category(
     session: Session = Depends(get_session),
     membership: WorkspaceMembership = Depends(require_role(WorkspaceRole.member)),
 ):
-    category = _get_category_or_404(session, workspace_id, category_id)
-    update_data = category_in.model_dump(exclude_unset=True)
-    if "name" in update_data:
-        name = (update_data["name"] or "").strip()
-        if not name:
-            raise HTTPException(status_code=400, detail="Nome da categoria é obrigatório")
-        clash = session.exec(
-            select(Category).where(
-                Category.workspace_id == workspace_id,
-                Category.name == name,
-                Category.deleted_at.is_(None),
-            )
-        ).first()
-        if clash and clash.id != category.id:
-            raise HTTPException(status_code=400, detail=f"Categoria '{name}' já existe neste workspace")
-        update_data["name"] = name
-    for key, value in update_data.items():
-        setattr(category, key, value)
-    category.updated_at = datetime.now(UTC)
-    session.add(category)
-    publish_event(session, workspace_id, "category.updated", "category", category.id, membership.user_id)
+    category = plan_cmd.update_category(session, workspace_id, category_id, category_in, membership)
     session.commit()
     session.refresh(category)
     return category
@@ -100,9 +64,6 @@ def delete_category(
     session: Session = Depends(get_session),
     membership: WorkspaceMembership = Depends(require_role(WorkspaceRole.member)),
 ):
-    category = _get_category_or_404(session, workspace_id, category_id)
-    category.deleted_at = datetime.now(UTC)
-    session.add(category)
-    publish_event(session, workspace_id, "category.deleted", "category", category.id, membership.user_id)
+    plan_cmd.delete_category(session, workspace_id, category_id, membership)
     session.commit()
     return {"status": "ok"}

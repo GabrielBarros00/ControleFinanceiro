@@ -8,18 +8,31 @@ from decimal import Decimal, ROUND_HALF_UP
 from typing import Optional
 
 from fastapi import HTTPException
-from sqlmodel import Session
+from sqlmodel import Session, select
 
 from app.domain.access_policy import assert_owns
 from app.domain.account_policy import AccountCurrencyMismatch, assert_conta_na_moeda
 from app.domain.dates import civil_instant, local_day, today_local
 from app.domain.income_settlement import resolve_income_settled_at
 from app.domain.query_policy import resolve_personal_currency, user_report_currency
+from app.domain.recurrence_rules import validate_frequency_fields
 from app.models.income import Income
 from app.models.payment_account import PaymentAccount
-from app.schemas.income import IncomeCreate, IncomeReceiveRequest, IncomeUpdate
+from app.models.recurring import RecurringIncome
+from app.schemas.income import (
+    IncomeCreate,
+    IncomeReceiveRequest,
+    IncomeUpdate,
+    RecurringIncomeCreate,
+    RecurringIncomeUpdate,
+)
 from app.services.currency_service import ExchangeRateUnavailable
 from app.services.exchange_rate_store import ExchangeRateStore
+from app.services.recurring_service import (
+    MATERIALIZE_SCOPES,
+    RecurringIncomeService,
+    RecurringMaterializationService,
+)
 
 
 def _convert_income_fields(
@@ -212,3 +225,111 @@ def cancel_income(session: Session, user_id: int, income_id: int) -> Income:
     session.add(income)
     session.flush()
     return income
+
+
+def delete_income(session: Session, user_id: int, income_id: int) -> Income:
+    """Exclusão lógica: a linha fica (e segura a vaga da ocorrência recorrente)."""
+    income = _get_income_or_404(session, income_id, user_id)
+    income.deleted_at = datetime.now(UTC)
+    session.add(income)
+    session.flush()
+    return income
+
+
+def restore_income(session: Session, user_id: int, income_id: int) -> Income:
+    """Desfaz a exclusão lógica: a renda volta a contar como antes.
+
+    Seguro porque a exclusão só marcou `deleted_at`: a linha excluída continuou
+    ocupando a vaga da ocorrência, então não há outra renda da mesma ocorrência
+    com que ela possa colidir ao voltar.
+    """
+    income = session.get(Income, income_id)
+    if not income:
+        raise HTTPException(status_code=404, detail="Renda não encontrada")
+    assert_owns(income.user_id, user_id, detail="Renda não encontrada")
+    if income.deleted_at is None:
+        return income
+    income.deleted_at = None
+    income.updated_at = datetime.now(UTC)
+    session.add(income)
+    session.flush()
+    return income
+
+
+# ---------------------------------------------------------------------------
+# Renda recorrente (movido de `api/routes/me_income.py`, sem mudança de regra)
+# ---------------------------------------------------------------------------
+
+def get_recurring_income_or_404(session: Session, recurring_id: int, user_id: int) -> RecurringIncome:
+    rec = session.get(RecurringIncome, recurring_id)
+    if not rec:
+        raise HTTPException(status_code=404, detail="Renda recorrente não encontrada")
+    assert_owns(rec.user_id, user_id, detail="Renda recorrente não encontrada")
+    return rec
+
+
+def check_materialize(scope: str) -> None:
+    if scope not in MATERIALIZE_SCOPES:
+        raise HTTPException(
+            status_code=400, detail=f"materialize deve ser um de {list(MATERIALIZE_SCOPES)}"
+        )
+
+
+def create_recurring_income(
+    session: Session, user_id: int, recurring_in: RecurringIncomeCreate, materialize: str = "current"
+) -> RecurringIncome:
+    check_materialize(materialize)
+    validate_frequency_fields(
+        recurring_in.frequency, recurring_in.day_of_week, recurring_in.month_of_year,
+        recurring_in.interval, recurring_in.start_date, recurring_in.end_date,
+    )
+    data = recurring_in.model_dump()
+    data["currency"] = resolve_personal_currency(session, user_id, recurring_in.currency)
+    _valida_conta(session, user_id, data.get("account_id"), data["currency"])
+    db_rec = RecurringIncome(**data, user_id=user_id)
+    session.add(db_rec)
+    session.flush()
+    RecurringMaterializationService.apply_scope(
+        session, None, db_rec, materialize, is_income=True
+    )
+    return db_rec
+
+
+def update_recurring_income(
+    session: Session, user_id: int, recurring_id: int, recurring_in: RecurringIncomeUpdate,
+    materialize: str = "current",
+) -> RecurringIncome:
+    check_materialize(materialize)
+    db_rec = get_recurring_income_or_404(session, recurring_id, user_id)
+
+    for key, value in recurring_in.model_dump(exclude_unset=True).items():
+        setattr(db_rec, key, value)
+    validate_frequency_fields(
+        db_rec.frequency, db_rec.day_of_week, db_rec.month_of_year,
+        db_rec.interval, db_rec.start_date, db_rec.end_date,
+    )
+    _valida_conta(session, user_id, db_rec.account_id, db_rec.currency)
+    db_rec.updated_at = datetime.now(UTC)
+    session.add(db_rec)
+    session.flush()
+    # A edição vale do mês visualizado pra frente: reaplica ao lançamento do mês
+    # corrente; meses anteriores (fechados) ficam congelados.
+    RecurringIncomeService.sync_current_month_income(session, db_rec, today_local())
+    RecurringMaterializationService.apply_scope(
+        session, None, db_rec, materialize, is_income=True
+    )
+    return db_rec
+
+
+def delete_recurring_income(session: Session, user_id: int, recurring_id: int) -> None:
+    db_rec = get_recurring_income_or_404(session, recurring_id, user_id)
+
+    # Desvincula rendas já geradas antes de excluir o template (evita violar FK)
+    for inc in session.exec(
+        select(Income).where(Income.recurring_income_id == recurring_id)
+    ).all():
+        inc.recurring_income_id = None
+        session.add(inc)
+
+    session.delete(db_rec)
+    session.flush()

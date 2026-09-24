@@ -15,9 +15,11 @@ from fastapi import HTTPException, UploadFile
 from sqlmodel import Session, func, select
 
 from app.db.locks import trava_workspace
+from app.domain.access_policy import assert_can_write, get_visible_transaction
 from app.models.attachment import Attachment
+from app.models.workspace import WorkspaceMembership
 from app.services import app_settings, upload_validation
-from app.services.attachment_storage import AttachmentStorage, AttachmentStorageError
+from app.services.attachment_storage import AttachmentStorage, AttachmentStorageError, keys_to_free
 from app.services.event_service import publish_event
 
 logger = structlog.get_logger("app.attachments")
@@ -122,3 +124,40 @@ async def add_attachment(
     session.flush()
     publish_event(session, workspace_id, "attachment.created", "attachment", attachment.id, uploaded_by_user_id)
     return attachment
+
+
+def delete_attachment(
+    session: Session,
+    workspace_id: int,
+    attachment_id: int,
+    membership: WorkspaceMembership,
+) -> list:
+    """Remove o anexo e devolve as chaves que ficaram sem referência.
+
+    Movido de `api/routes/attachments.py` sem mudança de regra. Quem chama libera
+    as chaves com `free_keys` DEPOIS do commit: o armazenamento dedupica por
+    conteúdo, e apagar o objeto antes do commit perderia o arquivo se a transação
+    falhasse.
+    """
+    attachment = session.get(Attachment, attachment_id)
+    if not attachment or attachment.workspace_id != workspace_id:
+        raise HTTPException(status_code=404, detail="Anexo não encontrado")
+
+    # Invisível responde 404 antes de qualquer coisa: um 403 aqui confirmaria que
+    # o anexo existe naquele id
+    get_visible_transaction(session, workspace_id, attachment.transaction_id, membership)
+
+    # Member remove apenas os próprios anexos; admin+ remove qualquer um
+    assert_can_write(
+        attachment.uploaded_by_user_id,
+        membership,
+        detail="Você só pode remover os próprios anexos",
+    )
+
+    # Quais objetos ficarão sem referência (o armazenamento dedupica por
+    # conteúdo). Calculado ANTES de remover a linha; aplicado DEPOIS do commit.
+    liberar = keys_to_free(session, [attachment])
+    session.delete(attachment)
+    publish_event(session, workspace_id, "attachment.deleted", "attachment", attachment_id, membership.user_id)
+    session.flush()
+    return liberar
