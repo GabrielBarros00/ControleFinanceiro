@@ -875,6 +875,63 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/workspaces/{workspace_id}/imports": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Imports
+         * @description As importações da pessoa neste espaço (ADR 0036).
+         */
+        get: operations["list_imports_api_v1_workspaces__workspace_id__imports_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/workspaces/{workspace_id}/imports/{batch_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Import */
+        get: operations["get_import_api_v1_workspaces__workspace_id__imports__batch_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/workspaces/{workspace_id}/imports/{batch_id}/undo": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Undo Import
+         * @description Exclui os lançamentos que a importação criou (tudo ou nada, ADR 0036).
+         */
+        post: operations["undo_import_api_v1_workspaces__workspace_id__imports__batch_id__undo_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/workspaces/{workspace_id}/categories": {
         parameters: {
             query?: never;
@@ -4250,6 +4307,92 @@ export interface components {
             /** Database */
             database: string;
         };
+        /** ImportBatchDetail */
+        ImportBatchDetail: {
+            /** Id */
+            id: number;
+            /** Filename */
+            filename?: string | null;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Total Rows */
+            total_rows: number;
+            /** Imported */
+            imported: number;
+            /** Ignored */
+            ignored: number;
+            /** Duplicate */
+            duplicate: number;
+            /** Skipped */
+            skipped: number;
+            /** Live Transactions */
+            live_transactions: number;
+            /** Attachments */
+            attachments: number;
+            /**
+             * Rows
+             * @default []
+             */
+            rows: components["schemas"]["ImportRowRead"][];
+        };
+        /**
+         * ImportBatchRead
+         * @description Uma importação da pessoa, com quanto dela ainda está no app.
+         */
+        ImportBatchRead: {
+            /** Id */
+            id: number;
+            /** Filename */
+            filename?: string | null;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Total Rows */
+            total_rows: number;
+            /** Imported */
+            imported: number;
+            /** Ignored */
+            ignored: number;
+            /** Duplicate */
+            duplicate: number;
+            /** Skipped */
+            skipped: number;
+            /** Live Transactions */
+            live_transactions: number;
+            /** Attachments */
+            attachments: number;
+        };
+        /** ImportRowRead */
+        ImportRowRead: {
+            /** Line */
+            line?: number | null;
+            /** Title */
+            title: string;
+            /** Amount */
+            amount: string;
+            /**
+             * Transaction Date
+             * Format: date-time
+             */
+            transaction_date: string;
+            status: components["schemas"]["ImportRowStatus"];
+            /** Reason */
+            reason?: string | null;
+            /** Transaction Id */
+            transaction_id?: number | null;
+            /** Transaction Alive */
+            transaction_alive: boolean;
+        };
+        /**
+         * ImportRowStatus
+         * @enum {string}
+         */
+        ImportRowStatus: "imported" | "ignored" | "duplicate" | "skipped";
         /** IncomeCreate */
         IncomeCreate: {
             /** Title */
@@ -6971,6 +7114,23 @@ export interface components {
             /** Note */
             note?: string | null;
         };
+        /** UndoImportRequest */
+        UndoImportRequest: {
+            /**
+             * Confirm Attachments
+             * @default false
+             */
+            confirm_attachments: boolean;
+        };
+        /** UndoImportResult */
+        UndoImportResult: {
+            /** Batch Id */
+            batch_id: number;
+            /** Deleted */
+            deleted: number;
+            /** Attachments Removed */
+            attachments_removed: number;
+        };
         /** UserPatch */
         UserPatch: {
             /** Is Active */
@@ -9255,6 +9415,111 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["CommitImportResult"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_imports_api_v1_workspaces__workspace_id__imports_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                workspace_id: number;
+            };
+            cookie?: {
+                access_token?: string | null;
+            };
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ImportBatchRead"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_import_api_v1_workspaces__workspace_id__imports__batch_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                workspace_id: number;
+                batch_id: number;
+            };
+            cookie?: {
+                access_token?: string | null;
+            };
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ImportBatchDetail"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    undo_import_api_v1_workspaces__workspace_id__imports__batch_id__undo_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                workspace_id: number;
+                batch_id: number;
+            };
+            cookie?: {
+                access_token?: string | null;
+            };
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UndoImportRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UndoImportResult"];
                 };
             };
             /** @description Validation Error */

@@ -13,6 +13,7 @@ import { parseApiDate } from '@/lib/date';
 import { formatMoney } from '@/lib/money';
 import { useBaseCurrency } from '@/hooks/use-base-currency';
 import { PageHeader } from '@/components/layout/PageHeader';
+import { ImportHistory } from '@/components/imports/ImportHistory';
 
 interface ParsedRow {
   line?: number;
@@ -257,6 +258,7 @@ export function ImportPage() {
           </CardContent>
         </Card>
       </div>
+      <ImportHistory />
     </div>
   );
 }

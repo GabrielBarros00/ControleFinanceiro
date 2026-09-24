@@ -71,7 +71,7 @@ Confirmação: `host` = o cliente pede confirmação por não ser `readOnlyHint`
 
 ## Por rota REST
 
-173 rotas.
+176 rotas.
 
 | Rota | Funcionalidade | Tool(s) | Observação |
 |---|---|---|---|
@@ -231,6 +231,9 @@ Confirmação: `host` = o cliente pede confirmação por não ser `readOnlyHint`
 | `POST /api/v1/workspaces/{workspace_id}/recurring/{recurring_id}/preview` | Prévia da revisão | **não exposta** | Revisão ocorrência a ocorrência é interação de tela; o agente usa apply_to. |
 | `POST /api/v1/workspaces/{workspace_id}/imports/parse` | Ler CSV | `imports_preview` | O agente extrai as linhas do extrato (PDF, foto, texto); o app confere duplicatas. |
 | `POST /api/v1/workspaces/{workspace_id}/imports/commit` | Importar lote | `imports_commit`, `imports_list` | Os lotes feitos (e desfazer um) em imports_list + transactions_bulk_preview com import_batch_id. |
+| `GET /api/v1/workspaces/{workspace_id}/imports` | Histórico de importações | `imports_list` | Só os lotes da própria pessoa, como no app. |
+| `GET /api/v1/workspaces/{workspace_id}/imports/{batch_id}` | Linhas de uma importação | `imports_list` | imports_list com batch_id. |
+| `POST /api/v1/workspaces/{workspace_id}/imports/{batch_id}/undo` | Desfazer importação | `transactions_bulk_preview`, `transactions_bulk_delete` | A prévia com filters.import_batch_id mostra o conjunto, os anexos e o que fica de fora; o token confirma. Mesma exclusão (delete_transaction); o app recusa o lote inteiro se algum não pode sair. |
 | `GET /api/v1/workspaces/{workspace_id}/transactions/` | Lançamentos do espaço | `transactions_search`, `view_show` | view_show(view=transactions) desenha a lista paginada. |
 | `POST /api/v1/workspaces/{workspace_id}/transactions/` | Criar lançamento | `transactions_create` |  |
 | `POST /api/v1/workspaces/{workspace_id}/transactions/bulk` | Criar em lote | `imports_commit`, `transactions_create` | Lote pela importação (com dedup) ou uma criação por despesa (com idempotency_key). |

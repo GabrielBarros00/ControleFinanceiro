@@ -75,6 +75,12 @@ cliente MCP ([ADR 0035](docs/adr/0035-integracao-com-agentes-de-ia-mcp.md)).
   - **Categorias e tags**: criar, renomear e excluir.
   - Quando duas pessoas (ou você e a IA) editam o mesmo lançamento ao mesmo tempo, a
     segunda edição é recusada em vez de apagar a primeira.
+- **Desfazer importação**: na página de importar, "Importações anteriores" mostra cada
+  extrato importado e, com um clique (e a sua confirmação), exclui os lançamentos que
+  ele criou. Importou no espaço errado ou com as colunas trocadas? Desfaça e importe de
+  novo: o arquivo volta a entrar. Antes, mesmo excluindo tudo à mão, as linhas ficavam
+  marcadas como "já importadas" para sempre. Se algum lançamento tem recibo anexado, a
+  tela avisa quantos serão apagados antes de você confirmar.
 - **Você vê na conversa o que a IA fez, e corrige ali mesmo** (ChatGPT e Claude):
   - o lançamento que ela registrou aparece com **Editar** e **Desfazer**; editar abre
     o formulário no próprio cartão (título, valor, data, categoria, cartão, divisão,

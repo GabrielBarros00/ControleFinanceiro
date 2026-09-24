@@ -1,20 +1,27 @@
-"""Comando de IMPORTAÇÃO de extrato (ADR 0008).
+"""Comando de IMPORTAÇÃO de extrato (ADR 0008) e de DESFAZER importação (ADR 0036).
 
 Movido de `api/routes/imports.py` sem mudança de regra (ADR 0035): só o
 `commit` saiu — quem chama (rota REST ou pipeline do MCP) comanda a transação.
 `_mark_duplicates` veio junto porque o MCP usa a mesma heurística na prévia.
+
+Uma linha conta como "já importada" enquanto o lançamento que ela criou EXISTE
+(ADR 0036). Antes, bastava o status `imported`: desfazer a importação (ou excluir
+um lançamento importado) deixava a linha bloqueada para sempre, e o `/commit`
+recusava como duplicata o que a própria prévia (`/parse`, que só olha lançamento
+vivo) mostrava como novo.
 """
 from datetime import datetime, time, timedelta
 from decimal import Decimal
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Tuple
 
 from fastapi import HTTPException
-from sqlmodel import Session, select
+from sqlmodel import Session, func, select
 
 from app.db.locks import trava_workspace
 from app.domain.dates import civil_instant, local_day, month_key_local
 from app.domain.query_policy import workspace_base_currency
 from app.domain.settlement import resolve_settled_at
+from app.models.attachment import Attachment
 from app.models.import_batch import (
     ImportBatch,
     ImportRow,
@@ -132,11 +139,16 @@ def commit_import(
     session.add(batch)
     session.flush()
 
-    # Fingerprints já importados neste workspace = fonte da idempotência
+    # Fingerprints já importados neste workspace = fonte da idempotência. Só
+    # os que ainda têm lançamento VIVO (ADR 0036): o que foi desfeito ou excluído
+    # pode voltar, como a prévia já mostrava.
     seen = set(session.exec(
-        select(ImportRow.fingerprint).where(
+        select(ImportRow.fingerprint)
+        .join(Transaction, Transaction.id == ImportRow.transaction_id)
+        .where(
             ImportRow.workspace_id == workspace_id,
             ImportRow.status == ImportRowStatus.imported,
+            Transaction.deleted_at.is_(None),
         )
     ).all())
 
@@ -214,3 +226,146 @@ def commit_import(
         "duplicate": duplicate,
         "skipped": skipped,
     }
+
+
+# --- Histórico e desfazer (ADR 0036) -----------------------------------------------------
+
+def _vivos(batch_ids):
+    """Lançamentos ainda vivos criados pelos lotes (a base de "desfazer")."""
+    return (
+        select(ImportRow.batch_id, Transaction.id)
+        .join(Transaction, Transaction.id == ImportRow.transaction_id)
+        .where(
+            ImportRow.batch_id.in_(list(batch_ids)),
+            ImportRow.status == ImportRowStatus.imported,
+            Transaction.deleted_at.is_(None),
+        )
+    )
+
+
+def _lote_proprio(session: Session, workspace_id: int, batch_id: int, membership: WorkspaceMembership) -> ImportBatch:
+    """A importação de QUEM PERGUNTA. A de outra pessoa responde 404, como tudo o
+    que ela não pode ver: os lançamentos importados são dela (`created_by`), e
+    desfazê-los seria excluir o que não é seu."""
+    lote = session.get(ImportBatch, batch_id)
+    if lote is None or lote.workspace_id != workspace_id or lote.created_by_user_id != membership.user_id:
+        raise HTTPException(status_code=404, detail="Importação não encontrada")
+    return lote
+
+
+def _contagens(session: Session, batch_ids: List[int]) -> Tuple[Dict[int, int], Dict[int, int]]:
+    if not batch_ids:
+        return {}, {}
+    vivos_q = _vivos(batch_ids).subquery()
+    vivos = dict(session.exec(
+        select(vivos_q.c.batch_id, func.count()).group_by(vivos_q.c.batch_id)
+    ).all())
+    anexos = dict(session.exec(
+        select(vivos_q.c.batch_id, func.count(Attachment.id))
+        .join(Attachment, Attachment.transaction_id == vivos_q.c.id)
+        .group_by(vivos_q.c.batch_id)
+    ).all())
+    return vivos, anexos
+
+
+def _resumo(lote: ImportBatch, vivos: int, anexos: int) -> dict:
+    return {
+        "id": lote.id,
+        "filename": lote.filename,
+        "created_at": lote.created_at,
+        "total_rows": lote.total_rows,
+        "imported": lote.imported_count,
+        "ignored": lote.ignored_count,
+        "duplicate": lote.duplicate_count,
+        "skipped": lote.skipped_count,
+        "live_transactions": vivos,
+        "attachments": anexos,
+    }
+
+
+def list_batches(session: Session, workspace_id: int, membership: WorkspaceMembership, *, limit: int = 50) -> List[dict]:
+    """As importações da pessoa neste espaço, da mais nova para a mais velha."""
+    lotes = session.exec(
+        select(ImportBatch)
+        .where(ImportBatch.workspace_id == workspace_id, ImportBatch.created_by_user_id == membership.user_id)
+        .order_by(ImportBatch.created_at.desc(), ImportBatch.id.desc())
+        .limit(limit)
+    ).all()
+    vivos, anexos = _contagens(session, [lote.id for lote in lotes])
+    return [_resumo(lote, vivos.get(lote.id, 0), anexos.get(lote.id, 0)) for lote in lotes]
+
+
+def get_batch(session: Session, workspace_id: int, batch_id: int, membership: WorkspaceMembership) -> dict:
+    """Uma importação com o desfecho de cada linha (ADR 0008: nada some calado)."""
+    lote = _lote_proprio(session, workspace_id, batch_id, membership)
+    vivos, anexos = _contagens(session, [lote.id])
+    linhas = session.exec(
+        select(ImportRow, Transaction.deleted_at)
+        .outerjoin(Transaction, Transaction.id == ImportRow.transaction_id)
+        .where(ImportRow.batch_id == lote.id)
+        .order_by(ImportRow.line, ImportRow.id)
+    ).all()
+    return {
+        **_resumo(lote, vivos.get(lote.id, 0), anexos.get(lote.id, 0)),
+        "rows": [
+            {
+                "line": r.line, "title": r.title, "amount": r.amount, "transaction_date": r.transaction_date,
+                "status": r.status, "reason": r.reason, "transaction_id": r.transaction_id,
+                "transaction_alive": r.transaction_id is not None and apagado is None,
+            }
+            for r, apagado in linhas
+        ],
+    }
+
+
+def undo_batch(
+    session: Session,
+    workspace_id: int,
+    batch_id: int,
+    membership: WorkspaceMembership,
+    *,
+    confirm_attachments: bool = False,
+) -> Tuple[dict, List[str]]:
+    """Exclui os lançamentos que a importação criou e que ainda existem.
+
+    **As mesmas regras da exclusão uma a uma** (`delete_transaction`): quem pode,
+    trava de paga, anexos apagados. Tudo ou nada: se um lançamento não pode sair,
+    a exceção sobe, a rota não faz o commit e nenhum sai.
+
+    Anexo não tem desfazer (o arquivo é apagado de verdade), então com anexo a
+    importação só é desfeita com `confirm_attachments` — a tela mostra quantos.
+
+    Idempotente: desfazer de novo não acha nada vivo e responde 0. Depois de
+    desfeita, reimportar o arquivo importa as linhas outra vez (ADR 0036).
+    Devolve as chaves de anexo a liberar DEPOIS do commit.
+    """
+    from app.services.commands import transactions as tx_cmd
+
+    # Antes de ler o conjunto: um `/commit` ou outro "desfazer" simultâneo não
+    # pode mudar o que é decidido aqui (ver `db/locks.py`).
+    trava_workspace(session, workspace_id)
+    lote = _lote_proprio(session, workspace_id, batch_id, membership)
+    ids = [tx_id for _, tx_id in session.exec(_vivos([lote.id]).order_by(Transaction.id)).all()]
+    if not ids:
+        return {"batch_id": lote.id, "deleted": 0, "attachments_removed": 0}, []
+    anexos = session.exec(
+        select(func.count()).select_from(Attachment).where(Attachment.transaction_id.in_(ids))
+    ).one()
+    if anexos and not confirm_attachments:
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                f"{anexos} recibo(s) anexado(s) a lançamentos desta importação seriam apagados para "
+                "sempre. Confirme para desfazer mesmo assim."
+            ),
+        )
+    removidos = 0
+    liberar: List[str] = []
+    for tx_id in ids:
+        resultado, chaves = tx_cmd.delete_transaction(session, workspace_id, tx_id, membership)
+        removidos += resultado["attachments_removed"]
+        liberar.extend(chaves)
+    # Um aviso do lote inteiro, como na exclusão de um grupo de parcelas: as telas
+    # abertas se atualizam de uma vez, além dos avisos de cada lançamento.
+    publish_event(session, workspace_id, "transaction.bulk_updated", "transaction", None, membership.user_id)
+    return {"batch_id": lote.id, "deleted": len(ids), "attachments_removed": removidos}, liberar

@@ -1,4 +1,4 @@
-import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { apiClient } from '@/api/client';
 import { invalidateForEvent } from '@/lib/ws-events';
 import type { components } from '@/types/api.gen';
@@ -17,6 +17,10 @@ export type SkippedCsvRow = components['schemas']['SkippedCsvRow'];
 export type ParseCsvResult = components['schemas']['ParseCsvResult'];
 export type BulkImportResult = components['schemas']['BulkCreateResult'];
 export type CommitImportResult = components['schemas']['CommitImportResult'];
+
+/** Uma importação feita pela pessoa, com quanto dela ainda existe (ADR 0036). */
+export type ImportBatch = components['schemas']['ImportBatchRead'];
+export type UndoImportResult = components['schemas']['UndoImportResult'];
 
 /** O corpo do commit — entrada, não saída (a decisão por linha é do usuário). */
 export type CommitRow = components['schemas']['CommitRow'];
@@ -90,7 +94,10 @@ export function useImports() {
       );
       return response.data as CommitImportResult;
     },
-    onSuccess: invalidarLote,
+    onSuccess: () => {
+      invalidarLote();
+      queryClient.invalidateQueries({ queryKey: ['imports', currentWorkspaceId] });
+    },
   });
 
   return {
@@ -101,4 +108,35 @@ export function useImports() {
     commit: commitMutation.mutateAsync,
     isCommitting: commitMutation.isPending,
   };
+}
+
+/** As importações da pessoa neste espaço (ADR 0036). */
+export function useImportHistory() {
+  const workspaceId = useWorkspaceId();
+  return useQuery({
+    queryKey: ['imports', workspaceId],
+    queryFn: async () => (await apiClient.get(`/workspaces/${workspaceId}/imports`)).data as ImportBatch[],
+    enabled: Boolean(workspaceId),
+  });
+}
+
+/**
+ * Desfazer importação: exclui o que o lote criou e ainda existe, com as regras da
+ * exclusão (tudo ou nada). Com anexo, o servidor só aceita com
+ * `confirm_attachments` — a tela pergunta antes, mostrando quantos recibos saem.
+ */
+export function useUndoImport() {
+  const workspaceId = useWorkspaceId();
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ batchId, confirmAttachments }: { batchId: number; confirmAttachments: boolean }) =>
+      (await apiClient.post(`/workspaces/${workspaceId}/imports/${batchId}/undo`, {
+        confirm_attachments: confirmAttachments,
+      })).data as UndoImportResult,
+    onSuccess: () => {
+      // Os lançamentos saíram: as mesmas telas que o lote de criação atualiza.
+      invalidateForEvent(queryClient, 'transaction.bulk_created', workspaceId);
+      queryClient.invalidateQueries({ queryKey: ['imports', workspaceId] });
+    },
+  });
 }
