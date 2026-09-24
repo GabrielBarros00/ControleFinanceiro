@@ -237,7 +237,7 @@ export function TransactionsPage() {
   );
 
   const hasFilters =
-    !!searchInput || !!filters.payment_method || !!filters.category_id ||
+    !!searchInput || !!filters.payment_method || !!filters.category_id || !!filters.uncategorized ||
     !!filters.tag_id || filters.settled !== undefined;
 
   return (
@@ -261,14 +261,14 @@ export function TransactionsPage() {
 
       <FilterBar
         ativos={
-          [filters.payment_method, filters.category_id, filters.tag_id, filters.settled]
+          [filters.payment_method, filters.category_id || filters.uncategorized || undefined, filters.tag_id, filters.settled]
             .filter((f) => f !== undefined && f !== null && f !== '')
             .length
         }
         onLimpar={() => {
           setSearchInput('');
           patch({
-            search: '', payment_method: undefined, category_id: undefined,
+            search: '', payment_method: undefined, category_id: undefined, uncategorized: false,
             tag_id: undefined, settled: undefined,
           });
         }}
@@ -390,6 +390,7 @@ export function TransactionsPage() {
                 search: '',
                 payment_method: undefined,
                 category_id: undefined,
+                uncategorized: false,
                 tag_id: undefined,
               });
             }}

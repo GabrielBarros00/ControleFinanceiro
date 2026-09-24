@@ -49,6 +49,22 @@ describe('useTransactions — os filtros chegam à API', () => {
     expect(mockGet.mock.calls[0][1].params.settled).toBeUndefined();
   });
 
+  it('"Sem categoria" chega ao servidor e refaz a consulta', async () => {
+    // O seletor de categoria da tela oferecia "Sem categoria" (e o link dos
+    // Relatórios apontava para ele), mas o hook não mandava o campo: a lista
+    // mostrava tudo, e o recorte era só decoração.
+    const { rerender } = renderHook(
+      ({ uncategorized }: { uncategorized?: boolean }) => useTransactions({ page: 1, limit: 10, uncategorized }),
+      { wrapper, initialProps: {} as { uncategorized?: boolean } },
+    );
+    await waitFor(() => expect(mockGet).toHaveBeenCalledTimes(1));
+    expect(mockGet.mock.calls[0][1].params.uncategorized).toBeUndefined();
+
+    rerender({ uncategorized: true });
+    await waitFor(() => expect(mockGet).toHaveBeenCalledTimes(2));
+    expect(mockGet.mock.calls[1][1].params).toMatchObject({ uncategorized: true });
+  });
+
   it('trocar o recorte refaz a consulta (o filtro está na queryKey)', async () => {
     const { rerender } = renderHook(
       ({ settled }: { settled?: boolean }) =>
