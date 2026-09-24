@@ -36,7 +36,7 @@ from app.schemas.balance import AdjustmentRequest, TransferCreate
 from app.schemas.common import DESCRIPTION_MAX
 from app.services.commands import accounts as acc_cmd
 from app.services.commands import statements as stmt_cmd
-from app.services.credit_card_service import CreditCardService, StatementStateError
+from app.services.credit_card_service import CreditCardService
 from app.services.oauth import scopes as escopos
 
 
@@ -97,10 +97,9 @@ def _fecha_se_o_ciclo_acabou(call: ToolCall, fatura: CardStatement, cartao) -> b
             f"{fechamento.strftime('%d/%m/%Y')}). Pagamento antecipado deve ser registrado no app.",
         )
     try:
-        CreditCardService.close_statement(call.session, fatura)
-    except StatementStateError as exc:
-        raise McpToolError(ErrorCode.CONFLICT, str(exc))
-    return True
+        return stmt_cmd.fechar_se_o_ciclo_acabou(call.session, fatura, today_local())
+    except HTTPException as exc:
+        raise McpToolError(ErrorCode.CONFLICT, str(exc.detail))
 
 
 def _fatura_a_pagar(call: ToolCall, cartao, mes: Optional[str]) -> CardStatement:

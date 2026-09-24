@@ -179,11 +179,13 @@ MONTADORES: dict[str, Montador] = {
     "transactions_bulk_update": lambda call, d: _massa(d),
     "imports_commit": lambda call, d: {
         "view": "imports", "mode": "created",
-        **({"undo": ui_meta.undo(
-            "transactions_bulk_preview", {"action": "delete", "filters": {"import_batch_id": d["batch_id"]}},
-            "Desfazer importação",
-        )} if d.get("batch_id") and d.get("imported") else {}),
+        **({"undo": ui_meta.undo("imports_undo", {"batch_id": d["batch_id"]}, "Desfazer importação")}
+           if d.get("batch_id") and d.get("imported") else {}),
     },
+    # A prévia desenha o que sai e o botão de confirmar; o feito, o recibo.
+    "imports_undo": lambda call, d: (
+        {"view": "imports", "mode": "undo_preview"} if d.get("mode") == "preview" else {"view": "receipt"}
+    ),
 }
 
 

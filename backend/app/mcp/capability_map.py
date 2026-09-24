@@ -166,6 +166,17 @@ ROTAS: dict[str, Rota] = {
     f"GET {API}/me/settlements": Rota("Acertos (todas as casas)", ("debts_summary",)),
     f"PUT {API}/me/settlements/{{settlement_id}}/account": Rota("Conta do credor num acerto", nota=RARO),
     f"GET {API}/me/transfers": Rota("Transferências", ("transfers_list",)),
+    f"POST {API}/me/imports/parse": Rota(
+        "Ler extrato de conta", ("imports_preview",),
+        "Com `account`: o agente extrai as linhas com o sentido; o app confere duplicatas e sugere a classificação.",
+    ),
+    f"POST {API}/me/imports/commit": Rota("Importar extrato de conta", ("imports_commit",), "Com `account`: mesmo comando (commit_account_statement)."),
+    f"GET {API}/me/imports": Rota("Importações de extrato", ("imports_list",), "Os lotes de extrato entram na mesma lista."),
+    f"GET {API}/me/imports/{{batch_id}}": Rota("Linhas de uma importação de extrato", ("imports_list",), "imports_list com batch_id."),
+    f"POST {API}/me/imports/{{batch_id}}/undo": Rota(
+        "Desfazer importação de extrato", ("imports_undo",),
+        "Mesmo comando (undo_account_import): exclui despesa, renda e transferência e estorna o pagamento de fatura.",
+    ),
     f"POST {API}/me/transfers": Rota("Transferir entre contas", ("transfers_create",)),
     f"DELETE {API}/me/transfers/{{transfer_id}}": Rota("Excluir transferência", ("transfers_delete",)),
 
@@ -237,9 +248,8 @@ ROTAS: dict[str, Rota] = {
     f"GET {W}/imports": Rota("Histórico de importações", ("imports_list",), "Só os lotes da própria pessoa, como no app."),
     f"GET {W}/imports/{{batch_id}}": Rota("Linhas de uma importação", ("imports_list",), "imports_list com batch_id."),
     f"POST {W}/imports/{{batch_id}}/undo": Rota(
-        "Desfazer importação", ("transactions_bulk_preview", "transactions_bulk_delete"),
-        "A prévia com filters.import_batch_id mostra o conjunto, os anexos e o que fica de fora; o token confirma. "
-        "Mesma exclusão (delete_transaction); o app recusa o lote inteiro se algum não pode sair.",
+        "Desfazer importação", ("imports_undo",),
+        "Mesmo comando (undo_batch), em duas etapas: a prévia mostra o que sai e os recibos, o token executa.",
     ),
 
     # --- Lançamentos ---------------------------------------------------------------------
@@ -356,6 +366,11 @@ FICHAS: dict[str, Ficha] = {
     "reports_breakdown": Ficha("Mesmos filtros e escopo da busca; minha parte rateada em centavos (0001/0019)", "services/transaction_query.breakdown",
                                "médio", "nenhum"),
     "imports_list": Ficha("Só os lotes que a própria pessoa importou", "ImportBatch, ImportRow", "baixo", "nenhum"),
+    "imports_undo": Ficha(
+        "Tudo ou nada, regras da exclusão; token de uso único amarrado ao conjunto (ADR 0036/0037)",
+        "commands.imports.undo_batch, commands.account_imports.undo_account_import",
+        "alto — em lote, apaga recibos", "WS + auditoria",
+    ),
     "transactions_bulk_update": Ficha("Conjunto exato da prévia, tudo ou nada; trava de paga", "commands.transactions.update_transaction ×N",
                                       "médio — em massa", "WS + auditoria"),
 }

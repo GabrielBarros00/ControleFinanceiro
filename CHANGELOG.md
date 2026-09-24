@@ -75,6 +75,16 @@ cliente MCP ([ADR 0035](docs/adr/0035-integracao-com-agentes-de-ia-mcp.md)).
   - **Categorias e tags**: criar, renomear e excluir.
   - Quando duas pessoas (ou você e a IA) editam o mesmo lançamento ao mesmo tempo, a
     segunda edição é recusada em vez de apagar a primeira.
+- **Importar o extrato de uma conta, com entradas e transferências**: na página de
+  importar, "Extrato de uma conta" lê o CSV do banco COM o sinal (entrou/saiu) e mostra,
+  para cada linha, o que ela é: despesa (num espaço), renda, transferência para outra
+  conta sua ou pagamento da fatura do cartão. O app sugere e você confirma. Antes, o
+  salário e o Pix recebido entravam como gasto, a transferência para a poupança sumia
+  do saldo e o pagamento da fatura somava de novo as compras do cartão. O saldo da conta
+  passa a bater com o extrato, e a transferência que aparece no extrato das duas contas
+  não entra duas vezes. Dá para desfazer a importação inteira, inclusive o pagamento de
+  fatura, que é estornado. Pela IA também: "importe o extrato do Itaú" (a IA sugere a
+  classificação e pede a sua confirmação) e "desfaça a importação de ontem".
 - **Desfazer importação**: na página de importar, "Importações anteriores" mostra cada
   extrato importado e, com um clique (e a sua confirmação), exclui os lançamentos que
   ele criou. Importou no espaço errado ou com as colunas trocadas? Desfaça e importe de

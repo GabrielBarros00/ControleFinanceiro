@@ -493,6 +493,43 @@ describe('Widget: fatura, resumo e recibos', () => {
     expect(screen.getByText(/via IA \(ChatGPT\)/)).toBeInTheDocument();
   });
 
+  it('desfazer importação: pede a prévia, mostra o que sai e só desfaz com o token', async () => {
+    const b = ponte({
+      imports_undo: (a) => (a.confirmation_token
+        ? { structuredContent: { batch_id: 4, mode: 'done', undone: { income: 1, transfer: 1 }, attachments: 0 } }
+        : { structuredContent: { batch_id: 4, mode: 'preview', will_undo: { income: 1, transfer: 1 }, attachments: 0, confirmation_token: 'cfm_imp' } }),
+    });
+    monta(b);
+    b.entregar({
+      structuredContent: { view: 'imports', source_tool: 'imports_list', data: { batches: [
+        { id: 4, kind: 'account', account: { id: 3, name: 'Itaú' }, filename: 'itau.csv', imported_on: '2026-09-22', total_rows: 2,
+          imported: 2, ignored: 0, duplicates: 0, skipped: 0, live_transactions: 2 },
+      ] } },
+      _meta: { view: 'imports', query: { tool: 'imports_list', args: {} } },
+    });
+    expect(screen.getByText(/Extrato de Itaú/)).toBeInTheDocument();
+    await clica(screen.getByRole('button', { name: 'Desfazer importação' }));
+    expect(b.chamadas).toEqual([{ name: 'imports_undo', args: { batch_id: 4 } }]);
+    expect(screen.getByText('1 renda, 1 transferência')).toBeInTheDocument();
+    await clica(screen.getByRole('button', { name: 'Confirmar e desfazer' }));
+    expect(b.chamadas[1]).toEqual({ name: 'imports_undo', args: { batch_id: 4, confirmation_token: 'cfm_imp' } });
+    expect(screen.getByRole('status')).toHaveTextContent('Importação desfeita: 1 renda, 1 transferência.');
+  });
+
+  it('extrato importado: o que entrou por tipo e as linhas que não entraram, com o motivo', () => {
+    const b = ponte();
+    monta(b);
+    b.entregar({
+      structuredContent: { batch_id: 5, account: { id: 3, name: 'Itaú' }, imported: 3, ignored: 0, duplicate: 1, skipped: 1,
+        transaction_ids: [9], by_classification: { expense: 1, income: 2 }, problems: [{ line: 7, reason: 'escolha o espaço da despesa' }] },
+      _meta: { view: 'imports', mode: 'created', tool: 'imports_commit', undo: { tool: 'imports_undo', args: { batch_id: 5 } } },
+    });
+    expect(screen.getByText('Entraram 1 despesa, 2 rendas')).toBeInTheDocument();
+    expect(screen.getByText(/Extrato de Itaú · 1 já existiam · 1 não entraram/)).toBeInTheDocument();
+    expect(screen.getByText('Linha 7: escolha o espaço da despesa')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Desfazer importação' })).toBeInTheDocument();
+  });
+
   it('recibo de ajuste de saldo mostra antes → depois', () => {
     const b = ponte();
     monta(b);

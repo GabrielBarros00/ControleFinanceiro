@@ -27,6 +27,7 @@ SEM_EVENTO_ESPERADO = {
     "preview_transaction",        # dry-run: não persiste nada
     "preview_recurring",          # idem: POST só porque leva corpo (ADR 0030)
     "parse_csv",                  # só interpreta o arquivo
+    "parse_account_statement",    # idem, o extrato de conta (ADR 0037)
     "simulate_early_settlement",  # simulação de quitação
     "create_workspace",           # ninguém está na sala do ws que acabou de nascer
     # Notificações são de escopo PESSOAL, não de workspace: o canal de tempo

@@ -156,6 +156,7 @@ def _casos(m: dict) -> dict[str, list[dict]]:
         "attachments_delete": [{"attachment_id": m["anexo"]}],
         "attachments_add": [{"transaction_id": m["tx"], "file": {"download_url": "https://files.oaiusercontent.com/x", "file_id": "f"}}],
         "imports_list": [{"batch_id": m["lote"]}],
+        "imports_undo": [{"batch_id": m["lote"]}],
         "view_show": [{"view": "history", "transaction_id": m["tx"]}, {"view": "transactions", "space_id": c.casa.id},
                       {"view": "account", "account_id": c.conta.id}, {"view": "imports", "batch_id": m["lote"]},
                       {"view": "breakdown", "group_by": "person", "space_id": c.casa.id}],

@@ -195,6 +195,13 @@ Os números da camada pessoal (`OverviewService`), somando todos os espaços da 
   apontar duplicata. Cada linha é importada, ignorada, marcada como duplicata ou pulada
   por ser inválida, sempre com trilha (ADR 0008). Uma linha é "já importada" enquanto
   o lançamento que ela criou existe (ADR 0036).
+- **Extrato de conta** (importação, ADR 0037): o CSV de UMA conta da pessoa, com o
+  sinal preservado. Cada linha tem **sentido** (`direction`: `in` entrou, `out` saiu)
+  e **classificação** (`classification`): despesa (lançamento num espaço, pago pela
+  conta), renda (na conta), transferência (com outra conta da pessoa) ou pagamento de
+  fatura (a fatura de fechamento mais recente com saldo). O lote é pessoal
+  (`ImportBatch.kind = 'account'`, sem espaço). A **sugestão** da classificação é um
+  palpite do servidor; quem decide é a pessoa.
 - **Desfazer importação**: exclui os lançamentos que o lote criou e ainda existem, com
   as regras da exclusão, tudo ou nada. Na tela, o lote fica "Desfeita"
   (`imported > 0` e `live_transactions == 0`); depois dá para importar o arquivo de

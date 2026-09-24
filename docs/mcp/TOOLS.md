@@ -2,7 +2,7 @@
 
 <!-- GERADO por `python -m app.mcp.docs` a partir de `backend/app/mcp/registry.py`. Não edite à mão. -->
 
-Servidor `controle-financeiro` versão `1.4.0` · 58 tools · endpoint `/mcp` (Streamable HTTP).
+Servidor `controle-financeiro` versão `1.5.0` · 59 tools · endpoint `/mcp` (Streamable HTTP).
 
 Convenções que valem para todas: dinheiro em string decimal com ponto (`"89.90"`, até 2 casas, nunca arredondado); datas `YYYY-MM-DD` e meses `YYYY-MM` no fuso da conta (`profile_get.timezone`); nomes resolvidos no servidor (ambíguo → `AMBIGUOUS` com candidatos); nenhuma tool aceita `user_id` — a identidade vem do token.
 
@@ -64,6 +64,7 @@ Toda falha volta com `isError: true` e `{"error": {code, message, details, retry
 | [`imports_preview`](#imports_preview--conferir-linhas-de-extrato) | Conferir linhas de extrato | Leitura | `finance.read` |
 | [`imports_commit`](#imports_commit--importar-linhas-de-extrato) | Importar linhas de extrato | Escrita | `transactions.write` |
 | [`imports_list`](#imports_list--importações-feitas) | Importações feitas | Leitura | `finance.read` |
+| [`imports_undo`](#imports_undo--desfazer-importação) | Desfazer importação | Escrita | `transactions.write` |
 | [`statements_pay`](#statements_pay--pagar-fatura-do-cartão) | Pagar fatura do cartão | Escrita | `accounts.write` |
 | [`transfers_create`](#transfers_create--transferir-entre-contas) | Transferir entre contas | Escrita | `accounts.write` |
 | [`accounts_adjust_balance`](#accounts_adjust_balance--conciliar-saldo-da-conta) | Conciliar saldo da conta | Escrita | `accounts.write` |
@@ -264,7 +265,7 @@ Não use quando: ainda não souber o id (busque com transactions_search), ou o u
 
 - **Classe:** Leitura · **Escopo:** `finance.read` · **Custo:** 1 unidade(s)
 - **Annotations:** readOnlyHint=true, destructiveHint=false, idempotentHint=true, openWorldHint=false
-- **UI (MCP Apps):** `ui://controle-financeiro/widget-v4.html`
+- **UI (MCP Apps):** `ui://controle-financeiro/widget-v5.html`
 
 Desenha UM lançamento como cartão visual na conversa (valor, divisão, sua parte, cartão/fatura, parcelas) e devolve os mesmos dados de transactions_get.
 
@@ -327,7 +328,7 @@ Não use quando: o usuário pedir para ver/mostrar a fatura (statements_show); q
 
 - **Classe:** Leitura · **Escopo:** `finance.read` · **Custo:** 2 unidade(s)
 - **Annotations:** readOnlyHint=true, destructiveHint=false, idempotentHint=true, openWorldHint=false
-- **UI (MCP Apps):** `ui://controle-financeiro/widget-v4.html`
+- **UI (MCP Apps):** `ui://controle-financeiro/widget-v5.html`
 
 Desenha a fatura de um cartão como componente visual na conversa (total, saldo, vencimento, as maiores categorias e as compras mais recentes) e devolve os mesmos dados de statements_get, só com a primeira página de compras.
 
@@ -373,7 +374,7 @@ Não use quando: o usuário pedir para ver/mostrar o resumo (reports_show); prec
 
 - **Classe:** Leitura · **Escopo:** `finance.read` · **Custo:** 2 unidade(s)
 - **Annotations:** readOnlyHint=true, destructiveHint=false, idempotentHint=true, openWorldHint=false
-- **UI (MCP Apps):** `ui://controle-financeiro/widget-v4.html`
+- **UI (MCP Apps):** `ui://controle-financeiro/widget-v5.html`
 
 Desenha o resumo de UM mês como componente visual na conversa (renda, seu consumo, caixa, a pagar, resultado e consumo por categoria) e devolve os mesmos dados de reports_summary.
 
@@ -641,7 +642,7 @@ Não use quando: quiser tudo que vence no mês, de todas as origens (payables_li
 
 - **Classe:** Escrita · **Escopo:** `accounts.write` · **Custo:** 3 unidade(s)
 - **Annotations:** readOnlyHint=false, destructiveHint=true, idempotentHint=true, openWorldHint=false
-- **UI (MCP Apps):** `ui://controle-financeiro/widget-v4.html` · chamável pelo componente
+- **UI (MCP Apps):** `ui://controle-financeiro/widget-v5.html` · chamável pelo componente
 
 Marca uma parcela de financiamento como paga (`action=pay`, na conta e na data informadas; com `space`, lança também a despesa naquele espaço) ou desfaz o pagamento (`action=unpay`: a parcela volta a aberta e a despesa lançada some).
 
@@ -681,7 +682,7 @@ Exemplo:
 
 - **Classe:** Leitura · **Escopo:** `finance.read` · **Custo:** 2 unidade(s)
 - **Annotations:** readOnlyHint=true, destructiveHint=false, idempotentHint=true, openWorldHint=false
-- **UI (MCP Apps):** `ui://controle-financeiro/widget-v4.html`
+- **UI (MCP Apps):** `ui://controle-financeiro/widget-v5.html`
 
 Desenha uma tela na conversa, com os mesmos números da tool de dados: lista de lançamentos filtrada (paginável, com edição), gastos agrupados, extrato de conta, caixa do mês, dívidas, a pagar, metas, recorrências, rendas, financiamento, histórico de um lançamento ou importações.
 
@@ -722,7 +723,7 @@ Não use quando: precisar dos dados para responder ou analisar (use a tool de da
 - **Classe:** Escrita · **Escopo:** `transactions.write` · **Custo:** 3 unidade(s)
 - **Annotations:** readOnlyHint=false, destructiveHint=false, idempotentHint=true, openWorldHint=false
 - **Idempotência:** `idempotency_key` obrigatória (replay devolve o mesmo resultado; outra carga com a mesma chave = `CONFLICT`).
-- **UI (MCP Apps):** `ui://controle-financeiro/widget-v4.html` · chamável pelo componente
+- **UI (MCP Apps):** `ui://controle-financeiro/widget-v5.html` · chamável pelo componente
 
 Registra uma despesa (compra, conta, gasto) numa única chamada atômica: valor, data, categoria, tags, cartão e parcelas, quem pagou, divisão com outras pessoas, conta de origem, moeda estrangeira e se já foi paga. O servidor calcula a fatura, as parcelas e os centavos da divisão — não calcule nada disso.
 
@@ -799,7 +800,7 @@ Exemplo:
 
 - **Classe:** Escrita · **Escopo:** `transactions.write` · **Custo:** 3 unidade(s)
 - **Annotations:** readOnlyHint=false, destructiveHint=true, idempotentHint=true, openWorldHint=false
-- **UI (MCP Apps):** `ui://controle-financeiro/widget-v4.html` · chamável pelo componente
+- **UI (MCP Apps):** `ui://controle-financeiro/widget-v5.html` · chamável pelo componente
 
 Altera um lançamento existente: título, observação, valor, data, categoria, tags, cartão, forma de pagamento, quem pagou, divisão, moeda (o valor é convertido na data, com IOF no cartão), "já paguei" (settled) ou cancelamento. Só os campos informados mudam. Devolve como estava ANTES (`previous`) e o que mudou (`changed`).
 
@@ -874,7 +875,7 @@ Exemplo:
 
 - **Classe:** Destrutiva · **Escopo:** `transactions.write` · **Custo:** 3 unidade(s)
 - **Annotations:** readOnlyHint=false, destructiveHint=true, idempotentHint=true, openWorldHint=false
-- **UI (MCP Apps):** `ui://controle-financeiro/widget-v4.html` · chamável pelo componente
+- **UI (MCP Apps):** `ui://controle-financeiro/widget-v5.html` · chamável pelo componente
 
 Exclui um lançamento (ou, com `scope=purchase`, todas as parcelas em aberto de uma compra parcelada). A exclusão pode ser desfeita com transactions_restore. Despesa paga não é excluída — reabra antes.
 
@@ -910,7 +911,7 @@ Exemplo:
 
 - **Classe:** Escrita · **Escopo:** `transactions.write` · **Custo:** 3 unidade(s)
 - **Annotations:** readOnlyHint=false, destructiveHint=false, idempotentHint=true, openWorldHint=false
-- **UI (MCP Apps):** `ui://controle-financeiro/widget-v4.html` · chamável pelo componente
+- **UI (MCP Apps):** `ui://controle-financeiro/widget-v5.html` · chamável pelo componente
 
 Desfaz a exclusão de um lançamento (volta a contar em tudo). Anexos apagados não voltam.
 
@@ -936,7 +937,7 @@ Exemplo:
 
 - **Classe:** Leitura · **Escopo:** `finance.read` · **Custo:** 3 unidade(s)
 - **Annotations:** readOnlyHint=true, destructiveHint=false, idempotentHint=true, openWorldHint=false
-- **UI (MCP Apps):** `ui://controle-financeiro/widget-v4.html` · chamável pelo componente
+- **UI (MCP Apps):** `ui://controle-financeiro/widget-v5.html` · chamável pelo componente
 
 Primeiro passo OBRIGATÓRIO para alterar vários lançamentos (ou excluir um com anexos): excluir, categorizar os sem categoria, trocar categoria, pôr/tirar tag, marcar como pago — ou DESFAZER UMA IMPORTAÇÃO (action=delete com filters.import_batch_id). Não altera nada: calcula o conjunto exato, o total, uma amostra e o que ficou de fora, e devolve um `confirmation_token` válido por 10 minutos.
 
@@ -975,7 +976,7 @@ Exemplo:
 
 - **Classe:** Destrutiva · **Escopo:** `transactions.write` · **Custo:** 5 unidade(s)
 - **Annotations:** readOnlyHint=false, destructiveHint=true, idempotentHint=true, openWorldHint=false
-- **UI (MCP Apps):** `ui://controle-financeiro/widget-v4.html` · chamável pelo componente
+- **UI (MCP Apps):** `ui://controle-financeiro/widget-v5.html` · chamável pelo componente
 
 Executa a exclusão preparada por transactions_bulk_preview (action=delete). Recebe só o `confirmation_token`: exclui exatamente o conjunto da prévia, tudo ou nada. Se algo mudou desde a prévia (lançamento pago, apagado, fora do seu alcance), nada é excluído e é preciso nova prévia. Anexos dos excluídos são apagados para sempre; os lançamentos podem ser restaurados um a um com transactions_restore.
 
@@ -1001,7 +1002,7 @@ Exemplo:
 
 - **Classe:** Escrita · **Escopo:** `transactions.write` · **Custo:** 5 unidade(s)
 - **Annotations:** readOnlyHint=false, destructiveHint=true, idempotentHint=true, openWorldHint=false
-- **UI (MCP Apps):** `ui://controle-financeiro/widget-v4.html` · chamável pelo componente
+- **UI (MCP Apps):** `ui://controle-financeiro/widget-v5.html` · chamável pelo componente
 
 Executa a categorização preparada por transactions_bulk_preview (action=categorize). Recebe só o `confirmation_token` e aplica a categoria da prévia aos lançamentos da prévia que continuam sem categoria.
 
@@ -1027,7 +1028,7 @@ Exemplo:
 
 - **Classe:** Escrita · **Escopo:** `transactions.write` · **Custo:** 5 unidade(s)
 - **Annotations:** readOnlyHint=false, destructiveHint=true, idempotentHint=true, openWorldHint=false
-- **UI (MCP Apps):** `ui://controle-financeiro/widget-v4.html` · chamável pelo componente
+- **UI (MCP Apps):** `ui://controle-financeiro/widget-v5.html` · chamável pelo componente
 
 Executa a alteração preparada por transactions_bulk_preview com action recategorize (troca a categoria), tag / untag (põe ou tira uma tag) ou settle (marca como pago). Recebe só o `confirmation_token` e altera exatamente o conjunto da prévia, tudo ou nada; se algo mudou desde a prévia, nada é alterado e é preciso nova prévia.
 
@@ -1054,9 +1055,9 @@ Exemplo:
 - **Classe:** Leitura · **Escopo:** `finance.read` · **Custo:** 3 unidade(s)
 - **Annotations:** readOnlyHint=true, destructiveHint=false, idempotentHint=true, openWorldHint=false
 
-Confere linhas de um extrato bancário/cartão contra o que já está no app, sem gravar nada: marca o que já foi importado e o que parece já lançado.
+Confere linhas de um extrato contra o que já está no app, sem gravar nada: marca o que já foi importado e o que parece já lançado. Com `account` (extrato de UMA conta sua), cada linha tem `direction` e a prévia sugere a classificação: despesa, renda, transferência ou pagamento de fatura.
 
-Use quando: o usuário colar ou enviar um extrato e pedir para conciliar/importar. Extraia as linhas de SAÍDA (data, descrição, valor) e chame esta tool antes de imports_commit.
+Use quando: o usuário colar ou enviar um extrato e pedir para conciliar/importar. Chame antes de imports_commit.
 
 Não use quando: for registrar um gasto isolado (transactions_create).
 
@@ -1064,11 +1065,13 @@ Não use quando: for registrar um gasto isolado (transactions_create).
 
 | Parâmetro | Tipo | Obrigatório | Descrição |
 |---|---|---|---|
-| `space` | string | não | Espaço onde os lançamentos entram. (máx. 120) |
+| `space` | string | não | Espaço dos lançamentos (com `account`: o padrão das despesas). (máx. 120) |
 | `space_id` | integer | não |  |
+| `account` | string | não | Extrato DE UMA CONTA sua (entradas, transferências, fatura). (máx. 120) |
+| `account_id` | integer | não |  |
 | `rows` | lista de objeto | sim | mín. 1, máx. 200 |
 
-**Saída (`structuredContent`)**: `space`, `rows`, `new_count`, `already_imported_count`, `possible_duplicate_count`
+**Saída (`structuredContent`)**: `space`, `account`, `rows`, `new_count`, `already_imported_count`, `possible_duplicate_count`
 
 Exemplo:
 
@@ -1076,32 +1079,38 @@ Exemplo:
 {"space": "Meu espaço", "rows": [{"date": "2026-09-20", "title": "PADARIA PAO QUENTE", "amount": "12.50"}]}
 ```
 
+Exemplo:
+
+```json
+{"account": "Itaú", "rows": [{"date": "2026-09-05", "title": "PIX RECEBIDO", "amount": "900.00", "direction": "in"}]}
+```
+
 ### `imports_commit` — Importar linhas de extrato
 
 - **Classe:** Escrita · **Escopo:** `transactions.write` · **Custo:** 5 unidade(s)
 - **Annotations:** readOnlyHint=false, destructiveHint=false, idempotentHint=true, openWorldHint=false
 - **Idempotência:** `idempotency_key` obrigatória (replay devolve o mesmo resultado; outra carga com a mesma chave = `CONFLICT`).
-- **UI (MCP Apps):** `ui://controle-financeiro/widget-v4.html` · chamável pelo componente
+- **UI (MCP Apps):** `ui://controle-financeiro/widget-v5.html` · chamável pelo componente
 
-Grava as linhas de extrato confirmadas pelo usuário como lançamentos (pagos por você, 100% seus, já liquidados na data), num lote. Linhas já importadas antes são puladas sozinhas.
+Grava as linhas confirmadas pelo usuário, num lote. Sem `account`: lançamentos pagos por você, 100% seus, liquidados. Com `account`: cada linha vira o que ela é (classification): despesa no espaço, renda na conta, transferência com `counterpart_account` ou pagamento da fatura do `card`. Linhas já importadas são puladas; as que não podem entrar voltam em `problems`.
 
-Use quando: depois de imports_preview, o usuário confirmar quais linhas importar.
+Use quando: depois de imports_preview, o usuário confirmar o que importar.
 
-Não use quando: não houver confirmação do usuário, ou para despesas divididas/no cartão (transactions_create, que tem divisão e fatura).
-
-Mande `decision: ignore` nas linhas que o usuário descartou (ficam registradas como ignoradas).
+Não use quando: não houver confirmação do usuário, ou para despesa dividida/no cartão (transactions_create).
 
 **Entrada**
 
 | Parâmetro | Tipo | Obrigatório | Descrição |
 |---|---|---|---|
-| `space` | string | não | Espaço onde os lançamentos entram. (máx. 120) |
+| `space` | string | não | Espaço dos lançamentos (com `account`: o padrão das despesas). (máx. 120) |
 | `space_id` | integer | não |  |
+| `account` | string | não | Extrato DE UMA CONTA sua (entradas, transferências, fatura). (máx. 120) |
+| `account_id` | integer | não |  |
 | `idempotency_key` | string | sim | Identificador ÚNICO desta intenção do usuário (ex.: um UUID novo). Repita a MESMA chave só ao reenviar exatamente a mesma chamada após erro de rede ou timeout — assim nada é criado em dobro. Pedido novo = chave nova. (mín. 8, máx. 100, padrão `^[A-Za-z0-9._:-]+$`) |
 | `label` | string | não | Nome do lote (ex.: "Extrato Itaú setembro"). (máx. 120) |
 | `rows` | lista de objeto | sim | mín. 1, máx. 200 |
 
-**Saída (`structuredContent`)**: `batch_id`, `space`, `imported`, `ignored`, `duplicate`, `skipped`, `transaction_ids`, `replayed`
+**Saída (`structuredContent`)**: `batch_id`, `space`, `account`, `imported`, `ignored`, `duplicate`, `skipped`, `transaction_ids`, `by_classification`, `problems`, `replayed`
 
 Exemplo:
 
@@ -1114,9 +1123,9 @@ Exemplo:
 - **Classe:** Leitura · **Escopo:** `finance.read` · **Custo:** 2 unidade(s)
 - **Annotations:** readOnlyHint=true, destructiveHint=false, idempotentHint=true, openWorldHint=false
 
-Lista os lotes de importação de extrato que VOCÊ fez (mais recentes primeiro), com quantas linhas entraram, foram ignoradas ou eram duplicadas. Com `batch_id`, traz as linhas do lote.
+Lista os lotes de importação que VOCÊ fez (mais recentes primeiro): de despesas de um espaço ou de extrato de conta, com quanto entrou e quanto ainda existe. Com `batch_id`, traz as linhas do lote.
 
-Use quando: 'o que entrou na importação de ontem?', ou para DESFAZER uma importação: pegue o id aqui e use transactions_bulk_preview (action=delete, import_batch_id) + transactions_bulk_delete.
+Use quando: 'o que entrou na importação de ontem?', ou para achar o lote a desfazer (imports_undo).
 
 Não use quando: quiser importar um extrato novo (imports_preview → imports_commit).
 
@@ -1130,12 +1139,33 @@ Não use quando: quiser importar um extrato novo (imports_preview → imports_co
 
 **Saída (`structuredContent`)**: `batches`, `rows`, `next_cursor`
 
+### `imports_undo` — Desfazer importação
+
+- **Classe:** Escrita · **Escopo:** `transactions.write` · **Custo:** 5 unidade(s)
+- **Annotations:** readOnlyHint=false, destructiveHint=true, idempotentHint=true, openWorldHint=false
+- **UI (MCP Apps):** `ui://controle-financeiro/widget-v5.html` · chamável pelo componente
+
+Desfaz um lote de importação (os dois modos), com as regras do app e tudo ou nada: exclui despesas e rendas, exclui transferências e estorna pagamentos de fatura que ele criou. Duas etapas: sem `confirmation_token` devolve o que sai (e os recibos apagados) e um token de 10 min; MOSTRE ao usuário e, com a confirmação dele, chame de novo com o token.
+
+Use quando: 'desfaça a importação de ontem' (o id vem de imports_list).
+
+Não use quando: for excluir só algumas linhas (transactions_bulk_preview).
+
+**Entrada**
+
+| Parâmetro | Tipo | Obrigatório | Descrição |
+|---|---|---|---|
+| `batch_id` | integer | sim | O lote (imports_list). (≥ 1) |
+| `confirmation_token` | string | não | Omitido: só a prévia (o que sai) e um token. Com o token da prévia: desfaz. (mín. 20, máx. 128, padrão `^cfm_cf_[A-Za-z0-9_-]+$`) |
+
+**Saída (`structuredContent`)**: `batch_id`, `mode`, `will_undo`, `undone`, `attachments`, `confirmation_token`, `expires_at`, `next_step`
+
 ### `statements_pay` — Pagar fatura do cartão
 
 - **Classe:** Escrita · **Escopo:** `accounts.write` · **Custo:** 3 unidade(s)
 - **Annotations:** readOnlyHint=false, destructiveHint=false, idempotentHint=true, openWorldHint=false
 - **Idempotência:** `idempotency_key` obrigatória (replay devolve o mesmo resultado; outra carga com a mesma chave = `CONFLICT`).
-- **UI (MCP Apps):** `ui://controle-financeiro/widget-v4.html` · chamável pelo componente
+- **UI (MCP Apps):** `ui://controle-financeiro/widget-v5.html` · chamável pelo componente
 
 Registra o pagamento (total ou parcial) de uma fatura do cartão de crédito cujo ciclo já fechou, com a conta de onde o dinheiro saiu. Não é despesa: as compras já estão na fatura.
 
@@ -1172,7 +1202,7 @@ Exemplo:
 - **Classe:** Escrita · **Escopo:** `accounts.write` · **Custo:** 3 unidade(s)
 - **Annotations:** readOnlyHint=false, destructiveHint=false, idempotentHint=true, openWorldHint=false
 - **Idempotência:** `idempotency_key` obrigatória (replay devolve o mesmo resultado; outra carga com a mesma chave = `CONFLICT`).
-- **UI (MCP Apps):** `ui://controle-financeiro/widget-v4.html` · chamável pelo componente
+- **UI (MCP Apps):** `ui://controle-financeiro/widget-v5.html` · chamável pelo componente
 
 Registra dinheiro que passou de uma conta sua para outra conta sua (ex.: da conta corrente para a poupança). Não é despesa nem renda: só move saldo.
 
@@ -1209,7 +1239,7 @@ Exemplo:
 - **Classe:** Escrita · **Escopo:** `accounts.write` · **Custo:** 3 unidade(s)
 - **Annotations:** readOnlyHint=false, destructiveHint=false, idempotentHint=true, openWorldHint=false
 - **Idempotência:** `idempotency_key` obrigatória (replay devolve o mesmo resultado; outra carga com a mesma chave = `CONFLICT`).
-- **UI (MCP Apps):** `ui://controle-financeiro/widget-v4.html` · chamável pelo componente
+- **UI (MCP Apps):** `ui://controle-financeiro/widget-v5.html` · chamável pelo componente
 
 Acerta o saldo de uma conta com o que o banco mostra: você informa o saldo REAL e o app lança a diferença como uma linha de ajuste datada (não é renda nem despesa e não reescreve o passado).
 
@@ -1240,7 +1270,7 @@ Exemplo:
 
 - **Classe:** Destrutiva · **Escopo:** `accounts.write` · **Custo:** 3 unidade(s)
 - **Annotations:** readOnlyHint=false, destructiveHint=true, idempotentHint=true, openWorldHint=false
-- **UI (MCP Apps):** `ui://controle-financeiro/widget-v4.html` · chamável pelo componente
+- **UI (MCP Apps):** `ui://controle-financeiro/widget-v5.html` · chamável pelo componente
 
 Desfaz uma transferência entre suas contas: as duas pernas (saída e entrada) somem juntas, e os saldos voltam ao que eram.
 
@@ -1266,7 +1296,7 @@ Exemplo:
 
 - **Classe:** Destrutiva · **Escopo:** `accounts.write` · **Custo:** 3 unidade(s)
 - **Annotations:** readOnlyHint=false, destructiveHint=true, idempotentHint=true, openWorldHint=false
-- **UI (MCP Apps):** `ui://controle-financeiro/widget-v4.html` · chamável pelo componente
+- **UI (MCP Apps):** `ui://controle-financeiro/widget-v5.html` · chamável pelo componente
 
 Estorna os pagamentos de uma fatura, como o botão "Reabrir" do app: os pagamentos somem, o dinheiro volta às contas e a fatura volta um passo (paga → fechada; fechada com pagamento parcial → aberta). Sem pagamento na fatura, não faz nada.
 
@@ -1295,7 +1325,7 @@ Exemplo:
 - **Classe:** Escrita · **Escopo:** `income.write` · **Custo:** 3 unidade(s)
 - **Annotations:** readOnlyHint=false, destructiveHint=false, idempotentHint=true, openWorldHint=false
 - **Idempotência:** `idempotency_key` obrigatória (replay devolve o mesmo resultado; outra carga com a mesma chave = `CONFLICT`).
-- **UI (MCP Apps):** `ui://controle-financeiro/widget-v4.html` · chamável pelo componente
+- **UI (MCP Apps):** `ui://controle-financeiro/widget-v5.html` · chamável pelo componente
 
 Registra uma entrada de dinheiro pessoal: salário, freela, reembolso, venda. Renda é sua, não de um espaço, e não se divide.
 
@@ -1330,7 +1360,7 @@ Exemplo:
 
 - **Classe:** Escrita · **Escopo:** `income.write` · **Custo:** 3 unidade(s)
 - **Annotations:** readOnlyHint=false, destructiveHint=true, idempotentHint=true, openWorldHint=false
-- **UI (MCP Apps):** `ui://controle-financeiro/widget-v4.html` · chamável pelo componente
+- **UI (MCP Apps):** `ui://controle-financeiro/widget-v5.html` · chamável pelo componente
 
 Altera uma renda sua (valor, data, título, categoria, conta) e/ou o estado dela: recebida, prevista de novo ou cancelada. Devolve como estava antes (`previous`).
 
@@ -1373,7 +1403,7 @@ Exemplo:
 
 - **Classe:** Destrutiva · **Escopo:** `income.write` · **Custo:** 3 unidade(s)
 - **Annotations:** readOnlyHint=false, destructiveHint=true, idempotentHint=true, openWorldHint=false
-- **UI (MCP Apps):** `ui://controle-financeiro/widget-v4.html` · chamável pelo componente
+- **UI (MCP Apps):** `ui://controle-financeiro/widget-v5.html` · chamável pelo componente
 
 Exclui uma renda registrada por engano (some das listas e dos totais). Dá para desfazer com income_restore.
 
@@ -1400,7 +1430,7 @@ Exemplo:
 
 - **Classe:** Escrita · **Escopo:** `income.write` · **Custo:** 3 unidade(s)
 - **Annotations:** readOnlyHint=false, destructiveHint=false, idempotentHint=true, openWorldHint=false
-- **UI (MCP Apps):** `ui://controle-financeiro/widget-v4.html` · chamável pelo componente
+- **UI (MCP Apps):** `ui://controle-financeiro/widget-v5.html` · chamável pelo componente
 
 Desfaz a exclusão de uma renda (volta às listas e aos totais).
 
@@ -1427,7 +1457,7 @@ Exemplo:
 - **Classe:** Escrita · **Escopo:** `settlements.write` · **Custo:** 3 unidade(s)
 - **Annotations:** readOnlyHint=false, destructiveHint=false, idempotentHint=true, openWorldHint=false
 - **Idempotência:** `idempotency_key` obrigatória (replay devolve o mesmo resultado; outra carga com a mesma chave = `CONFLICT`).
-- **UI (MCP Apps):** `ui://controle-financeiro/widget-v4.html` · chamável pelo componente
+- **UI (MCP Apps):** `ui://controle-financeiro/widget-v5.html` · chamável pelo componente
 
 Registra que uma pessoa pagou a outra para quitar (toda ou parte da) dívida de despesas divididas num espaço. Reduz "quem deve a quem".
 
@@ -1466,7 +1496,7 @@ Exemplo:
 
 - **Classe:** Destrutiva · **Escopo:** `settlements.write` · **Custo:** 3 unidade(s)
 - **Annotations:** readOnlyHint=false, destructiveHint=true, idempotentHint=true, openWorldHint=false
-- **UI (MCP Apps):** `ui://controle-financeiro/widget-v4.html` · chamável pelo componente
+- **UI (MCP Apps):** `ui://controle-financeiro/widget-v5.html` · chamável pelo componente
 
 Desfaz um acerto registrado por engano (a dívida volta a existir).
 
@@ -1493,7 +1523,7 @@ Exemplo:
 - **Classe:** Escrita · **Escopo:** `planning.write` · **Custo:** 3 unidade(s)
 - **Annotations:** readOnlyHint=false, destructiveHint=false, idempotentHint=true, openWorldHint=false
 - **Idempotência:** `idempotency_key` obrigatória (replay devolve o mesmo resultado; outra carga com a mesma chave = `CONFLICT`).
-- **UI (MCP Apps):** `ui://controle-financeiro/widget-v4.html` · chamável pelo componente
+- **UI (MCP Apps):** `ui://controle-financeiro/widget-v5.html` · chamável pelo componente
 
 Cria uma despesa que se repete (aluguel, assinatura, academia) ou, com `kind=income`, uma renda que se repete (salário): o app lança cada ocorrência sozinho, com a mesma divisão, categoria e cartão (renda: a conta onde cai, em `account`).
 
@@ -1563,7 +1593,7 @@ Exemplo:
 
 - **Classe:** Escrita · **Escopo:** `planning.write` · **Custo:** 3 unidade(s)
 - **Annotations:** readOnlyHint=false, destructiveHint=true, idempotentHint=true, openWorldHint=false
-- **UI (MCP Apps):** `ui://controle-financeiro/widget-v4.html` · chamável pelo componente
+- **UI (MCP Apps):** `ui://controle-financeiro/widget-v5.html` · chamável pelo componente
 
 Altera uma despesa recorrente (ou, com `kind=income`, uma renda recorrente): valor, dia, frequência, fim, categoria, cartão, divisão, conta da renda, ou pausa/retoma (`active`). Ocorrências já pagas nunca mudam; as não pagas seguem `apply_to`.
 
@@ -1626,7 +1656,7 @@ Exemplo:
 
 - **Classe:** Destrutiva · **Escopo:** `planning.write` · **Custo:** 3 unidade(s)
 - **Annotations:** readOnlyHint=false, destructiveHint=true, idempotentHint=true, openWorldHint=false
-- **UI (MCP Apps):** `ui://controle-financeiro/widget-v4.html` · chamável pelo componente
+- **UI (MCP Apps):** `ui://controle-financeiro/widget-v5.html` · chamável pelo componente
 
 Exclui uma despesa ou renda recorrente: o app para de lançar novas ocorrências. O que já foi lançado continua (e continua contando), salvo `cancel_open_occurrences=true`, que cancela as ocorrências deste mês em diante ainda não pagas. Não tem desfazer: para só interromper, prefira pausar (recurring_update com active=false).
 
@@ -1661,7 +1691,7 @@ Exemplo:
 
 - **Classe:** Escrita · **Escopo:** `planning.write` · **Custo:** 3 unidade(s)
 - **Annotations:** readOnlyHint=false, destructiveHint=true, idempotentHint=true, openWorldHint=false
-- **UI (MCP Apps):** `ui://controle-financeiro/widget-v4.html` · chamável pelo componente
+- **UI (MCP Apps):** `ui://controle-financeiro/widget-v5.html` · chamável pelo componente
 
 Cria ou atualiza a meta de gasto (orçamento) de uma categoria num mês. Chamar de novo com o mesmo espaço/categoria/mês/escopo só atualiza o valor.
 
@@ -1694,7 +1724,7 @@ Exemplo:
 
 - **Classe:** Escrita · **Escopo:** `planning.write` · **Custo:** 3 unidade(s)
 - **Annotations:** readOnlyHint=false, destructiveHint=false, idempotentHint=true, openWorldHint=false
-- **UI (MCP Apps):** `ui://controle-financeiro/widget-v4.html` · chamável pelo componente
+- **UI (MCP Apps):** `ui://controle-financeiro/widget-v5.html` · chamável pelo componente
 
 Cria uma categoria (ou, com `kind=tag`, uma tag) num espaço. Se já existir uma com o mesmo nome (ignorando acento e maiúsculas), devolve ALREADY_EXISTS com o id dela — use a existente.
 
@@ -1730,7 +1760,7 @@ Exemplo:
 
 - **Classe:** Escrita · **Escopo:** `planning.write` · **Custo:** 3 unidade(s)
 - **Annotations:** readOnlyHint=false, destructiveHint=true, idempotentHint=true, openWorldHint=false
-- **UI (MCP Apps):** `ui://controle-financeiro/widget-v4.html` · chamável pelo componente
+- **UI (MCP Apps):** `ui://controle-financeiro/widget-v5.html` · chamável pelo componente
 
 Renomeia, muda a cor ou exclui uma categoria ou tag de um espaço (`kind`). Nome novo que já exista volta erro.
 
@@ -1808,7 +1838,7 @@ Não use quando: só precisar saber se há anexo (transactions_get já diz).
 
 - **Classe:** Destrutiva · **Escopo:** `transactions.write` · **Custo:** 3 unidade(s)
 - **Annotations:** readOnlyHint=false, destructiveHint=true, idempotentHint=true, openWorldHint=false
-- **UI (MCP Apps):** `ui://controle-financeiro/widget-v4.html` · chamável pelo componente
+- **UI (MCP Apps):** `ui://controle-financeiro/widget-v5.html` · chamável pelo componente
 
 Apaga um anexo (recibo) de um lançamento, para sempre — não há como desfazer. Membro apaga os próprios anexos; administrador do espaço, qualquer um.
 
@@ -1828,7 +1858,7 @@ Não use quando: quiser excluir o lançamento (transactions_delete).
 
 - **Classe:** Escrita · **Escopo:** `transactions.write` · **Custo:** 3 unidade(s)
 - **Annotations:** readOnlyHint=false, destructiveHint=false, idempotentHint=true, openWorldHint=false
-- **UI (MCP Apps):** `ui://controle-financeiro/widget-v4.html` · chamável pelo componente
+- **UI (MCP Apps):** `ui://controle-financeiro/widget-v5.html` · chamável pelo componente
 
 Anexa a um lançamento um arquivo que o usuário colocou NESTA conversa (foto do recibo, nota em PDF) — no ChatGPT, que entrega o arquivo à tool. JPG, PNG, WebP ou PDF.
 

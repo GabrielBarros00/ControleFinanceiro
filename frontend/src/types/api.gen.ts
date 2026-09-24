@@ -1952,6 +1952,100 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/me/imports/parse": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Parse Account Statement
+         * @description Lê o extrato com o sinal (entrou/saiu) e sugere a classificação de cada linha.
+         */
+        post: operations["parse_account_statement_api_v1_me_imports_parse_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/me/imports/commit": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Commit Account Statement
+         * @description Grava o extrato com a decisão de cada linha (ADR 0037).
+         */
+        post: operations["commit_account_statement_api_v1_me_imports_commit_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/me/imports": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Account Imports */
+        get: operations["list_account_imports_api_v1_me_imports_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/me/imports/{batch_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Account Import */
+        get: operations["get_account_import_api_v1_me_imports__batch_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/me/imports/{batch_id}/undo": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Undo Account Import
+         * @description Desfaz o extrato: exclui ou estorna o que ele criou (tudo ou nada).
+         */
+        post: operations["undo_account_import_api_v1_me_imports__batch_id__undo_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/me/push/config": {
         parameters: {
             query?: never;
@@ -2936,6 +3030,230 @@ export interface components {
              */
             movements_counted: number;
         };
+        /** AccountCommitRequest */
+        AccountCommitRequest: {
+            /** Account Id */
+            account_id: number;
+            /** Filename */
+            filename?: string | null;
+            /** Rows */
+            rows: components["schemas"]["AccountCommitRow"][];
+        };
+        /** AccountCommitResult */
+        AccountCommitResult: {
+            /** Batch Id */
+            batch_id: number;
+            /** Imported */
+            imported: number;
+            /** Ignored */
+            ignored: number;
+            /** Duplicate */
+            duplicate: number;
+            /** Skipped */
+            skipped: number;
+            /**
+             * By Classification
+             * @default {}
+             */
+            by_classification: {
+                [key: string]: number;
+            };
+            /**
+             * Problems
+             * @default []
+             */
+            problems: components["schemas"]["SkippedCsvRow"][];
+        };
+        /**
+         * AccountCommitRow
+         * @description A decisão da pessoa sobre uma linha do extrato.
+         */
+        AccountCommitRow: {
+            /** Line */
+            line?: number | null;
+            /** Title */
+            title: string;
+            /** Total Amount */
+            total_amount: number | string;
+            /**
+             * Transaction Date
+             * Format: date-time
+             */
+            transaction_date: string;
+            /**
+             * Direction
+             * @enum {string}
+             */
+            direction: "in" | "out";
+            /** External Id */
+            external_id?: string | null;
+            /**
+             * Decision
+             * @default import
+             * @enum {string}
+             */
+            decision: "import" | "ignore";
+            /** Classification */
+            classification?: ("expense" | "income" | "transfer" | "statement_payment") | null;
+            /** Space Id */
+            space_id?: number | null;
+            /** Category Id */
+            category_id?: number | null;
+            /** Income Category */
+            income_category?: string | null;
+            /** Counterpart Account Id */
+            counterpart_account_id?: number | null;
+            /** Card Id */
+            card_id?: number | null;
+        };
+        /** AccountImportBatchDetail */
+        AccountImportBatchDetail: {
+            /** Id */
+            id: number;
+            /** Account Id */
+            account_id: number;
+            /** Account Name */
+            account_name: string;
+            /** Filename */
+            filename?: string | null;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Total Rows */
+            total_rows: number;
+            /** Imported */
+            imported: number;
+            /** Ignored */
+            ignored: number;
+            /** Duplicate */
+            duplicate: number;
+            /** Skipped */
+            skipped: number;
+            /** Live */
+            live: number;
+            /** Attachments */
+            attachments: number;
+            /**
+             * Rows
+             * @default []
+             */
+            rows: components["schemas"]["AccountImportRowRead"][];
+        };
+        /**
+         * AccountImportBatchRead
+         * @description Uma importação de extrato da pessoa, com quanto dela ainda existe.
+         */
+        AccountImportBatchRead: {
+            /** Id */
+            id: number;
+            /** Account Id */
+            account_id: number;
+            /** Account Name */
+            account_name: string;
+            /** Filename */
+            filename?: string | null;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Total Rows */
+            total_rows: number;
+            /** Imported */
+            imported: number;
+            /** Ignored */
+            ignored: number;
+            /** Duplicate */
+            duplicate: number;
+            /** Skipped */
+            skipped: number;
+            /** Live */
+            live: number;
+            /** Attachments */
+            attachments: number;
+        };
+        /** AccountImportRowRead */
+        AccountImportRowRead: {
+            /** Line */
+            line?: number | null;
+            /** Title */
+            title: string;
+            /** Amount */
+            amount: string;
+            /**
+             * Transaction Date
+             * Format: date-time
+             */
+            transaction_date: string;
+            /** Direction */
+            direction?: ("in" | "out") | null;
+            /** Classification */
+            classification?: ("expense" | "income" | "transfer" | "statement_payment") | null;
+            status: components["schemas"]["ImportRowStatus"];
+            /** Reason */
+            reason?: string | null;
+            /** External Id */
+            external_id?: string | null;
+            /** Alive */
+            alive: boolean;
+        };
+        /** AccountParseResult */
+        AccountParseResult: {
+            /** Account Id */
+            account_id: number;
+            /** Currency */
+            currency: string;
+            /**
+             * Rows
+             * @default []
+             */
+            rows: components["schemas"]["AccountParsedRow"][];
+            /**
+             * Skipped
+             * @default []
+             */
+            skipped: components["schemas"]["SkippedCsvRow"][];
+        };
+        /**
+         * AccountParsedRow
+         * @description Uma linha do extrato, com o sinal preservado em `direction` e o palpite.
+         */
+        AccountParsedRow: {
+            /** Line */
+            line: number;
+            /** Title */
+            title: string;
+            /** Total Amount */
+            total_amount: string;
+            /**
+             * Transaction Date
+             * Format: date-time
+             */
+            transaction_date: string;
+            /**
+             * Direction
+             * @enum {string}
+             */
+            direction: "in" | "out";
+            /** External Id */
+            external_id?: string | null;
+            /**
+             * Duplicate
+             * @default false
+             */
+            duplicate: boolean;
+            /**
+             * Suggested Classification
+             * @enum {string}
+             */
+            suggested_classification: "expense" | "income" | "transfer" | "statement_payment";
+            /** Suggested Card Id */
+            suggested_card_id?: number | null;
+            /** Suggested Account Id */
+            suggested_account_id?: number | null;
+        };
         /** AccountStatementRead */
         AccountStatementRead: {
             /** Account Id */
@@ -2955,6 +3273,20 @@ export interface components {
              * @default []
              */
             entries: components["schemas"]["StatementLine"][];
+        };
+        /** AccountUndoResult */
+        AccountUndoResult: {
+            /** Batch Id */
+            batch_id: number;
+            /**
+             * Undone
+             * @default {}
+             */
+            undone: {
+                [key: string]: number;
+            };
+            /** Attachments Removed */
+            attachments_removed: number;
         };
         /**
          * ActionType
@@ -3485,6 +3817,36 @@ export interface components {
         Body_enviar_anexo_pelo_link_api_v1_mcp_uploads_post: {
             /** File */
             file: string;
+        };
+        /** Body_parse_account_statement_api_v1_me_imports_parse_post */
+        Body_parse_account_statement_api_v1_me_imports_parse_post: {
+            /** Account Id */
+            account_id: number;
+            /** File */
+            file: string;
+            /** Date Column */
+            date_column: string;
+            /** Description Column */
+            description_column: string;
+            /** Amount Column */
+            amount_column: string;
+            /**
+             * Date Format
+             * @default %Y-%m-%d
+             */
+            date_format: string;
+            /**
+             * Delimiter
+             * @default ,
+             */
+            delimiter: string;
+            /**
+             * Decimal Separator
+             * @default .
+             */
+            decimal_separator: string;
+            /** Id Column */
+            id_column?: string | null;
         };
         /** Body_parse_csv_api_v1_workspaces__workspace_id__imports_parse_post */
         Body_parse_csv_api_v1_workspaces__workspace_id__imports_parse_post: {
@@ -11748,6 +12110,177 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["StatusRead"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    parse_account_statement_api_v1_me_imports_parse_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: {
+                access_token?: string | null;
+            };
+        };
+        requestBody: {
+            content: {
+                "multipart/form-data": components["schemas"]["Body_parse_account_statement_api_v1_me_imports_parse_post"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AccountParseResult"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    commit_account_statement_api_v1_me_imports_commit_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: {
+                access_token?: string | null;
+            };
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AccountCommitRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AccountCommitResult"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_account_imports_api_v1_me_imports_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: {
+                access_token?: string | null;
+            };
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AccountImportBatchRead"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_account_import_api_v1_me_imports__batch_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                batch_id: number;
+            };
+            cookie?: {
+                access_token?: string | null;
+            };
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AccountImportBatchDetail"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    undo_account_import_api_v1_me_imports__batch_id__undo_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                batch_id: number;
+            };
+            cookie?: {
+                access_token?: string | null;
+            };
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UndoImportRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AccountUndoResult"];
                 };
             };
             /** @description Validation Error */
