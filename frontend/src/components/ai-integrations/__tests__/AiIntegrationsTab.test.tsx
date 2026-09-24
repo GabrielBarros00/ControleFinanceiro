@@ -114,7 +114,7 @@ describe('AiIntegrationsTab', () => {
     expect(screen.getByText(`claude mcp add --transport http controle-financeiro --scope user ${MCP_URL}`)).toBeInTheDocument();
     abrirAba('Gemini CLI');
     expect(screen.getByText(`gemini mcp add --transport http --scope user controle-financeiro ${MCP_URL}`)).toBeInTheDocument();
-    expect(screen.getAllByText(/verificado em 22\/09\/2026/).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/verificado em 23\/09\/2026/).length).toBeGreaterThan(0);
   });
 
   it('mostra cada conexão com o estado dela e a atividade recente', async () => {

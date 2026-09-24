@@ -14,3 +14,4 @@ from app.mcp.tools import accounts_write  # noqa: F401
 from app.mcp.tools import income_write  # noqa: F401
 from app.mcp.tools import settlements_write  # noqa: F401
 from app.mcp.tools import planning_write  # noqa: F401
+from app.mcp.tools import attachments  # noqa: F401

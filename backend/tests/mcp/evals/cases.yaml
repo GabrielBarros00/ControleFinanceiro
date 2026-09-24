@@ -373,3 +373,20 @@
   risk: none
   must_ask_user: false
   golden: []
+
+# Agente de TERMINAL (Claude Code, Codex, Gemini CLI): o arquivo não passa pela
+# conversa. O link de uso único leva o recibo do disco direto para o app.
+- id: anexar-recibo-pelo-terminal
+  prompt: "Anexe o recibo ~/Downloads/recibo-mercado.jpg à compra do mercado de ontem."
+  expected_tools: [transactions_search, attachments_upload_link]
+  forbidden_tools: [transactions_update, transactions_create]
+  max_calls: 3
+  risk: write
+  golden:
+    - tool: transactions_search
+      args: {text: "mercado", date_from: "{ontem}", date_to: "{ontem}"}
+      expect: {ok: true, path: "total_count", equals: 1}
+      save: {mercado: "items.0.id"}
+    - tool: attachments_upload_link
+      args: {transaction_id: "{id:mercado}", file_path: "~/Downloads/recibo-mercado.jpg"}
+      expect: {ok: true, path: "form_field", equals: "file"}

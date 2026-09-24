@@ -2538,6 +2538,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/mcp/uploads": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Enviar Anexo Pelo Link */
+        post: operations["enviar_anexo_pelo_link_api_v1_mcp_uploads_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/admin/overview": {
         parameters: {
             query?: never;
@@ -3229,6 +3246,24 @@ export interface components {
          * @enum {string}
          */
         AmortizationMethod: "SAC" | "PRICE";
+        /** AnexoEnviado */
+        AnexoEnviado: {
+            /** Attachment Id */
+            attachment_id: number;
+            /** Transaction Id */
+            transaction_id: number;
+            /** Filename */
+            filename: string;
+            /** Content Type */
+            content_type: string;
+            /** Size Bytes */
+            size_bytes: number;
+            /**
+             * Replayed
+             * @default false
+             */
+            replayed: boolean;
+        };
         /** AttachmentRead */
         AttachmentRead: {
             /** Id */
@@ -3388,6 +3423,11 @@ export interface components {
              * @default 0
              */
             accounts_blocking: number;
+        };
+        /** Body_enviar_anexo_pelo_link_api_v1_mcp_uploads_post */
+        Body_enviar_anexo_pelo_link_api_v1_mcp_uploads_post: {
+            /** File */
+            file: string;
         };
         /** Body_parse_csv_api_v1_workspaces__workspace_id__imports_parse_post */
         Body_parse_csv_api_v1_workspaces__workspace_id__imports_parse_post: {
@@ -12590,6 +12630,41 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["StatusRead"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    enviar_anexo_pelo_link_api_v1_mcp_uploads_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "multipart/form-data": components["schemas"]["Body_enviar_anexo_pelo_link_api_v1_mcp_uploads_post"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AnexoEnviado"];
                 };
             };
             /** @description Validation Error */

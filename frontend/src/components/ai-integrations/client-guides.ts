@@ -11,7 +11,7 @@
  * pularia a confirmação das ferramentas, não é sugerido.
  */
 
-export const VERIFICADO_EM = '22/09/2026';
+export const VERIFICADO_EM = '23/09/2026';
 
 /** Nome do servidor nos comandos — o mesmo em todos os clientes. */
 export const NOME_DO_SERVIDOR = 'controle-financeiro';
@@ -84,6 +84,7 @@ export function clientGuides(mcpUrl: string): ClientGuide[] {
         'Rode o comando abaixo no terminal (vale para todos os seus projetos).',
         'Dentro do Claude Code, rode /mcp e escolha o servidor para autenticar — o navegador abre esta tela do app.',
         'Ou autentique pelo terminal com o segundo comando.',
+        'Para anexar um recibo, peça ao agente (ex.: "anexe o recibo.pdf dos Downloads à compra do mercado"). Ele gera um link de uso único e envia o arquivo com curl, direto do seu computador para o app.',
       ],
       commands: [
         {
@@ -104,6 +105,8 @@ export function clientGuides(mcpUrl: string): ClientGuide[] {
       steps: [
         'Rode o primeiro comando para registrar o servidor.',
         'Rode o segundo para autenticar — o navegador abre esta tela do app para você autorizar.',
+        'Para anexar um recibo, peça ao agente (ex.: "anexe o recibo.pdf dos Downloads à compra do mercado"). Ele gera um link de uso único e envia o arquivo com curl, direto do seu computador para o app.',
+        'O sandbox do Codex não tem rede por padrão: para o envio do anexo, aprove o comando quando ele pedir.',
       ],
       commands: [
         { label: 'Adicionar', code: `codex mcp add ${NOME_DO_SERVIDOR} --url ${mcpUrl}`, language: 'bash' },
@@ -116,11 +119,13 @@ export function clientGuides(mcpUrl: string): ClientGuide[] {
     {
       id: 'gemini-cli',
       name: 'Gemini CLI',
-      requirements: 'Gemini CLI instalado no computador.',
+      requirements:
+        'Gemini CLI com chave da API do Gemini (GEMINI_API_KEY) ou Vertex AI. O login com conta Google pessoal no plano gratuito não é mais aceito pelo Google — para conta pessoal, use o Antigravity.',
       steps: [
         'Rode o comando abaixo para registrar o servidor para o seu usuário.',
         'No Gemini CLI, rode o comando de autenticação — o navegador abre esta tela do app.',
         'Deixe o Gemini CLI perguntando antes de cada ação: não use a opção --trust, que pula essas confirmações.',
+        'Para anexar um recibo, peça ao agente (ex.: "anexe o recibo.pdf dos Downloads à compra do mercado"). Ele gera um link de uso único e envia o arquivo com curl, direto do seu computador para o app.',
       ],
       commands: [
         {
@@ -174,7 +179,7 @@ export function clientGuides(mcpUrl: string): ClientGuide[] {
       requirements: 'Apps personalizados do Gemini: só nos EUA, maiores de 18 anos, conta Google pessoal e em inglês.',
       steps: [
         'Hoje o recurso não está disponível no Brasil. Onde estiver: gemini.google.com › Settings › Connected Apps › Custom apps.',
-        'Para usar o Gemini com este app agora, use o Gemini CLI ou o Antigravity.',
+        'Para usar o Gemini com este app agora, use o Antigravity (ou o Gemini CLI com chave de API).',
       ],
       commands: [],
       auth: 'OAuth com registro dinâmico de cliente.',

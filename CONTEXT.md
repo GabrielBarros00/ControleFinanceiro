@@ -214,3 +214,7 @@ Ver [docs/mcp/](docs/mcp/README.md) e o ADR 0035.
 - **Prévia + token de confirmação**: exclusão e recategorização em massa só executam o
   conjunto que foi mostrado.
 - **"via IA"** na auditoria: `AuditLog.origin = "mcp:<cliente>"`.
+- **Link de envio** (`cfm_up_…`): token de uso único que `attachments_upload_link` emite
+  para o agente de terminal mandar um arquivo com `curl` a `POST /api/v1/mcp/uploads`.
+  O arquivo não passa pela conversa; a rota reconfere tudo e grava pelo mesmo comando
+  da tela (`services/commands/attachments.py`).

@@ -40,8 +40,11 @@ def _aware(momento: datetime) -> datetime:
     return momento if momento.tzinfo else momento.replace(tzinfo=UTC)
 
 
-def issue(call: ToolCall, action: str, target_ids: list[int], params: Optional[dict[str, Any]] = None) -> tuple[str, datetime]:
-    token = new_secret(CONFIRMATION_PREFIX)
+def issue(
+    call: ToolCall, action: str, target_ids: list[int], params: Optional[dict[str, Any]] = None,
+    *, prefixo: str = CONFIRMATION_PREFIX,
+) -> tuple[str, datetime]:
+    token = new_secret(prefixo)
     expira = _agora() + TTL
     call.session.add(McpConfirmation(
         token_hash=sha256_hex(token),

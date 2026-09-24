@@ -12,6 +12,7 @@ devolve o erro no envelope estruturado em vez da mensagem crua do Pydantic.
 from __future__ import annotations
 
 import copy
+import json
 from dataclasses import dataclass, field
 from typing import Any, Callable, Literal, Optional, TYPE_CHECKING
 
@@ -209,6 +210,13 @@ def _enxuga(no: Any, *, colapsa_nulo: bool) -> Any:
             no = {**interno, **externo}
         elif "default" in no and no["default"] is None:
             no.pop("default")
+        # `examples` não está no schema que a API do Gemini documenta (ela usa
+        # `example`, no singular), e o Gemini CLI e o Antigravity mandam o schema
+        # quase cru para o modelo. O exemplo vai para o fim da descrição, onde
+        # todo modelo o lê, e a palavra-chave sai.
+        if isinstance(no.get("examples"), list):
+            exemplos = ", ".join(json.dumps(x, ensure_ascii=False) for x in no.pop("examples"))
+            no["description"] = f"{no.get('description', '').rstrip()} Ex.: {exemplos}.".strip()
     saida: dict[str, Any] = {}
     for chave, valor in no.items():
         if chave == "properties" and isinstance(valor, dict):

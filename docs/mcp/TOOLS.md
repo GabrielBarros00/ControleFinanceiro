@@ -2,7 +2,7 @@
 
 <!-- GERADO por `python -m app.mcp.docs` a partir de `backend/app/mcp/registry.py`. Não edite à mão. -->
 
-Servidor `controle-financeiro` versão `1.2.0` · 38 tools · endpoint `/mcp` (Streamable HTTP).
+Servidor `controle-financeiro` versão `1.2.0` · 39 tools · endpoint `/mcp` (Streamable HTTP).
 
 Convenções que valem para todas: dinheiro em string decimal com ponto (`"89.90"`, até 2 casas, nunca arredondado); datas `YYYY-MM-DD` e meses `YYYY-MM` no fuso da conta (`profile_get.timezone`); nomes resolvidos no servidor (ambíguo → `AMBIGUOUS` com candidatos); nenhuma tool aceita `user_id` — a identidade vem do token.
 
@@ -65,6 +65,7 @@ Toda falha volta com `isError: true` e `{"error": {code, message, details, retry
 | [`recurring_update`](#recurring_update--editar-despesa-recorrente) | Editar despesa recorrente | Escrita | `planning.write` |
 | [`budgets_set`](#budgets_set--definir-meta-do-mês) | Definir meta do mês | Escrita | `planning.write` |
 | [`categories_create`](#categories_create--criar-categoria) | Criar categoria | Escrita | `planning.write` |
+| [`attachments_upload_link`](#attachments_upload_link--link-para-anexar-arquivo) | Link para anexar arquivo | Escrita | `transactions.write` |
 
 ## Referência
 
@@ -211,8 +212,8 @@ Não use quando: quiser o resumo do mês por categoria (reports_summary) ou a fa
 | `payment_method` | `credit_card` \| `debit_card` \| `pix` \| `cash` \| `bank_transfer` \| `boleto` \| `other` | não |  |
 | `status` | lista de `draft` \| `pending` \| `confirmed` \| `paid` \| `cancelled` | não | máx. 5 |
 | `settled` | boolean | não | true = já pago; false = a pagar (fora do cartão). |
-| `min_amount` | string | não | Valor em string decimal com ponto e até 2 casas, ex.: "89.90". (padrão `^\d{1,16}([.,]\d{1,2})?$`) |
-| `max_amount` | string | não | Valor em string decimal com ponto e até 2 casas, ex.: "89.90". (padrão `^\d{1,16}([.,]\d{1,2})?$`) |
+| `min_amount` | string | não | Valor em string decimal com ponto e até 2 casas. Ex.: "89.90", "3000", "0.99". (padrão `^\d{1,16}([.,]\d{1,2})?$`) |
+| `max_amount` | string | não | Valor em string decimal com ponto e até 2 casas. Ex.: "89.90", "3000", "0.99". (padrão `^\d{1,16}([.,]\d{1,2})?$`) |
 | `installment_group_id` | string | não | Parcelas de uma mesma compra. (máx. 64) |
 | `sort` | `date_desc` \| `date_asc` \| `amount_desc` \| `amount_asc` | não |  |
 | `limit` | integer | não | ≥ 1, ≤ 50 |
@@ -487,7 +488,7 @@ Gere uma idempotency_key nova para cada despesa e reutilize-a só ao repetir a m
 |---|---|---|---|
 | `idempotency_key` | string | sim | Identificador ÚNICO desta intenção do usuário (ex.: um UUID novo). Repita a MESMA chave só ao reenviar exatamente a mesma chamada após erro de rede ou timeout — assim nada é criado em dobro. Pedido novo = chave nova. (mín. 8, máx. 100, padrão `^[A-Za-z0-9._:-]+$`) |
 | `title` | string | sim | Descrição curta, como aparece na lista (ex.: "Gasolina"). (mín. 1, máx. 200) |
-| `amount` | string | sim | Valor TOTAL da compra (nas parceladas, o total, não a parcela). (padrão `^\d{1,16}([.,]\d{1,2})?$`) |
+| `amount` | string | sim | Valor TOTAL da compra (nas parceladas, o total, não a parcela). Ex.: "89.90", "3000", "0.99". (padrão `^\d{1,16}([.,]\d{1,2})?$`) |
 | `date` | data `YYYY-MM-DD` | não | Dia da compra. Omitido = hoje (profile_get.today). |
 | `space` | string | não | Espaço onde lançar. Omitido = regra do espaço implícito (ver descrição). (máx. 120) |
 | `space_id` | integer | não |  |
@@ -553,7 +554,7 @@ Despesa paga não muda até ser reaberta (`status=confirmed`); cancelada é defi
 | `scope` | `installment` \| `purchase` | não | Só para compra parcelada: `installment` muda só esta parcela; `purchase` muda a compra inteira (total, nº de parcelas, divisão, categoria), recalculando as parcelas em aberto. |
 | `title` | string | não | mín. 1, máx. 200 |
 | `description` | string | não | Texto novo; "" apaga a observação. (máx. 2000) |
-| `amount` | string | não | Novo valor total, na moeda DA COMPRA: a de `currency`, se informada; senão a original (`foreign.original_currency`) quando o lançamento foi convertido. (padrão `^\d{1,16}([.,]\d{1,2})?$`) |
+| `amount` | string | não | Novo valor total, na moeda DA COMPRA: a de `currency`, se informada; senão a original (`foreign.original_currency`) quando o lançamento foi convertido. Ex.: "89.90", "3000", "0.99". (padrão `^\d{1,16}([.,]\d{1,2})?$`) |
 | `currency` | string | não | Moeda ISO 4217 da compra (ex.: USD). Estrangeira é convertida para a moeda do espaço na data (PTAX; IOF no cartão). (padrão `^[A-Za-z]{3}$`) |
 | `date` | data `YYYY-MM-DD` | não | Dia civil no fuso da conta (ver profile_get.timezone), formato YYYY-MM-DD. |
 | `category` | string | não | Nova categoria (existente no espaço). (máx. 120) |
@@ -829,7 +830,7 @@ Sem `amount`, paga o saldo inteiro. Pagamento acima do saldo é recusado.
 | `card` | string | não | Cartão (nome). Omitido: seu único cartão. (máx. 120) |
 | `card_id` | integer | não |  |
 | `month` | string | não | Mês da fatura (YYYY-MM). Omitido: a única fatura fechada com saldo em aberto. (padrão `^\d{4}-(0[1-9]|1[0-2])$`) |
-| `amount` | string | não | Valor pago. Omitido = o saldo inteiro da fatura. (padrão `^\d{1,16}([.,]\d{1,2})?$`) |
+| `amount` | string | não | Valor pago. Omitido = o saldo inteiro da fatura. Ex.: "89.90", "3000", "0.99". (padrão `^\d{1,16}([.,]\d{1,2})?$`) |
 | `account` | string | não | Conta de onde saiu o dinheiro. (máx. 120) |
 | `account_id` | integer | não |  |
 | `paid_on` | data `YYYY-MM-DD` | não | Dia do pagamento. Omitido = hoje. |
@@ -866,8 +867,8 @@ Contas em moedas diferentes exigem `to_amount` (quanto entrou): o app não inven
 | `from_account_id` | integer | não |  |
 | `to_account` | string | não | Conta de destino (nome). (máx. 120) |
 | `to_account_id` | integer | não |  |
-| `amount` | string | sim | Valor que SAIU da conta de origem. (padrão `^\d{1,16}([.,]\d{1,2})?$`) |
-| `to_amount` | string | não | Só entre moedas diferentes: quanto ENTROU no destino (o app não converte sozinho). (padrão `^\d{1,16}([.,]\d{1,2})?$`) |
+| `amount` | string | sim | Valor que SAIU da conta de origem. Ex.: "89.90", "3000", "0.99". (padrão `^\d{1,16}([.,]\d{1,2})?$`) |
+| `to_amount` | string | não | Só entre moedas diferentes: quanto ENTROU no destino (o app não converte sozinho). Ex.: "89.90", "3000", "0.99". (padrão `^\d{1,16}([.,]\d{1,2})?$`) |
 | `date` | data `YYYY-MM-DD` | não | Dia da transferência. Omitido = hoje. |
 | `note` | string | não | máx. 2000 |
 
@@ -928,7 +929,7 @@ Não use quando: alguém te pagou uma dívida de despesa dividida (settlements_c
 |---|---|---|---|
 | `idempotency_key` | string | sim | Identificador ÚNICO desta intenção do usuário (ex.: um UUID novo). Repita a MESMA chave só ao reenviar exatamente a mesma chamada após erro de rede ou timeout — assim nada é criado em dobro. Pedido novo = chave nova. (mín. 8, máx. 100, padrão `^[A-Za-z0-9._:-]+$`) |
 | `title` | string | sim | Ex.: "Salário", "Freela site". (mín. 1, máx. 200) |
-| `amount` | string | sim | Valor em string decimal com ponto e até 2 casas, ex.: "89.90". (padrão `^\d{1,16}([.,]\d{1,2})?$`) |
+| `amount` | string | sim | Valor em string decimal com ponto e até 2 casas. Ex.: "89.90", "3000", "0.99". (padrão `^\d{1,16}([.,]\d{1,2})?$`) |
 | `date` | data `YYYY-MM-DD` | não | Data da renda (competência). Omitido = hoje. |
 | `currency` | string | não | Moeda ISO; estrangeira é convertida na data. (padrão `^[A-Za-z]{3}$`) |
 | `category` | string | não | Rótulo livre da renda (ex.: "Salário", "Freela"). (máx. 60) |
@@ -963,7 +964,7 @@ Não use quando: for registrar uma renda nova (income_create).
 | `income_id` | integer | sim |  |
 | `title` | string | não | mín. 1, máx. 200 |
 | `description` | string | não | máx. 2000 |
-| `amount` | string | não | Novo valor, na moeda DA RENDA: a de `currency`, se informada; senão a original (`original_currency`) quando a renda foi convertida. (padrão `^\d{1,16}([.,]\d{1,2})?$`) |
+| `amount` | string | não | Novo valor, na moeda DA RENDA: a de `currency`, se informada; senão a original (`original_currency`) quando a renda foi convertida. Ex.: "89.90", "3000", "0.99". (padrão `^\d{1,16}([.,]\d{1,2})?$`) |
 | `currency` | string | não | Moeda ISO; estrangeira é reconvertida na data. (padrão `^[A-Za-z]{3}$`) |
 | `date` | data `YYYY-MM-DD` | não | Nova data da renda (competência). |
 | `category` | string | não | Rótulo livre da renda (ex.: "Salário", "Freela"). (máx. 60) |
@@ -1008,7 +1009,7 @@ O valor não pode passar da dívida naquela direção. Num espaço em que você 
 | `person` | string | não | A outra pessoa do acerto (membro do espaço). (máx. 120) |
 | `person_id` | integer | não |  |
 | `direction` | `they_paid_me` \| `i_paid_them` | sim | `they_paid_me` = a pessoa te pagou; `i_paid_them` = você pagou a pessoa. |
-| `amount` | string | sim | Valor pago. Não pode passar da dívida (veja debts_summary). (padrão `^\d{1,16}([.,]\d{1,2})?$`) |
+| `amount` | string | sim | Valor pago. Não pode passar da dívida (veja debts_summary). Ex.: "89.90", "3000", "0.99". (padrão `^\d{1,16}([.,]\d{1,2})?$`) |
 | `space` | string | não | Espaço da dívida. Omitido: o único que vocês dois compartilham. (máx. 120) |
 | `space_id` | integer | não |  |
 | `month` | string | não | Quitar a dívida de um mês específico (YYYY-MM). Omitido: a dívida acumulada. (padrão `^\d{4}-(0[1-9]|1[0-2])$`) |
@@ -1070,7 +1071,7 @@ Mensal por padrão; `interval` = a cada N períodos; fim por data ou por nº de 
 |---|---|---|---|
 | `idempotency_key` | string | sim | Identificador ÚNICO desta intenção do usuário (ex.: um UUID novo). Repita a MESMA chave só ao reenviar exatamente a mesma chamada após erro de rede ou timeout — assim nada é criado em dobro. Pedido novo = chave nova. (mín. 8, máx. 100, padrão `^[A-Za-z0-9._:-]+$`) |
 | `title` | string | sim | mín. 1, máx. 200 |
-| `amount` | string | sim | Valor de cada ocorrência. (padrão `^\d{1,16}([.,]\d{1,2})?$`) |
+| `amount` | string | sim | Valor de cada ocorrência. Ex.: "89.90", "3000", "0.99". (padrão `^\d{1,16}([.,]\d{1,2})?$`) |
 | `space` | string | não | máx. 120 |
 | `space_id` | integer | não |  |
 | `currency` | string | não | padrão `^[A-Za-z]{3}$` |
@@ -1130,7 +1131,7 @@ Não use quando: quiser mudar uma única ocorrência (transactions_update nela).
 |---|---|---|---|
 | `recurring_id` | integer | sim |  |
 | `title` | string | não | mín. 1, máx. 200 |
-| `amount` | string | não | Valor em string decimal com ponto e até 2 casas, ex.: "89.90". (padrão `^\d{1,16}([.,]\d{1,2})?$`) |
+| `amount` | string | não | Valor em string decimal com ponto e até 2 casas. Ex.: "89.90", "3000", "0.99". (padrão `^\d{1,16}([.,]\d{1,2})?$`) |
 | `active` | boolean | não | false = pausar (para de lançar); true = retomar. |
 | `remove_card` | boolean | não | true = a cobrança deixa de ser no cartão. |
 | `remove_category` | boolean | não |  |
@@ -1192,7 +1193,7 @@ Não use quando: quiser ver as metas e o quanto já foi gasto (budgets_list).
 | `space_id` | integer | não |  |
 | `category` | string | não | Categoria da meta (existente no espaço). (máx. 120) |
 | `category_id` | integer | não |  |
-| `amount` | string | sim | Quanto se pretende gastar no mês nessa categoria. (padrão `^\d{1,16}([.,]\d{1,2})?$`) |
+| `amount` | string | sim | Quanto se pretende gastar no mês nessa categoria. Ex.: "89.90", "3000", "0.99". (padrão `^\d{1,16}([.,]\d{1,2})?$`) |
 | `month` | string | não | Mês da meta (YYYY-MM). Omitido = mês atual. (padrão `^\d{4}-(0[1-9]|1[0-2])$`) |
 | `scope` | `personal` \| `space` | não | `personal` = sua meta (compara com a SUA parte); `space` = meta da casa (total do espaço). Obrigatório em espaço com mais de uma pessoa. |
 | `note` | string | não | máx. 2000 |
@@ -1232,3 +1233,23 @@ Exemplo:
 ```json
 {"name": "Pets", "space": "Casa"}
 ```
+
+### `attachments_upload_link` — Link para anexar arquivo
+
+- **Classe:** Escrita · **Escopo:** `transactions.write` · **Custo:** 3 unidade(s)
+- **Annotations:** readOnlyHint=false, destructiveHint=false, idempotentHint=true, openWorldHint=false
+
+Gera um link de envio de USO ÚNICO (10 minutos) para anexar a um lançamento um arquivo que está no computador do usuário (recibo, nota fiscal, comprovante: JPG, PNG, WebP ou PDF). O arquivo vai do terminal direto para o app, sem passar pela conversa. Devolve o comando `curl` pronto; rode-o e confira a resposta (`attachment_id`).
+
+Use quando: você roda num terminal com acesso aos arquivos do usuário (Claude Code, Codex, Gemini CLI) e ele pede para anexar um arquivo a um lançamento.
+
+Não use quando: não houver como executar comandos (ChatGPT e Claude na web): diga que o anexo se envia pela tela do lançamento no app. O link não lê nem apaga anexos.
+
+**Entrada**
+
+| Parâmetro | Tipo | Obrigatório | Descrição |
+|---|---|---|---|
+| `transaction_id` | integer | sim | ≥ 1 |
+| `file_path` | string | não | Caminho do arquivo no computador do usuário, só para montar o comando pronto. (máx. 500) |
+
+**Saída (`structuredContent`)**: `transaction_id`, `upload_url`, `authorization`, `form_field`, `expires_at`, `max_bytes`, `accepted_types`, `command`

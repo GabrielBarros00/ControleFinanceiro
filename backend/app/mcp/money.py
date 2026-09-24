@@ -75,7 +75,7 @@ def _com_sinal(valor: Any) -> Decimal:
 _SCHEMA_ENTRADA = {
     "type": "string",
     "pattern": r"^\d{1,16}([.,]\d{1,2})?$",
-    "description": "Valor em string decimal com ponto e até 2 casas, ex.: \"89.90\".",
+    "description": "Valor em string decimal com ponto e até 2 casas.",
     "examples": ["89.90", "3000", "0.99"],
 }
 

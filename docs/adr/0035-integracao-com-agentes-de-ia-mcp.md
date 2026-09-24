@@ -93,8 +93,8 @@ algumas telas fazem (o `cron` horário cuida disso).
 
 ### 5. Tools orientadas a intenção, não espelho de endpoint
 
-38 tools com nome `dominio_acao` (ver `docs/mcp/TOOLS.md`, gerado do código): as 35 do
-plano e as três de exibição da seção 8. Cada
+39 tools com nome `dominio_acao` (ver `docs/mcp/TOOLS.md`, gerado do código): as 35 do
+plano, as três de exibição da seção 8 e o link de anexo da seção 9. Cada
 uma tem título, descrição com "Use quando / Não use quando", schema de entrada
 fechado (`additionalProperties: false`, sem objeto genérico), schema de saída, as
 quatro annotations explícitas e o escopo exigido. Não há `execute_sql`,
@@ -151,7 +151,7 @@ Um HTML único (`ui://controle-financeiro/widget-vN.html`, construído de
 `frontend/src/mcp-widget` e versionado) desenha lançamento, fatura, resumo do mês
 e a prévia de massa — com o botão "Confirmar" que chama a execução com o token.
 A ponte começou sendo a oficial (`@modelcontextprotocol/ext-apps`) e hoje é escrita à
-mão, pelo peso (ver a revisão de 2026-09-24 abaixo), com `window.openai` só por
+mão, pelo peso (ver a revisão de 2026-09-23 abaixo), com `window.openai` só por
 detecção. CSP vazia: o componente não busca nada. Toda tool funciona igual sem UI.
 
 **Só tool de EXIBIÇÃO desenha** (revisto em 2026-09-23). A primeira versão prendia o
@@ -186,7 +186,7 @@ o hash do HTML publicado ficam em `app/mcp/ui/__init__.py` (`WIDGET_VERSION`,
 `WIDGET_SHA256`), e `test_mudou_o_componente_mudou_a_uri` reprova quando o
 `widget.html` muda sem a versão mudar junto. Esta revisão publica a `widget-v2`.
 
-**Leve, nativo e sem perder o resultado** (revisto em 2026-09-24, `widget-v3`). Medido
+**Leve, nativo e sem perder o resultado** (revisto em 2026-09-23, `widget-v3`). Medido
 antes de mexer: o componente tinha 460 KB, sendo ~227 KB da ponte oficial (zod e os
 schemas do MCP) e ~215 KB do React, para quatro vistas e seis mensagens de protocolo.
 
@@ -225,6 +225,55 @@ conversa e tinha ~200 mil caracteres.
 - O que o modelo lê (descrição + entrada) caiu de ~80 mil para ~56 mil caracteres.
 - `test_catalogo_cabe_no_orcamento_de_contexto` põe teto de 60 mil.
 
+### 9. Mais de um cliente, e o anexo pelo terminal (2026-09-23)
+
+A integração foi desenhada para qualquer cliente MCP, mas até aqui só o ChatGPT tinha
+sido exercitado a fundo. Nesta revisão os agentes de terminal foram conectados de verdade
+ao servidor local, pelo próprio binário de cada um:
+
+| Cliente | O que rodou |
+|---|---|
+| Claude Code | `profile_get`, `statements_get` e o anexo ponta a ponta |
+| Codex | `profile_get`, `reports_summary` e o anexo ponta a ponta (PowerShell, `curl.exe`) |
+| Gemini CLI | conecta (`gemini mcp list` → *Connected*); o modelo não roda porque o Google deixou de aceitar o login com conta pessoal gratuita — funciona com `GEMINI_API_KEY` ou Vertex AI; para conta pessoal, o caminho é o Antigravity |
+
+**O schema que o Gemini aceita.** O Gemini lê os parâmetros num subconjunto do JSON
+Schema (`type`, `format`, `description`, `enum`, `items`, `properties`, `required`,
+limites de tamanho e de valor, `pattern`, `anyOf`, `default`, `nullable`…). `examples`
+fica de fora. O registro agora dobra os exemplos do Pydantic para dentro da
+`description` ("Ex.: …"), e `test_schema_de_entrada_so_com_palavras_que_o_gemini_aceita`
+reprova qualquer palavra fora da lista.
+
+**Anexo pelo terminal.** O agente de terminal tem o arquivo e um shell; o que não dá é
+passar o arquivo pela conversa. Em base64, uma foto de 3 MB viraria ~4 milhões de
+caracteres de argumento de tool. Por isso o arquivo vai por outro caminho:
+
+1. `attachments_upload_link` confere que a pessoa vê o lançamento e pode editá-lo, e
+   emite um token de **uso único** (`cfm_up_…`, 10 minutos). O token fica amarrado ao
+   usuário, à concessão e ao lançamento, na mesma tabela das confirmações de massa, e só
+   o SHA-256 é guardado.
+2. A tool devolve o comando `curl` pronto. O agente roda o comando, e o arquivo vai do
+   disco direto para `POST /api/v1/mcp/uploads`.
+3. A rota confere tudo de novo **na hora do envio**: token, concessão não revogada, conta
+   ativa, papel no espaço e visibilidade do lançamento. Depois grava pelo MESMO comando da
+   tela (`services/commands/attachments.py`): tipos, conteúdo real, cota com trava e
+   auditoria "via IA".
+
+As escolhas que importam:
+
+- **O token vai no cabeçalho `Authorization`, não na URL.** URL fica gravada no log do
+  app, do nginx e do proxy.
+- **Arquivo recusado não gasta o link.** O uso é marcado por UPDATE condicional só
+  depois de o arquivo passar pelas regras, o que também impede dois envios simultâneos
+  do mesmo link.
+- **Reenvio devolve o resultado anterior.** Se a rede cai depois do sucesso e o agente
+  manda de novo, recebe `replayed: true` e nada é anexado duas vezes.
+- **A rota não lê cookie.** Quem autoriza é o segredo no cabeçalho, que um site de
+  terceiro não tem. Ela também não entrou na isenção do CSRF: o `curl` não manda
+  `Origin` e passa, e um navegador de outra origem continua barrado.
+- **Nos apps de chat na web não há como rodar o comando.** A descrição da tool manda o
+  modelo dizer que o anexo se envia pela tela.
+
 ## Divergências do pedido original (e por quê)
 
 - **Nomes com sublinhado** (`transactions_create`), não ponto: Claude Desktop e
@@ -237,8 +286,9 @@ conversa e tinha ~200 mil caracteres.
   fica no app.
 - **Importação de extrato** não recebe arquivo: o agente extrai as linhas (PDF,
   foto, texto) e o app confere duplicatas e grava com as regras do ADR 0008.
-- **Anexos não são expostos** (binário; envio por agente depende de API específica
-  de cada host).
+- **Anexos: só o envio, e só pelo terminal** (seção 9). Ler e apagar anexo seguem
+  fora; nos apps de chat na web o arquivo não chega ao servidor sem API específica
+  de cada host.
 
 ## Consequências
 
@@ -249,4 +299,4 @@ conversa e tinha ~200 mil caracteres.
   Redis é `app/mcp/rate_limit.py`.
 - O que não é exposto está listado com motivo em `CAPABILITY_MAP.md`: admin,
   membros/convites/papéis, criação/exclusão de espaço e moeda-base, cadastro de
-  cartão/conta, financiamento (só leitura), anexos, notificações.
+  cartão/conta, financiamento (só leitura), ler/apagar anexo, notificações.

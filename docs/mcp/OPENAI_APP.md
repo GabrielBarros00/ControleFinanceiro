@@ -111,7 +111,9 @@ conciliar-extrato) e `assets/`. Ver o README do pacote.
 
 ## Limitações conhecidas
 
-- Anexos (recibos) não são enviados nem lidos pelo agente.
+- No ChatGPT não há como anexar recibo pela conversa: o envio de anexo pelo agente
+  (`attachments_upload_link`) depende de um terminal que rode `curl` (Claude Code,
+  Codex, Gemini CLI). O agente não lê nem apaga anexos.
 - Mudar valor/divisão de lançamento dividido POR ITEM ou com ajustes de total fica
   no app (a tool explica e devolve o link); categoria, título, data, tags, "já
   paguei" e cancelamento funcionam em todos.
