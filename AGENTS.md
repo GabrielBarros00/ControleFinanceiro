@@ -23,8 +23,7 @@ pessoas, cartões e faturas, contas, rendas, dívidas e acertos).
 - Decisões de arquitetura ficam em [docs/adr/](docs/adr/README.md). Mudança
   arquitetural relevante vira um ADR novo, com o próximo número.
 - **Fonte de verdade** é o código, os ADRs, o [ARCHITECTURE.md](docs/ARCHITECTURE.md)
-  e o [CONTEXT.md](CONTEXT.md). Os documentos datados da raiz (`ANALISE_PRODUTO_*`,
-  `PLANO_PRODUTO_*`, `EXECUCAO_PLANO_*`, `AUDITORIA_UX_*`),
+  e o [CONTEXT.md](CONTEXT.md). Os documentos datados em `docs/historico/`,
   `docs/frontend-redesign/` e `docs/estudo-*.md` são planos e estudos de um momento:
   podem ter sido executados em parte ou superados. Não os trate como o estado atual.
 
