@@ -119,6 +119,13 @@ registro por CIMD/DCR, 57 tools documentadas em `docs/mcp/TOOLS.md` (geradas do
 código), e as escritas das rotas REST passaram a morar em comandos
 compartilhados (`app/services/commands/`) — sem mudança de comportamento.
 
+### O filtro "Sem categoria" dos Lançamentos passou a filtrar
+
+Escolher "Sem categoria" no filtro de categoria (ou chegar pelo link "Categorizar
+estas despesas" dos Relatórios) mostrava a lista inteira: a tela guardava o recorte
+na URL, mas não o mandava ao servidor. Agora a lista traz só o que falta
+categorizar, o filtro conta como ativo e "Limpar filtros" o desfaz.
+
 ### O app passou a saber quanto dinheiro você tem, e onde
 
 Antes ele respondia duas perguntas e achava que eram quatro. Sabia **de quem é o

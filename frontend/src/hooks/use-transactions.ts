@@ -81,7 +81,7 @@ export function useTransactions(
   const queryClient = useQueryClient();
   const currentWorkspaceId = useWorkspaceId();
   const {
-    page = 1, limit = 10, month, search, category_id, payment_method, tag_id, settled,
+    page = 1, limit = 10, month, search, category_id, payment_method, tag_id, settled, uncategorized,
   } = filters;
 
   // Fetch transactions
@@ -94,7 +94,7 @@ export function useTransactions(
   const listQuery = useQuery({
     queryKey: [
       'transactions', currentWorkspaceId, page, limit, month, search,
-      category_id, payment_method, tag_id, settled,
+      category_id, payment_method, tag_id, settled, uncategorized,
     ],
     queryFn: async (): Promise<Pick<TransactionListResponse, 'items' | 'total' | 'total_pages'> & Partial<TransactionListResponse>> => {
       if (!currentWorkspaceId) return { items: [], total: 0, total_amount: 0, total_pages: 1 };
@@ -110,6 +110,7 @@ export function useTransactions(
           // `?? undefined`, não `|| undefined`: `false` é uma resposta legítima
           // ("só a pagar") e o `||` a transformaria em "sem filtro".
           settled: settled ?? undefined,
+          uncategorized: uncategorized || undefined,
         }
       });
       return response.data; // { items, total, page, limit, total_pages }
