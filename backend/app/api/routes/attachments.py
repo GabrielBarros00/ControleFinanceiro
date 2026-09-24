@@ -16,7 +16,6 @@ from app.api.deps import get_workspace_membership, require_role
 from app.domain.access_policy import get_visible_transaction
 from app.services import upload_validation
 from app.services.attachment_storage import (
-    AttachmentStorage,
     free_keys,
 )
 from app.services.commands import attachments as cmd_anexos
@@ -89,16 +88,7 @@ def list_attachments(
     ).all()
 
 
-def read_attachment_bytes(attachment: Attachment) -> Optional[bytes]:
-    """Conteúdo do anexo: do armazenamento (ADR 0007) ou da coluna LEGADA.
-
-    O fallback existe porque a migração de schema não move os bytes — quem já
-    tinha recibos continua servindo do banco até rodar
-    `scripts/migrate_attachments_to_disk.py`.
-    """
-    if attachment.storage_key:
-        return AttachmentStorage.read(attachment.storage_key)
-    return attachment.data
+read_attachment_bytes = cmd_anexos.read_attachment_bytes
 
 
 @router.get("/attachments/{attachment_id}")

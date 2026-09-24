@@ -48,6 +48,50 @@ class ForeignInfo(BaseModel):
     iof_rate: Optional[str] = None
 
 
+class ItemOut(BaseModel):
+    """Uma linha da nota."""
+
+    title: str
+    description: Optional[str] = None
+    quantity: str = Field(description="Quantidade em texto decimal (\"1\", \"1.250\").")
+    unit_amount: Optional[MoneyOut] = None
+    amount: MoneyOut = Field(description="Total da linha.")
+    category: Optional[Ref] = None
+    shares: List[PersonAmount] = Field(
+        default_factory=list, description="Divisão DESTE item (só quando a despesa é dividida por item).",
+    )
+    my_share: Optional[MoneyOut] = Field(None, description="Sua parte neste item (divisão por item).")
+
+
+class AdjustmentOut(BaseModel):
+    type: str = Field(description="discount | cashback | tax | tip | shipping | rounding | other")
+    amount: MoneyOut = Field(description="Com sinal: negativo reduz o total.")
+    description: Optional[str] = None
+
+
+class AttachmentOut(BaseModel):
+    id: int
+    filename: str
+    content_type: str
+    size_bytes: int
+    uploaded_by: Optional[Ref] = None
+    uploaded_on: Optional[dt.date] = None
+
+
+class PurchaseOut(BaseModel):
+    """A compra INTEIRA de um lançamento parcelado: os itens aparecem uma vez só."""
+
+    group_id: str
+    title: str
+    amount: MoneyOut = Field(description="Total da compra (soma das parcelas vivas).")
+    currency: str
+    installments: int
+    paid_installments: int = Field(description="Parcelas já pagas.")
+    split: List[PersonAmount] = Field(default_factory=list, description="Quem deve quanto da compra inteira.")
+    my_share: MoneyOut
+    items: List[ItemOut] = Field(default_factory=list)
+
+
 class TransactionOut(BaseModel):
     id: int
     space: Ref
@@ -67,12 +111,18 @@ class TransactionOut(BaseModel):
     categories: List[Ref] = Field(default_factory=list)
     tags: List[str] = Field(default_factory=list)
     installment: Optional[InstallmentInfo] = None
+    split_mode: str = Field("transaction", description="transaction = divisão do total; item = cada item tem a sua.")
     payers: List[PersonAmount] = Field(default_factory=list)
     split: List[PersonAmount] = Field(default_factory=list, description="Quem deve quanto desta despesa.")
     my_share: MoneyOut = Field(description="A sua parte nesta despesa.")
+    items: List[ItemOut] = Field(default_factory=list, description="Itens da nota. Vazio = sem itens detalhados.")
+    adjustments: List[AdjustmentOut] = Field(default_factory=list, description="Desconto, frete, taxa… da nota.")
+    purchase: Optional[PurchaseOut] = Field(None, description="Parcelado: a compra inteira.")
     created_by: Optional[Ref] = None
     foreign: Optional[ForeignInfo] = None
     attachments: int = 0
+    files: List[AttachmentOut] = Field(default_factory=list, description="Anexos (recibos). Conteúdo: attachments_get.")
+    version: str = Field("", description="Versão do estado; mande em `expected_version` ao editar.")
     app_url: str
 
 

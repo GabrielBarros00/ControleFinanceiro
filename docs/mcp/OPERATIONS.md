@@ -15,8 +15,8 @@ encaminha:
 Variáveis novas (todas com padrão; ver `.env.example` e `docs/mcp/README.md`):
 `MCP_ENABLED`, `MCP_*_TTL_*`, `MCP_ALLOWED_ORIGINS`, `MCP_CIMD_ENABLED`,
 `MCP_DCR_ENABLED`, `MCP_RATE_LIMIT_UNITS_PER_MINUTE`,
-`MCP_WRITE_RATE_LIMIT_PER_MINUTE`, `MCP_BULK_MAX_ITEMS`,
-`OPENAI_APPS_CHALLENGE_TOKEN`.
+`MCP_WRITE_RATE_LIMIT_PER_MINUTE`, `MCP_BULK_MAX_ITEMS`, `MCP_FILE_URL_HOSTS`,
+`MCP_ATTACHMENT_TO_MODEL_MAX_BYTES`, `OPENAI_APPS_CHALLENGE_TOKEN`.
 
 **`FRONTEND_URL` é o issuer OAuth** e define a URL do recurso
 (`${FRONTEND_URL}/mcp`). Mudar o domínio invalida as conexões existentes (a

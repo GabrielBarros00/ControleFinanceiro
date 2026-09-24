@@ -17,6 +17,7 @@ from app.core.config import settings
 from app.domain.dates import today_local
 from app.domain.query_policy import user_report_currency
 from app.mcp.registry import NoInput, ToolCall, ToolOutput, tool
+from app.mcp.version import SERVER_VERSION
 from app.services.oauth import scopes as escopos
 
 
@@ -36,6 +37,25 @@ class ProfileOut(BaseModel):
     report_currency: str = Field(description="Moeda dos números pessoais (ISO-4217).")
     app_url: str
     connection: ConnectionInfo
+    server_version: str = Field(description="Versão do servidor MCP (semver).")
+    capabilities: List[str] = Field(
+        description=(
+            "O que este servidor sabe fazer além do básico (ex.: transaction_items, account_ledger, "
+            "attachment_read, attachment_from_chat, history, versions, undo_import)."
+        ),
+    )
+
+
+def _capacidades() -> List[str]:
+    lista = [
+        "transaction_items", "adjustments", "purchase_view", "versions", "history",
+        "account_ledger", "transfers", "statement_reopen", "recurring_income", "recurring_get",
+        "financing_installments", "attachment_read", "attachment_upload_terminal",
+        "categories_tags_manage", "reports_breakdown", "bulk_update", "undo_import",
+    ]
+    if settings.mcp_file_url_hosts_list:
+        lista.append("attachment_from_chat")
+    return lista
 
 
 @tool(
@@ -73,6 +93,8 @@ def profile_get(call: ToolCall) -> ToolOutput:
             client=call.identity.client_name,
             scopes=sorted(call.identity.scopes, key=lambda s: escopos.ALL_SCOPES.index(s) if s in escopos.ALL_SCOPES else 99),
         ),
+        server_version=SERVER_VERSION,
+        capabilities=_capacidades(),
     )
     return ToolOutput(
         structured=saida,

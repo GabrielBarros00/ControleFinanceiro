@@ -11,8 +11,9 @@ from __future__ import annotations
 
 import datetime as dt
 from decimal import Decimal
-from typing import Optional
+from typing import List, Optional
 
+from fastapi import HTTPException
 from pydantic import BaseModel, Field, model_validator
 from sqlmodel import select
 
@@ -24,7 +25,8 @@ from app.mcp.money import MoneyIn, MoneyOut, SignedMoneyIn, fmt_brl
 from app.mcp.registry import ToolCall, ToolInput, ToolOutput, tool
 from app.mcp.schemas import Ref
 from app.mcp.serializers import app_url, civil
-from app.mcp.tools.statements import card_or_only
+from app.mcp.tools.ledger import TransferOut, transfer_out
+from app.mcp.tools.statements import PaymentLine, card_or_only, payment_lines
 from app.mcp.writes import IdempotencyKey
 from app.models.account_ledger import AccountEntry, AccountTransfer
 from app.models.credit_card import CardStatement, CreditCard, StatementPayment, StatementStatus
@@ -263,36 +265,7 @@ class TransferIn(ToolInput):
         return self
 
 
-class TransferOut(BaseModel):
-    id: int
-    from_account: Ref
-    to_account: Ref
-    from_amount: MoneyOut
-    to_amount: MoneyOut
-    from_currency: str
-    to_currency: str
-    exchange_rate: Optional[str] = None
-    date: dt.date
-    note: Optional[str] = None
-    replayed: bool = False
-
-
-def _transfer_out(call: ToolCall, t: AccountTransfer, *, replayed: bool = False) -> TransferOut:
-    origem = call.session.get(PaymentAccount, t.from_account_id)
-    destino = call.session.get(PaymentAccount, t.to_account_id)
-    return TransferOut(
-        id=t.id,
-        from_account=Ref(id=origem.id, name=origem.name),
-        to_account=Ref(id=destino.id, name=destino.name),
-        from_amount=t.from_amount,
-        to_amount=t.to_amount,
-        from_currency=origem.currency,
-        to_currency=destino.currency,
-        exchange_rate=str(t.exchange_rate) if t.exchange_rate is not None else None,
-        date=local_day(t.occurred_at),
-        note=t.note,
-        replayed=replayed,
-    )
+_transfer_out = transfer_out
 
 
 def _replay_transfer(call: ToolCall, ref: dict) -> ToolOutput:
@@ -452,3 +425,142 @@ def accounts_adjust_balance(call: ToolCall) -> ToolOutput:
         result_ref={"entry_id": feito["id"]},
     )
 
+
+# --- transfers_delete --------------------------------------------------------------------
+
+class TransferDeleteIn(ToolInput):
+    transfer_id: int = Field(ge=1)
+
+
+class TransferDeleteOut(BaseModel):
+    deleted: TransferOut = Field(description="Como a transferência estava (para refazer com transfers_create, se preciso).")
+
+
+@tool(
+    name="transfers_delete",
+    title="Desfazer transferência",
+    description=(
+        "Desfaz uma transferência entre suas contas: as duas pernas (saída e entrada) somem juntas, e "
+        "os saldos voltam ao que eram.\n"
+        "Use quando: o usuário disser que uma transferência estava errada ou foi registrada duas vezes "
+        "(pegue o id em transfers_list e confirme qual).\n"
+        "Não use quando: quiser corrigir o valor — desfaça e registre de novo (transfers_create)."
+    ),
+    input_model=TransferDeleteIn,
+    output_model=TransferDeleteOut,
+    scope=escopos.ACCOUNTS_WRITE,
+    kind="destructive",
+    read_only=False,
+    destructive=True,
+    idempotent=True,
+    cost=3,
+    invoking="Desfazendo a transferência…",
+    invoked="Transferência desfeita",
+    examples=({"transfer_id": 5},),
+)
+def transfers_delete(call: ToolCall) -> ToolOutput:
+    a: TransferDeleteIn = call.args
+    t = call.session.get(AccountTransfer, a.transfer_id)
+    origem = call.session.get(PaymentAccount, t.from_account_id) if t else None
+    if t is None or t.deleted_at is not None or origem is None or origem.owner_user_id != call.identity.user_id:
+        raise McpToolError(ErrorCode.NOT_FOUND, "Transferência não encontrada.", details={"transfer_id": a.transfer_id})
+    antes = transfer_out(call, t)
+    acc_cmd.delete_transfer(call.session, call.identity.user_id, t.id)
+    return ToolOutput(
+        structured=TransferDeleteOut(deleted=antes),
+        summary=(
+            f"Transferência desfeita: {fmt_brl(antes.from_amount, antes.from_currency)} de "
+            f"{antes.from_account.name} para {antes.to_account.name} em {antes.date.strftime('%d/%m/%Y')}."
+        ),
+        entity_type="transfer",
+        entity_ids=[t.id],
+    )
+
+
+# --- statements_reopen --------------------------------------------------------------------
+
+class ReopenIn(ToolInput):
+    card: Optional[str] = Field(None, max_length=120, description="Cartão (nome). Omitido: seu único cartão.")
+    card_id: Optional[int] = None
+    month: MonthKey = Field(description="Mês da fatura (YYYY-MM).")
+
+
+class ReopenOut(BaseModel):
+    card: Ref
+    month: str
+    previous_status: str
+    status: str = Field(description="closed (paga → fechada, pagamentos estornados) | open (fechada → aberta).")
+    reversed_payments: List[PaymentLine] = Field(description="Pagamentos estornados (o dinheiro volta às contas).")
+    balance: MoneyOut
+    currency: str
+
+
+@tool(
+    name="statements_reopen",
+    title="Estornar pagamento de fatura",
+    description=(
+        "Estorna os pagamentos de uma fatura, como o botão \"Reabrir\" do app: os pagamentos somem, o "
+        "dinheiro volta às contas e a fatura volta um passo (paga → fechada; fechada com pagamento "
+        "parcial → aberta). Sem pagamento na fatura, não faz nada.\n"
+        "Use quando: o usuário disser que um pagamento de fatura foi registrado errado ou em dobro.\n"
+        "Não use quando: quiser pagar (statements_pay) ou só ver os pagamentos (statements_get)."
+    ),
+    input_model=ReopenIn,
+    output_model=ReopenOut,
+    scope=escopos.ACCOUNTS_WRITE,
+    kind="destructive",
+    read_only=False,
+    destructive=True,
+    idempotent=True,
+    cost=3,
+    invoking="Estornando…",
+    invoked="Fatura reaberta",
+    examples=({"card": "Nubank", "month": "2026-09"},),
+)
+def statements_reopen(call: ToolCall) -> ToolOutput:
+    a: ReopenIn = call.args
+    cartao = card_or_only(call, a.card_id, a.card)
+    fatura = call.session.exec(
+        select(CardStatement).where(CardStatement.card_id == cartao.id, CardStatement.month == a.month)
+    ).first()
+    if fatura is None:
+        raise McpToolError(ErrorCode.NOT_FOUND, f"Não há fatura de {a.month} no {cartao.name}.", details={"month": a.month})
+    antes = getattr(fatura.status, "value", fatura.status)
+    estornados = payment_lines(call, fatura)
+    # Só estorna o que existe: sem pagamento vivo, repetir a chamada (retry de rede)
+    # não pode andar mais um passo no ciclo e reabrir a fatura.
+    if not estornados:
+        return ToolOutput(
+            structured=ReopenOut(
+                card=Ref(id=cartao.id, name=cartao.name), month=fatura.month, previous_status=antes, status=antes,
+                reversed_payments=[], balance=CreditCardService.statement_balance(call.session, fatura),
+                currency=cartao.currency,
+            ),
+            summary=f"A fatura {fatura.month} do {cartao.name} não tem pagamento a estornar.",
+            entity_type="statement",
+            entity_ids=[fatura.id],
+        )
+    try:
+        stmt_cmd.reopen_statement(call.session, call.identity.user_id, cartao.id, fatura.id)
+    except HTTPException as exc:
+        raise McpToolError(ErrorCode.CONFLICT, str(exc.detail))
+    call.session.flush()
+    saida = ReopenOut(
+        card=Ref(id=cartao.id, name=cartao.name),
+        month=fatura.month,
+        previous_status=antes,
+        status=getattr(fatura.status, "value", fatura.status),
+        reversed_payments=estornados,
+        balance=CreditCardService.statement_balance(call.session, fatura),
+        currency=cartao.currency,
+    )
+    resumo = f"Fatura {fatura.month} do {cartao.name}: {antes} → {saida.status}"
+    if estornados:
+        total = sum((p.amount for p in estornados), Decimal("0"))
+        resumo += f"; {len(estornados)} pagamento(s) estornado(s) ({fmt_brl(total, cartao.currency)})"
+    return ToolOutput(
+        structured=saida,
+        summary=resumo + ".",
+        entity_type="statement",
+        entity_ids=[fatura.id],
+    )

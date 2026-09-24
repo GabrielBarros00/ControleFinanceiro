@@ -390,3 +390,82 @@
     - tool: attachments_upload_link
       args: {transaction_id: "{id:mercado}", file_path: "~/Downloads/recibo-mercado.jpg"}
       expect: {ok: true, path: "form_field", equals: "file"}
+
+# --- Paridade com o app (2026-09-24) ------------------------------------------------
+
+# O caso do relatório de lacunas: itens da nota com divisão por item, parcelado.
+- id: nota-com-itens-dividida
+  prompt: "Compra no Savegnago de R$ 100 no Nubank em 2x: arroz R$ 30 é meu, shampoo R$ 20 é do João e o refrigerante de R$ 50 dividimos."
+  expected_tools: [transactions_create]
+  forbidden_tools: [transactions_update, transactions_bulk_delete]
+  max_calls: 2
+  risk: write
+  golden:
+    - tool: transactions_create
+      args:
+        idempotency_key: "{uuid}"
+        title: "Savegnago"
+        space: "Casa"
+        card: "Nubank"
+        installments: 2
+        items:
+          - {title: "Arroz", amount: "30.00", owner: "eu"}
+          - {title: "Shampoo", amount: "20.00", owner: "João"}
+          - {title: "Refrigerante", amount: "50.00", split_with: ["João"]}
+      expect: {ok: true, path: "transaction.purchase.my_share", equals: "55.00"}
+
+- id: salario-recorrente
+  prompt: "Meu salário é R$ 4.000 todo dia 5 e cai no Itaú."
+  expected_tools: [recurring_create]
+  forbidden_tools: [income_create, transactions_create]
+  max_calls: 2
+  risk: write
+  golden:
+    - tool: recurring_create
+      args: {idempotency_key: "{uuid}", kind: "income", title: "Salário", amount: "4000.00", day_of_month: 5, account: "Itaú", materialize: "future"}
+      expect: {ok: true, path: "recurring.kind", equals: "income"}
+
+- id: gasto-por-estabelecimento
+  prompt: "Quanto gastei em cada estabelecimento este mês?"
+  expected_tools: [reports_breakdown]
+  forbidden_tools: [transactions_create, transactions_bulk_delete]
+  max_calls: 2
+  risk: read
+  golden:
+    - tool: reports_breakdown
+      args: {group_by: "title", month: "{mes}"}
+      expect: {ok: true, path: "group_by", equals: "title"}
+
+- id: quem-mudou-a-despesa
+  prompt: "Quem mudou o valor da farmácia de ontem, e quanto era antes?"
+  expected_tools: [transactions_search, transactions_history]
+  forbidden_tools: [transactions_update]
+  max_calls: 3
+  risk: read
+  golden:
+    - tool: transactions_search
+      args: {text: "Farmácia", date_from: "{ontem}", date_to: "{ontem}"}
+      expect: {ok: true, path: "total_count", equals: 1}
+      save: {farmacia: "items.0.id"}
+    - tool: transactions_history
+      args: {transaction_id: "{id:farmacia}"}
+      expect: {ok: true, path: "entries.0.action", equals: "created"}
+
+- id: desfazer-importacao
+  prompt: "Desfaça a importação de extrato que eu fiz hoje."
+  expected_tools: [imports_list, transactions_bulk_preview, transactions_bulk_delete]
+  forbidden_tools: [transactions_delete]
+  max_calls: 4
+  risk: destructive
+  must_ask_user: true
+  golden:
+    - tool: imports_commit
+      args: {idempotency_key: "{uuid}", space: "Meu espaço", rows: [{date: "{ontem}", title: "TARIFA", amount: "9.90"}]}
+      expect: {ok: true, path: "imported", equals: 1}
+      save: {lote: "batch_id"}
+    - tool: imports_list
+      args: {}
+      expect: {ok: true, path: "batches.0.live_transactions", equals: 1}
+    - tool: transactions_bulk_preview
+      args: {action: "delete", filters: {import_batch_id: "{id:lote}"}}
+      expect: {ok: true, path: "count", equals: 1}

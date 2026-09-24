@@ -10,7 +10,7 @@ from __future__ import annotations
 from collections import defaultdict
 from datetime import date
 from decimal import Decimal
-from typing import List, Optional
+from typing import List, Literal, Optional
 
 from pydantic import BaseModel, Field
 from sqlmodel import or_, select
@@ -26,7 +26,9 @@ from app.mcp.ui import WIDGET_URI
 from app.mcp.registry import ToolCall, ToolInput, ToolOutput, tool
 from app.mcp.schemas import Ref
 from app.mcp.serializers import app_url
+from app.mcp.tools.transactions import ResolvedFilters, SearchFilters, build_filters
 from app.models.estimate import MonthlyEstimate
+from app.services import transaction_query
 from app.services.oauth import scopes as escopos
 from app.services.overview_service import OverviewService
 from app.services.report_service import ReportService
@@ -316,3 +318,106 @@ def budgets_list(call: ToolCall) -> ToolOutput:
     if estouradas:
         resumo_txt += "; acima do orçamento: " + ", ".join(m.category for m in estouradas)
     return ToolOutput(structured=BudgetsOut(month=chave, budgets=metas), summary=resumo_txt + ".")
+
+
+# --- reports_breakdown ------------------------------------------------------------------
+
+class BreakdownIn(SearchFilters):
+    group_by: Literal["category", "tag", "person", "card", "account", "payment_method", "month", "space", "title"] = Field(
+        description=(
+            "Eixo: category, tag, person (quanto cabe a CADA pessoa), card, account (conta de onde saiu), "
+            "payment_method, month (competência), space, title (título normalizado: aproxima o estabelecimento)."
+        ),
+    )
+    basis: Literal["my_share", "total"] = Field(
+        "my_share", description="my_share = a SUA parte (padrão); total = o valor cheio dos lançamentos.",
+    )
+    limit: int = Field(15, ge=1, le=50, description="Grupos por moeda; o resto vem somado em `others`.")
+
+
+class BreakdownGroup(BaseModel):
+    id: Optional[int] = None
+    name: str
+    currency: str
+    amount: MoneyOut
+    count: int = Field(description="Quantos lançamentos entraram neste grupo.")
+    percent: str = Field(description="Participação no total da moeda (\"23.5\").")
+
+
+class BreakdownOut(BaseModel):
+    group_by: str
+    basis: str
+    groups: List[BreakdownGroup]
+    others: List[BreakdownGroup] = Field(default_factory=list, description="Soma do que passou de `limit`, por moeda.")
+    totals: dict[str, MoneyOut] = Field(description="Total do filtro por moeda (mesma base).")
+    resolved: ResolvedFilters
+
+
+@tool(
+    name="reports_breakdown",
+    title="Gastos agrupados",
+    description=(
+        "Soma os gastos do filtro por um eixo — categoria, tag, pessoa, cartão, conta, forma de "
+        "pagamento, mês, espaço ou título (≈ estabelecimento) — direto do banco, com a sua parte ou o "
+        "valor cheio. Aceita os mesmos filtros de transactions_search (período, texto, cartão, "
+        "categoria, pessoa…).\n"
+        "Use quando: 'quanto gastei em cada mercado nos últimos 6 meses?', 'quanto foi em cada cartão "
+        "este ano?', 'quanto a Maria consumiu da casa?', séries por mês de uma categoria.\n"
+        "Não use quando: quiser o resumo pronto do mês (reports_summary) ou os lançamentos um a um "
+        "(transactions_search). Não pagine a busca para somar: use esta tool."
+    ),
+    input_model=BreakdownIn,
+    output_model=BreakdownOut,
+    cost=3,
+    invoking="Somando…",
+    invoked="Soma pronta",
+    **_LEITURA,
+)
+def reports_breakdown(call: ToolCall) -> ToolOutput:
+    a: BreakdownIn = call.args
+    memberships, filtros, resolvido = build_filters(call, a)
+    try:
+        grupos = transaction_query.breakdown(
+            call.session, memberships, filtros, me_id=call.identity.user_id, group_by=a.group_by, basis=a.basis,
+        )
+    except transaction_query.BreakdownTooLarge as exc:
+        raise McpToolError(ErrorCode.VALIDATION_ERROR, str(exc))
+    totais: dict[str, Decimal] = {}
+    for g in grupos:
+        totais[g.currency] = totais.get(g.currency, Decimal("0.00")) + g.amount
+    saida_grupos: list[BreakdownGroup] = []
+    outros: dict[str, list] = {}
+    usados: dict[str, int] = {}
+    for g in grupos:
+        total_moeda = totais[g.currency]
+        pct = format((g.amount * 100 / total_moeda).quantize(Decimal("0.1")), "f") if total_moeda else "0.0"
+        if usados.get(g.currency, 0) < a.limit:
+            usados[g.currency] = usados.get(g.currency, 0) + 1
+            saida_grupos.append(BreakdownGroup(id=g.id, name=g.name, currency=g.currency, amount=g.amount, count=g.count, percent=pct))
+        else:
+            linha = outros.setdefault(g.currency, [Decimal("0.00"), 0])
+            linha[0] += g.amount
+            linha[1] += g.count
+    saida = BreakdownOut(
+        group_by=a.group_by,
+        basis=a.basis,
+        groups=saida_grupos,
+        others=[
+            BreakdownGroup(
+                name="Outros", currency=m, amount=v[0], count=v[1],
+                percent=format((v[0] * 100 / totais[m]).quantize(Decimal("0.1")), "f") if totais[m] else "0.0",
+            )
+            for m, v in outros.items()
+        ],
+        totals=totais,
+        resolved=resolvido,
+    )
+    topo = ", ".join(f"{g.name} {fmt_brl(g.amount, g.currency)}" for g in saida_grupos[:3])
+    return ToolOutput(
+        structured=saida,
+        summary=(
+            f"{len(grupos)} grupo(s) por {a.group_by} ({'sua parte' if a.basis == 'my_share' else 'valor cheio'})"
+            + (f"; maiores: {topo}." if topo else ".")
+        ),
+        widget={"view": "breakdown"},
+    )

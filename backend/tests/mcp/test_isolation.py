@@ -19,7 +19,10 @@ import pytest
 
 from app.mcp.registry import REGISTRY, input_schema
 from app.mcp.server import get_server
+from app.models.attachment import Attachment
 from app.models.estimate import MonthlyEstimate
+from app.models.financing import AmortizationInstallment, Financing
+from app.models.payment_account import PaymentAccount
 from app.models.recurring import RecurringExpense
 from tests.mcp.conftest import call_tool, err, ok
 from tests.mcp.scenario import cria_despesa, monta
@@ -42,6 +45,36 @@ def mundo(db_session, mcp_client):
     recorrente = ok(call_tool(mcp_client, c.token, "recurring_create", {
         "idempotency_key": str(uuid4()), "title": SEGREDO, "amount": "10.00", "materialize": "future",
     }))["recurring"]
+    renda_fixa = ok(call_tool(mcp_client, c.token, "recurring_create", {
+        "idempotency_key": str(uuid4()), "kind": "income", "title": SEGREDO, "amount": "4000.00", "materialize": "future",
+    }))["recurring"]
+    poupanca = PaymentAccount(name="Poupança", owner_user_id=c.alice.id, currency="BRL")
+    db_session.add(poupanca)
+    db_session.commit()
+    transf = ok(call_tool(mcp_client, c.token, "transfers_create", {
+        "idempotency_key": str(uuid4()), "from_account_id": c.conta.id, "to_account_id": poupanca.id, "amount": "50.00",
+    }))
+    anexo = Attachment(
+        workspace_id=c.casa.id, transaction_id=avulsa["id"], filename=SEGREDO + ".png", content_type="image/png",
+        size_bytes=12, data=b"\x89PNG\r\n\x1a\n0000", uploaded_by_user_id=c.alice.id,
+    )
+    financiamento = Financing(
+        title=SEGREDO, total_amount="10000.00", interest_rate="0.01", start_date=c.hoje,
+        installments_count=2, owner_user_id=c.alice.id,
+    )
+    db_session.add_all([anexo, financiamento])
+    db_session.commit()
+    for n in (1, 2):
+        db_session.add(AmortizationInstallment(
+            financing_id=financiamento.id, installment_number=n, due_date=c.hoje + timedelta(days=30 * n),
+            principal_amount="5000.00", interest_amount="100.00", total_amount="5100.00",
+            remaining_balance=str(10000 - 5000 * n) + ".00",
+        ))
+    db_session.commit()
+    lote = ok(call_tool(mcp_client, c.token, "imports_commit", {
+        "idempotency_key": str(uuid4()), "space_id": c.pessoal.id,
+        "rows": [{"date": c.hoje.isoformat(), "title": SEGREDO + " importado", "amount": "12.34"}],
+    }))
     return {
         "c": c,
         "tx": avulsa["id"],
@@ -50,6 +83,11 @@ def mundo(db_session, mcp_client):
         "renda": renda["id"],
         "acerto": acerto["id"],
         "recorrente": recorrente["id"],
+        "renda_fixa": renda_fixa["id"],
+        "transf": transf["id"],
+        "anexo": anexo.id,
+        "fin": financiamento.id,
+        "lote": lote["batch_id"],
     }
 
 
@@ -99,7 +137,27 @@ def _casos(m: dict) -> dict[str, list[dict]]:
         "recurring_create": [{"idempotency_key": k(), "title": "x", "amount": "1", "space_id": c.casa.id}],
         "recurring_update": [{"recurring_id": m["recorrente"], "amount": "1.00"}],
         "budgets_set": [{"space_id": c.casa.id, "category": "Alimentação", "amount": "1", "scope": "personal"}],
-        "categories_create": [{"space_id": c.casa.id, "name": "Invasão"}],
+        "categories_create": [{"space_id": c.casa.id, "name": "Invasão"}, {"space_id": c.casa.id, "name": "x", "kind": "tag"}],
+        "categories_update": [{"space_id": c.casa.id, "name": "Alimentação", "new_name": "Invasão"},
+                              {"space_id": c.casa.id, "id": 1, "delete": True}],
+        "transactions_history": [{"transaction_id": m["tx"]}, {"transaction_id": m["parcela"]}],
+        "recurring_get": [{"recurring_id": m["recorrente"]}, {"recurring_id": m["renda_fixa"], "kind": "income"}],
+        "recurring_delete": [{"recurring_id": m["recorrente"]}, {"recurring_id": m["renda_fixa"], "kind": "income"}],
+        "income_list": [{"income_id": m["renda"]}],
+        "income_delete": [{"income_id": m["renda"]}],
+        "income_restore": [{"income_id": m["renda"]}],
+        "accounts_statement": [{"account_id": c.conta.id}],
+        "transfers_list": [{"account_id": c.conta.id}],
+        "transfers_delete": [{"transfer_id": m["transf"]}],
+        "statements_reopen": [{"card_id": c.nubank.id, "month": c.hoje.strftime("%Y-%m")}],
+        "financings_list": [{"financing_id": m["fin"]}],
+        "financings_installment": [{"action": "pay", "financing_id": m["fin"]}, {"action": "unpay", "financing_id": m["fin"]}],
+        "attachments_get": [{"attachment_id": m["anexo"]}],
+        "attachments_delete": [{"attachment_id": m["anexo"]}],
+        "attachments_add": [{"transaction_id": m["tx"], "file": {"download_url": "https://files.oaiusercontent.com/x", "file_id": "f"}}],
+        "imports_list": [{"batch_id": m["lote"]}],
+        "reports_breakdown": [{"group_by": "category", "space_id": c.casa.id}, {"group_by": "card", "card_id": c.nubank.id},
+                              {"group_by": "person", "person_id": c.alice.id}, {"group_by": "title", "import_batch_id": m["lote"]}],
     }
 
 
@@ -113,7 +171,8 @@ def test_toda_tool_com_id_tem_caso_de_isolamento(db_session, mcp_client):
     get_server()
     com_id = {n for n in REGISTRY if _tem_id(n)}
     assert len(com_id) >= 25, com_id  # denominador: a varredura enxerga as tools
-    faltando = com_id - set(_casos({"c": _Falso(), **{k: 0 for k in ("tx", "parcela", "grupo", "renda", "acerto", "recorrente")}}))
+    chaves = ("tx", "parcela", "grupo", "renda", "acerto", "recorrente", "renda_fixa", "transf", "anexo", "fin", "lote")
+    faltando = com_id - set(_casos({"c": _Falso(), **{k: 0 for k in chaves}}))
     assert not faltando, f"tools com id sem caso A×B: {sorted(faltando)}"
 
 
@@ -126,8 +185,16 @@ class _Falso:
     def isoformat(self):
         return "2026-01-01"
 
+    def strftime(self, _):
+        return "2026-01"
 
-def test_bob_nao_alcanca_nada_da_alice(db_session, mcp_client, mundo):
+
+def test_bob_nao_alcanca_nada_da_alice(db_session, mcp_client, mundo, monkeypatch):
+    from app.core.config import settings
+
+    # A matriz passa de cem chamadas do Bob: o teto de uso é outro teste
+    # (`test_audit_and_safety`), aqui ele só mascararia o que importa.
+    monkeypatch.setattr(settings, "RATE_LIMIT_ENABLED", False)
     c = mundo["c"]
     antes = _fotografia(db_session)
     vazamentos, aceitas = [], []
@@ -145,9 +212,12 @@ def test_bob_nao_alcanca_nada_da_alice(db_session, mcp_client, mundo):
     assert not vazamentos, vazamentos
     # As únicas chamadas que "funcionam" para o Bob são buscas que simplesmente não acham nada.
     for nome, argumentos, saida in aceitas:
-        assert nome in {"transactions_search", "debts_summary", "transactions_bulk_preview"}, (nome, argumentos, saida)
+        assert nome in {"transactions_search", "debts_summary", "transactions_bulk_preview", "reports_breakdown"}, (
+            nome, argumentos, saida)
         if nome == "transactions_search":
             assert saida["total_count"] == 0
+        if nome == "reports_breakdown":
+            assert saida["groups"] == [], (argumentos, saida)
         if nome == "transactions_bulk_preview":
             assert saida["count"] == 0 and saida["confirmation_token"] is None
     assert _fotografia(db_session) == antes, "o Bob alterou dados da Alice"
@@ -157,10 +227,13 @@ def _fotografia(db) -> dict:
     """Estado observável do que é da Alice — tem de sair idêntico."""
     from sqlmodel import select
 
+    from app.models.account_ledger import AccountTransfer
     from app.models.category import Category
     from app.models.credit_card import StatementPayment
     from app.models.income import Income
+    from app.models.recurring import RecurringIncome
     from app.models.settlement import Settlement
+    from app.models.tag import Tag
     from app.models.transaction import Transaction
 
     db.expire_all()
@@ -172,6 +245,13 @@ def _fotografia(db) -> dict:
         "metas": len(db.exec(select(MonthlyEstimate)).all()),
         "cats": len(db.exec(select(Category)).all()),
         "pagamentos": len(db.exec(select(StatementPayment)).all()),
+        "renda_ok": sorted((r.id, r.deleted_at is None) for r in db.exec(select(Income)).all()),
+        "rendas_fixas": sorted((r.id, str(r.base_amount)) for r in db.exec(select(RecurringIncome)).all()),
+        "transf": sorted((t.id, t.deleted_at is None) for t in db.exec(select(AccountTransfer)).all()),
+        "anexos": sorted(a.id for a in db.exec(select(Attachment)).all()),
+        "parcelas_fin": sorted((p.id, p.is_paid) for p in db.exec(select(AmortizationInstallment)).all()),
+        "nomes_cat": sorted(cat.name for cat in db.exec(select(Category)).all()),
+        "tags": len(db.exec(select(Tag)).all()),
     }
 
 

@@ -1,6 +1,7 @@
 """Consulta de lançamentos: `transactions_search` e `transactions_get`."""
 from __future__ import annotations
 
+import datetime as dt
 from typing import List, Literal, Optional
 
 from fastapi import HTTPException
@@ -9,6 +10,7 @@ from sqlmodel import select
 
 from app.api.deps import get_workspace_membership
 from app.domain.access_policy import get_visible_transaction
+from app.domain.dates import local_day, to_local
 from app.mcp import resolve
 from app.mcp.dates import CivilDate, MonthKey
 from app.mcp.errors import ErrorCode, McpToolError
@@ -17,7 +19,10 @@ from app.mcp.ui import WIDGET_URI
 from app.mcp.registry import ToolCall, ToolInput, ToolOutput, tool
 from app.mcp.schemas import MoneyTotal, Ref, TransactionBrief, TransactionOut
 from app.mcp.serializers import load_bundle, one, to_brief
+from app.models.audit import AuditLog
+from app.models.credit_card import CreditCard
 from app.models.transaction import Transaction
+from app.models.user import User
 from app.services import transaction_query
 from app.services.oauth import scopes as escopos
 
@@ -52,6 +57,7 @@ class SearchFilters(ToolInput):
     min_amount: Optional[MoneyInOrZero] = None
     max_amount: Optional[MoneyInOrZero] = None
     installment_group_id: Optional[str] = Field(None, max_length=64, description="Parcelas de uma mesma compra.")
+    import_batch_id: Optional[int] = Field(None, ge=1, description="Só o que entrou por uma importação (imports_list).")
 
     @model_validator(mode="after")
     def _periodo(self):
@@ -103,6 +109,7 @@ def build_filters(call: ToolCall, f: SearchFilters):
         max_amount=f.max_amount,
         installment_group_id=f.installment_group_id,
         uncategorized=f.uncategorized,
+        import_batch_id=f.import_batch_id,
     )
     nomes = {}
     if pessoa_id is not None:
@@ -288,3 +295,162 @@ def transactions_get(call: ToolCall) -> ToolOutput:
 )
 def transactions_show(call: ToolCall) -> ToolOutput:
     return transactions_get(call)
+
+
+# --- transactions_history ------------------------------------------------------------------
+
+class HistoryIn(ToolInput):
+    transaction_id: int = Field(ge=1)
+    limit: int = Field(20, ge=1, le=50)
+
+
+class FieldChange(BaseModel):
+    field: str
+    before: Optional[str] = None
+    after: Optional[str] = None
+
+
+class HistoryEntry(BaseModel):
+    at: str = Field(description="Quando, no fuso da conta (AAAA-MM-DD HH:MM).")
+    action: str = Field(description="created | updated | deleted | restored | cancelled | paid | reopened")
+    by: Optional[Ref] = None
+    via_ai: bool = Field(description="Feito por um agente de IA conectado.")
+    client: Optional[str] = Field(None, description="O app de IA que fez a mudança, quando via IA.")
+    changes: List[FieldChange] = Field(default_factory=list)
+    detail_only: bool = Field(
+        False, description="true = mudou só divisão, itens ou tags (a trilha não guarda o antes/depois deles).",
+    )
+
+
+class HistoryOut(BaseModel):
+    transaction_id: int
+    entries: List[HistoryEntry] = Field(description="Mais recentes primeiro.")
+
+
+#: Campo da trilha → rótulo na saída. Só estes aparecem: o resto da linha é
+#: interno (ids de fatura, carimbos) ou já sai de outra forma.
+_CAMPOS_DO_HISTORICO = {
+    "title": "title", "description": "description", "total_amount": "amount", "currency": "currency",
+    "transaction_date": "date", "billing_month": "billing_month", "status": "status",
+    "settled_at": "settled_on", "payment_method": "payment_method", "credit_card_id": "card",
+    "statement_shift": "statement_shift", "split_mode": "split_mode",
+}
+
+
+def _valor_do_historico(campo: str, valor, cartoes: dict[int, str]) -> Optional[str]:
+    if valor is None:
+        return None
+    if campo in ("transaction_date", "settled_at"):
+        try:
+            return local_day(dt.datetime.fromisoformat(str(valor))).isoformat()
+        except ValueError:
+            return str(valor)
+    if campo == "credit_card_id":
+        return cartoes.get(int(valor), f"cartão {valor}")
+    return str(valor)
+
+
+@tool(
+    name="transactions_history",
+    title="Histórico do lançamento",
+    description=(
+        "Mostra o que mudou num lançamento ao longo do tempo: quando, quem (e se foi via IA) e cada "
+        "campo antes → depois (valor, data, título, categoria da fatura, situação, cartão…). Mudanças "
+        "só de divisão, itens ou tags aparecem marcadas, sem o antes/depois.\n"
+        "Use quando: 'quem mudou essa despesa?', 'qual era o valor antes?', 'quando isso foi marcado como pago?'.\n"
+        "Não use quando: quiser o estado atual (transactions_get)."
+    ),
+    input_model=HistoryIn,
+    output_model=HistoryOut,
+    scope=escopos.FINANCE_READ,
+    kind="read",
+    read_only=True,
+    destructive=False,
+    idempotent=True,
+    cost=2,
+    invoking="Lendo o histórico…",
+    invoked="Histórico lido",
+)
+def transactions_history(call: ToolCall) -> ToolOutput:
+    a: HistoryIn = call.args
+    tx = visible_transaction(call, a.transaction_id, include_deleted=True)
+    linhas = call.session.exec(
+        select(AuditLog)
+        .where(
+            AuditLog.resource_type == "Transaction",
+            AuditLog.resource_id == tx.id,
+            AuditLog.workspace_id == tx.workspace_id,
+        )
+        .order_by(AuditLog.created_at, AuditLog.id)
+    ).all()
+    pessoas = {m.id: m.name for m in resolve.space_members(call.session, tx.workspace_id)}
+    faltam = {r.user_id for r in linhas if r.user_id and r.user_id not in pessoas}
+    if faltam:
+        pessoas.update(dict(call.session.exec(select(User.id, User.name).where(User.id.in_(faltam))).all()))
+    ids_de_cartao = {int(c) for r in linhas if (c := (r.new_values or {}).get("credit_card_id"))}
+    cartoes = dict(call.session.exec(
+        select(CreditCard.id, CreditCard.name).where(CreditCard.id.in_(ids_de_cartao))
+    ).all()) if ids_de_cartao else {}
+
+    entradas: list[HistoryEntry] = []
+    anterior: dict = {}
+    for r in linhas:
+        atual = r.new_values or {}
+        origem = r.origin or ""
+        via_ia = origem.startswith("mcp:")
+        acao = getattr(r.action, "value", r.action)
+        mudancas: list[FieldChange] = []
+        if acao == "create" or not anterior:
+            acao_saida = "created"
+        else:
+            for campo, rotulo in _CAMPOS_DO_HISTORICO.items():
+                antes, depois = anterior.get(campo), atual.get(campo)
+                if antes != depois:
+                    mudancas.append(FieldChange(
+                        field=rotulo,
+                        before=_valor_do_historico(campo, antes, cartoes),
+                        after=_valor_do_historico(campo, depois, cartoes),
+                    ))
+            if anterior.get("deleted_at") is None and atual.get("deleted_at"):
+                acao_saida = "deleted"
+            elif anterior.get("deleted_at") and not atual.get("deleted_at"):
+                acao_saida = "restored"
+            elif anterior.get("status") != atual.get("status") and atual.get("status") in ("cancelled", "paid"):
+                acao_saida = atual["status"]
+            elif anterior.get("status") == "paid" and atual.get("status") == "confirmed":
+                acao_saida = "reopened"
+            else:
+                acao_saida = "updated"
+        if atual:
+            anterior = atual
+        quando = to_local(r.created_at).strftime("%Y-%m-%d %H:%M") if r.created_at else ""
+        entrada = HistoryEntry(
+            at=quando, action=acao_saida,
+            by=Ref(id=r.user_id, name=pessoas.get(r.user_id, "?")) if r.user_id else None,
+            via_ai=via_ia, client=origem[4:] if via_ia else None,
+            changes=mudancas,
+            detail_only=acao_saida == "updated" and not mudancas,
+        )
+        # A mesma gravação costuma gerar duas linhas seguidas (a fatura é
+        # reancorada no mesmo flush): junta com a anterior se foi a mesma pessoa,
+        # pelo mesmo caminho, no mesmo minuto.
+        ultimo = entradas[-1] if entradas else None
+        if (
+            ultimo is not None and ultimo.at == entrada.at and ultimo.via_ai == entrada.via_ai
+            and (ultimo.by.id if ultimo.by else None) == (entrada.by.id if entrada.by else None)
+            and entrada.action == "updated" and ultimo.action != "deleted"
+        ):
+            vistos = {c.field for c in ultimo.changes}
+            ultimo.changes.extend(c for c in entrada.changes if c.field not in vistos)
+            ultimo.detail_only = ultimo.detail_only and entrada.detail_only
+            continue
+        entradas.append(entrada)
+    entradas.reverse()
+    saida = HistoryOut(transaction_id=tx.id, entries=entradas[:a.limit])
+    return ToolOutput(
+        structured=saida,
+        summary=f"{len(entradas)} registro(s) no histórico de \"{tx.title}\".",
+        entity_type="transaction",
+        entity_ids=[tx.id],
+        space_id=tx.workspace_id,
+    )

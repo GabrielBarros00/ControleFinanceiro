@@ -148,6 +148,8 @@ services:
       MCP_RATE_LIMIT_UNITS_PER_MINUTE: ${MCP_RATE_LIMIT_UNITS_PER_MINUTE:-120}
       MCP_WRITE_RATE_LIMIT_PER_MINUTE: ${MCP_WRITE_RATE_LIMIT_PER_MINUTE:-30}
       MCP_BULK_MAX_ITEMS: ${MCP_BULK_MAX_ITEMS:-200}
+      MCP_FILE_URL_HOSTS: ${MCP_FILE_URL_HOSTS:-oaiusercontent.com}
+      MCP_ATTACHMENT_TO_MODEL_MAX_BYTES: ${MCP_ATTACHMENT_TO_MODEL_MAX_BYTES:-3145728}
       # Só no dia da submissão do app à OpenAI (verificação de domínio).
       OPENAI_APPS_CHALLENGE_TOKEN: ${OPENAI_APPS_CHALLENGE_TOKEN:-}
       # Conteúdo dos anexos (ADR 0007): fora do banco, no volume abaixo.

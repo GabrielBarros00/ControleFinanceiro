@@ -2,7 +2,7 @@
 
 <!-- GERADO por `python -m app.mcp.docs` a partir de `backend/app/mcp/registry.py`. Não edite à mão. -->
 
-Servidor `controle-financeiro` versão `1.2.0` · 39 tools · endpoint `/mcp` (Streamable HTTP).
+Servidor `controle-financeiro` versão `1.3.0` · 57 tools · endpoint `/mcp` (Streamable HTTP).
 
 Convenções que valem para todas: dinheiro em string decimal com ponto (`"89.90"`, até 2 casas, nunca arredondado); datas `YYYY-MM-DD` e meses `YYYY-MM` no fuso da conta (`profile_get.timezone`); nomes resolvidos no servidor (ambíguo → `AMBIGUOUS` com candidatos); nenhuma tool aceita `user_id` — a identidade vem do token.
 
@@ -36,15 +36,22 @@ Toda falha volta com `isError: true` e `{"error": {code, message, details, retry
 | [`transactions_search`](#transactions_search--buscar-lançamentos) | Buscar lançamentos | Leitura | `finance.read` |
 | [`transactions_get`](#transactions_get--ver-lançamento) | Ver lançamento | Leitura | `finance.read` |
 | [`transactions_show`](#transactions_show--mostrar-lançamento-na-conversa) | Mostrar lançamento na conversa | Leitura | `finance.read` |
+| [`transactions_history`](#transactions_history--histórico-do-lançamento) | Histórico do lançamento | Leitura | `finance.read` |
 | [`statements_get`](#statements_get--ver-fatura-do-cartão) | Ver fatura do cartão | Leitura | `finance.read` |
 | [`statements_show`](#statements_show--mostrar-fatura-na-conversa) | Mostrar fatura na conversa | Leitura | `finance.read` |
 | [`reports_summary`](#reports_summary--resumo-financeiro-do-mês) | Resumo financeiro do mês | Leitura | `finance.read` |
 | [`reports_show`](#reports_show--mostrar-resumo-do-mês-na-conversa) | Mostrar resumo do mês na conversa | Leitura | `finance.read` |
 | [`budgets_list`](#budgets_list--orçamentos-do-mês) | Orçamentos do mês | Leitura | `finance.read` |
+| [`reports_breakdown`](#reports_breakdown--gastos-agrupados) | Gastos agrupados | Leitura | `finance.read` |
 | [`debts_summary`](#debts_summary--quem-deve-a-quem) | Quem deve a quem | Leitura | `finance.read` |
 | [`payables_list`](#payables_list--contas-a-pagar) | Contas a pagar | Leitura | `finance.read` |
 | [`income_list`](#income_list--rendas-do-mês) | Rendas do mês | Leitura | `finance.read` |
 | [`recurring_list`](#recurring_list--despesas-e-rendas-recorrentes) | Despesas e rendas recorrentes | Leitura | `finance.read` |
+| [`recurring_get`](#recurring_get--ver-recorrência) | Ver recorrência | Leitura | `finance.read` |
+| [`accounts_statement`](#accounts_statement--extrato-da-conta) | Extrato da conta | Leitura | `finance.read` |
+| [`transfers_list`](#transfers_list--transferências-entre-contas) | Transferências entre contas | Leitura | `finance.read` |
+| [`financings_list`](#financings_list--financiamentos) | Financiamentos | Leitura | `finance.read` |
+| [`financings_installment`](#financings_installment--pagardesfazer-parcela) | Pagar/desfazer parcela | Escrita | `accounts.write` |
 | [`transactions_create`](#transactions_create--registrar-despesa) | Registrar despesa | Escrita | `transactions.write` |
 | [`transactions_update`](#transactions_update--editar-lançamento) | Editar lançamento | Escrita | `transactions.write` |
 | [`transactions_delete`](#transactions_delete--excluir-lançamento) | Excluir lançamento | Destrutiva | `transactions.write` |
@@ -52,20 +59,31 @@ Toda falha volta com `isError: true` e `{"error": {code, message, details, retry
 | [`transactions_bulk_preview`](#transactions_bulk_preview--prévia-de-ação-em-massa) | Prévia de ação em massa | Leitura | `finance.read` |
 | [`transactions_bulk_delete`](#transactions_bulk_delete--excluir-em-massa-confirmado) | Excluir em massa (confirmado) | Destrutiva | `transactions.write` |
 | [`transactions_bulk_categorize`](#transactions_bulk_categorize--categorizar-em-massa-confirmado) | Categorizar em massa (confirmado) | Escrita | `transactions.write` |
+| [`transactions_bulk_update`](#transactions_bulk_update--alterar-em-massa-confirmado) | Alterar em massa (confirmado) | Escrita | `transactions.write` |
 | [`imports_preview`](#imports_preview--conferir-linhas-de-extrato) | Conferir linhas de extrato | Leitura | `finance.read` |
 | [`imports_commit`](#imports_commit--importar-linhas-de-extrato) | Importar linhas de extrato | Escrita | `transactions.write` |
+| [`imports_list`](#imports_list--importações-feitas) | Importações feitas | Leitura | `finance.read` |
 | [`statements_pay`](#statements_pay--pagar-fatura-do-cartão) | Pagar fatura do cartão | Escrita | `accounts.write` |
 | [`transfers_create`](#transfers_create--transferir-entre-contas) | Transferir entre contas | Escrita | `accounts.write` |
 | [`accounts_adjust_balance`](#accounts_adjust_balance--conciliar-saldo-da-conta) | Conciliar saldo da conta | Escrita | `accounts.write` |
+| [`transfers_delete`](#transfers_delete--desfazer-transferência) | Desfazer transferência | Destrutiva | `accounts.write` |
+| [`statements_reopen`](#statements_reopen--estornar-pagamento-de-fatura) | Estornar pagamento de fatura | Destrutiva | `accounts.write` |
 | [`income_create`](#income_create--registrar-renda) | Registrar renda | Escrita | `income.write` |
 | [`income_update`](#income_update--atualizar-renda) | Atualizar renda | Escrita | `income.write` |
+| [`income_delete`](#income_delete--excluir-renda) | Excluir renda | Destrutiva | `income.write` |
+| [`income_restore`](#income_restore--restaurar-renda-excluída) | Restaurar renda excluída | Escrita | `income.write` |
 | [`settlements_create`](#settlements_create--registrar-acerto-entre-pessoas) | Registrar acerto entre pessoas | Escrita | `settlements.write` |
 | [`settlements_delete`](#settlements_delete--desfazer-acerto) | Desfazer acerto | Destrutiva | `settlements.write` |
-| [`recurring_create`](#recurring_create--criar-despesa-recorrente) | Criar despesa recorrente | Escrita | `planning.write` |
-| [`recurring_update`](#recurring_update--editar-despesa-recorrente) | Editar despesa recorrente | Escrita | `planning.write` |
+| [`recurring_create`](#recurring_create--criar-recorrência) | Criar recorrência | Escrita | `planning.write` |
+| [`recurring_update`](#recurring_update--editar-recorrência) | Editar recorrência | Escrita | `planning.write` |
+| [`recurring_delete`](#recurring_delete--excluir-recorrência) | Excluir recorrência | Destrutiva | `planning.write` |
 | [`budgets_set`](#budgets_set--definir-meta-do-mês) | Definir meta do mês | Escrita | `planning.write` |
-| [`categories_create`](#categories_create--criar-categoria) | Criar categoria | Escrita | `planning.write` |
+| [`categories_create`](#categories_create--criar-categoria-ou-tag) | Criar categoria ou tag | Escrita | `planning.write` |
+| [`categories_update`](#categories_update--renomear-ou-excluir-categoriatag) | Renomear ou excluir categoria/tag | Escrita | `planning.write` |
 | [`attachments_upload_link`](#attachments_upload_link--link-para-anexar-arquivo) | Link para anexar arquivo | Escrita | `transactions.write` |
+| [`attachments_get`](#attachments_get--ler-anexo-recibo) | Ler anexo (recibo) | Leitura | `finance.read` |
+| [`attachments_delete`](#attachments_delete--excluir-anexo) | Excluir anexo | Destrutiva | `transactions.write` |
+| [`attachments_add`](#attachments_add--anexar-arquivo-da-conversa) | Anexar arquivo da conversa | Escrita | `transactions.write` |
 
 ## Referência
 
@@ -84,7 +102,7 @@ Não use quando: precisar de dados financeiros — use as tools de consulta.
 
 _Sem parâmetros._
 
-**Saída (`structuredContent`)**: `id`, `name`, `email`, `nickname`, `environment`, `timezone`, `today`, `report_currency`, `app_url`, `connection`
+**Saída (`structuredContent`)**: `id`, `name`, `email`, `nickname`, `environment`, `timezone`, `today`, `report_currency`, `app_url`, `connection`, `server_version`, `capabilities`
 
 ### `spaces_list` — Listar espaços
 
@@ -212,9 +230,10 @@ Não use quando: quiser o resumo do mês por categoria (reports_summary) ou a fa
 | `payment_method` | `credit_card` \| `debit_card` \| `pix` \| `cash` \| `bank_transfer` \| `boleto` \| `other` | não |  |
 | `status` | lista de `draft` \| `pending` \| `confirmed` \| `paid` \| `cancelled` | não | máx. 5 |
 | `settled` | boolean | não | true = já pago; false = a pagar (fora do cartão). |
-| `min_amount` | string | não | Valor em string decimal com ponto e até 2 casas. Ex.: "89.90", "3000", "0.99". (padrão `^\d{1,16}([.,]\d{1,2})?$`) |
-| `max_amount` | string | não | Valor em string decimal com ponto e até 2 casas. Ex.: "89.90", "3000", "0.99". (padrão `^\d{1,16}([.,]\d{1,2})?$`) |
+| `min_amount` | string | não | Decimal em texto, até 2 casas. Ex.: "89.90". (padrão `^\d{1,16}([.,]\d{1,2})?$`) |
+| `max_amount` | string | não | Decimal em texto, até 2 casas. Ex.: "89.90". (padrão `^\d{1,16}([.,]\d{1,2})?$`) |
 | `installment_group_id` | string | não | Parcelas de uma mesma compra. (máx. 64) |
+| `import_batch_id` | integer | não | Só o que entrou por uma importação (imports_list). (≥ 1) |
 | `sort` | `date_desc` \| `date_asc` \| `amount_desc` \| `amount_asc` | não |  |
 | `limit` | integer | não | ≥ 1, ≤ 50 |
 | `cursor` | string | não | `next_cursor` da página anterior. (máx. 512) |
@@ -260,6 +279,26 @@ Não use quando: precisar dos dados para responder, analisar ou editar (transact
 
 **Saída (`structuredContent`)**: `transaction`
 
+### `transactions_history` — Histórico do lançamento
+
+- **Classe:** Leitura · **Escopo:** `finance.read` · **Custo:** 2 unidade(s)
+- **Annotations:** readOnlyHint=true, destructiveHint=false, idempotentHint=true, openWorldHint=false
+
+Mostra o que mudou num lançamento ao longo do tempo: quando, quem (e se foi via IA) e cada campo antes → depois (valor, data, título, categoria da fatura, situação, cartão…). Mudanças só de divisão, itens ou tags aparecem marcadas, sem o antes/depois.
+
+Use quando: 'quem mudou essa despesa?', 'qual era o valor antes?', 'quando isso foi marcado como pago?'.
+
+Não use quando: quiser o estado atual (transactions_get).
+
+**Entrada**
+
+| Parâmetro | Tipo | Obrigatório | Descrição |
+|---|---|---|---|
+| `transaction_id` | integer | sim | ≥ 1 |
+| `limit` | integer | não | ≥ 1, ≤ 50 |
+
+**Saída (`structuredContent`)**: `transaction_id`, `entries`
+
 ### `statements_get` — Ver fatura do cartão
 
 - **Classe:** Leitura · **Escopo:** `finance.read` · **Custo:** 2 unidade(s)
@@ -281,7 +320,7 @@ Não use quando: o usuário pedir para ver/mostrar a fatura (statements_show); q
 | `limit` | integer | não | Compras por página (o total e as categorias já cobrem a fatura inteira). (≥ 1, ≤ 100) |
 | `cursor` | string | não | máx. 512 |
 
-**Saída (`structuredContent`)**: `card`, `currency`, `month`, `exists`, `status`, `closing_date`, `due_date`, `total`, `paid`, `balance`, `overdue`, `purchases_count`, `purchases`, `next_cursor`, `by_category`, `available_months`, `app_url`
+**Saída (`structuredContent`)**: `card`, `currency`, `month`, `exists`, `status`, `closing_date`, `due_date`, `total`, `paid`, `balance`, `overdue`, `purchases_count`, `purchases`, `next_cursor`, `by_category`, `payments`, `available_months`, `app_url`
 
 ### `statements_show` — Mostrar fatura na conversa
 
@@ -303,7 +342,7 @@ Não use quando: precisar dos números para analisar, somar ou comparar (stateme
 | `card_id` | integer | não |  |
 | `month` | string | não | Mês da fatura (YYYY-MM). Omitido: a fatura do ciclo atual. (padrão `^\d{4}-(0[1-9]|1[0-2])$`) |
 
-**Saída (`structuredContent`)**: `card`, `currency`, `month`, `exists`, `status`, `closing_date`, `due_date`, `total`, `paid`, `balance`, `overdue`, `purchases_count`, `purchases`, `next_cursor`, `by_category`, `available_months`, `app_url`
+**Saída (`structuredContent`)**: `card`, `currency`, `month`, `exists`, `status`, `closing_date`, `due_date`, `total`, `paid`, `balance`, `overdue`, `purchases_count`, `purchases`, `next_cursor`, `by_category`, `payments`, `available_months`, `app_url`
 
 ### `reports_summary` — Resumo financeiro do mês
 
@@ -374,6 +413,50 @@ Não use quando: quiser definir uma meta (budgets_set).
 
 **Saída (`structuredContent`)**: `month`, `budgets`
 
+### `reports_breakdown` — Gastos agrupados
+
+- **Classe:** Leitura · **Escopo:** `finance.read` · **Custo:** 3 unidade(s)
+- **Annotations:** readOnlyHint=true, destructiveHint=false, idempotentHint=true, openWorldHint=false
+
+Soma os gastos do filtro por um eixo — categoria, tag, pessoa, cartão, conta, forma de pagamento, mês, espaço ou título (≈ estabelecimento) — direto do banco, com a sua parte ou o valor cheio. Aceita os mesmos filtros de transactions_search (período, texto, cartão, categoria, pessoa…).
+
+Use quando: 'quanto gastei em cada mercado nos últimos 6 meses?', 'quanto foi em cada cartão este ano?', 'quanto a Maria consumiu da casa?', séries por mês de uma categoria.
+
+Não use quando: quiser o resumo pronto do mês (reports_summary) ou os lançamentos um a um (transactions_search). Não pagine a busca para somar: use esta tool.
+
+**Entrada**
+
+| Parâmetro | Tipo | Obrigatório | Descrição |
+|---|---|---|---|
+| `space` | string | não | Restringe a um espaço (nome). (máx. 120) |
+| `space_id` | integer | não |  |
+| `text` | string | não | Trecho do título ou da descrição. (mín. 1, máx. 80) |
+| `date_from` | data `YYYY-MM-DD` | não | Data da compra a partir de (inclusive). |
+| `date_to` | data `YYYY-MM-DD` | não | Data da compra até (inclusive). |
+| `month` | string | não | Competência (mês do gasto), YYYY-MM. (padrão `^\d{4}-(0[1-9]|1[0-2])$`) |
+| `card` | string | não | Nome do cartão de crédito. (máx. 120) |
+| `card_id` | integer | não |  |
+| `account` | string | não | Conta de onde saiu o dinheiro. (máx. 120) |
+| `account_id` | integer | não |  |
+| `category` | string | não | máx. 120 |
+| `category_id` | integer | não |  |
+| `uncategorized` | boolean | não | Só lançamentos sem categoria. |
+| `tag` | string | não | máx. 60 |
+| `person` | string | não | Pessoa envolvida (pagou ou divide). (máx. 120) |
+| `person_id` | integer | não |  |
+| `payment_method` | `credit_card` \| `debit_card` \| `pix` \| `cash` \| `bank_transfer` \| `boleto` \| `other` | não |  |
+| `status` | lista de `draft` \| `pending` \| `confirmed` \| `paid` \| `cancelled` | não | máx. 5 |
+| `settled` | boolean | não | true = já pago; false = a pagar (fora do cartão). |
+| `min_amount` | string | não | Decimal em texto, até 2 casas. Ex.: "89.90". (padrão `^\d{1,16}([.,]\d{1,2})?$`) |
+| `max_amount` | string | não | Decimal em texto, até 2 casas. Ex.: "89.90". (padrão `^\d{1,16}([.,]\d{1,2})?$`) |
+| `installment_group_id` | string | não | Parcelas de uma mesma compra. (máx. 64) |
+| `import_batch_id` | integer | não | Só o que entrou por uma importação (imports_list). (≥ 1) |
+| `group_by` | `category` \| `tag` \| `person` \| `card` \| `account` \| `payment_method` \| `month` \| `space` \| `title` | sim | Eixo: category, tag, person (quanto cabe a CADA pessoa), card, account (conta de onde saiu), payment_method, month (competência), space, title (título normalizado: aproxima o estabelecimento). |
+| `basis` | `my_share` \| `total` | não | my_share = a SUA parte (padrão); total = o valor cheio dos lançamentos. |
+| `limit` | integer | não | Grupos por moeda; o resto vem somado em `others`. (≥ 1, ≤ 50) |
+
+**Saída (`structuredContent`)**: `group_by`, `basis`, `groups`, `others`, `totals`, `resolved`
+
 ### `debts_summary` — Quem deve a quem
 
 - **Classe:** Leitura · **Escopo:** `finance.read` · **Custo:** 2 unidade(s)
@@ -427,9 +510,9 @@ Não use quando: quiser marcar algo como pago (transactions_update com paid=true
 - **Classe:** Leitura · **Escopo:** `finance.read` · **Custo:** 1 unidade(s)
 - **Annotations:** readOnlyHint=true, destructiveHint=false, idempotentHint=true, openWorldHint=false
 
-Lista suas rendas (salário, freelas, reembolsos) do mês, com situação: prevista, recebida, atrasada ou cancelada.
+Lista suas rendas (salário, freelas, reembolsos) do mês, com situação: prevista, recebida, atrasada ou cancelada, a conta e a recorrência de origem. Com `income_id`, devolve só aquela renda (de qualquer mês).
 
-Use quando: 'meu salário caiu?', 'quanto vou receber este mês?'.
+Use quando: 'meu salário caiu?', 'quanto vou receber este mês?', ou antes de editar uma renda.
 
 Não use quando: quiser registrar ou marcar renda como recebida (income_create / income_update).
 
@@ -439,6 +522,7 @@ Não use quando: quiser registrar ou marcar renda como recebida (income_create /
 |---|---|---|---|
 | `month` | string | não | Competência (YYYY-MM). Omitido: o mês atual. (padrão `^\d{4}-(0[1-9]|1[0-2])$`) |
 | `status` | `expected` \| `received` \| `overdue` \| `cancelled` | não |  |
+| `income_id` | integer | não | Uma renda específica, de qualquer mês. (≥ 1) |
 
 **Saída (`structuredContent`)**: `month`, `currency_totals`, `incomes`
 
@@ -447,7 +531,7 @@ Não use quando: quiser registrar ou marcar renda como recebida (income_create /
 - **Classe:** Leitura · **Escopo:** `finance.read` · **Custo:** 1 unidade(s)
 - **Annotations:** readOnlyHint=true, destructiveHint=false, idempotentHint=true, openWorldHint=false
 
-Lista suas despesas recorrentes (aluguel, assinaturas, contas fixas) por espaço e suas rendas recorrentes (salário), com valor, frequência e se ainda estão ativas.
+Lista suas despesas recorrentes (aluguel, assinaturas, contas fixas) por espaço e suas rendas recorrentes (salário): valor cheio, a SUA parte, divisão, quem paga, cartão/conta, próxima ocorrência e se ainda estão ativas.
 
 Use quando: 'quais são minhas assinaturas?', 'quanto pago de contas fixas?', ou antes de editar uma recorrência (recurring_update precisa do id).
 
@@ -462,7 +546,134 @@ Não use quando: quiser os lançamentos já gerados (transactions_search).
 | `kind` | `all` \| `expense` \| `income` | não |  |
 | `active_only` | boolean | não |  |
 
-**Saída (`structuredContent`)**: `items`
+**Saída (`structuredContent`)**: `items`, `monthly_my_share`
+
+### `recurring_get` — Ver recorrência
+
+- **Classe:** Leitura · **Escopo:** `finance.read` · **Custo:** 1 unidade(s)
+- **Annotations:** readOnlyHint=true, destructiveHint=false, idempotentHint=true, openWorldHint=false
+
+Devolve UMA recorrência completa pelo id: valor, a sua parte, a divisão de cada ocorrência, quem paga, forma de pagamento, cartão/conta, categoria, início/fim e as próximas datas.
+
+Use quando: precisar do estado inteiro antes de editar (recurring_update) ou para explicar quanto uma assinatura dividida custa para o usuário.
+
+Não use quando: quiser a lista (recurring_list).
+
+**Entrada**
+
+| Parâmetro | Tipo | Obrigatório | Descrição |
+|---|---|---|---|
+| `recurring_id` | integer | sim | ≥ 1 |
+| `kind` | `expense` \| `income` | não | expense = despesa recorrente; income = renda recorrente. |
+
+**Saída (`structuredContent`)**: `recurring`, `upcoming`
+
+### `accounts_statement` — Extrato da conta
+
+- **Classe:** Leitura · **Escopo:** `finance.read` · **Custo:** 2 unidade(s)
+- **Annotations:** readOnlyHint=true, destructiveHint=false, idempotentHint=true, openWorldHint=false
+
+Explica o saldo: com `account`, o extrato daquela conta com o SALDO CORRENTE linha a linha (despesas, rendas, pagamentos de fatura, acertos, transferências, ajustes); sem conta, o caixa do mês (tudo que entrou e saiu, em todas as contas). Paginado, mais recentes primeiro.
+
+Use quando: 'por que meu saldo no Itaú é esse?', 'o que saiu da conta este mês?', conciliar com o extrato do banco.
+
+Não use quando: quiser só os saldos atuais (accounts_list) ou só despesas com filtros (transactions_search).
+
+**Entrada**
+
+| Parâmetro | Tipo | Obrigatório | Descrição |
+|---|---|---|---|
+| `account` | string | não | Conta (nome). Omitida: o caixa do mês, de todas as contas. (máx. 120) |
+| `account_id` | integer | não |  |
+| `month` | string | não | Mês (YYYY-MM). Omitido: conta = o extrato inteiro; caixa = o mês atual. (padrão `^\d{4}-(0[1-9]|1[0-2])$`) |
+| `sources` | lista de `transaction` \| `statement_payment` \| `settlement_sent` \| `settlement_received` \| `financing_installment` \| `income` | não | Só no caixa do mês: filtra as origens. (máx. 6) |
+| `limit` | integer | não | ≥ 1, ≤ 100 |
+| `cursor` | string | não | `next_cursor` da página anterior. (máx. 512) |
+
+**Saída (`structuredContent`)**: `mode`, `account`, `month`, `currency`, `opening_amount`, `opening_on`, `balance`, `cash_in`, `cash_out`, `net_cash`, `entries`, `total_count`, `next_cursor`, `app_url`
+
+### `transfers_list` — Transferências entre contas
+
+- **Classe:** Leitura · **Escopo:** `finance.read` · **Custo:** 1 unidade(s)
+- **Annotations:** readOnlyHint=true, destructiveHint=false, idempotentHint=true, openWorldHint=false
+
+Lista as transferências entre as suas contas (mais recentes primeiro), com o id de cada uma.
+
+Use quando: 'qual transferência fiz ontem?', ou antes de desfazer uma (transfers_delete).
+
+Não use quando: quiser o extrato completo de uma conta (accounts_statement).
+
+**Entrada**
+
+| Parâmetro | Tipo | Obrigatório | Descrição |
+|---|---|---|---|
+| `month` | string | não | Só as do mês (YYYY-MM). Omitido: as mais recentes. (padrão `^\d{4}-(0[1-9]|1[0-2])$`) |
+| `account` | string | não | Só as que envolvem esta conta. (máx. 120) |
+| `account_id` | integer | não |  |
+| `limit` | integer | não | ≥ 1, ≤ 100 |
+
+**Saída (`structuredContent`)**: `transfers`
+
+### `financings_list` — Financiamentos
+
+- **Classe:** Leitura · **Escopo:** `finance.read` · **Custo:** 2 unidade(s)
+- **Annotations:** readOnlyHint=true, destructiveHint=false, idempotentHint=true, openWorldHint=false
+
+Lista seus financiamentos (casa, carro) com saldo devedor, parcelas pagas e restantes, a próxima parcela e atrasos. Com `financing`, traz também o cronograma (principal, juros, saldo depois de cada parcela, paga ou não), paginado.
+
+Use quando: 'quanto falta do financiamento?', 'qual a próxima parcela?', antes de pagar ou desfazer uma parcela (financings_installment).
+
+Não use quando: quiser tudo que vence no mês, de todas as origens (payables_list).
+
+**Entrada**
+
+| Parâmetro | Tipo | Obrigatório | Descrição |
+|---|---|---|---|
+| `financing` | string | não | Um financiamento (nome): devolve também o cronograma. (máx. 120) |
+| `financing_id` | integer | não |  |
+| `limit` | integer | não | Parcelas do cronograma por página. (≥ 1, ≤ 120) |
+| `cursor` | string | não | máx. 512 |
+
+**Saída (`structuredContent`)**: `financings`, `schedule`, `next_cursor`
+
+### `financings_installment` — Pagar/desfazer parcela
+
+- **Classe:** Escrita · **Escopo:** `accounts.write` · **Custo:** 3 unidade(s)
+- **Annotations:** readOnlyHint=false, destructiveHint=true, idempotentHint=true, openWorldHint=false
+
+Marca uma parcela de financiamento como paga (`action=pay`, na conta e na data informadas; com `space`, lança também a despesa naquele espaço) ou desfaz o pagamento (`action=unpay`: a parcela volta a aberta e a despesa lançada some).
+
+Use quando: 'paguei a parcela do carro', 'marquei a parcela errada, desfaça'.
+
+Não use quando: quiser cadastrar, alterar ou quitar o contrato inteiro (isso é no app).
+
+**Entrada**
+
+| Parâmetro | Tipo | Obrigatório | Descrição |
+|---|---|---|---|
+| `action` | `pay` \| `unpay` | sim | pay = paguei a parcela; unpay = desfazer (marquei errado). |
+| `financing` | string | não | máx. 120 |
+| `financing_id` | integer | não |  |
+| `installment` | integer | não | Número da parcela. Omitido: pay = a próxima em aberto; unpay = a última paga. (≥ 1, ≤ 600) |
+| `account` | string | não | pay: conta de onde saiu o dinheiro. (máx. 120) |
+| `account_id` | integer | não |  |
+| `paid_on` | data `YYYY-MM-DD` | não | pay: dia do pagamento. Omitido = hoje. |
+| `space` | string | não | pay: lança também a despesa neste espaço (para dividir). Omitido = só marca como paga. (máx. 120) |
+| `space_id` | integer | não |  |
+
+**Saída (`structuredContent`)**: `financing`, `installment`, `action`, `transaction_id`
+
+Exemplo:
+
+```json
+{"action": "pay", "financing": "Carro", "account": "Itaú"}
+```
+
+Exemplo:
+
+```json
+{"action": "unpay", "financing": "Carro", "installment": 12}
+```
 
 ### `transactions_create` — Registrar despesa
 
@@ -480,6 +691,8 @@ Espaço: informe `space` quando o usuário disser. Omitido, vale o ÚNICO espaç
 
 Divisão: `split_with` = partes iguais entre você e as pessoas; `split` = partes desiguais (valor ou percentual de cada um). Sem divisão, a despesa é toda sua.
 
+Nota com itens: `items` (cada um com categoria e divisão próprias) + `adjustments` (desconto, frete…); o servidor confere que fecham o total e rateia os centavos.
+
 Gere uma idempotency_key nova para cada despesa e reutilize-a só ao repetir a mesma chamada.
 
 **Entrada**
@@ -488,7 +701,7 @@ Gere uma idempotency_key nova para cada despesa e reutilize-a só ao repetir a m
 |---|---|---|---|
 | `idempotency_key` | string | sim | Identificador ÚNICO desta intenção do usuário (ex.: um UUID novo). Repita a MESMA chave só ao reenviar exatamente a mesma chamada após erro de rede ou timeout — assim nada é criado em dobro. Pedido novo = chave nova. (mín. 8, máx. 100, padrão `^[A-Za-z0-9._:-]+$`) |
 | `title` | string | sim | Descrição curta, como aparece na lista (ex.: "Gasolina"). (mín. 1, máx. 200) |
-| `amount` | string | sim | Valor TOTAL da compra (nas parceladas, o total, não a parcela). Ex.: "89.90", "3000", "0.99". (padrão `^\d{1,16}([.,]\d{1,2})?$`) |
+| `amount` | string | não | Valor TOTAL da compra (nas parceladas, o total, não a parcela). Com `items` pode ser omitido (= itens + ajustes); se vier, tem de fechar com eles. Ex.: "89.90". (padrão `^\d{1,16}([.,]\d{1,2})?$`) |
 | `date` | data `YYYY-MM-DD` | não | Dia da compra. Omitido = hoje (profile_get.today). |
 | `space` | string | não | Espaço onde lançar. Omitido = regra do espaço implícito (ver descrição). (máx. 120) |
 | `space_id` | integer | não |  |
@@ -510,6 +723,8 @@ Gere uma idempotency_key nova para cada despesa e reutilize-a só ao repetir a m
 | `split_with` | lista de string | não | Divide em partes IGUAIS entre você e estas pessoas (nomes de membros do espaço). Ex.: ["João"] = metade sua, metade do João. (máx. 20) |
 | `split_with_ids` | lista de integer | não | máx. 20 |
 | `split` | lista de objeto | não | Divisão desigual: a parte de CADA participante (inclua você, se tiver parte). Todas por valor (somando o total) ou todas por percentual (somando 100). (mín. 1, máx. 20) |
+| `items` | lista de objeto | não | Itens da nota. Item sem divisão própria (owner/split_with/split) segue a do lançamento. (mín. 1, máx. 200) |
+| `adjustments` | lista de objeto | não | Desconto, frete, taxa… que fecham itens com o total. (máx. 20) |
 
 **Saída (`structuredContent`)**: `transaction`, `installments`, `replayed`
 
@@ -529,6 +744,12 @@ Exemplo:
 
 ```json
 {"title": "Jantar", "amount": "120.00", "split_with": ["João"], "payment_method": "pix", "idempotency_key": "b3f1c2d4-0003"}
+```
+
+Exemplo:
+
+```json
+{"title": "Mercado", "card": "Nubank", "idempotency_key": "b3f1c2d4-0004", "items": [{"title": "Arroz", "amount": "30.00", "owner": "eu"}, {"title": "Shampoo", "amount": "20.00", "owner": "Maria"}, {"title": "Refrigerante", "quantity": "2", "unit_amount": "25.00", "split_with": ["Maria"]}]}
 ```
 
 ### `transactions_update` — Editar lançamento
@@ -554,7 +775,7 @@ Despesa paga não muda até ser reaberta (`status=confirmed`); cancelada é defi
 | `scope` | `installment` \| `purchase` | não | Só para compra parcelada: `installment` muda só esta parcela; `purchase` muda a compra inteira (total, nº de parcelas, divisão, categoria), recalculando as parcelas em aberto. |
 | `title` | string | não | mín. 1, máx. 200 |
 | `description` | string | não | Texto novo; "" apaga a observação. (máx. 2000) |
-| `amount` | string | não | Novo valor total, na moeda DA COMPRA: a de `currency`, se informada; senão a original (`foreign.original_currency`) quando o lançamento foi convertido. Ex.: "89.90", "3000", "0.99". (padrão `^\d{1,16}([.,]\d{1,2})?$`) |
+| `amount` | string | não | Novo valor total, na moeda DA COMPRA: a de `currency`, se informada; senão a original (`foreign.original_currency`) quando o lançamento foi convertido. Ex.: "89.90". (padrão `^\d{1,16}([.,]\d{1,2})?$`) |
 | `currency` | string | não | Moeda ISO 4217 da compra (ex.: USD). Estrangeira é convertida para a moeda do espaço na data (PTAX; IOF no cartão). (padrão `^[A-Za-z]{3}$`) |
 | `date` | data `YYYY-MM-DD` | não | Dia civil no fuso da conta (ver profile_get.timezone), formato YYYY-MM-DD. |
 | `category` | string | não | Nova categoria (existente no espaço). (máx. 120) |
@@ -575,6 +796,9 @@ Despesa paga não muda até ser reaberta (`status=confirmed`); cancelada é defi
 | `split_with` | lista de string | não | Divide em partes IGUAIS entre você e estas pessoas (nomes de membros do espaço). Ex.: ["João"] = metade sua, metade do João. (máx. 20) |
 | `split_with_ids` | lista de integer | não | máx. 20 |
 | `split` | lista de objeto | não | Divisão desigual: a parte de CADA participante (inclua você, se tiver parte). Todas por valor (somando o total) ou todas por percentual (somando 100). (mín. 1, máx. 20) |
+| `items` | lista de objeto | não | Substitui TODOS os itens da nota (mande a lista completa). Mesmo formato de transactions_create. (mín. 1, máx. 200) |
+| `adjustments` | lista de objeto | não | Substitui os ajustes (só junto com `items`; [] remove). (máx. 20) |
+| `expected_version` | string | não | A `version` que você leu. Se o registro mudou desde então, a escrita volta CONFLICT (com a versão atual) em vez de sobrescrever a mudança de outra pessoa. (mín. 6, máx. 40, padrão `^[0-9a-f]+$`) |
 
 **Saída (`structuredContent`)**: `transaction`, `previous`, `changed`, `installments`
 
@@ -621,6 +845,7 @@ Se o lançamento tiver anexos (recibos), eles seriam apagados para sempre: a too
 |---|---|---|---|
 | `transaction_id` | integer | sim |  |
 | `scope` | `installment` \| `purchase` | não | Parcelada: `installment` exclui só esta parcela; `purchase` exclui todas as parcelas em aberto da compra. |
+| `expected_version` | string | não | A `version` que você leu. Se o registro mudou desde então, a escrita volta CONFLICT (com a versão atual) em vez de sobrescrever a mudança de outra pessoa. (mín. 6, máx. 40, padrão `^[0-9a-f]+$`) |
 
 **Saída (`structuredContent`)**: `deleted`, `skipped_paid`, `restorable`
 
@@ -667,25 +892,26 @@ Exemplo:
 - **Annotations:** readOnlyHint=true, destructiveHint=false, idempotentHint=true, openWorldHint=false
 - **UI (MCP Apps):** `ui://controle-financeiro/widget-v3.html`
 
-Primeiro passo OBRIGATÓRIO para excluir ou categorizar vários lançamentos (ou um lançamento com anexos). Não altera nada: calcula o conjunto exato, o total, uma amostra e o que ficou de fora, e devolve um `confirmation_token` válido por 10 minutos.
+Primeiro passo OBRIGATÓRIO para alterar vários lançamentos (ou excluir um com anexos): excluir, categorizar os sem categoria, trocar categoria, pôr/tirar tag, marcar como pago — ou DESFAZER UMA IMPORTAÇÃO (action=delete com filters.import_batch_id). Não altera nada: calcula o conjunto exato, o total, uma amostra e o que ficou de fora, e devolve um `confirmation_token` válido por 10 minutos.
 
-Use quando: o usuário pedir para apagar/categorizar vários lançamentos ("apague as compras do McDonald's deste mês", "categorize tudo sem categoria de setembro como Mercado").
+Use quando: "apague as compras do McDonald's deste mês", "categorize tudo sem categoria de setembro como Mercado", "ponha a tag viagem nas compras de julho".
 
 Não use quando: for um único lançamento sem anexos (transactions_delete/transactions_update).
 
-Depois: MOSTRE count, total e amostra ao usuário e só com a confirmação dele chame transactions_bulk_delete ou transactions_bulk_categorize com o token. Categorizar só alcança lançamentos SEM categoria.
+Depois: MOSTRE count, total e amostra ao usuário e só com a confirmação dele chame a tool que `next_step` indicar (bulk_delete, bulk_categorize ou bulk_update) com o token.
 
 **Entrada**
 
 | Parâmetro | Tipo | Obrigatório | Descrição |
 |---|---|---|---|
-| `action` | `delete` \| `categorize` | sim | O que fazer com o conjunto. |
+| `action` | `delete` \| `categorize` \| `recategorize` \| `tag` \| `untag` \| `settle` | sim | delete = excluir; categorize = pôr categoria nos SEM categoria; recategorize = trocar a categoria; tag / untag = pôr/tirar uma tag; settle = marcar como pago. |
 | `transaction_ids` | lista de integer | não | Ids exatos (de transactions_search). Use isto OU `filters`. (mín. 1, máx. 200) |
 | `filters` | objeto | não | Os mesmos filtros de transactions_search (ao menos um). Use isto OU `transaction_ids`. |
-| `category` | string | não | Categoria a aplicar (action=categorize). (máx. 120) |
+| `category` | string | não | Categoria a aplicar (categorize/recategorize). (máx. 120) |
 | `category_id` | integer | não |  |
+| `tag` | string | não | Tag a pôr ou tirar (tag/untag). (máx. 60) |
 
-**Saída (`structuredContent`)**: `action`, `count`, `totals`, `sample`, `ineligible_count`, `ineligible`, `not_found_ids`, `attachments`, `category`, `space`, `confirmation_token`, `expires_at`, `next_step`
+**Saída (`structuredContent`)**: `action`, `count`, `totals`, `sample`, `ineligible_count`, `ineligible`, `not_found_ids`, `attachments`, `category`, `tag`, `space`, `confirmation_token`, `expires_at`, `next_step`
 
 Exemplo:
 
@@ -734,6 +960,31 @@ Executa a categorização preparada por transactions_bulk_preview (action=catego
 Use quando: o usuário CONFIRMOU a prévia que você mostrou.
 
 Não use quando: não houver prévia confirmada; para trocar a categoria de um lançamento específico use transactions_update.
+
+**Entrada**
+
+| Parâmetro | Tipo | Obrigatório | Descrição |
+|---|---|---|---|
+| `confirmation_token` | string | sim | O `confirmation_token` devolvido pela prévia (transactions_bulk_preview). (mín. 20, máx. 128, padrão `^cfm_cf_[A-Za-z0-9_-]+$`) |
+
+**Saída (`structuredContent`)**: `action`, `count`, `transaction_ids`, `skipped`, `attachments_removed`, `replayed`
+
+Exemplo:
+
+```json
+{"confirmation_token": "cfm_cf_…"}
+```
+
+### `transactions_bulk_update` — Alterar em massa (confirmado)
+
+- **Classe:** Escrita · **Escopo:** `transactions.write` · **Custo:** 5 unidade(s)
+- **Annotations:** readOnlyHint=false, destructiveHint=true, idempotentHint=true, openWorldHint=false
+
+Executa a alteração preparada por transactions_bulk_preview com action recategorize (troca a categoria), tag / untag (põe ou tira uma tag) ou settle (marca como pago). Recebe só o `confirmation_token` e altera exatamente o conjunto da prévia, tudo ou nada; se algo mudou desde a prévia, nada é alterado e é preciso nova prévia.
+
+Use quando: o usuário CONFIRMOU a prévia que você mostrou.
+
+Não use quando: não houver prévia confirmada; para excluir (transactions_bulk_delete) ou categorizar só os sem categoria (transactions_bulk_categorize).
 
 **Entrada**
 
@@ -808,6 +1059,27 @@ Exemplo:
 {"idempotency_key": "a9b8c7d6-0001", "space": "Meu espaço", "label": "Extrato Itaú", "rows": [{"date": "2026-09-20", "title": "PADARIA PAO QUENTE", "amount": "12.50"}]}
 ```
 
+### `imports_list` — Importações feitas
+
+- **Classe:** Leitura · **Escopo:** `finance.read` · **Custo:** 2 unidade(s)
+- **Annotations:** readOnlyHint=true, destructiveHint=false, idempotentHint=true, openWorldHint=false
+
+Lista os lotes de importação de extrato que VOCÊ fez (mais recentes primeiro), com quantas linhas entraram, foram ignoradas ou eram duplicadas. Com `batch_id`, traz as linhas do lote.
+
+Use quando: 'o que entrou na importação de ontem?', ou para DESFAZER uma importação: pegue o id aqui e use transactions_bulk_preview (action=delete, import_batch_id) + transactions_bulk_delete.
+
+Não use quando: quiser importar um extrato novo (imports_preview → imports_commit).
+
+**Entrada**
+
+| Parâmetro | Tipo | Obrigatório | Descrição |
+|---|---|---|---|
+| `batch_id` | integer | não | Um lote: devolve também as linhas. (≥ 1) |
+| `limit` | integer | não | Lotes (sem batch_id) ou linhas (com batch_id) por página. (≥ 1, ≤ 100) |
+| `cursor` | string | não | máx. 512 |
+
+**Saída (`structuredContent`)**: `batches`, `rows`, `next_cursor`
+
 ### `statements_pay` — Pagar fatura do cartão
 
 - **Classe:** Escrita · **Escopo:** `accounts.write` · **Custo:** 3 unidade(s)
@@ -830,7 +1102,7 @@ Sem `amount`, paga o saldo inteiro. Pagamento acima do saldo é recusado.
 | `card` | string | não | Cartão (nome). Omitido: seu único cartão. (máx. 120) |
 | `card_id` | integer | não |  |
 | `month` | string | não | Mês da fatura (YYYY-MM). Omitido: a única fatura fechada com saldo em aberto. (padrão `^\d{4}-(0[1-9]|1[0-2])$`) |
-| `amount` | string | não | Valor pago. Omitido = o saldo inteiro da fatura. Ex.: "89.90", "3000", "0.99". (padrão `^\d{1,16}([.,]\d{1,2})?$`) |
+| `amount` | string | não | Valor pago. Omitido = o saldo inteiro da fatura. Ex.: "89.90". (padrão `^\d{1,16}([.,]\d{1,2})?$`) |
 | `account` | string | não | Conta de onde saiu o dinheiro. (máx. 120) |
 | `account_id` | integer | não |  |
 | `paid_on` | data `YYYY-MM-DD` | não | Dia do pagamento. Omitido = hoje. |
@@ -867,8 +1139,8 @@ Contas em moedas diferentes exigem `to_amount` (quanto entrou): o app não inven
 | `from_account_id` | integer | não |  |
 | `to_account` | string | não | Conta de destino (nome). (máx. 120) |
 | `to_account_id` | integer | não |  |
-| `amount` | string | sim | Valor que SAIU da conta de origem. Ex.: "89.90", "3000", "0.99". (padrão `^\d{1,16}([.,]\d{1,2})?$`) |
-| `to_amount` | string | não | Só entre moedas diferentes: quanto ENTROU no destino (o app não converte sozinho). Ex.: "89.90", "3000", "0.99". (padrão `^\d{1,16}([.,]\d{1,2})?$`) |
+| `amount` | string | sim | Valor que SAIU da conta de origem. Ex.: "89.90". (padrão `^\d{1,16}([.,]\d{1,2})?$`) |
+| `to_amount` | string | não | Só entre moedas diferentes: quanto ENTROU no destino (o app não converte sozinho). Ex.: "89.90". (padrão `^\d{1,16}([.,]\d{1,2})?$`) |
 | `date` | data `YYYY-MM-DD` | não | Dia da transferência. Omitido = hoje. |
 | `note` | string | não | máx. 2000 |
 
@@ -911,6 +1183,58 @@ Exemplo:
 {"idempotency_key": "c7d1e2f3-0003", "account": "Itaú", "real_balance": "4900.00"}
 ```
 
+### `transfers_delete` — Desfazer transferência
+
+- **Classe:** Destrutiva · **Escopo:** `accounts.write` · **Custo:** 3 unidade(s)
+- **Annotations:** readOnlyHint=false, destructiveHint=true, idempotentHint=true, openWorldHint=false
+
+Desfaz uma transferência entre suas contas: as duas pernas (saída e entrada) somem juntas, e os saldos voltam ao que eram.
+
+Use quando: o usuário disser que uma transferência estava errada ou foi registrada duas vezes (pegue o id em transfers_list e confirme qual).
+
+Não use quando: quiser corrigir o valor — desfaça e registre de novo (transfers_create).
+
+**Entrada**
+
+| Parâmetro | Tipo | Obrigatório | Descrição |
+|---|---|---|---|
+| `transfer_id` | integer | sim | ≥ 1 |
+
+**Saída (`structuredContent`)**: `deleted`
+
+Exemplo:
+
+```json
+{"transfer_id": 5}
+```
+
+### `statements_reopen` — Estornar pagamento de fatura
+
+- **Classe:** Destrutiva · **Escopo:** `accounts.write` · **Custo:** 3 unidade(s)
+- **Annotations:** readOnlyHint=false, destructiveHint=true, idempotentHint=true, openWorldHint=false
+
+Estorna os pagamentos de uma fatura, como o botão "Reabrir" do app: os pagamentos somem, o dinheiro volta às contas e a fatura volta um passo (paga → fechada; fechada com pagamento parcial → aberta). Sem pagamento na fatura, não faz nada.
+
+Use quando: o usuário disser que um pagamento de fatura foi registrado errado ou em dobro.
+
+Não use quando: quiser pagar (statements_pay) ou só ver os pagamentos (statements_get).
+
+**Entrada**
+
+| Parâmetro | Tipo | Obrigatório | Descrição |
+|---|---|---|---|
+| `card` | string | não | Cartão (nome). Omitido: seu único cartão. (máx. 120) |
+| `card_id` | integer | não |  |
+| `month` | string | sim | Mês da fatura (YYYY-MM). (padrão `^\d{4}-(0[1-9]|1[0-2])$`) |
+
+**Saída (`structuredContent`)**: `card`, `month`, `previous_status`, `status`, `reversed_payments`, `balance`, `currency`
+
+Exemplo:
+
+```json
+{"card": "Nubank", "month": "2026-09"}
+```
+
 ### `income_create` — Registrar renda
 
 - **Classe:** Escrita · **Escopo:** `income.write` · **Custo:** 3 unidade(s)
@@ -929,7 +1253,7 @@ Não use quando: alguém te pagou uma dívida de despesa dividida (settlements_c
 |---|---|---|---|
 | `idempotency_key` | string | sim | Identificador ÚNICO desta intenção do usuário (ex.: um UUID novo). Repita a MESMA chave só ao reenviar exatamente a mesma chamada após erro de rede ou timeout — assim nada é criado em dobro. Pedido novo = chave nova. (mín. 8, máx. 100, padrão `^[A-Za-z0-9._:-]+$`) |
 | `title` | string | sim | Ex.: "Salário", "Freela site". (mín. 1, máx. 200) |
-| `amount` | string | sim | Valor em string decimal com ponto e até 2 casas. Ex.: "89.90", "3000", "0.99". (padrão `^\d{1,16}([.,]\d{1,2})?$`) |
+| `amount` | string | sim | Decimal em texto, até 2 casas. Ex.: "89.90". (padrão `^\d{1,16}([.,]\d{1,2})?$`) |
 | `date` | data `YYYY-MM-DD` | não | Data da renda (competência). Omitido = hoje. |
 | `currency` | string | não | Moeda ISO; estrangeira é convertida na data. (padrão `^[A-Za-z]{3}$`) |
 | `category` | string | não | Rótulo livre da renda (ex.: "Salário", "Freela"). (máx. 60) |
@@ -964,7 +1288,7 @@ Não use quando: for registrar uma renda nova (income_create).
 | `income_id` | integer | sim |  |
 | `title` | string | não | mín. 1, máx. 200 |
 | `description` | string | não | máx. 2000 |
-| `amount` | string | não | Novo valor, na moeda DA RENDA: a de `currency`, se informada; senão a original (`original_currency`) quando a renda foi convertida. Ex.: "89.90", "3000", "0.99". (padrão `^\d{1,16}([.,]\d{1,2})?$`) |
+| `amount` | string | não | Novo valor, na moeda DA RENDA: a de `currency`, se informada; senão a original (`original_currency`) quando a renda foi convertida. Ex.: "89.90". (padrão `^\d{1,16}([.,]\d{1,2})?$`) |
 | `currency` | string | não | Moeda ISO; estrangeira é reconvertida na data. (padrão `^[A-Za-z]{3}$`) |
 | `date` | data `YYYY-MM-DD` | não | Nova data da renda (competência). |
 | `category` | string | não | Rótulo livre da renda (ex.: "Salário", "Freela"). (máx. 60) |
@@ -972,6 +1296,7 @@ Não use quando: for registrar uma renda nova (income_create).
 | `account_id` | integer | não |  |
 | `status` | `received` \| `expected` \| `cancelled` | não | `received` = caiu na conta (use `received_on`/`account` se souber); `expected` = desfaz o "recebi"; `cancelled` = não veio e não virá (definitivo, continua visível). |
 | `received_on` | data `YYYY-MM-DD` | não | Dia em que caiu (com status=received). Omitido = hoje. |
+| `expected_version` | string | não | A `version` que você leu. Se o registro mudou desde então, a escrita volta CONFLICT (com a versão atual) em vez de sobrescrever a mudança de outra pessoa. (mín. 6, máx. 40, padrão `^[0-9a-f]+$`) |
 
 **Saída (`structuredContent`)**: `income`, `previous`, `changed`
 
@@ -985,6 +1310,57 @@ Exemplo:
 
 ```json
 {"income_id": 12, "amount": "5200.00"}
+```
+
+### `income_delete` — Excluir renda
+
+- **Classe:** Destrutiva · **Escopo:** `income.write` · **Custo:** 3 unidade(s)
+- **Annotations:** readOnlyHint=false, destructiveHint=true, idempotentHint=true, openWorldHint=false
+
+Exclui uma renda registrada por engano (some das listas e dos totais). Dá para desfazer com income_restore.
+
+Use quando: o usuário pedir para apagar uma renda que não devia existir.
+
+Não use quando: a renda prevista simplesmente não veio — aí é cancelar (income_update status=cancelled), que continua visível e impede o salário do mês de ser recriado.
+
+**Entrada**
+
+| Parâmetro | Tipo | Obrigatório | Descrição |
+|---|---|---|---|
+| `income_id` | integer | sim | ≥ 1 |
+| `expected_version` | string | não | A `version` que você leu. Se o registro mudou desde então, a escrita volta CONFLICT (com a versão atual) em vez de sobrescrever a mudança de outra pessoa. (mín. 6, máx. 40, padrão `^[0-9a-f]+$`) |
+
+**Saída (`structuredContent`)**: `deleted`
+
+Exemplo:
+
+```json
+{"income_id": 12}
+```
+
+### `income_restore` — Restaurar renda excluída
+
+- **Classe:** Escrita · **Escopo:** `income.write` · **Custo:** 3 unidade(s)
+- **Annotations:** readOnlyHint=false, destructiveHint=false, idempotentHint=true, openWorldHint=false
+
+Desfaz a exclusão de uma renda (volta às listas e aos totais).
+
+Use quando: o usuário pedir para desfazer uma exclusão feita por income_delete.
+
+Não use quando: a renda estiver cancelada (reative com income_update status=expected).
+
+**Entrada**
+
+| Parâmetro | Tipo | Obrigatório | Descrição |
+|---|---|---|---|
+| `income_id` | integer | sim | ≥ 1 |
+
+**Saída (`structuredContent`)**: `income`, `replayed`
+
+Exemplo:
+
+```json
+{"income_id": 12}
 ```
 
 ### `settlements_create` — Registrar acerto entre pessoas
@@ -1009,7 +1385,7 @@ O valor não pode passar da dívida naquela direção. Num espaço em que você 
 | `person` | string | não | A outra pessoa do acerto (membro do espaço). (máx. 120) |
 | `person_id` | integer | não |  |
 | `direction` | `they_paid_me` \| `i_paid_them` | sim | `they_paid_me` = a pessoa te pagou; `i_paid_them` = você pagou a pessoa. |
-| `amount` | string | sim | Valor pago. Não pode passar da dívida (veja debts_summary). Ex.: "89.90", "3000", "0.99". (padrão `^\d{1,16}([.,]\d{1,2})?$`) |
+| `amount` | string | sim | Valor pago. Não pode passar da dívida (veja debts_summary). Ex.: "89.90". (padrão `^\d{1,16}([.,]\d{1,2})?$`) |
 | `space` | string | não | Espaço da dívida. Omitido: o único que vocês dois compartilham. (máx. 120) |
 | `space_id` | integer | não |  |
 | `month` | string | não | Quitar a dívida de um mês específico (YYYY-MM). Omitido: a dívida acumulada. (padrão `^\d{4}-(0[1-9]|1[0-2])$`) |
@@ -1051,17 +1427,17 @@ Exemplo:
 {"settlement_id": 31}
 ```
 
-### `recurring_create` — Criar despesa recorrente
+### `recurring_create` — Criar recorrência
 
 - **Classe:** Escrita · **Escopo:** `planning.write` · **Custo:** 3 unidade(s)
 - **Annotations:** readOnlyHint=false, destructiveHint=false, idempotentHint=true, openWorldHint=false
 - **Idempotência:** `idempotency_key` obrigatória (replay devolve o mesmo resultado; outra carga com a mesma chave = `CONFLICT`).
 
-Cria uma despesa que se repete (aluguel, assinatura, academia): o app lança cada ocorrência sozinho, com a mesma divisão, categoria e cartão.
+Cria uma despesa que se repete (aluguel, assinatura, academia) ou, com `kind=income`, uma renda que se repete (salário): o app lança cada ocorrência sozinho, com a mesma divisão, categoria e cartão (renda: a conta onde cai, em `account`).
 
-Use quando: o usuário disser "todo mês pago R$ 49,90 de streaming no Nubank", "o aluguel de R$ 2.000 vence dia 5, metade do João".
+Use quando: o usuário disser "todo mês pago R$ 49,90 de streaming no Nubank", "o aluguel de R$ 2.000 vence dia 5, metade do João", "meu salário é R$ 4.000 todo dia 5".
 
-Não use quando: for uma compra parcelada (transactions_create com installments) ou uma despesa única. Renda recorrente é cadastrada no app.
+Não use quando: for uma compra parcelada (transactions_create com installments) ou um gasto/renda única (transactions_create / income_create).
 
 Mensal por padrão; `interval` = a cada N períodos; fim por data ou por nº de ocorrências.
 
@@ -1070,8 +1446,9 @@ Mensal por padrão; `interval` = a cada N períodos; fim por data ou por nº de 
 | Parâmetro | Tipo | Obrigatório | Descrição |
 |---|---|---|---|
 | `idempotency_key` | string | sim | Identificador ÚNICO desta intenção do usuário (ex.: um UUID novo). Repita a MESMA chave só ao reenviar exatamente a mesma chamada após erro de rede ou timeout — assim nada é criado em dobro. Pedido novo = chave nova. (mín. 8, máx. 100, padrão `^[A-Za-z0-9._:-]+$`) |
+| `kind` | `expense` \| `income` | não | expense = despesa que se repete; income = renda que se repete (salário). |
 | `title` | string | sim | mín. 1, máx. 200 |
-| `amount` | string | sim | Valor de cada ocorrência. Ex.: "89.90", "3000", "0.99". (padrão `^\d{1,16}([.,]\d{1,2})?$`) |
+| `amount` | string | sim | Valor de cada ocorrência. Ex.: "89.90". (padrão `^\d{1,16}([.,]\d{1,2})?$`) |
 | `space` | string | não | máx. 120 |
 | `space_id` | integer | não |  |
 | `currency` | string | não | padrão `^[A-Za-z]{3}$` |
@@ -1114,12 +1491,18 @@ Exemplo:
 {"idempotency_key": "f1a2b3c4-0002", "title": "Aluguel", "amount": "2000.00", "day_of_month": 5, "split_with": ["João"], "payment_method": "pix"}
 ```
 
-### `recurring_update` — Editar despesa recorrente
+Exemplo:
+
+```json
+{"idempotency_key": "f1a2b3c4-0003", "kind": "income", "title": "Salário", "amount": "4000.00", "day_of_month": 5, "account": "Itaú"}
+```
+
+### `recurring_update` — Editar recorrência
 
 - **Classe:** Escrita · **Escopo:** `planning.write` · **Custo:** 3 unidade(s)
 - **Annotations:** readOnlyHint=false, destructiveHint=true, idempotentHint=true, openWorldHint=false
 
-Altera uma despesa recorrente: valor, dia, frequência, fim, categoria, cartão, divisão, ou pausa/retoma (`active`). Ocorrências já pagas nunca mudam; as não pagas seguem `apply_to`.
+Altera uma despesa recorrente (ou, com `kind=income`, uma renda recorrente): valor, dia, frequência, fim, categoria, cartão, divisão, conta da renda, ou pausa/retoma (`active`). Ocorrências já pagas nunca mudam; as não pagas seguem `apply_to`.
 
 Use quando: "o streaming subiu para R$ 55", "pare de lançar a academia", "o aluguel agora vence dia 10". Pegue o id em recurring_list.
 
@@ -1130,8 +1513,9 @@ Não use quando: quiser mudar uma única ocorrência (transactions_update nela).
 | Parâmetro | Tipo | Obrigatório | Descrição |
 |---|---|---|---|
 | `recurring_id` | integer | sim |  |
+| `kind` | `expense` \| `income` | não | income = renda recorrente. |
 | `title` | string | não | mín. 1, máx. 200 |
-| `amount` | string | não | Valor em string decimal com ponto e até 2 casas. Ex.: "89.90", "3000", "0.99". (padrão `^\d{1,16}([.,]\d{1,2})?$`) |
+| `amount` | string | não | Decimal em texto, até 2 casas. Ex.: "89.90". (padrão `^\d{1,16}([.,]\d{1,2})?$`) |
 | `active` | boolean | não | false = pausar (para de lançar); true = retomar. |
 | `remove_card` | boolean | não | true = a cobrança deixa de ser no cartão. |
 | `remove_category` | boolean | não |  |
@@ -1159,6 +1543,7 @@ Não use quando: quiser mudar uma única ocorrência (transactions_update nela).
 | `split_with` | lista de string | não | Divide em partes IGUAIS entre você e estas pessoas (nomes de membros do espaço). Ex.: ["João"] = metade sua, metade do João. (máx. 20) |
 | `split_with_ids` | lista de integer | não | máx. 20 |
 | `split` | lista de objeto | não | Divisão desigual: a parte de CADA participante (inclua você, se tiver parte). Todas por valor (somando o total) ou todas por percentual (somando 100). (mín. 1, máx. 20) |
+| `expected_version` | string | não | A `version` que você leu. Se o registro mudou desde então, a escrita volta CONFLICT (com a versão atual) em vez de sobrescrever a mudança de outra pessoa. (mín. 6, máx. 40, padrão `^[0-9a-f]+$`) |
 
 **Saída (`structuredContent`)**: `recurring`, `previous`, `changed`, `replayed`
 
@@ -1172,6 +1557,40 @@ Exemplo:
 
 ```json
 {"recurring_id": 7, "active": false}
+```
+
+### `recurring_delete` — Excluir recorrência
+
+- **Classe:** Destrutiva · **Escopo:** `planning.write` · **Custo:** 3 unidade(s)
+- **Annotations:** readOnlyHint=false, destructiveHint=true, idempotentHint=true, openWorldHint=false
+
+Exclui uma despesa ou renda recorrente: o app para de lançar novas ocorrências. O que já foi lançado continua (e continua contando), salvo `cancel_open_occurrences=true`, que cancela as ocorrências deste mês em diante ainda não pagas. Não tem desfazer: para só interromper, prefira pausar (recurring_update com active=false).
+
+Use quando: o usuário pedir para excluir/apagar de vez uma recorrência (confirme qual).
+
+Não use quando: quiser pausar, mudar o valor ou o fim (recurring_update).
+
+**Entrada**
+
+| Parâmetro | Tipo | Obrigatório | Descrição |
+|---|---|---|---|
+| `recurring_id` | integer | sim | ≥ 1 |
+| `kind` | `expense` \| `income` | não |  |
+| `cancel_open_occurrences` | boolean | não | Só despesa: true = cancela também as ocorrências JÁ lançadas deste mês em diante que ainda não foram pagas. false (padrão) = o que já foi lançado fica como está. |
+| `expected_version` | string | não | A `version` que você leu. Se o registro mudou desde então, a escrita volta CONFLICT (com a versão atual) em vez de sobrescrever a mudança de outra pessoa. (mín. 6, máx. 40, padrão `^[0-9a-f]+$`) |
+
+**Saída (`structuredContent`)**: `deleted`, `cancelled_occurrences`
+
+Exemplo:
+
+```json
+{"recurring_id": 7}
+```
+
+Exemplo:
+
+```json
+{"recurring_id": 3, "kind": "income"}
 ```
 
 ### `budgets_set` — Definir meta do mês
@@ -1193,7 +1612,7 @@ Não use quando: quiser ver as metas e o quanto já foi gasto (budgets_list).
 | `space_id` | integer | não |  |
 | `category` | string | não | Categoria da meta (existente no espaço). (máx. 120) |
 | `category_id` | integer | não |  |
-| `amount` | string | sim | Quanto se pretende gastar no mês nessa categoria. Ex.: "89.90", "3000", "0.99". (padrão `^\d{1,16}([.,]\d{1,2})?$`) |
+| `amount` | string | sim | Quanto se pretende gastar no mês nessa categoria. Ex.: "89.90". (padrão `^\d{1,16}([.,]\d{1,2})?$`) |
 | `month` | string | não | Mês da meta (YYYY-MM). Omitido = mês atual. (padrão `^\d{4}-(0[1-9]|1[0-2])$`) |
 | `scope` | `personal` \| `space` | não | `personal` = sua meta (compara com a SUA parte); `space` = meta da casa (total do espaço). Obrigatório em espaço com mais de uma pessoa. |
 | `note` | string | não | máx. 2000 |
@@ -1206,32 +1625,77 @@ Exemplo:
 {"category": "Mercado", "amount": "800.00", "scope": "personal"}
 ```
 
-### `categories_create` — Criar categoria
+### `categories_create` — Criar categoria ou tag
 
 - **Classe:** Escrita · **Escopo:** `planning.write` · **Custo:** 3 unidade(s)
 - **Annotations:** readOnlyHint=false, destructiveHint=false, idempotentHint=true, openWorldHint=false
 
-Cria uma categoria nova num espaço. Se já existir uma com o mesmo nome (ignorando acento e maiúsculas), devolve ALREADY_EXISTS com o id dela — use a existente.
+Cria uma categoria (ou, com `kind=tag`, uma tag) num espaço. Se já existir uma com o mesmo nome (ignorando acento e maiúsculas), devolve ALREADY_EXISTS com o id dela — use a existente.
 
-Use quando: o usuário pedir uma categoria que não existe (confira antes com categories_list).
+Use quando: o usuário pedir uma categoria/tag que não existe (confira antes com categories_list).
 
-Não use quando: a categoria já existir, mesmo escrita diferente.
+Não use quando: ela já existir, mesmo escrita diferente; para renomear/excluir (categories_update).
 
 **Entrada**
 
 | Parâmetro | Tipo | Obrigatório | Descrição |
 |---|---|---|---|
+| `kind` | `category` \| `tag` | não | category (padrão) ou tag. |
 | `space` | string | não | máx. 120 |
 | `space_id` | integer | não |  |
 | `name` | string | sim | mín. 1, máx. 120 |
 | `color` | string | não | Cor em hex, ex.: #22C55E. (padrão `^#[0-9A-Fa-f]{6}$`) |
 
-**Saída (`structuredContent`)**: `id`, `name`, `space`
+**Saída (`structuredContent`)**: `id`, `name`, `space`, `kind`
 
 Exemplo:
 
 ```json
 {"name": "Pets", "space": "Casa"}
+```
+
+Exemplo:
+
+```json
+{"kind": "tag", "name": "Trabalho"}
+```
+
+### `categories_update` — Renomear ou excluir categoria/tag
+
+- **Classe:** Escrita · **Escopo:** `planning.write` · **Custo:** 3 unidade(s)
+- **Annotations:** readOnlyHint=false, destructiveHint=true, idempotentHint=true, openWorldHint=false
+
+Renomeia, muda a cor ou exclui uma categoria ou tag de um espaço (`kind`). Nome novo que já exista volta erro.
+
+Use quando: "renomeie Restaurantes para Alimentação fora", "apague a tag viagem-2024".
+
+Não use quando: quiser criar (categories_create) ou trocar a categoria de lançamentos (transactions_update / transactions_bulk_preview).
+
+**Entrada**
+
+| Parâmetro | Tipo | Obrigatório | Descrição |
+|---|---|---|---|
+| `kind` | `category` \| `tag` | não |  |
+| `space` | string | não | máx. 120 |
+| `space_id` | integer | não |  |
+| `name` | string | não | Nome ATUAL da categoria/tag. (máx. 120) |
+| `id` | integer | não | ≥ 1 |
+| `new_name` | string | não | Nome novo (renomear). (mín. 1, máx. 120) |
+| `color` | string | não | padrão `^#[0-9A-Fa-f]{6}$` |
+| `delete` | boolean | não | true = excluir. Categoria excluída some das listas (os lançamentos antigos a mantêm); tag excluída sai de todos os lançamentos. |
+
+**Saída (`structuredContent`)**: `kind`, `id`, `name`, `previous_name`, `space`, `deleted`
+
+Exemplo:
+
+```json
+{"name": "Restaurantes", "new_name": "Alimentação fora", "space": "Casa"}
+```
+
+Exemplo:
+
+```json
+{"kind": "tag", "name": "viagem-2024", "delete": true}
 ```
 
 ### `attachments_upload_link` — Link para anexar arquivo
@@ -1253,3 +1717,61 @@ Não use quando: não houver como executar comandos (ChatGPT e Claude na web): d
 | `file_path` | string | não | Caminho do arquivo no computador do usuário, só para montar o comando pronto. (máx. 500) |
 
 **Saída (`structuredContent`)**: `transaction_id`, `upload_url`, `authorization`, `form_field`, `expires_at`, `max_bytes`, `accepted_types`, `command`
+
+### `attachments_get` — Ler anexo (recibo)
+
+- **Classe:** Leitura · **Escopo:** `finance.read` · **Custo:** 3 unidade(s)
+- **Annotations:** readOnlyHint=true, destructiveHint=false, idempotentHint=true, openWorldHint=false
+
+Entrega o CONTEÚDO de um anexo de lançamento (foto do recibo, nota fiscal em PDF) para você ler — por exemplo, para extrair os itens da nota e registrá-los com transactions_update (`items`). Arquivos grandes demais voltam só com os dados e o link do app.
+
+Use quando: o usuário pedir para ler, conferir ou detalhar o recibo de um lançamento (pegue o id em `files` de transactions_get).
+
+Não use quando: só precisar saber se há anexo (transactions_get já diz).
+
+**Entrada**
+
+| Parâmetro | Tipo | Obrigatório | Descrição |
+|---|---|---|---|
+| `attachment_id` | integer | sim | O id do anexo (em `files` de transactions_get). (≥ 1) |
+
+**Saída (`structuredContent`)**: `attachment`, `transaction_id`, `delivered`, `note`
+
+### `attachments_delete` — Excluir anexo
+
+- **Classe:** Destrutiva · **Escopo:** `transactions.write` · **Custo:** 3 unidade(s)
+- **Annotations:** readOnlyHint=false, destructiveHint=true, idempotentHint=true, openWorldHint=false
+
+Apaga um anexo (recibo) de um lançamento, para sempre — não há como desfazer. Membro apaga os próprios anexos; administrador do espaço, qualquer um.
+
+Use quando: o usuário pedir para remover um recibo anexado por engano (confirme qual, pelo nome do arquivo).
+
+Não use quando: quiser excluir o lançamento (transactions_delete).
+
+**Entrada**
+
+| Parâmetro | Tipo | Obrigatório | Descrição |
+|---|---|---|---|
+| `attachment_id` | integer | sim | ≥ 1 |
+
+**Saída (`structuredContent`)**: `deleted`, `transaction_id`
+
+### `attachments_add` — Anexar arquivo da conversa
+
+- **Classe:** Escrita · **Escopo:** `transactions.write` · **Custo:** 3 unidade(s)
+- **Annotations:** readOnlyHint=false, destructiveHint=false, idempotentHint=true, openWorldHint=false
+
+Anexa a um lançamento um arquivo que o usuário colocou NESTA conversa (foto do recibo, nota em PDF) — no ChatGPT, que entrega o arquivo à tool. JPG, PNG, WebP ou PDF.
+
+Use quando: o usuário mandar o recibo na conversa e pedir para anexá-lo a um lançamento.
+
+Não use quando: o arquivo estiver no computador do usuário e você rodar num terminal (attachments_upload_link); ou o app de chat não entregar arquivos a tools — aí o anexo é pela tela do lançamento.
+
+**Entrada**
+
+| Parâmetro | Tipo | Obrigatório | Descrição |
+|---|---|---|---|
+| `transaction_id` | integer | sim | ≥ 1 |
+| `file` | objeto | sim | O arquivo como o app de chat o entrega (`openai/fileParams`). |
+
+**Saída (`structuredContent`)**: `attachment`, `transaction_id`

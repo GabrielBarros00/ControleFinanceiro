@@ -114,6 +114,16 @@ Docs: <https://support.google.com/gemini/answer/17209137?hl=en>
 - Autorização: OAuth 2.1 com PKCE S256; descoberta pelo 401 do `/mcp`; registro
   por CIMD ou DCR. Detalhes em [AUTHENTICATION.md](AUTHENTICATION.md).
 
+## Anexar arquivos pela conversa (ChatGPT)
+
+Mande a foto do recibo ou o PDF na conversa e peça *"anexe isto à compra do
+mercado"*. O ChatGPT entrega o arquivo à tool `attachments_add`, e o servidor o
+baixa direto do ChatGPT, com as mesmas regras do envio pela tela. No Claude web o
+arquivo não chega ao servidor: lá o anexo continua pela tela do app.
+
+O agente também LÊ recibos já anexados (`attachments_get`): *"leia o recibo da
+compra do mercado e registre os itens"*.
+
 ## Anexar arquivos pelo terminal
 
 Nos agentes que rodam comandos no seu computador (Claude Code, Codex, Gemini

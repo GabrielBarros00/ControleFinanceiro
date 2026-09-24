@@ -14,21 +14,28 @@ from sqlmodel import select
 from app.domain.access_policy import personal_scope, shared_or_mine_scope
 from app.domain.dates import local_day, month_bounds_utc, parse_month, today_local
 from app.domain.income_settlement import income_status
-from app.mcp import resolve
+from app.domain.money import Money, MoneyError
+from app.mcp import resolve, versioning
 from app.mcp.dates import MonthKey
+from app.mcp.errors import ErrorCode, McpToolError
 from app.mcp.money import MoneyOut, fmt_brl
 from app.mcp.registry import ToolCall, ToolInput, ToolOutput, tool
-from app.mcp.schemas import Ref
+from app.mcp.schemas import PersonAmount, Ref
 from app.mcp.serializers import civil
 from app.mcp.tools.reports import _moeda
+from app.models.category import Category
+from app.models.credit_card import CreditCard
 from app.models.income import Income
+from app.models.payment_account import PaymentAccount
 from app.models.recurring import RecurringIncome
 from app.models.recurring import RecurringExpense
+from app.models.transaction import SplitMethod
 from app.services.oauth import scopes as escopos
 from app.services.overview_service import OverviewService
 from app.services.payables_service import PayablesService
 from app.services.personal_debt_service import PersonalDebtService
 from app.services.recurring_service import RecurringService
+from app.services.split_service import SplitService
 
 _LEITURA = dict(scope=escopos.FINANCE_READ, kind="read", read_only=True, destructive=False, idempotent=True)
 
@@ -335,37 +342,58 @@ def payables_list(call: ToolCall) -> ToolOutput:
 class IncomeIn(ToolInput):
     month: Optional[MonthKey] = Field(None, description="Competência (YYYY-MM). Omitido: o mês atual.")
     status: Optional[Literal["expected", "received", "overdue", "cancelled"]] = None
+    income_id: Optional[int] = Field(None, ge=1, description="Uma renda específica, de qualquer mês.")
 
 
 class IncomeOut(BaseModel):
     id: int
     title: str
+    description: Optional[str] = None
     amount: MoneyOut
     currency: str
     date: dt.date = Field(description="Data prevista/competência.")
     received_on: Optional[dt.date] = None
     status: str = Field(description="expected | received | overdue | cancelled")
     category: Optional[str] = None
+    account: Optional[Ref] = Field(None, description="Conta onde caiu (ou vai cair).")
     account_id: Optional[int] = None
     recurring: bool
+    recurring_id: Optional[int] = Field(None, description="A renda recorrente que a gerou (recurring_get kind=income).")
     original_amount: Optional[MoneyOut] = Field(None, description="Valor na moeda original, quando estrangeira.")
     original_currency: Optional[str] = None
+    version: str = Field("", description="Versão do estado; mande em `expected_version` ao editar.")
 
 
-def income_out(r: Income) -> IncomeOut:
-    return IncomeOut(
-        id=r.id, title=r.title, amount=r.amount, currency=r.currency,
+def income_out(r: Income, contas: Optional[dict[int, str]] = None) -> IncomeOut:
+    saida = IncomeOut(
+        id=r.id, title=r.title, description=r.description, amount=r.amount, currency=r.currency,
         date=local_day(r.received_at),
         received_on=local_day(r.settled_at) if r.settled_at else None,
         status=income_status(settled_at=r.settled_at, cancelled_at=r.cancelled_at, received_at=r.received_at),
-        category=r.category, account_id=r.account_id,
+        category=r.category,
+        account=Ref(id=r.account_id, name=(contas or {}).get(r.account_id, "?")) if r.account_id else None,
+        account_id=r.account_id,
         recurring=r.recurring_income_id is not None,
+        recurring_id=r.recurring_income_id,
         original_amount=r.original_amount, original_currency=r.original_currency,
     )
+    saida.version = versioning.version_of(saida)
+    return saida
+
+
+def nomes_de_contas(call: ToolCall, ids) -> dict[int, str]:
+    ids = {i for i in ids if i}
+    if not ids:
+        return {}
+    return dict(call.session.exec(
+        select(PaymentAccount.id, PaymentAccount.name).where(
+            PaymentAccount.id.in_(ids), PaymentAccount.owner_user_id == call.identity.user_id,
+        )
+    ).all())
 
 
 class IncomeListOut(BaseModel):
-    month: str
+    month: Optional[str] = None
     currency_totals: dict[str, MoneyOut] = Field(description="Total por moeda, sem as canceladas.")
     incomes: List[IncomeOut]
 
@@ -375,8 +403,9 @@ class IncomeListOut(BaseModel):
     title="Rendas do mês",
     description=(
         "Lista suas rendas (salário, freelas, reembolsos) do mês, com situação: prevista, "
-        "recebida, atrasada ou cancelada.\n"
-        "Use quando: 'meu salário caiu?', 'quanto vou receber este mês?'.\n"
+        "recebida, atrasada ou cancelada, a conta e a recorrência de origem. Com `income_id`, "
+        "devolve só aquela renda (de qualquer mês).\n"
+        "Use quando: 'meu salário caiu?', 'quanto vou receber este mês?', ou antes de editar uma renda.\n"
         "Não use quando: quiser registrar ou marcar renda como recebida (income_create / income_update)."
     ),
     input_model=IncomeIn,
@@ -386,34 +415,37 @@ class IncomeListOut(BaseModel):
 def income_list(call: ToolCall) -> ToolOutput:
     a: IncomeIn = call.args
     me = call.identity.user_id
-    ref = parse_month(a.month) if a.month else _mes_atual()
-    inicio, fim = month_bounds_utc(ref)
-    linhas = call.session.exec(
-        select(Income).where(
-            Income.deleted_at.is_(None),
-            personal_scope(Income.user_id, me),
-            Income.received_at >= inicio,
-            Income.received_at < fim,
-        ).order_by(Income.received_at, Income.id)
-    ).all()
+    consulta = select(Income).where(Income.deleted_at.is_(None), personal_scope(Income.user_id, me))
+    mes = None
+    if a.income_id is not None:
+        consulta = consulta.where(Income.id == a.income_id)
+    else:
+        ref = parse_month(a.month) if a.month else _mes_atual()
+        mes = ref.strftime("%Y-%m")
+        inicio, fim = month_bounds_utc(ref)
+        consulta = consulta.where(Income.received_at >= inicio, Income.received_at < fim)
+    linhas = call.session.exec(consulta.order_by(Income.received_at, Income.id)).all()
+    if a.income_id is not None and not linhas:
+        raise McpToolError(ErrorCode.NOT_FOUND, "Renda não encontrada.", details={"income_id": a.income_id})
+    contas = nomes_de_contas(call, (r.account_id for r in linhas))
     rendas: list[IncomeOut] = []
     totais: dict[str, Decimal] = {}
     for r in linhas:
-        item = income_out(r)
+        item = income_out(r, contas)
         if a.status and item.status != a.status:
             continue
         if item.status != "cancelled":
             totais[r.currency] = totais.get(r.currency, Decimal("0")) + Decimal(r.amount)
         rendas.append(item)
     return ToolOutput(
-        structured=IncomeListOut(month=ref.strftime("%Y-%m"), currency_totals=totais, incomes=rendas),
-        summary=f"{len(rendas)} renda(s) em {ref.strftime('%Y-%m')}.",
+        structured=IncomeListOut(month=mes, currency_totals=totais, incomes=rendas),
+        summary=f"{len(rendas)} renda(s)" + (f" em {mes}." if mes else "."),
         entity_type="income",
         entity_ids=[r.id for r in rendas],
     )
 
 
-# --- recurring_list -----------------------------------------------------------------
+# --- recurring_list / recurring_get ------------------------------------------------
 
 class RecurringIn(ToolInput):
     space: Optional[str] = Field(None, max_length=120)
@@ -427,34 +459,137 @@ class RecurringOut(BaseModel):
     kind: str = Field(description="expense | income")
     space: Optional[Ref] = Field(None, description="Espaço (só despesas; renda é pessoal).")
     title: str
-    amount: MoneyOut
+    description: Optional[str] = None
+    amount: MoneyOut = Field(description="Valor de cada ocorrência (cheio).")
     currency: str
+    my_share: MoneyOut = Field(description="A SUA parte em cada ocorrência.")
+    split: List[PersonAmount] = Field(default_factory=list, description="Quem deve quanto em cada ocorrência.")
+    paid_by: Optional[Ref] = None
     frequency: str
     interval: int
     day_of_month: Optional[int] = None
     active: bool
     start_date: Optional[dt.date] = None
     end_date: Optional[dt.date] = None
+    next_occurrence: Optional[dt.date] = None
     occurrences_remaining: Optional[int] = None
+    payment_method: Optional[str] = None
+    card: Optional[Ref] = None
+    account: Optional[Ref] = None
+    category: Optional[Ref] = None
+    auto_settle: Optional[bool] = Field(None, description="Despesa: marca como paga sozinha na data. Renda: confirma sozinha.")
     card_id: Optional[int] = None
     category_id: Optional[int] = None
+    version: str = Field("", description="Versão do estado; mande em `expected_version` ao editar.")
 
 
-def recurring_expense_out(t: RecurringExpense, espaco: Ref, hoje: date) -> RecurringOut:
+def _proximas(template, hoje: date, quantas: int = 1) -> list[date]:
+    datas: list[date] = []
+    y, m = hoje.year, hoje.month
+    for _ in range(36):
+        for occ in RecurringService.occurrences_in_month(template, y, m):
+            if occ >= hoje:
+                datas.append(occ)
+                if len(datas) >= quantas:
+                    return datas
+        y, m = (y + 1, 1) if m == 12 else (y, m + 1)
+    return datas
+
+
+def _divisao_da_recorrencia(t: RecurringExpense, nomes: dict[int, str], me: int) -> tuple[list[PersonAmount], Decimal, Optional[int]]:
+    """A divisão de CADA ocorrência, pelo mesmo cálculo que a gera (snapshot → SplitService)."""
+    pagador, partes = RecurringService._participants(t)
+    if not partes:
+        return [], Decimal("0.00"), pagador
+    metodo = partes[0].split_method
+    try:
+        calculado = SplitService.calculate_splits(
+            total_amount=Money(t.base_amount),
+            method=metodo,
+            user_ids=[p.user_id for p in partes] if metodo == SplitMethod.equal else None,
+            input_data=[{"user_id": p.user_id, "value": p.input_value} for p in partes],
+        )
+    except (MoneyError, ValueError):
+        return [], Decimal("0.00"), pagador
+    pessoas = [
+        PersonAmount(person=Ref(id=c["user_id"], name=nomes.get(c["user_id"], f"Pessoa {c['user_id']}")),
+                     amount=Decimal(str(c["amount"])), is_me=c["user_id"] == me)
+        for c in calculado
+    ]
+    minha = sum((p.amount for p in pessoas if p.is_me), Decimal("0.00"))
+    return pessoas, minha, pagador
+
+
+def recurring_expense_out(
+    call: ToolCall, t: RecurringExpense, espaco: Ref, hoje: date, nomes: Optional[dict[int, str]] = None,
+) -> RecurringOut:
+    me = call.identity.user_id
+    if nomes is None:
+        nomes = {m.id: m.name for m in resolve.space_members(call.session, t.workspace_id)}
     total = RecurringService.count_occurrences(t)
     restantes = None if total is None else max(0, total - (RecurringService.count_occurrences(t, ate=hoje) or 0))
-    return RecurringOut(
+    pessoas, minha, pagador = _divisao_da_recorrencia(t, nomes, me)
+    cartao = call.session.get(CreditCard, t.credit_card_id) if t.credit_card_id else None
+    conta = call.session.get(PaymentAccount, t.account_id) if t.account_id else None
+    categoria = call.session.get(Category, t.category_id) if t.category_id else None
+    proxima = _proximas(t, hoje) if t.is_active else []
+    saida = RecurringOut(
         id=t.id, kind="expense", space=espaco,
-        title=t.title, amount=t.base_amount, currency=t.currency,
+        title=t.title, description=t.description, amount=t.base_amount, currency=t.currency,
+        my_share=minha, split=pessoas,
+        paid_by=Ref(id=pagador, name=nomes.get(pagador, "?")) if pagador else None,
         frequency=getattr(t.frequency, "value", t.frequency), interval=t.interval,
         day_of_month=t.day_of_month, active=t.is_active, start_date=t.start_date,
-        end_date=t.end_date, occurrences_remaining=restantes,
+        end_date=t.end_date, next_occurrence=proxima[0] if proxima else None,
+        occurrences_remaining=restantes,
+        payment_method=getattr(t.payment_method, "value", t.payment_method) if t.payment_method else None,
+        card=Ref(id=cartao.id, name=cartao.name) if cartao and cartao.owner_user_id == me else None,
+        # Conta é de uma pessoa: o nome só sai para o dono dela.
+        account=Ref(id=conta.id, name=conta.name) if conta and conta.owner_user_id == me else None,
+        category=Ref(id=categoria.id, name=categoria.name) if categoria else None,
+        auto_settle=t.auto_settle,
         card_id=t.credit_card_id, category_id=t.category_id,
     )
+    saida.version = versioning.version_of(saida, ignore=("next_occurrence", "occurrences_remaining"))
+    return saida
+
+
+def recurring_income_out(call: ToolCall, r: RecurringIncome, hoje: date) -> RecurringOut:
+    me = call.identity.user_id
+    conta = call.session.get(PaymentAccount, r.account_id) if r.account_id else None
+    proxima = _proximas(r, hoje) if r.is_active else []
+    total = RecurringService.count_occurrences(r)
+    restantes = None if total is None else max(0, total - (RecurringService.count_occurrences(r, ate=hoje) or 0))
+    eu = Ref(id=me, name=call.user.name)
+    saida = RecurringOut(
+        id=r.id, kind="income", title=r.title, description=r.description,
+        amount=r.base_amount, currency=r.currency,
+        my_share=r.base_amount, split=[PersonAmount(person=eu, amount=r.base_amount, is_me=True)], paid_by=None,
+        frequency=getattr(r.frequency, "value", r.frequency), interval=r.interval,
+        day_of_month=r.day_of_month, active=r.is_active, start_date=r.start_date, end_date=r.end_date,
+        next_occurrence=proxima[0] if proxima else None, occurrences_remaining=restantes,
+        account=Ref(id=conta.id, name=conta.name) if conta else None,
+        category=None, auto_settle=r.auto_confirm,
+    )
+    saida.version = versioning.version_of(saida, ignore=("next_occurrence", "occurrences_remaining"))
+    return saida
 
 
 class RecurringListOut(BaseModel):
     items: List[RecurringOut]
+    monthly_my_share: dict[str, MoneyOut] = Field(
+        default_factory=dict,
+        description="Despesas ativas: soma da SUA parte por mês (anual ÷ 12, semanal × 52 ÷ 12), por moeda.",
+    )
+
+
+_POR_MES = {"daily": Decimal("365") / 12, "weekly": Decimal("52") / 12, "monthly": Decimal("1"), "yearly": Decimal("1") / 12}
+
+
+def por_mes(item: RecurringOut) -> Decimal:
+    """Equivalente mensal de uma ocorrência (a cada N períodos divide por N)."""
+    fator = _POR_MES.get(item.frequency, Decimal("1")) / Decimal(max(item.interval or 1, 1))
+    return (Decimal(item.my_share) * fator).quantize(Decimal("0.01"))
 
 
 @tool(
@@ -462,7 +597,8 @@ class RecurringListOut(BaseModel):
     title="Despesas e rendas recorrentes",
     description=(
         "Lista suas despesas recorrentes (aluguel, assinaturas, contas fixas) por espaço e suas "
-        "rendas recorrentes (salário), com valor, frequência e se ainda estão ativas.\n"
+        "rendas recorrentes (salário): valor cheio, a SUA parte, divisão, quem paga, cartão/conta, "
+        "próxima ocorrência e se ainda estão ativas.\n"
         "Use quando: 'quais são minhas assinaturas?', 'quanto pago de contas fixas?', ou antes de "
         "editar uma recorrência (recurring_update precisa do id).\n"
         "Não use quando: quiser os lançamentos já gerados (transactions_search)."
@@ -486,22 +622,95 @@ def recurring_list(call: ToolCall) -> ToolOutput:
             )
             if a.active_only:
                 consulta = consulta.where(RecurringExpense.is_active.is_(True))
+            nomes = {m.id: m.name for m in resolve.space_members(call.session, ref.id)}
             for t in call.session.exec(consulta.order_by(RecurringExpense.title)).all():
-                itens.append(recurring_expense_out(t, Ref(id=ref.id, name=ref.workspace.name), hoje))
+                itens.append(recurring_expense_out(call, t, Ref(id=ref.id, name=ref.workspace.name), hoje, nomes))
     if a.kind in ("all", "income") and alvo is None:
         consulta = select(RecurringIncome).where(personal_scope(RecurringIncome.user_id, me))
         if a.active_only:
             consulta = consulta.where(RecurringIncome.is_active.is_(True))
         for r in call.session.exec(consulta.order_by(RecurringIncome.title)).all():
-            itens.append(RecurringOut(
-                id=r.id, kind="income", title=r.title, amount=r.base_amount, currency=r.currency,
-                frequency=getattr(r.frequency, "value", r.frequency), interval=r.interval,
-                day_of_month=r.day_of_month, active=r.is_active, start_date=r.start_date, end_date=r.end_date,
-            ))
+            itens.append(recurring_income_out(call, r, hoje))
+    mensal: dict[str, Decimal] = {}
+    for i in itens:
+        if i.kind == "expense" and i.active:
+            mensal[i.currency] = mensal.get(i.currency, Decimal("0.00")) + por_mes(i)
     return ToolOutput(
-        structured=RecurringListOut(items=itens),
-        summary=f"{len(itens)} recorrência(s).",
+        structured=RecurringListOut(items=itens, monthly_my_share=mensal),
+        summary=f"{len(itens)} recorrência(s)."
+        + (" Sua parte por mês nas despesas: " + ", ".join(fmt_brl(v, k) for k, v in mensal.items()) + "." if mensal else ""),
         entity_type="recurring",
         entity_ids=[i.id for i in itens],
     )
 
+
+class RecurringGetIn(ToolInput):
+    recurring_id: int = Field(ge=1)
+    kind: Literal["expense", "income"] = Field("expense", description="expense = despesa recorrente; income = renda recorrente.")
+
+
+class RecurringDetailOut(BaseModel):
+    recurring: RecurringOut
+    upcoming: List[dt.date] = Field(description="As próximas ocorrências (até 6).")
+
+
+def visible_recurring(call: ToolCall, recurring_id: int) -> tuple[RecurringExpense, "resolve.SpaceRef"]:
+    """A despesa recorrente, se ESTA pessoa pode vê-la (mesmo recorte da lista); senão NOT_FOUND."""
+    t = call.session.get(RecurringExpense, recurring_id)
+    if t is not None:
+        for ref in resolve.user_spaces(call.session, call.identity.user_id):
+            if ref.id == t.workspace_id:
+                visivel = call.session.exec(
+                    select(RecurringExpense.id).where(
+                        RecurringExpense.id == t.id,
+                        shared_or_mine_scope(RecurringExpense.created_by_user_id, ref.membership),
+                    )
+                ).first()
+                if visivel is not None:
+                    return t, ref
+    raise McpToolError(ErrorCode.NOT_FOUND, "Recorrência não encontrada.", details={"recurring_id": recurring_id})
+
+
+def own_recurring_income(call: ToolCall, recurring_id: int) -> RecurringIncome:
+    r = call.session.get(RecurringIncome, recurring_id)
+    if r is None or r.user_id != call.identity.user_id:
+        raise McpToolError(ErrorCode.NOT_FOUND, "Renda recorrente não encontrada.", details={"recurring_id": recurring_id})
+    return r
+
+
+@tool(
+    name="recurring_get",
+    title="Ver recorrência",
+    description=(
+        "Devolve UMA recorrência completa pelo id: valor, a sua parte, a divisão de cada ocorrência, "
+        "quem paga, forma de pagamento, cartão/conta, categoria, início/fim e as próximas datas.\n"
+        "Use quando: precisar do estado inteiro antes de editar (recurring_update) ou para explicar "
+        "quanto uma assinatura dividida custa para o usuário.\n"
+        "Não use quando: quiser a lista (recurring_list)."
+    ),
+    input_model=RecurringGetIn,
+    output_model=RecurringDetailOut,
+    **_LEITURA,
+)
+def recurring_get(call: ToolCall) -> ToolOutput:
+    a: RecurringGetIn = call.args
+    hoje = today_local()
+    if a.kind == "income":
+        r = own_recurring_income(call, a.recurring_id)
+        saida = recurring_income_out(call, r, hoje)
+        proximas = _proximas(r, hoje, 6) if r.is_active else []
+        espaco_id = None
+    else:
+        t, ref = visible_recurring(call, a.recurring_id)
+        saida = recurring_expense_out(call, t, Ref(id=ref.id, name=ref.workspace.name), hoje)
+        proximas = _proximas(t, hoje, 6) if t.is_active else []
+        espaco_id = ref.id
+    return ToolOutput(
+        structured=RecurringDetailOut(recurring=saida, upcoming=proximas),
+        summary=f"{saida.title}: {fmt_brl(saida.amount, saida.currency)} ({saida.frequency}); "
+        f"sua parte {fmt_brl(saida.my_share, saida.currency)}"
+        + (f"; próxima em {proximas[0].strftime('%d/%m/%Y')}." if proximas else "."),
+        entity_type="recurring",
+        entity_ids=[saida.id],
+        space_id=espaco_id,
+    )

@@ -15,15 +15,17 @@ from pydantic import BaseModel, Field, model_validator
 from sqlmodel import func, select
 
 from app.domain.dates import civil_instant, today_local
-from app.mcp import resolve
+from app.mcp import resolve, versioning
 from app.mcp.dates import CivilDate
 from app.mcp.errors import ErrorCode, McpToolError
+from app.mcp.items import AdjustmentIn, ItemIn, items_people, items_total, plan_items
 from app.mcp.money import MoneyIn, fmt_brl
 from app.mcp.registry import ToolCall, ToolInput, ToolOutput, tool
 from app.mcp.schemas import TransactionBrief, TransactionOut
 from app.mcp.serializers import load_bundle, one, to_brief
 from app.mcp.tools.transactions import PaymentMethodIn, visible_transaction
-from app.mcp.writes import DivisionIn, IdempotencyKey, build_division, membership_for_write
+from app.mcp.versioning import ExpectedVersion
+from app.mcp.writes import Division, DivisionIn, IdempotencyKey, build_division, membership_for_write
 from app.models.attachment import Attachment
 from app.models.transaction import (
     STATEMENT_SHIFT_MAX,
@@ -109,7 +111,13 @@ def _saida(call: ToolCall, tx: Transaction, *, replayed: bool = False) -> WriteR
 class _CreateCore(ToolInput):
     idempotency_key: IdempotencyKey
     title: str = Field(min_length=1, max_length=TITLE_MAX, description="Descrição curta, como aparece na lista (ex.: \"Gasolina\").")
-    amount: MoneyIn = Field(description="Valor TOTAL da compra (nas parceladas, o total, não a parcela).")
+    amount: Optional[MoneyIn] = Field(
+        None,
+        description=(
+            "Valor TOTAL da compra (nas parceladas, o total, não a parcela). Com `items` pode ser "
+            "omitido (= itens + ajustes); se vier, tem de fechar com eles."
+        ),
+    )
     date: Optional[CivilDate] = Field(None, description="Dia da compra. Omitido = hoje (profile_get.today).")
     space: Optional[str] = Field(None, max_length=120, description="Espaço onde lançar. Omitido = regra do espaço implícito (ver descrição).")
     space_id: Optional[int] = None
@@ -132,8 +140,18 @@ class _CreateCore(ToolInput):
     )
 
 
+_ITENS = Field(
+    None, min_length=1, max_length=200,
+    description="Itens da nota. Item sem divisão própria (owner/split_with/split) segue a do lançamento.",
+)
+_AJUSTES = Field(None, max_length=20, description="Desconto, frete, taxa… que fecham itens com o total.")
+
+
 class CreateIn(DivisionIn, _CreateCore):
     """Campos da compra primeiro; quem pagou e a divisão no fim (herdados de `DivisionIn`)."""
+
+    items: Optional[List[ItemIn]] = _ITENS
+    adjustments: Optional[List[AdjustmentIn]] = _AJUSTES
 
     @model_validator(mode="after")
     def _pares(self):
@@ -142,7 +160,19 @@ class CreateIn(DivisionIn, _CreateCore):
                 raise ValueError(f"informe {a} ou {b}, não os dois")
         if self.installments and self.card is None and self.card_id is None:
             raise ValueError("parcelamento exige o cartão (card ou card_id)")
+        if self.amount is None and not self.items:
+            raise ValueError("informe amount (o total da compra) ou items")
+        if self.adjustments and not self.items:
+            raise ValueError("adjustments só com items: eles fecham a soma dos itens com o total")
         return self
+
+    def people_named(self) -> tuple[list[str], list[int]]:
+        nomes, ids = super().people_named()
+        n2, i2 = items_people(self.items)
+        return nomes + n2, ids + i2
+
+    def total(self) -> Decimal:
+        return self.amount if self.amount is not None else items_total(self.items, self.adjustments)
 
 
 def _espaco_para_criar(call: ToolCall, a: CreateIn) -> resolve.SpaceRef:
@@ -186,6 +216,8 @@ def _replay_create(call: ToolCall, ref: dict) -> ToolOutput:
         "candidatos; repita a chamada com o `*_id` escolhido e a MESMA idempotency_key.\n"
         "Divisão: `split_with` = partes iguais entre você e as pessoas; `split` = partes desiguais "
         "(valor ou percentual de cada um). Sem divisão, a despesa é toda sua.\n"
+        "Nota com itens: `items` (cada um com categoria e divisão próprias) + `adjustments` "
+        "(desconto, frete…); o servidor confere que fecham o total e rateia os centavos.\n"
         "Gere uma idempotency_key nova para cada despesa e reutilize-a só ao repetir a mesma chamada."
     ),
     input_model=CreateIn,
@@ -204,6 +236,11 @@ def _replay_create(call: ToolCall, ref: dict) -> ToolOutput:
         {"title": "Gasolina", "amount": "89.90", "card": "Nubank", "category": "Transporte", "idempotency_key": "b3f1c2d4-0001"},
         {"title": "TV", "amount": "3000.00", "card": "Nubank", "installments": 10, "idempotency_key": "b3f1c2d4-0002"},
         {"title": "Jantar", "amount": "120.00", "split_with": ["João"], "payment_method": "pix", "idempotency_key": "b3f1c2d4-0003"},
+        {"title": "Mercado", "card": "Nubank", "idempotency_key": "b3f1c2d4-0004", "items": [
+            {"title": "Arroz", "amount": "30.00", "owner": "eu"},
+            {"title": "Shampoo", "amount": "20.00", "owner": "Maria"},
+            {"title": "Refrigerante", "quantity": "2", "unit_amount": "25.00", "split_with": ["Maria"]},
+        ]},
     ),
 )
 def transactions_create(call: ToolCall) -> ToolOutput:
@@ -215,29 +252,45 @@ def transactions_create(call: ToolCall) -> ToolOutput:
     cartao = resolve.resolve_card(call.session, me, card_id=a.card_id, card=a.card)
     categoria = resolve.resolve_category(call.session, ref.id, category_id=a.category_id, category=a.category)
     tag_ids = resolve.resolve_tags(call.session, ref.id, a.tags)
-    divisao = build_division(call.session, ref.id, me, a, a.amount)
+    total = a.total()
+    divisao = build_division(
+        call.session, ref.id, me, a, total,
+        items_have_division=bool(a.items) and all(i.has_division() for i in a.items),
+    )
 
     metodo = PaymentMethod(a.payment_method) if a.payment_method else None
     if cartao is not None:
         metodo = PaymentMethod.credit_card
     itens = None
-    if categoria is not None:
-        itens = [TransactionItemCreate(title=a.title, amount=a.amount, category_id=categoria.id)]
+    ajustes = None
+    modo = SplitMode.transaction
+    partes = divisao.splits
+    if a.items:
+        plano = plan_items(
+            call.session, ref.id, me, items=a.items, adjustments=a.adjustments, division=divisao,
+            total=total, default_category_id=categoria.id if categoria else None, installments=a.installments,
+        )
+        itens, ajustes, modo = plano.items, plano.adjustments or None, plano.split_mode
+        if modo == SplitMode.item:
+            partes = []
+    elif categoria is not None:
+        itens = [TransactionItemCreate(title=a.title, amount=total, category_id=categoria.id)]
 
     entrada = TransactionCreate(
         title=a.title,
         description=a.description,
-        total_amount=a.amount,
+        total_amount=total,
         currency=a.currency.upper() if a.currency else None,
         transaction_date=civil_instant(a.date or today_local()),
         status=TransactionStatus.confirmed,
         credit_card_id=cartao.id if cartao else None,
         statement_shift=a.statement_shift or 0,
-        split_mode=SplitMode.transaction,
+        split_mode=modo,
         payment_method=metodo,
         payers=divisao.payers,
-        splits=divisao.splits,
+        splits=partes,
         items=itens,
+        adjustments=ajustes,
         tag_ids=tag_ids,
         installments_count=a.installments,
         settled=a.settled,
@@ -295,8 +348,19 @@ class _UpdateCore(ToolInput):
 
 
 class UpdateIn(DivisionIn, _UpdateCore):
+    items: Optional[List[ItemIn]] = Field(
+        None, min_length=1, max_length=200,
+        description="Substitui TODOS os itens da nota (mande a lista completa). Mesmo formato de transactions_create.",
+    )
+    adjustments: Optional[List[AdjustmentIn]] = Field(
+        None, max_length=20, description="Substitui os ajustes (só junto com `items`; [] remove).",
+    )
+    expected_version: ExpectedVersion = None
+
     @model_validator(mode="after")
     def _coerencia(self):
+        if self.adjustments is not None and self.items is None:
+            raise ValueError("adjustments só junto com items (a lista completa de itens)")
         for a, b in (("category", "category_id"), ("card", "card_id")):
             if getattr(self, a) is not None and getattr(self, b) is not None:
                 raise ValueError(f"informe {a} ou {b}, não os dois")
@@ -304,7 +368,7 @@ class UpdateIn(DivisionIn, _UpdateCore):
             raise ValueError("remove_category não combina com category/category_id")
         if self.installments is not None and self.scope != "purchase":
             raise ValueError("installments só com scope=purchase")
-        campos = self.model_dump(exclude_unset=True, exclude={"transaction_id", "scope"})
+        campos = self.model_dump(exclude_unset=True, exclude={"transaction_id", "scope", "expected_version"})
         if not campos or campos == {"remove_category": False}:
             raise ValueError("nada para alterar: informe ao menos um campo")
         return self
@@ -318,7 +382,13 @@ class UpdateResult(BaseModel):
 
 
 _COMPARAVEIS = ("title", "description", "date", "billing_month", "amount", "currency", "status", "settled",
-                "payment_method", "card", "statement", "category", "categories", "tags", "payers", "split")
+                "payment_method", "card", "statement", "category", "categories", "tags", "payers", "split",
+                "split_mode", "items", "adjustments")
+
+
+def _trava(call: ToolCall, tx: Transaction) -> None:
+    """Trava a linha antes de ler a versão: duas edições com a mesma versão não passam as duas."""
+    call.session.exec(select(Transaction.id).where(Transaction.id == tx.id).with_for_update()).first()
 
 
 def _mudancas(antes: TransactionOut, depois: TransactionOut) -> List[str]:
@@ -338,14 +408,16 @@ def _recusa_divisao_complexa(call: ToolCall, tx: Transaction) -> None:
         raise McpToolError(
             ErrorCode.BUSINESS_RULE_VIOLATION,
             "Esta despesa é dividida por itens e esta mudança refaz a divisão (valor, divisão, moeda; "
-            "numa compra em moeda estrangeira, também data e forma de pagamento): edite-a no app.",
+            "numa compra em moeda estrangeira, também data e forma de pagamento): mande junto a lista "
+            "completa em `items` (com a divisão de cada item) e `adjustments`.",
             details={"app_url": one(call.session, tx, call.identity.user_id).app_url},
         )
     if tx.adjustments or len(_itens_atuais(call, tx)) > 1:
         raise McpToolError(
             ErrorCode.BUSINESS_RULE_VIOLATION,
             "Esta despesa tem itens ou ajustes detalhados e esta mudança refaz a divisão (valor, divisão, "
-            "moeda; numa compra em moeda estrangeira, também data e forma de pagamento): edite-a no app.",
+            "moeda; numa compra em moeda estrangeira, também data e forma de pagamento): mande junto a "
+            "lista completa em `items` (e `adjustments`), para os itens continuarem fechando o total.",
             details={"app_url": one(call.session, tx, call.identity.user_id).app_url},
         )
 
@@ -439,6 +511,14 @@ def _update_single(call: ToolCall, tx: Transaction, a: UpdateIn, membership) -> 
         dados["total_amount"] = a.amount
 
     muda_conta = a.account is not None or a.account_id is not None
+    if a.items is not None:
+        if tx.installment_group_id:
+            raise McpToolError(
+                ErrorCode.VALIDATION_ERROR,
+                "Os itens de uma compra parcelada são da compra inteira: use scope=purchase.",
+            )
+        return _update_with_items(call, tx, a, membership, dados, categoria_id if mexe_categoria else None,
+                                  mexe_categoria, nova_moeda, moeda_da_compra, estrangeira)
     if precisa_divisao or muda_conta:
         _recusa_divisao_complexa(call, tx)
         if nova_moeda is not None or estrangeira:
@@ -484,6 +564,101 @@ def _update_single(call: ToolCall, tx: Transaction, a: UpdateIn, membership) -> 
     return tx_cmd.update_transaction(call.session, ws, tx.id, entrada, membership)
 
 
+def _divisao_herdavel_por_item(splits) -> List[TransactionSplitBase]:
+    """O que um item sem divisão própria herda numa despesa JÁ dividida por item.
+
+    A divisão guardada é derivada dos itens (valores fixos), e não se distribui
+    por item. A exceção é a despesa de uma pessoa só: aí o item novo é dela
+    também. Com duas ou mais pessoas, a tool pede a divisão de cada item.
+    """
+    pessoas = {s.user_id for s in splits}
+    if len(pessoas) == 1:
+        return [TransactionSplitBase(user_id=pessoas.pop(), split_method=SplitMethod.equal, input_value=Decimal("0"))]
+    return []
+
+
+def _divisao_atual(call: ToolCall, tx: Transaction, total: Decimal) -> Division:
+    """Quem pagou (e a divisão do total, se houver) como estão hoje, com o total novo."""
+    pacote = load_bundle(call.session, [tx])
+    pagadores = pacote.payers.get(tx.id, [])
+    if len(pagadores) != 1:
+        raise McpToolError(
+            ErrorCode.VALIDATION_ERROR,
+            "Esta despesa tem vários pagadores: informe também `paid_by` e a divisão.",
+        )
+    p = pagadores[0]
+    if tx.split_mode == SplitMode.item:
+        partes = _divisao_herdavel_por_item(pacote.splits.get(tx.id, []))
+    else:
+        partes = [
+            TransactionSplitBase(user_id=s.user_id, split_method=s.split_method, input_value=s.input_value)
+            for s in pacote.splits.get(tx.id, [])
+        ]
+    pagador = TransactionPayerBase(user_id=p.user_id, amount=total, payment_method=p.payment_method, account_id=p.account_id)
+    return Division(
+        payers=[pagador], splits=partes,
+        payer=resolve.Match(p.user_id, pacote.users.get(p.user_id, "?")),
+    )
+
+
+def _update_with_items(
+    call: ToolCall, tx: Transaction, a: UpdateIn, membership, dados: dict,
+    categoria_id: Optional[int], mexe_categoria: bool,
+    nova_moeda: Optional[str], moeda_da_compra: str, estrangeira: bool,
+) -> Transaction:
+    """Troca a nota inteira: itens, ajustes e a divisão que deles decorre (edição completa do app)."""
+    me = call.identity.user_id
+    ws = tx.workspace_id
+    novo_total = a.amount if a.amount is not None else items_total(a.items, a.adjustments)
+    if nova_moeda is not None or estrangeira:
+        dados["currency"] = nova_moeda or moeda_da_compra
+    if a.mentions_division():
+        divisao = build_division(
+            call.session, ws, me, a, novo_total,
+            items_have_division=all(i.has_division() for i in a.items),
+        )
+    else:
+        divisao = _divisao_atual(call, tx, novo_total)
+        if a.account is not None or a.account_id is not None:
+            if divisao.payers[0].user_id != me:
+                raise McpToolError(
+                    ErrorCode.VALIDATION_ERROR,
+                    "A conta só pode ser informada quando foi você quem pagou — a conta de outra pessoa é dela.",
+                )
+            conta = resolve.resolve_account(call.session, me, account_id=a.account_id, account=a.account)
+            divisao.payers[0] = divisao.payers[0].model_copy(update={"account_id": conta.id})
+    if dados.get("credit_card_id") or (a.payment_method is not None):
+        divisao.payers[0] = divisao.payers[0].model_copy(update={
+            "payment_method": None,
+            "account_id": None if dados.get("credit_card_id") else divisao.payers[0].account_id,
+        })
+    if not mexe_categoria:
+        # Sem categoria nova, os itens sem categoria herdam a do lançamento quando
+        # ele ainda não era detalhado (o item-sombra guarda a categoria).
+        atuais = _itens_atuais(call, tx)
+        categoria_id = atuais[0].category_id if len(atuais) == 1 else None
+    plano = plan_items(
+        call.session, ws, me, items=a.items, adjustments=a.adjustments, division=divisao,
+        total=novo_total, default_category_id=categoria_id, installments=None,
+    )
+    if plano.split_mode == SplitMode.transaction and any(s.split_method == SplitMethod.fixed for s in divisao.splits) \
+            and novo_total != tx.total_amount and not a.mentions_division():
+        raise McpToolError(
+            ErrorCode.VALIDATION_ERROR,
+            "A divisão atual é por valores fixos e não fecha com o total novo: informe a nova divisão "
+            "em `split`, ou a divisão de cada item.",
+        )
+    dados.update(
+        total_amount=novo_total,
+        split_mode=plano.split_mode,
+        payers=divisao.payers,
+        splits=divisao.splits if plano.split_mode == SplitMode.transaction else [],
+        items=plano.items,
+        adjustments=plano.adjustments,
+    )
+    return tx_cmd.update_transaction(call.session, ws, tx.id, TransactionUpdate(**dados), membership)
+
+
 def _update_purchase(call: ToolCall, tx: Transaction, a: UpdateIn, membership) -> Transaction:
     """Compra parcelada inteira: parte da definição que o app reconstrói e aplica as mudanças."""
     me = call.identity.user_id
@@ -498,13 +673,19 @@ def _update_purchase(call: ToolCall, tx: Transaction, a: UpdateIn, membership) -
     irmas = tx_cmd._load_group_siblings(call.session, ws, tx)
     total_grupo = sum((t.total_amount for t in irmas), Decimal("0"))
     inteira = tx_cmd._aggregate_group_whole(irmas, tx_cmd._strip_installment_suffix(tx.title), total_grupo)
-    if inteira["split_mode"] == SplitMode.item and (a.amount is not None or a.mentions_division()):
+    if inteira["split_mode"] == SplitMode.item and a.items is None and (a.amount is not None or a.mentions_division()):
         raise McpToolError(
             ErrorCode.BUSINESS_RULE_VIOLATION,
-            "Esta compra é dividida por itens; para mudar valor ou divisão, edite-a no app.",
+            "Esta compra é dividida por itens: para mudar valor ou divisão, mande a lista completa em "
+            "`items`, com a divisão de cada item.",
         )
 
-    total = a.amount if a.amount is not None else Decimal(inteira["total_amount"])
+    if a.amount is not None:
+        total = a.amount
+    elif a.items is not None:
+        total = items_total(a.items, a.adjustments)
+    else:
+        total = Decimal(inteira["total_amount"])
     pagadores = [TransactionPayerBase(**{k: p[k] for k in ("user_id", "payment_method", "account_id")}, amount=total)
                  for p in inteira["payers"]]
     partes = [TransactionSplitBase(user_id=s["user_id"], split_method=s["split_method"], input_value=Decimal(s["input_value"]))
@@ -526,13 +707,30 @@ def _update_purchase(call: ToolCall, tx: Transaction, a: UpdateIn, membership) -
             shares=[TransactionItemShareBase(user_id=s["user_id"], split_method=s["split_method"], input_value=Decimal(s["input_value"]))
                     for s in it.get("shares") or []] or None,
         ))
-    if a.remove_category or a.category is not None or a.category_id is not None:
+    if a.items is None and (a.remove_category or a.category is not None or a.category_id is not None):
         nova = None if a.remove_category else resolve.resolve_category(
             call.session, ws, category_id=a.category_id, category=a.category
         ).id
         if inteira["split_mode"] == SplitMode.item:
             raise McpToolError(ErrorCode.BUSINESS_RULE_VIOLATION, "Compra dividida por itens: mude a categoria no app.")
         itens = [TransactionItemCreate(title=a.title or inteira["title"], amount=total, category_id=nova)] if nova else []
+
+    modo = inteira["split_mode"]
+    if a.items is not None:
+        herdavel = partes
+        if modo == SplitMode.item and not a.mentions_division():
+            herdavel = _divisao_herdavel_por_item(
+                [s for irma in irmas for s in load_bundle(call.session, [irma]).splits.get(irma.id, [])]
+            )
+        divisao = Division(payers=pagadores, splits=herdavel, payer=resolve.Match(pagadores[0].user_id, "?"))
+        categoria_padrao = None
+        if a.category is not None or a.category_id is not None:
+            categoria_padrao = resolve.resolve_category(call.session, ws, category_id=a.category_id, category=a.category).id
+        plano = plan_items(
+            call.session, ws, me, items=a.items, adjustments=a.adjustments, division=divisao, total=total,
+            default_category_id=categoria_padrao, installments=a.installments or inteira["installments_of"],
+        )
+        itens, modo, partes = plano.items, plano.split_mode, []
 
     cartao = resolve.resolve_card(call.session, me, card_id=a.card_id, card=a.card)
     tags = resolve.resolve_tags(call.session, ws, a.tags) if a.tags is not None else [t["id"] for t in inteira["tags"]]
@@ -546,10 +744,10 @@ def _update_purchase(call: ToolCall, tx: Transaction, a: UpdateIn, membership) -
         status=TransactionStatus.confirmed,
         credit_card_id=cartao.id if cartao else inteira["credit_card_id"],
         statement_shift=a.statement_shift if a.statement_shift is not None else ref_tx.statement_shift,
-        split_mode=inteira["split_mode"],
+        split_mode=modo,
         payment_method=PaymentMethod.credit_card,
         payers=pagadores,
-        splits=partes if inteira["split_mode"] == SplitMode.transaction else [],
+        splits=partes if modo == SplitMode.transaction else [],
         items=itens or None,
         tag_ids=tags,
         installments_count=a.installments or inteira["installments_of"],
@@ -595,7 +793,9 @@ def transactions_update(call: ToolCall) -> ToolOutput:
     me = call.identity.user_id
     tx = visible_transaction(call, a.transaction_id)
     membership = membership_for_write(call, tx.workspace_id)
+    _trava(call, tx)
     antes = one(call.session, tx, me)
+    versioning.check(a.expected_version, antes.version)
     if a.scope == "purchase":
         atualizado = _update_purchase(call, tx, a, membership)
     else:
@@ -627,6 +827,7 @@ class DeleteIn(ToolInput):
         "installment",
         description="Parcelada: `installment` exclui só esta parcela; `purchase` exclui todas as parcelas em aberto da compra.",
     )
+    expected_version: ExpectedVersion = None
 
 
 class DeleteResult(BaseModel):
@@ -674,6 +875,9 @@ def transactions_delete(call: ToolCall) -> ToolOutput:
     me = call.identity.user_id
     tx = visible_transaction(call, a.transaction_id)
     membership = membership_for_write(call, tx.workspace_id)
+    if a.expected_version is not None:
+        _trava(call, tx)
+        versioning.check(a.expected_version, one(call.session, tx, me).version)
     if a.scope == "purchase" and not tx.installment_group_id:
         raise McpToolError(ErrorCode.VALIDATION_ERROR, "Este lançamento não é parcelado; use scope=installment.")
     alvos = tx_cmd._load_group_siblings(call.session, tx.workspace_id, tx) if a.scope == "purchase" else [tx]

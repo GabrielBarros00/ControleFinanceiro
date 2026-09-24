@@ -63,6 +63,16 @@ def ensure_quota(session: Session, workspace_id: int, incoming_bytes: int) -> No
         )
 
 
+def _tipo_permitido(content_type: str) -> str:
+    tipo = (content_type or "").lower()
+    if tipo not in ALLOWED_CONTENT_TYPES:
+        raise HTTPException(
+            status_code=400,
+            detail="Tipo de arquivo não permitido: use JPG, PNG, WebP ou PDF",
+        )
+    return tipo
+
+
 async def add_attachment(
     session: Session,
     workspace_id: int,
@@ -71,14 +81,34 @@ async def add_attachment(
     uploaded_by_user_id: int,
 ) -> Attachment:
     """Valida, grava o conteúdo e cria a linha do anexo (flush, sem commit)."""
-    content_type = (file.content_type or "").lower()
-    if content_type not in ALLOWED_CONTENT_TYPES:
-        raise HTTPException(
-            status_code=400,
-            detail="Tipo de arquivo não permitido: use JPG, PNG, WebP ou PDF",
-        )
-
+    content_type = _tipo_permitido(file.content_type)
     data = await upload_validation.read_limited(file, app_settings.get(session, "upload_max_bytes"))
+    return store_attachment(
+        session, workspace_id, transaction_id,
+        data=data, filename=file.filename, content_type=content_type,
+        uploaded_by_user_id=uploaded_by_user_id,
+    )
+
+
+def store_attachment(
+    session: Session,
+    workspace_id: int,
+    transaction_id: int,
+    *,
+    data: bytes,
+    filename: str | None,
+    content_type: str,
+    uploaded_by_user_id: int,
+) -> Attachment:
+    """O corpo do envio, com o conteúdo já em memória (o MCP baixa o arquivo do app de chat).
+
+    Mesmas regras do envio pela tela: tipo permitido, teto por arquivo, conteúdo
+    conferido pelos bytes, cota do espaço com trava.
+    """
+    content_type = _tipo_permitido(content_type)
+    limite = app_settings.get(session, "upload_max_bytes")
+    if len(data) > limite:
+        raise HTTPException(status_code=400, detail=f"Arquivo excede o limite de {limite // (1024 * 1024)} MB")
     if len(data) == 0:
         raise HTTPException(status_code=400, detail="Arquivo vazio")
     if not upload_validation.content_matches_type(content_type, data):
@@ -112,7 +142,7 @@ async def add_attachment(
     attachment = Attachment(
         workspace_id=workspace_id,
         transaction_id=transaction_id,
-        filename=file.filename or "anexo",
+        filename=filename or "anexo",
         content_type=content_type,
         size_bytes=len(data),
         sha256=digest,
@@ -161,3 +191,15 @@ def delete_attachment(
     publish_event(session, workspace_id, "attachment.deleted", "attachment", attachment_id, membership.user_id)
     session.flush()
     return liberar
+
+
+def read_attachment_bytes(attachment: Attachment) -> bytes | None:
+    """Conteúdo do anexo: do armazenamento (ADR 0007) ou da coluna LEGADA.
+
+    O fallback existe porque a migração de schema não move os bytes — quem já
+    tinha recibos continua servindo do banco até rodar
+    `scripts/migrate_attachments_to_disk.py`.
+    """
+    if attachment.storage_key:
+        return AttachmentStorage.read(attachment.storage_key)
+    return attachment.data
