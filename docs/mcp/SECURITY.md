@@ -31,6 +31,9 @@
 | Edição concorrente sobrescrevendo outra pessoa | `version` (hash do estado) na leitura; `expected_version` na escrita trava a linha e responde `CONFLICT` com a versão atual |
 | Retry que anda um passo a mais | `statements_reopen` só age com pagamento vivo; exclusões e restaurações são idempotentes por estado; massa pelo token de uso único |
 | Alteração em massa fora do que foi mostrado | `transactions_bulk_update` só aceita o token da prévia e reconfere a elegibilidade de cada item (pago, cancelado, excluído, fora do espaço); qualquer mudança = nada é alterado |
+| Botão do componente fazendo o que o app não deixa | O componente chama as MESMAS tools, pela mesma conexão; o servidor reaplica escopo, papel, `access_policy`, trava de paga e versão no clique. O "desfazer" do `_meta` é só um convite: executado depois de outra mudança, a versão recusa (`CONFLICT`). O editor só aparece com o escopo de escrita, mas quem decide é o servidor |
+| Clique duplo registrando duas vezes | Acerto, pagamento de fatura e ajuste de saldo pelo componente levam uma `idempotency_key` gerada no clique; exclusão pede o segundo clique no próprio componente; massa só pelo token da prévia |
+| Vocabulário de um espaço vazando para outro | O `form` do `_meta` é montado só para o espaço do lançamento (ou os espaços da página), com as mesmas consultas de visibilidade das tools; o modelo não o lê |
 | Conta desativada/senha trocada | Usuário recarregado a cada chamada; troca/redefinição de senha e "encerrar sessões" revogam as concessões |
 
 ## O que o operador vê

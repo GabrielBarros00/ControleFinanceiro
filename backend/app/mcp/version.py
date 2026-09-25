@@ -8,4 +8,4 @@ sem importar o `server.py`, que importa as tools.
 - MENOR: tool nova, ou campo novo opcional.
 - CORREÇÃO: comportamento corrigido sem mudar contrato.
 """
-SERVER_VERSION = "1.3.0"
+SERVER_VERSION = "1.4.0"

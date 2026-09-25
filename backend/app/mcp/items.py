@@ -52,7 +52,7 @@ class ItemIn(ToolInput):
 
     title: str = Field(min_length=1, max_length=TITLE_MAX)
     amount: Optional[MoneyInOrZero] = Field(None, description="Total da linha (ou quantity × unit_amount).")
-    quantity: Optional[QuantityIn] = None
+    quantity: Optional[QuantityIn] = Field(None, description="Com unit_amount. Em compra parcelada o app guarda só o total do item.")
     unit_amount: Optional[MoneyInOrZero] = None
     description: Optional[str] = Field(None, max_length=DESCRIPTION_MAX)
     category: Optional[str] = Field(None, max_length=120, description="Omitida: a do lançamento.")

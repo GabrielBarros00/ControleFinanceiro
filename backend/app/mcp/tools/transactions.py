@@ -162,6 +162,7 @@ class SearchOut(BaseModel):
     destructive=False,
     idempotent=True,
     cost=2,
+    app_callable=True,
 )
 def transactions_search(call: ToolCall) -> ToolOutput:
     a: SearchIn = call.args
@@ -253,6 +254,7 @@ class TransactionResult(BaseModel):
     idempotent=True,
     invoking="Lendo o lançamento…",
     invoked="Lançamento lido",
+    app_callable=True,
 )
 def transactions_get(call: ToolCall) -> ToolOutput:
     tx = visible_transaction(call, call.args.transaction_id)
@@ -294,7 +296,13 @@ def transactions_get(call: ToolCall) -> ToolOutput:
     )},
 )
 def transactions_show(call: ToolCall) -> ToolOutput:
-    return transactions_get(call)
+    from app.mcp import ui_meta
+
+    saida = transactions_get(call)
+    tx = visible_transaction(call, call.args.transaction_id)
+    # Ver já é poder editar ali mesmo: o editor vai junto quando a pessoa pode.
+    saida.widget = ui_meta.transaction_meta(call, tx, mode="read", app_url=saida.widget["app_url"])
+    return saida
 
 
 # --- transactions_history ------------------------------------------------------------------
@@ -337,6 +345,10 @@ _CAMPOS_DO_HISTORICO = {
 }
 
 
+#: Campos que o app recalcula sozinho ao gravar (não são edição de ninguém).
+_DERIVADOS_DO_HISTORICO = frozenset({"billing_month", "statement_shift"})
+
+
 def _valor_do_historico(campo: str, valor, cartoes: dict[int, str]) -> Optional[str]:
     if valor is None:
         return None
@@ -370,6 +382,7 @@ def _valor_do_historico(campo: str, valor, cartoes: dict[int, str]) -> Optional[
     cost=2,
     invoking="Lendo o histórico…",
     invoked="Histórico lido",
+    app_callable=True,
 )
 def transactions_history(call: ToolCall) -> ToolOutput:
     a: HistoryIn = call.args
@@ -433,12 +446,15 @@ def transactions_history(call: ToolCall) -> ToolOutput:
         )
         # A mesma gravação costuma gerar duas linhas seguidas (a fatura é
         # reancorada no mesmo flush): junta com a anterior se foi a mesma pessoa,
-        # pelo mesmo caminho, no mesmo minuto.
+        # pelo mesmo caminho, no mesmo minuto. Na criação, só junta o que é
+        # derivado (fatura, competência): uma edição de verdade logo depois de
+        # criar aparecia como parte do "Criado", com o antes → depois dentro dele.
         ultimo = entradas[-1] if entradas else None
         if (
             ultimo is not None and ultimo.at == entrada.at and ultimo.via_ai == entrada.via_ai
             and (ultimo.by.id if ultimo.by else None) == (entrada.by.id if entrada.by else None)
             and entrada.action == "updated" and ultimo.action != "deleted"
+            and (ultimo.action != "created" or all(c.field in _DERIVADOS_DO_HISTORICO for c in entrada.changes))
         ):
             vistos = {c.field for c in ultimo.changes}
             ultimo.changes.extend(c for c in entrada.changes if c.field not in vistos)

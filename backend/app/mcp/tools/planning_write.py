@@ -16,6 +16,7 @@ from app.mcp import resolve, versioning
 from app.mcp.dates import CivilDate, MonthKey
 from app.mcp.errors import ErrorCode, McpToolError
 from app.mcp.money import MoneyIn, MoneyInOrZero, MoneyOut, fmt_brl
+from app.mcp.ui import WIDGET_URI as WIDGET
 from app.mcp.registry import ToolCall, ToolInput, ToolOutput, tool
 from app.mcp.schemas import Ref
 from app.mcp.serializers import app_url
@@ -307,6 +308,9 @@ def _replay_recurring(call: ToolCall, ref: dict) -> ToolOutput:
         {"idempotency_key": "f1a2b3c4-0002", "title": "Aluguel", "amount": "2000.00", "day_of_month": 5, "split_with": ["João"], "payment_method": "pix"},
         {"idempotency_key": "f1a2b3c4-0003", "kind": "income", "title": "Salário", "amount": "4000.00", "day_of_month": 5, "account": "Itaú"},
     ),
+    ui=WIDGET,
+    app_callable=True,
+    meta={"openai/widgetDescription": "O componente mostra o resultado com as ações possíveis (desfazer, editar). Confirme em uma frase, sem repetir os números."},
 )
 def recurring_create(call: ToolCall) -> ToolOutput:
     a: RecurringCreateIn = call.args
@@ -417,6 +421,9 @@ class RecurringUpdateIn(DivisionIn, _RecurringFields, _RecurringUpdateCore):
     invoking="Atualizando a recorrência…",
     invoked="Recorrência atualizada",
     examples=({"recurring_id": 7, "amount": "55.00"}, {"recurring_id": 7, "active": False}),
+    ui=WIDGET,
+    app_callable=True,
+    meta={"openai/widgetDescription": "O componente mostra o resultado com as ações possíveis (desfazer, editar). Confirme em uma frase, sem repetir os números."},
 )
 def recurring_update(call: ToolCall) -> ToolOutput:
     a: RecurringUpdateIn = call.args
@@ -530,6 +537,9 @@ class RecurringDeleteOut(BaseModel):
     invoking="Excluindo a recorrência…",
     invoked="Recorrência excluída",
     examples=({"recurring_id": 7}, {"recurring_id": 3, "kind": "income"}),
+    ui=WIDGET,
+    app_callable=True,
+    meta={"openai/widgetDescription": "O componente mostra o resultado com as ações possíveis (desfazer, editar). Confirme em uma frase, sem repetir os números."},
 )
 def recurring_delete(call: ToolCall) -> ToolOutput:
     a: RecurringDeleteIn = call.args
@@ -631,6 +641,9 @@ class BudgetSetOut(BaseModel):
     invoking="Salvando a meta…",
     invoked="Meta salva",
     examples=({"category": "Mercado", "amount": "800.00", "scope": "personal"},),
+    ui=WIDGET,
+    app_callable=True,
+    meta={"openai/widgetDescription": "O componente mostra o resultado com as ações possíveis (desfazer, editar). Confirme em uma frase, sem repetir os números."},
 )
 def budgets_set(call: ToolCall) -> ToolOutput:
     a: BudgetSetIn = call.args
@@ -711,6 +724,9 @@ class CategoryOut(BaseModel):
     invoking="Criando a categoria…",
     invoked="Categoria criada",
     examples=({"name": "Pets", "space": "Casa"}, {"kind": "tag", "name": "Trabalho"}),
+    ui=WIDGET,
+    app_callable=True,
+    meta={"openai/widgetDescription": "O componente mostra o resultado com as ações possíveis (desfazer, editar). Confirme em uma frase, sem repetir os números."},
 )
 def categories_create(call: ToolCall) -> ToolOutput:
     a: CategoryCreateIn = call.args
@@ -813,6 +829,9 @@ class CategoryUpdateOut(BaseModel):
     invoking="Atualizando…",
     invoked="Atualizado",
     examples=({"name": "Restaurantes", "new_name": "Alimentação fora", "space": "Casa"}, {"kind": "tag", "name": "viagem-2024", "delete": True}),
+    ui=WIDGET,
+    app_callable=True,
+    meta={"openai/widgetDescription": "O componente mostra o resultado com as ações possíveis (desfazer, editar). Confirme em uma frase, sem repetir os números."},
 )
 def categories_update(call: ToolCall) -> ToolOutput:
     a: CategoryUpdateIn = call.args

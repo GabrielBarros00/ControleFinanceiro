@@ -236,7 +236,7 @@ ROTAS: dict[str, Rota] = {
     f"POST {W}/imports/commit": Rota("Importar lote", ("imports_commit", "imports_list"), "Os lotes feitos (e desfazer um) em imports_list + transactions_bulk_preview com import_batch_id."),
 
     # --- Lançamentos ---------------------------------------------------------------------
-    f"GET {W}/transactions/": Rota("Lançamentos do espaço", ("transactions_search",)),
+    f"GET {W}/transactions/": Rota("Lançamentos do espaço", ("transactions_search", "view_show"), "view_show(view=transactions) desenha a lista paginada."),
     f"POST {W}/transactions/": Rota("Criar lançamento", ("transactions_create",)),
     f"POST {W}/transactions/bulk": Rota("Criar em lote", ("imports_commit", "transactions_create"),
                                         "Lote pela importação (com dedup) ou uma criação por despesa (com idempotency_key)."),
@@ -344,6 +344,8 @@ FICHAS: dict[str, Ficha] = {
                                 "blob liberado após o commit; WS"),
     "attachments_add": Ficha("Mesmo comando da tela (tipos, conteúdo real, cota); download SSRF-seguro com hosts permitidos",
                              "services/remote_file + commands.attachments.store_attachment", "médio", "cria 1 anexo; WS"),
+    "view_show": Ficha("A mesma leitura da tool de dados, desenhada (§11)", "o handler da tool de dados", "médio",
+                       "nenhum (desenha um componente na conversa)"),
     "reports_breakdown": Ficha("Mesmos filtros e escopo da busca; minha parte rateada em centavos (0001/0019)", "services/transaction_query.breakdown",
                                "médio", "nenhum"),
     "imports_list": Ficha("Só os lotes que a própria pessoa importou", "ImportBatch, ImportRow", "baixo", "nenhum"),

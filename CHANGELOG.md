@@ -75,6 +75,24 @@ cliente MCP ([ADR 0035](docs/adr/0035-integracao-com-agentes-de-ia-mcp.md)).
   - **Categorias e tags**: criar, renomear e excluir.
   - Quando duas pessoas (ou você e a IA) editam o mesmo lançamento ao mesmo tempo, a
     segunda edição é recusada em vez de apagar a primeira.
+- **Você vê na conversa o que a IA fez, e corrige ali mesmo** (ChatGPT e Claude):
+  - o lançamento que ela registrou aparece com **Editar** e **Desfazer**; editar abre
+    o formulário no próprio cartão (título, valor, data, categoria, cartão, divisão,
+    tags);
+  - quando ela edita, o cartão mostra **antes → depois** de cada campo; quando exclui,
+    mostra o que saiu, com **Desfazer**;
+  - pagamento de fatura, transferência, acerto, ajuste de saldo, meta, categoria e
+    anexo mostram o que foi feito e, quando dá, o botão de desfazer;
+  - peça para **ver** os lançamentos do mês, a fatura, o extrato da conta, o caixa,
+    as dívidas, o que falta pagar, as metas, as recorrências, as rendas, o
+    financiamento, o histórico de um lançamento ou as importações: a tela vem com
+    "Carregar mais", linhas que abrem o detalhe, troca de mês e **tela cheia**;
+  - dá para agir pela tela: pagar ou estornar a fatura, registrar "recebi"/"paguei"
+    de uma dívida, marcar conta como paga, pausar uma assinatura, pagar a parcela do
+    financiamento, mudar a meta, selecionar vários lançamentos e marcá-los como
+    pagos, trocar a categoria ou excluir (com prévia), desfazer uma importação;
+  - a IA fica sabendo do que você mudou pela tela, e o que você não pode mudar no app
+    também não muda por ali.
 - **Contas, Cartões e Contas a pagar ficaram mais rápidos com histórico longo**: o
   total e o saldo de cada fatura eram calculados um por um, e o custo crescia com a
   idade do cartão (18 meses de dois cartões: ~70 consultas por tela). Agora é uma

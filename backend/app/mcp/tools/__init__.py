@@ -9,6 +9,7 @@ from app.mcp.tools import reports  # noqa: F401
 from app.mcp.tools import obligations  # noqa: F401
 from app.mcp.tools import ledger  # noqa: F401
 from app.mcp.tools import financing  # noqa: F401
+from app.mcp.tools import views  # noqa: F401
 from app.mcp.tools import transactions_write  # noqa: F401
 from app.mcp.tools import bulk  # noqa: F401
 from app.mcp.tools import imports  # noqa: F401

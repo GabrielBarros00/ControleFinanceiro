@@ -20,8 +20,15 @@ const ARQUIVO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../.
 // parar. Hoje são ~37 KB: Preact e uma ponte escrita à mão, cuja conformidade é
 // provada contra o host OFICIAL (`bridge.conformidade.test.ts`) em vez de
 // presumida. Os tetos seguram a volta do peso: passar deles é decisão consciente.
-const TETO_BYTES = 64 * 1024;
-const TETO_GZIP = 24 * 1024;
+//
+// A v4 (ADR 0035 §11) subiu o teto de 64/24 KiB para 160/48 KiB, de propósito:
+// a escrita passou a desenhar o resultado (com editor, diferença e Desfazer) e
+// há uma tela por assunto (lista, fatura, extrato, dívidas, metas…). O peso vem
+// de código nosso — nenhuma biblioteca nova. Medido no harness do Playwright
+// antes de o teto mudar: ~4 MB de memória do navegador por instância com 30
+// seguidas (a v3 ficava em ~3 MB), heap estável e sem laço de redimensionamento.
+const TETO_BYTES = 160 * 1024;
+const TETO_GZIP = 48 * 1024;
 
 const html = readFileSync(ARQUIVO, 'utf8');
 const tamanho = statSync(ARQUIVO).size;

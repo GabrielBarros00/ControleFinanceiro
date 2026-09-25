@@ -11,10 +11,10 @@ Por isso o hash do HTML publicado fica registrado ao lado da versão, e
 componente (inclusive por atualização de dependência)? Some 1 em `WIDGET_VERSION` e
 atualize `WIDGET_SHA256` com o valor que o teste mostrar.
 """
-WIDGET_VERSION = 3
+WIDGET_VERSION = 4
 WIDGET_URI = f"ui://controle-financeiro/widget-v{WIDGET_VERSION}.html"
 #: sha256 do `widget.html` desta versão. Os fontes do componente e o HTML gerado são
 #: LF em qualquer sistema (`.gitattributes`); com CRLF, o texto dos fontes entrava no
 #: bundle e o build do Windows divergia do build do CI. O teste ainda normaliza o fim
 #: de linha antes de comparar, por garantia.
-WIDGET_SHA256 = "6af4f18bbb42629b61cb2dd7aca1ff9570888910b173970b39bfab283cb360fb"
+WIDGET_SHA256 = "5b795a4ee4fb5196f0576a93f5901b7862ec11d0efa4f1ec03a68a7d69d105df"

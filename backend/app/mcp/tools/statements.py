@@ -71,6 +71,16 @@ class CategoryShare(BaseModel):
     count: int
 
 
+def _extras_da_fatura(call: ToolCall) -> dict:
+    """Para "Pagar fatura" no componente: as contas da pessoa, se a conexão pode mover caixa."""
+    from app.mcp import ui_meta
+    from app.services.oauth import scopes as _escopos
+
+    if not call.identity.has(_escopos.ACCOUNTS_WRITE):
+        return {"can_pay": False}
+    return {"can_pay": True, "accounts": ui_meta.my_accounts(call)}
+
+
 class PaymentLine(BaseModel):
     id: int
     amount: MoneyOut
@@ -224,7 +234,7 @@ def _fatura(call: ToolCall, a: StatementIn) -> ToolOutput:
         summary=resumo,
         entity_type="statement",
         entity_ids=[fatura.id] if fatura else [],
-        widget={"view": "statement", "app_url": saida.app_url},
+        widget={"view": "statement", "app_url": saida.app_url, "card_id": cartao.id, **_extras_da_fatura(call)},
     )
 
 
@@ -250,6 +260,7 @@ def _fatura(call: ToolCall, a: StatementIn) -> ToolOutput:
     cost=2,
     invoking="Lendo a fatura…",
     invoked="Fatura lida",
+    app_callable=True,
 )
 def statements_get(call: ToolCall) -> ToolOutput:
     return _fatura(call, call.args)

@@ -16,6 +16,7 @@ from app.mcp import resolve, versioning
 from app.mcp.dates import CivilDate
 from app.mcp.errors import ErrorCode, McpToolError
 from app.mcp.money import MoneyIn, fmt_brl
+from app.mcp.ui import WIDGET_URI as WIDGET
 from app.mcp.registry import ToolCall, ToolInput, ToolOutput, tool
 from app.mcp.tools.obligations import IncomeOut, income_out, nomes_de_contas
 from app.mcp.versioning import ExpectedVersion
@@ -113,6 +114,9 @@ def _replay_income(call: ToolCall, ref: dict) -> ToolOutput:
     invoking="Registrando a renda…",
     invoked="Renda registrada",
     examples=({"idempotency_key": "d8e9f0a1-0001", "title": "Salário", "amount": "5000.00", "account": "Itaú"},),
+    ui=WIDGET,
+    app_callable=True,
+    meta={"openai/widgetDescription": "O componente mostra o resultado com as ações possíveis (desfazer, editar). Confirme em uma frase, sem repetir os números."},
 )
 def income_create(call: ToolCall) -> ToolOutput:
     a: IncomeCreateIn = call.args
@@ -204,6 +208,9 @@ class IncomeUpdateResult(BaseModel):
     invoking="Atualizando a renda…",
     invoked="Renda atualizada",
     examples=({"income_id": 12, "status": "received", "account": "Itaú"}, {"income_id": 12, "amount": "5200.00"}),
+    ui=WIDGET,
+    app_callable=True,
+    meta={"openai/widgetDescription": "O componente mostra o resultado com as ações possíveis (desfazer, editar). Confirme em uma frase, sem repetir os números."},
 )
 def income_update(call: ToolCall) -> ToolOutput:
     a: IncomeUpdateIn = call.args
@@ -276,6 +283,9 @@ class IncomeDeleteResult(BaseModel):
     invoking="Excluindo a renda…",
     invoked="Renda excluída",
     examples=({"income_id": 12},),
+    ui=WIDGET,
+    app_callable=True,
+    meta={"openai/widgetDescription": "O componente mostra o resultado com as ações possíveis (desfazer, editar). Confirme em uma frase, sem repetir os números."},
 )
 def income_delete(call: ToolCall) -> ToolOutput:
     a: IncomeDeleteIn = call.args
@@ -314,6 +324,9 @@ class IncomeRestoreIn(ToolInput):
     invoking="Restaurando a renda…",
     invoked="Renda restaurada",
     examples=({"income_id": 12},),
+    ui=WIDGET,
+    app_callable=True,
+    meta={"openai/widgetDescription": "O componente mostra o resultado com as ações possíveis (desfazer, editar). Confirme em uma frase, sem repetir os números."},
 )
 def income_restore(call: ToolCall) -> ToolOutput:
     a: IncomeRestoreIn = call.args

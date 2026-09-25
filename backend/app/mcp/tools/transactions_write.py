@@ -20,6 +20,7 @@ from app.mcp.dates import CivilDate
 from app.mcp.errors import ErrorCode, McpToolError
 from app.mcp.items import AdjustmentIn, ItemIn, items_people, items_total, plan_items
 from app.mcp.money import MoneyIn, fmt_brl
+from app.mcp.ui import WIDGET_URI as WIDGET
 from app.mcp.registry import ToolCall, ToolInput, ToolOutput, tool
 from app.mcp.schemas import TransactionBrief, TransactionOut
 from app.mcp.serializers import load_bundle, one, to_brief
@@ -242,6 +243,9 @@ def _replay_create(call: ToolCall, ref: dict) -> ToolOutput:
             {"title": "Refrigerante", "quantity": "2", "unit_amount": "25.00", "split_with": ["Maria"]},
         ]},
     ),
+    ui=WIDGET,
+    app_callable=True,
+    meta={"openai/widgetDescription": "O componente mostra o lançamento criado (valor, divisão, itens, parcelas) com Editar e Desfazer. Não repita os campos; confirme em uma frase."},
 )
 def transactions_create(call: ToolCall) -> ToolOutput:
     a: CreateIn = call.args
@@ -787,6 +791,9 @@ def _update_purchase(call: ToolCall, tx: Transaction, a: UpdateIn, membership) -
         {"transaction_id": 123, "settled": True},
         {"transaction_id": 456, "scope": "purchase", "amount": "2800.00"},
     ),
+    ui=WIDGET,
+    app_callable=True,
+    meta={"openai/widgetDescription": "O componente mostra o antes → depois de cada campo alterado, com Desfazer. Não liste as mudanças de novo; confirme em uma frase."},
 )
 def transactions_update(call: ToolCall) -> ToolOutput:
     a: UpdateIn = call.args
@@ -869,6 +876,9 @@ def _anexos(call: ToolCall, ids: list[int]) -> int:
     invoking="Excluindo…",
     invoked="Excluído",
     examples=({"transaction_id": 123}, {"transaction_id": 456, "scope": "purchase"}),
+    ui=WIDGET,
+    app_callable=True,
+    meta={"openai/widgetDescription": "O componente mostra o que foi excluído, com Desfazer. Confirme em uma frase."},
 )
 def transactions_delete(call: ToolCall) -> ToolOutput:
     a: DeleteIn = call.args
@@ -940,6 +950,9 @@ class RestoreIn(ToolInput):
     invoking="Restaurando…",
     invoked="Restaurado",
     examples=({"transaction_id": 123},),
+    ui=WIDGET,
+    app_callable=True,
+    meta={"openai/widgetDescription": "O componente mostra o resultado com as ações possíveis (desfazer, editar). Confirme em uma frase, sem repetir os números."},
 )
 def transactions_restore(call: ToolCall) -> ToolOutput:
     a: RestoreIn = call.args

@@ -169,6 +169,8 @@ def _totais(txs: list[Transaction]) -> List[MoneyTotal]:
     idempotent=True,
     cost=3,
     ui=WIDGET,
+    # O componente pede a prévia ao selecionar linhas e no "Desfazer importação".
+    app_callable=True,
     invoking="Calculando a prévia…",
     invoked="Prévia pronta",
     meta={"openai/widgetDescription": (
@@ -370,6 +372,8 @@ def _alvos(call: ToolCall, ids: list[int]) -> list[Transaction]:
     invoking="Excluindo…",
     invoked="Exclusão concluída",
     examples=({"confirmation_token": "cfm_cf_…"},),
+    ui=WIDGET,
+    meta={"openai/widgetDescription": "O componente mostra o resultado com as ações possíveis (desfazer, editar). Confirme em uma frase, sem repetir os números."},
 )
 def transactions_bulk_delete(call: ToolCall) -> ToolOutput:
     registro = confirmation.consume(call, call.args.confirmation_token, "bulk_delete")
@@ -436,6 +440,8 @@ def transactions_bulk_delete(call: ToolCall) -> ToolOutput:
     invoking="Categorizando…",
     invoked="Categorização concluída",
     examples=({"confirmation_token": "cfm_cf_…"},),
+    ui=WIDGET,
+    meta={"openai/widgetDescription": "O componente mostra o resultado com as ações possíveis (desfazer, editar). Confirme em uma frase, sem repetir os números."},
 )
 def transactions_bulk_categorize(call: ToolCall) -> ToolOutput:
     registro = confirmation.consume(call, call.args.confirmation_token, "bulk_categorize")
@@ -513,6 +519,8 @@ def _estado_para_elegibilidade(call: ToolCall, txs: list[Transaction]) -> tuple[
     invoking="Aplicando…",
     invoked="Alteração concluída",
     examples=({"confirmation_token": "cfm_cf_…"},),
+    ui=WIDGET,
+    meta={"openai/widgetDescription": "O componente mostra o resultado com as ações possíveis (desfazer, editar). Confirme em uma frase, sem repetir os números."},
 )
 def transactions_bulk_update(call: ToolCall) -> ToolOutput:
     registro = confirmation.consume(call, call.args.confirmation_token, "bulk_update")

@@ -390,7 +390,10 @@ def test_historico_do_lancamento(mcp_client, db_session, c):
     ok(call_tool(mcp_client, c.token, "transactions_restore", {"transaction_id": tx["id"]}))
     hist = ok(call_tool(mcp_client, c.token, "transactions_history", {"transaction_id": tx["id"]}))["entries"]
     acoes = [e["action"] for e in hist]
-    assert acoes[0] == "restored" and "deleted" in acoes and acoes[-1] == "created"
+    # A edição logo depois de criar (mesmo minuto) é uma entrada própria, não
+    # um antes → depois escondido dentro do "Criado".
+    assert acoes == ["restored", "deleted", "updated", "created"], acoes
+    assert hist[-1]["changes"] == []
     valor = next(e for e in hist if any(ch["field"] == "amount" for ch in e["changes"]))
     mudanca = next(ch for ch in valor["changes"] if ch["field"] == "amount")
     assert (mudanca["before"], mudanca["after"]) == ("80.00", "95.00")

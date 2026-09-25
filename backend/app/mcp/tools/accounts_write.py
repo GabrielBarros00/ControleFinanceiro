@@ -22,6 +22,7 @@ from app.mcp import resolve
 from app.mcp.dates import CivilDate, MonthKey
 from app.mcp.errors import ErrorCode, McpToolError
 from app.mcp.money import MoneyIn, MoneyOut, SignedMoneyIn, fmt_brl
+from app.mcp.ui import WIDGET_URI as WIDGET
 from app.mcp.registry import ToolCall, ToolInput, ToolOutput, tool
 from app.mcp.schemas import Ref
 from app.mcp.serializers import app_url, civil
@@ -205,6 +206,9 @@ def _replay_pay(call: ToolCall, ref: dict) -> ToolOutput:
     invoking="Registrando o pagamento…",
     invoked="Pagamento registrado",
     examples=({"idempotency_key": "c7d1e2f3-0001", "card": "Nubank", "month": "2026-09", "account": "Itaú"},),
+    ui=WIDGET,
+    app_callable=True,
+    meta={"openai/widgetDescription": "O componente mostra o resultado com as ações possíveis (desfazer, editar). Confirme em uma frase, sem repetir os números."},
 )
 def statements_pay(call: ToolCall) -> ToolOutput:
     a: PayIn = call.args
@@ -305,6 +309,9 @@ def _replay_transfer(call: ToolCall, ref: dict) -> ToolOutput:
     invoking="Registrando a transferência…",
     invoked="Transferência registrada",
     examples=({"idempotency_key": "c7d1e2f3-0002", "from_account": "Itaú", "to_account": "Poupança", "amount": "500.00"},),
+    ui=WIDGET,
+    app_callable=True,
+    meta={"openai/widgetDescription": "O componente mostra o resultado com as ações possíveis (desfazer, editar). Confirme em uma frase, sem repetir os números."},
 )
 def transfers_create(call: ToolCall) -> ToolOutput:
     a: TransferIn = call.args
@@ -402,6 +409,9 @@ def _replay_adjust(call: ToolCall, ref: dict) -> ToolOutput:
     invoking="Conciliando o saldo…",
     invoked="Saldo conciliado",
     examples=({"idempotency_key": "c7d1e2f3-0003", "account": "Itaú", "real_balance": "4900.00"},),
+    ui=WIDGET,
+    app_callable=True,
+    meta={"openai/widgetDescription": "O componente mostra o resultado com as ações possíveis (desfazer, editar). Confirme em uma frase, sem repetir os números."},
 )
 def accounts_adjust_balance(call: ToolCall) -> ToolOutput:
     a: AdjustIn = call.args
@@ -457,6 +467,9 @@ class TransferDeleteOut(BaseModel):
     invoking="Desfazendo a transferência…",
     invoked="Transferência desfeita",
     examples=({"transfer_id": 5},),
+    ui=WIDGET,
+    app_callable=True,
+    meta={"openai/widgetDescription": "O componente mostra o resultado com as ações possíveis (desfazer, editar). Confirme em uma frase, sem repetir os números."},
 )
 def transfers_delete(call: ToolCall) -> ToolOutput:
     a: TransferDeleteIn = call.args
@@ -516,6 +529,9 @@ class ReopenOut(BaseModel):
     invoking="Estornando…",
     invoked="Fatura reaberta",
     examples=({"card": "Nubank", "month": "2026-09"},),
+    ui=WIDGET,
+    app_callable=True,
+    meta={"openai/widgetDescription": "O componente mostra o resultado com as ações possíveis (desfazer, editar). Confirme em uma frase, sem repetir os números."},
 )
 def statements_reopen(call: ToolCall) -> ToolOutput:
     a: ReopenIn = call.args

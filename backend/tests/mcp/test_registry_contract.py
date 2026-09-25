@@ -31,14 +31,14 @@ def todas():
     return list(REGISTRY.values())
 
 
-def test_catalogo_tem_as_57_tools():
+def test_catalogo_tem_as_58_tools():
     # 35 do plano + 3 de exibição (`*_show`), separadas das de dados para o
     # ChatGPT não desenhar um componente a cada consulta, + o link de envio de
     # anexo pelo terminal (`attachments_upload_link`) + as 18 da paridade com o
     # app (histórico, extrato, transferências, estorno de fatura, renda e
     # recorrência, financiamento, anexos, categorias/tags, agrupamento,
-    # importações e alteração em massa).
-    assert len(REGISTRY) == 57
+    # importações e alteração em massa) + `view_show`, a tela genérica.
+    assert len(REGISTRY) == 58
 
 
 @pytest.mark.parametrize("spec", todas(), ids=lambda s: s.name)

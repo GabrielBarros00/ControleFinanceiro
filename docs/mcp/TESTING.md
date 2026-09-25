@@ -56,14 +56,26 @@ npm run typecheck && npm run lint
 npm run build:mcp-widget        # reconstrói backend/app/mcp/ui/widget.html e confere tamanho/CSP
 ```
 
-- `mcp-widget/__tests__/Widget.test.tsx`: as quatro vistas com o **Preact de verdade** (o
-  mesmo do build), situação da fatura em português, valor da compra na moeda do
-  cartão, parcela sem o "(10/10)" repetido, plural sem "(s)".
+- `mcp-widget/__tests__/Widget.test.tsx`: as vistas com o **Preact de verdade** (o
+  mesmo do build) e uma ponte falsa. Trava o CONTRATO com o servidor: cada botão chama
+  a tool certa com os argumentos certos (só o campo que mudou, a versão lida, uma
+  `idempotency_key` por clique, o cursor da página), a diferença antes → depois, o
+  Desfazer do `_meta`, `CONFLICT` sem fingir que salvou, tela cheia só quando o host
+  deixa, e o limite de erro. Oito mutações no código foram vistas reprovando.
 - `mcp-widget/__tests__/bridge.conformidade.test.ts`: a ponte escrita à mão contra o
   host **oficial** do MCP Apps (`AppBridge`), que valida cada mensagem com os schemas
   do protocolo. Cobre handshake, tamanho, resultado, tema e variáveis de estilo,
-  `tools/call`, `ui/open-link`, desmontagem e a corrida do resultado que chega antes
-  de o componente se registrar.
+  `tools/call`, `ui/open-link`, desmontagem, a corrida do resultado que chega antes
+  de o componente se registrar, e as mensagens da v4: `ui/request-display-mode`,
+  `ui/update-model-context` (só com a capacidade anunciada), `ui/message` e
+  `ui/notifications/tool-input`.
+- `backend/tests/mcp/test_componente_meta.py`: o `_meta` de cada escrita (vista, modo,
+  editor, desfazer), EXECUTANDO o desfazer e conferindo o efeito, e o gate que lê o
+  código do componente: toda tool que ele chama tem de ser `app_callable`.
+- Revisão visual (manual): um host falso com dados de exemplo para cada vista,
+  fotografado pelo Playwright em 360 e 768 px, claro e escuro, e conferido a olho. A
+  memória (30 componentes seguidos, heap no tempo, laço de redimensionamento) é
+  medida no mesmo tipo de host antes de mexer no teto de tamanho.
 - `mcp-widget/__tests__/bridge.test.ts`: o caminho do `window.openai`
   (`openai:set_globals`, resultado tardio, tema).
 

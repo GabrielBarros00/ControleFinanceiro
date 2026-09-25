@@ -124,6 +124,7 @@ def _linhas(net_debts, me: int, filtro: Optional[int]) -> list[DebtLine]:
     output_model=DebtsOut,
     cost=2,
     **_LEITURA,
+    app_callable=True,
 )
 def debts_summary(call: ToolCall) -> ToolOutput:
     a: DebtsIn = call.args
@@ -277,6 +278,7 @@ class PayablesOut(BaseModel):
     output_model=PayablesOut,
     cost=2,
     **_LEITURA,
+    app_callable=True,
 )
 def payables_list(call: ToolCall) -> ToolOutput:
     a: PayablesIn = call.args
@@ -411,6 +413,7 @@ class IncomeListOut(BaseModel):
     input_model=IncomeIn,
     output_model=IncomeListOut,
     **_LEITURA,
+    app_callable=True,
 )
 def income_list(call: ToolCall) -> ToolOutput:
     a: IncomeIn = call.args
@@ -606,6 +609,7 @@ def por_mes(item: RecurringOut) -> Decimal:
     input_model=RecurringIn,
     output_model=RecurringListOut,
     **_LEITURA,
+    app_callable=True,
 )
 def recurring_list(call: ToolCall) -> ToolOutput:
     a: RecurringIn = call.args
@@ -691,6 +695,7 @@ def own_recurring_income(call: ToolCall, recurring_id: int) -> RecurringIncome:
     input_model=RecurringGetIn,
     output_model=RecurringDetailOut,
     **_LEITURA,
+    app_callable=True,
 )
 def recurring_get(call: ToolCall) -> ToolOutput:
     a: RecurringGetIn = call.args
