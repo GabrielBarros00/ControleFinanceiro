@@ -108,7 +108,10 @@ test.describe('Sessão atrás do nginx (stack de produção)', () => {
 
     // 5. Logout devolve ao /login e rota protegida volta a exigir sessão
     await page.goto('/settings');
-    await page.getByRole('button', { name: ROTULOS.sair }).click();
+    // Pelo RÓTULO: o ícone da barra lateral é o único com `aria-label`. A tela de
+    // configurações tem um segundo "Sair da conta" (texto), e pelo nome o modo
+    // estrito recusava sempre que ela terminava de desenhar antes do clique.
+    await page.getByLabel(ROTULOS.sair).click();
     await expect(page).toHaveURL(/\/login/, { timeout: 15_000 });
     await page.goto('/');
     await expect(page).toHaveURL(/\/login/, { timeout: 15_000 });
