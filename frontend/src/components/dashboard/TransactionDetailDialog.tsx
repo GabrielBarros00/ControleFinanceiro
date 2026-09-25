@@ -15,7 +15,8 @@ import { useNewTxStore } from '@/stores';
 import { TransactionSummary } from './TransactionSummary';
 import { StatementMover } from './StatementMover';
 import { useCategories } from '@/hooks/use-categories';
-import { paymentMethodLabel } from '@/lib/payment-methods';
+import { paymentMethodWithCard } from '@/lib/payment-methods';
+import { useCreditCards } from '@/hooks/use-credit-cards';
 import { formatCurrency } from '@/lib/money';
 import { parseApiDate } from '@/lib/date';
 
@@ -54,6 +55,7 @@ export function TransactionDetailDialog({
 }: TransactionDetailDialogProps) {
   const abrirNovaDespesa = useNewTxStore((estado) => estado.abrirCom);
   const { categories } = useCategories();
+  const { cards } = useCreditCards();
   if (!transaction) return null;
 
   const amount = parseFloat(transaction.total_amount);
@@ -89,7 +91,7 @@ export function TransactionDetailDialog({
             <span className="inline-flex items-center gap-1">
               <Calendar className="h-3.5 w-3.5" /> {dateLabel}
             </span>
-            <span>· {paymentMethodLabel(transaction.payment_method, transaction.credit_card_id)}</span>
+            <span>· {paymentMethodWithCard(transaction.payment_method, transaction.credit_card_id, cards as { id: number; name: string }[])}</span>
             {transaction.merchant && (
               <span className="inline-flex min-w-0 items-center gap-1">
                 · <Store className="h-3.5 w-3.5 shrink-0" /> <span className="truncate">{transaction.merchant.name}</span>
