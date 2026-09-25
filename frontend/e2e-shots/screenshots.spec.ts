@@ -396,8 +396,12 @@ test('seed data and capture all screens', async ({ page, playwright }) => {
       { title: 'Aluguel do apartamento com condomínio e IPTU incluídos', base_amount: 8_450.75, frequency: 'monthly', day_of_month: 5 },
       { title: 'Plano de saúde familiar', base_amount: 3_280.4, frequency: 'monthly', day_of_month: 12 },
       { title: 'Faxina', base_amount: 220, frequency: 'weekly', day_of_week: 2 },
-      { title: 'Assinatura anual do software de edição de vídeo e banco de imagens', base_amount: 4_780, frequency: 'yearly', month_of_year: 3, day_of_month: 15 },
-      { title: 'Mensalidade da academia com personal trainer duas vezes por semana', base_amount: 890.5, frequency: 'monthly', day_of_month: 8 },
+      // Assinaturas (ADR 0039): anual, mensal e uma em teste grátis — o quadro soma
+      // a anual ÷ 12 e mostra "teste grátis até…" na que ainda não cobra.
+      { title: 'Assinatura anual do software de edição de vídeo e banco de imagens', base_amount: 4_780, frequency: 'yearly', month_of_year: 3, day_of_month: 15, is_subscription: true, plan: 'Profissional' },
+      { title: 'Mensalidade da academia com personal trainer duas vezes por semana', base_amount: 890.5, frequency: 'monthly', day_of_month: 8, is_subscription: true, merchant_name: 'Smart Fit', notes: 'Personal 2x por semana' },
+      { title: 'Netflix', base_amount: 55.9, frequency: 'monthly', day_of_month: 10, is_subscription: true, plan: 'Premium' },
+      { title: 'Disney+', base_amount: 33.9, frequency: 'monthly', day_of_month: new Date(iso(-5)).getDate(), is_subscription: true, trial_ends_on: iso(-5).slice(0, 10) },
       { title: 'Estacionamento mensal do prédio comercial', base_amount: 640, frequency: 'monthly', interval: 1, day_of_month: 1 },
       // `interval > 1` é a recorrência "a cada N", e ela EXIGE `start_date`: sem
       // âncora não há como saber a partir de quando contar os 3 meses. O
@@ -820,6 +824,14 @@ test('seed data and capture all screens', async ({ page, playwright }) => {
       await page.getByRole('dialog').waitFor({ state: 'visible' }).catch(() => {});
       await page.waitForTimeout(600);
       await shot(`recorrencia-form-${theme}`);
+      // Com "É uma assinatura" ligado: plano, teste grátis e benefícios (ADR 0039).
+      const assinatura = page.getByRole('switch', { name: /É uma assinatura/ });
+      if (await assinatura.count()) {
+        await assinatura.click();
+        await page.waitForTimeout(300);
+        await page.getByLabel('Plano').scrollIntoViewIfNeeded().catch(() => {});
+        await shot(`recorrencia-form-assinatura-${theme}`);
+      }
       await page.keyboard.press('Escape').catch(() => {});
     }
 

@@ -172,6 +172,10 @@ def create_recurring(
 ) -> RecurringExpense:
     if materialize not in MATERIALIZE_SCOPES:
         raise HTTPException(status_code=400, detail=f"materialize deve ser um de {list(MATERIALIZE_SCOPES)}")
+    if recurring_in.is_subscription and recurring_in.trial_ends_on and recurring_in.start_date is None:
+        # Assinatura em teste grátis sem início declarado (ADR 0039): a primeira
+        # cobrança é no fim do teste, e nada nasce cobrado antes dele.
+        recurring_in = recurring_in.model_copy(update={"start_date": recurring_in.trial_ends_on})
     _validate_frequency_fields(
         recurring_in.frequency, recurring_in.day_of_week, recurring_in.month_of_year,
         recurring_in.interval, recurring_in.start_date, recurring_in.end_date,
@@ -183,11 +187,16 @@ def create_recurring(
         actor_user_id=membership.user_id,
         statement_shift=recurring_in.statement_shift,
     )
-    if recurring_in.merchant_id is not None:
-        from app.services.commands.merchants import get_merchant_or_404
+    from app.services.commands.merchants import resolve_merchant
 
-        get_merchant_or_404(session, workspace_id, recurring_in.merchant_id)
-    data = recurring_in.model_dump(exclude={"split_snapshot"})
+    # Como no lançamento novo (ADR 0038): o id, o nome (acha ou cria) ou, sem
+    # nenhum, o de apelido igual ao título — as ocorrências herdam.
+    estabelecimento = resolve_merchant(
+        session, workspace_id, membership, merchant_id=recurring_in.merchant_id,
+        merchant_name=recurring_in.merchant_name, titulo=recurring_in.title,
+    )
+    data = recurring_in.model_dump(exclude={"split_snapshot", "merchant_name"})
+    data["merchant_id"] = estabelecimento.id if estabelecimento else None
     # Moeda ausente = a do workspace (nunca "BRL" fixo — ver resolve_currency)
     data["currency"] = resolve_currency(session, workspace_id, recurring_in.currency)
     # "Por N ocorrências" → `end_date`. Antes do construtor: o campo de entrada
@@ -229,10 +238,17 @@ def update_recurring(
     _check_ownership(membership, db_recurring)
 
     update_data = recurring_in.model_dump(exclude_unset=True)
-    if update_data.get("merchant_id") is not None:
-        from app.services.commands.merchants import get_merchant_or_404
+    nome = update_data.pop("merchant_name", None)
+    if nome or update_data.get("merchant_id") is not None:
+        from app.services.commands.merchants import resolve_merchant
 
-        get_merchant_or_404(session, workspace_id, update_data["merchant_id"])
+        estabelecimento = resolve_merchant(
+            session, workspace_id, membership, merchant_id=update_data.get("merchant_id"), merchant_name=nome,
+        )
+        update_data["merchant_id"] = estabelecimento.id if estabelecimento else None
+    # `is_subscription` é NOT NULL: um `null` explícito é "não mexe", não "apaga".
+    if "is_subscription" in update_data and update_data["is_subscription"] is None:
+        update_data.pop("is_subscription")
     snapshot_provided = "split_snapshot" in update_data
     update_data.pop("split_snapshot", None)
     # `end_after_occurrences` sai daqui e não vira atributo: ele não é coluna, e

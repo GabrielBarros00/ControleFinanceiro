@@ -405,6 +405,29 @@ describe('Widget: telas do view_show', () => {
     expect(b.chamadas).toEqual([{ name: 'recurring_update', args: { recurring_id: 4, kind: 'expense', active: false, expected_version: 'r1' } }]);
     expect(screen.getByText('pausada')).toBeInTheDocument();
   });
+
+  it('assinaturas: grupo próprio com o custo por mês, plano e teste grátis', async () => {
+    const amanha = new Date(Date.now() + 86_400_000).toLocaleDateString('sv');
+    const base = { kind: 'expense', currency: 'BRL', interval: 1, active: true, space: { id: 2, name: 'Casa' } };
+    const itens = [
+      { ...base, id: 1, title: 'Domínio', amount: '120.00', frequency: 'yearly', my_monthly: '10.00', subscription: { plan: null } },
+      { ...base, id: 2, title: 'Netflix', amount: '55.90', frequency: 'monthly', my_monthly: '55.90',
+        merchant: { id: 7, name: 'Netflix' }, subscription: { plan: 'Premium', trial_ends_on: amanha, notes: '4 telas' } },
+      { ...base, id: 3, title: 'Aluguel', amount: '2000.00', frequency: 'monthly', my_monthly: '2000.00' },
+    ];
+    const b = ponte();
+    monta(b);
+    b.entregar({ structuredContent: { view: 'recurring', source_tool: 'recurring_list', data: { items: itens } }, _meta: { view: 'recurring' } });
+    // O aluguel não é assinatura: fica em Despesas, fora da soma.
+    expect(screen.getByRole('button', { name: /^Assinaturas.*2/ })).toHaveTextContent(/65,90\/mês/);
+    expect(screen.getByRole('button', { name: /^Despesas.*1/ })).toBeInTheDocument();
+    expect(screen.getByText(/^teste até/)).toBeInTheDocument();
+    await clica(screen.getByRole('button', { name: /Netflix/ }));
+    expect(screen.getByText('Premium')).toBeInTheDocument();
+    expect(screen.getByText('4 telas')).toBeInTheDocument();
+    await clica(screen.getByRole('button', { name: /Domínio/ }));
+    expect(screen.getByText('Sua parte por mês')).toBeInTheDocument();
+  });
 });
 
 describe('Widget: fatura, resumo e recibos', () => {

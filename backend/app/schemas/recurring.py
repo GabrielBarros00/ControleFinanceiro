@@ -60,6 +60,13 @@ class RecurringCreate(BaseModel):
     split_snapshot: Optional[List[RecurringSplitEntry]] = None
     #: Estabelecimento das ocorrências (ADR 0038); `null` explícito na edição desvincula.
     merchant_id: Optional[int] = None
+    #: O estabelecimento pelo nome: acha pelo nome ou apelido, ou cria (ADR 0038).
+    merchant_name: Optional[str] = Field(default=None, max_length=120)
+    # Assinatura (ADR 0039).
+    is_subscription: bool = False
+    plan: Optional[str] = Field(default=None, max_length=120)
+    trial_ends_on: Optional[date] = None
+    notes: Optional[str] = Field(default=None, max_length=1000)
 
 
 class RecurringUpdate(BaseModel):
@@ -87,3 +94,10 @@ class RecurringUpdate(BaseModel):
     split_snapshot: Optional[List[RecurringSplitEntry]] = None
     #: Estabelecimento das ocorrências (ADR 0038); `null` explícito na edição desvincula.
     merchant_id: Optional[int] = None
+    #: O estabelecimento pelo nome: acha pelo nome ou apelido, ou cria (ADR 0038).
+    merchant_name: Optional[str] = Field(default=None, max_length=120)
+    # Assinatura (ADR 0039). `null` explícito em plano, teste e observações apaga.
+    is_subscription: Optional[bool] = None
+    plan: Optional[str] = Field(default=None, max_length=120)
+    trial_ends_on: Optional[date] = None
+    notes: Optional[str] = Field(default=None, max_length=1000)

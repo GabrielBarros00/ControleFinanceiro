@@ -21,6 +21,8 @@ const ITENS = [
     id: 1, title: 'Aluguel', base_amount: '2500.00', currency: 'BRL',
     frequency: 'monthly', interval: 1, day_of_month: 5, is_active: true,
     category_id: null, payment_method: 'pix', credit_card_id: null,
+    // O equivalente mensal vem do servidor (ADR 0039), como a API manda.
+    monthly_equivalent: '2500.00', my_monthly_equivalent: '1250.00',
     // Já dividido: é o que o teste de edição carrega de volta nas pílulas.
     split_snapshot: [
       { user_id: 1, split_method: 'equal', input_value: '0' },
@@ -31,6 +33,8 @@ const ITENS = [
     id: 2, title: 'Streaming', base_amount: '55.90', currency: 'BRL',
     frequency: 'monthly', interval: 1, day_of_month: 12, is_active: true,
     category_id: null, payment_method: 'credit_card', credit_card_id: null,
+    monthly_equivalent: '55.90', my_monthly_equivalent: '55.90',
+    is_subscription: true, plan: 'Premium', next_occurrence: '2099-01-12',
   },
   {
     // Semanal: 55 por semana NÃO é 55 por mês. Se o total ignorar a frequência,
@@ -38,12 +42,14 @@ const ITENS = [
     id: 3, title: 'Faxina', base_amount: '150.00', currency: 'BRL',
     frequency: 'weekly', interval: 1, day_of_month: 1, day_of_week: 2, is_active: true,
     category_id: null, payment_method: 'pix', credit_card_id: null,
+    monthly_equivalent: '650.00', my_monthly_equivalent: '650.00',
   },
   {
     // Inativa: não sai dinheiro nenhum por ela, e somá-la infla o número.
     id: 4, title: 'Academia cancelada', base_amount: '99.00', currency: 'BRL',
     frequency: 'monthly', interval: 1, day_of_month: 8, is_active: false,
     category_id: null, payment_method: 'pix', credit_card_id: null,
+    monthly_equivalent: '99.00', my_monthly_equivalent: '99.00', is_subscription: true,
   },
 ];
 
@@ -88,6 +94,20 @@ describe('Recorrência', () => {
     // 2500 + 55,90 (mensais) + 150 × (52/12) (semanal) = 3.205,90; a inativa fica de fora.
     const total = screen.getByTestId('total-mensal');
     expect(total).toHaveTextContent('3.205,90');
+  });
+
+  it('assinaturas: quadro com a sua parte por mês, selo e o recorte "Só assinaturas"', () => {
+    desenhar();
+    const quadro = screen.getByTestId('quadro-assinaturas');
+    // Só a ativa: a academia cancelada é assinatura, mas não cobra.
+    expect(quadro).toHaveTextContent('55,90');
+    expect(quadro).toHaveTextContent('Premium');
+    expect(quadro).not.toHaveTextContent('Academia');
+    const tabela = screen.getByRole('table');
+    expect(within(tabela).getAllByText(/^Assinatura/)).toHaveLength(2);
+    fireEvent.click(screen.getByRole('button', { name: 'Só assinaturas' }));
+    expect(within(screen.getByRole('table')).queryByText('Aluguel')).toBeNull();
+    expect(within(screen.getByRole('table')).getByText('Streaming')).toBeInTheDocument();
   });
 
   it('não conta a recorrência desativada no total', () => {
@@ -187,6 +207,34 @@ describe('Recorrência — dividir com', () => {
 
     await waitFor(() => expect(criar).toHaveBeenCalled());
     expect(criar.mock.calls[0][0].data.split_snapshot).toBeNull();
+  });
+
+  it('assinatura: manda plano, teste, benefícios e o estabelecimento', async () => {
+    const dialogo = await abrirFormulario();
+    fireEvent.change(within(dialogo).getByLabelText(/título/i), { target: { value: 'Netflix' } });
+    fireEvent.change(within(dialogo).getByLabelText(/valor/i), { target: { value: '55,90' } });
+    fireEvent.change(within(dialogo).getByLabelText(/estabelecimento/i), { target: { value: 'Netflix' } });
+    fireEvent.click(within(dialogo).getByRole('switch', { name: /é uma assinatura/i }));
+    fireEvent.change(within(dialogo).getByLabelText('Plano'), { target: { value: 'Premium' } });
+    fireEvent.change(within(dialogo).getByLabelText('Teste grátis até'), { target: { value: '2099-01-10' } });
+    fireEvent.change(within(dialogo).getByLabelText('Benefícios'), { target: { value: '4 telas' } });
+    fireEvent.click(within(dialogo).getByRole('button', { name: /salvar/i }));
+    await waitFor(() => expect(criar).toHaveBeenCalled());
+    expect(criar.mock.calls[0][0].data).toMatchObject({
+      is_subscription: true, plan: 'Premium', trial_ends_on: '2099-01-10', notes: '4 telas', merchant_name: 'Netflix',
+    });
+  });
+
+  it('sem assinatura nem estabelecimento, não manda plano nem vínculo', async () => {
+    const dialogo = await abrirFormulario();
+    fireEvent.change(within(dialogo).getByLabelText(/título/i), { target: { value: 'Internet' } });
+    fireEvent.change(within(dialogo).getByLabelText(/valor/i), { target: { value: '120,00' } });
+    fireEvent.click(within(dialogo).getByRole('button', { name: /salvar/i }));
+    await waitFor(() => expect(criar).toHaveBeenCalled());
+    const corpo = criar.mock.calls[0][0].data;
+    expect(corpo).toMatchObject({ is_subscription: false, plan: null, trial_ends_on: null, notes: null });
+    // Vazio na criação: o servidor liga pelo apelido do título.
+    expect('merchant_name' in corpo || 'merchant_id' in corpo).toBe(false);
   });
 
   it('ao editar, mostra quem já estava na divisão', async () => {
