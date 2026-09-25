@@ -298,3 +298,31 @@ def test_sem_estabelecimento_vem_por_ultimo_mesmo_sendo_o_maior(db_session, setu
     _despesa(ws, uid, h, titulo="Pão", valor="10.00", merchant_id=m["id"])
     _despesa(ws, uid, h, titulo="Aluguel", valor="2000.00")
     assert [i["name"] for i in client.get(f"{_api(ws)}/merchants/spending", headers=h).json()] == ["Padaria", "Sem estabelecimento"]
+
+
+def test_edicao_completa_da_tela_com_categoria_e_estabelecimento(db_session, setup_data, override_get_session):
+    """A tela edita pelo caminho COMPLETO (pagadores, divisão e itens no corpo).
+    O `merchant_name` só era resolvido no caminho parcial, e aqui chegava ao
+    `setattr` do lançamento: erro 500 em produção ao pôr estabelecimento e
+    categoria num lançamento que já existia."""
+    ws, uid, h = setup_data["ws1"].id, setup_data["u1"].id, setup_data["headers1"]
+    tx = _despesa(ws, uid, h, titulo="Mercado", valor="80.00")
+    categoria = _categoria(ws, h, "Feira")
+    corpo = {
+        "title": "Mercado", "total_amount": "80.00", "transaction_date": HOJE, "currency": "BRL",
+        "split_mode": "transaction", "payment_method": "pix", "tag_ids": [], "settled": True,
+        "payers": [{"user_id": uid, "amount": "80.00", "payment_method": None, "account_id": None}],
+        "splits": [{"user_id": uid, "split_method": "equal", "input_value": "0"}],
+        "items": [{"title": "Mercado", "amount": "80.00", "quantity": "1", "position": 0, "category_id": categoria}],
+        "merchant_name": "Hortifruti Central",
+    }
+    url = f"{_api(ws)}/transactions/{tx['id']}"
+    r = client.put(url, json=corpo, headers=h)
+    assert r.status_code == 200, r.text
+    assert r.json()["merchant"]["name"] == "Hortifruti Central"
+    assert [i["category_id"] for i in r.json()["items"]] == [categoria]
+    # E a mesma edição completa desvincula com `merchant_id` nulo.
+    sem_nome = {k: v for k, v in corpo.items() if k != "merchant_name"}
+    r = client.put(url, json={**sem_nome, "merchant_id": None}, headers=h)
+    assert r.status_code == 200, r.text
+    assert r.json()["merchant"] is None
