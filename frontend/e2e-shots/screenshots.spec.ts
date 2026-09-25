@@ -248,6 +248,22 @@ test('seed data and capture all screens', async ({ page, playwright }) => {
       }
     }
 
+    // Duas importações pelo caminho de verdade (`/imports/commit`), para a tela de
+    // importar mostrar "Importações anteriores" (ADR 0036): uma viva, com Desfazer,
+    // e uma desfeita. O `/transactions/bulk` acima não cria lote.
+    for (const [arquivo, desfazer] of [['extrato-agosto.csv', true], ['extrato-setembro.csv', false]] as const) {
+      const lote = await (await api.post(u(`/workspaces/${wsId}/imports/commit`), {
+        data: {
+          filename: arquivo,
+          rows: [
+            { line: 2, title: `Farmácia (${arquivo})`, total_amount: 42.9, transaction_date: iso(20) },
+            { line: 3, title: `Estacionamento (${arquivo})`, total_amount: 18, transaction_date: iso(19) },
+          ],
+        },
+      })).json();
+      if (desfazer) await api.post(u(`/workspaces/${wsId}/imports/${lote.batch_id}/undo`), { data: {} });
+    }
+
     // Cartão de crédito — em `/me/credit-cards`, NÃO em `/workspaces/{id}/...`.
     //
     // Mesmo defeito das rendas: o caminho antigo saiu no ADR 0021 e o roteiro

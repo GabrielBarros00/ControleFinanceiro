@@ -41,6 +41,7 @@ Cada ADR registra **uma decisão** relevante do projeto: o contexto, a decisão 
 | [0033](0033-aviso-de-vencimento.md) | Avisa conta a pagar, fatura e financiamento em D-3/no dia/D+1; sino sempre, push se ativado; a permissão se pede uma vez e só depois de explicar | Notificações / UX |
 | [0034](0034-saldo-caixa-e-previsao.md) | Saldo, caixa e previsão: quatro eixos, quatro fontes de verdade | Caixa / previsão |
 | [0035](0035-integracao-com-agentes-de-ia-mcp.md) | Agentes de IA falam com o app por MCP em `/mcp`, com OAuth 2.1 próprio (PKCE, CIMD/DCR), identidade só do token, comandos compartilhados com o REST, idempotência por chave e confirmação de massa por token do servidor | Integração / segurança |
+| [0036](0036-desfazer-importacao.md) | Desfazer importação exclui o que o lote criou, com as regras da exclusão e tudo ou nada; uma linha é "já importada" enquanto o lançamento dela existe | Importação |
 
 ## Escrevendo um novo ADR
 

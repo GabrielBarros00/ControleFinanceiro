@@ -1,13 +1,25 @@
+from typing import List
+
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form
 from sqlmodel import Session
 import io
 
 from app.db.session import get_session
 from app.models.workspace import WorkspaceMembership, WorkspaceRole
-from app.schemas.imports import CommitImportResult, CommitRequest, CommitRow, ParseCsvResult
+from app.schemas.imports import (
+    CommitImportResult,
+    CommitRequest,
+    CommitRow,
+    ImportBatchDetail,
+    ImportBatchRead,
+    ParseCsvResult,
+    UndoImportRequest,
+    UndoImportResult,
+)
 from app.services import app_settings
 from app.services.csv_parser import CSVParserService, CSVColumnMapping
-from app.api.deps import require_role
+from app.api.deps import get_workspace_membership, require_role
+from app.services.attachment_storage import free_keys
 from app.services.commands import imports as imp_cmd
 from app.services.commands.imports import _mark_duplicates
 
@@ -77,4 +89,42 @@ def commit_import(
     por fingerprint (ADR 0008): reimportar o mesmo arquivo não duplica."""
     resultado = imp_cmd.commit_import(session, workspace_id, body, membership)
     session.commit()
+    return resultado
+
+
+@router.get("", response_model=List[ImportBatchRead])
+@router.get("/", response_model=List[ImportBatchRead], include_in_schema=False)
+def list_imports(
+    workspace_id: int,
+    session: Session = Depends(get_session),
+    membership: WorkspaceMembership = Depends(get_workspace_membership),
+):
+    """As importações da pessoa neste espaço (ADR 0036)."""
+    return imp_cmd.list_batches(session, workspace_id, membership)
+
+
+@router.get("/{batch_id}", response_model=ImportBatchDetail)
+def get_import(
+    workspace_id: int,
+    batch_id: int,
+    session: Session = Depends(get_session),
+    membership: WorkspaceMembership = Depends(get_workspace_membership),
+):
+    return imp_cmd.get_batch(session, workspace_id, batch_id, membership)
+
+
+@router.post("/{batch_id}/undo", response_model=UndoImportResult)
+def undo_import(
+    workspace_id: int,
+    batch_id: int,
+    body: UndoImportRequest,
+    session: Session = Depends(get_session),
+    membership: WorkspaceMembership = Depends(require_role(WorkspaceRole.member)),
+):
+    """Exclui os lançamentos que a importação criou (tudo ou nada, ADR 0036)."""
+    resultado, liberar = imp_cmd.undo_batch(
+        session, workspace_id, batch_id, membership, confirm_attachments=body.confirm_attachments,
+    )
+    session.commit()
+    free_keys(liberar)
     return resultado

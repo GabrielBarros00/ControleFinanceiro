@@ -193,7 +193,12 @@ Os números da camada pessoal (`OverviewService`), somando todos os espaços da 
   (ADR 0017).
 - **Importação** (`ImportBatch`, `ImportRow`): CSV com `fingerprint` por linha para
   apontar duplicata. Cada linha é importada, ignorada, marcada como duplicata ou pulada
-  por ser inválida, sempre com trilha (ADR 0008).
+  por ser inválida, sempre com trilha (ADR 0008). Uma linha é "já importada" enquanto
+  o lançamento que ela criou existe (ADR 0036).
+- **Desfazer importação**: exclui os lançamentos que o lote criou e ainda existem, com
+  as regras da exclusão, tudo ou nada. Na tela, o lote fica "Desfeita"
+  (`imported > 0` e `live_transactions == 0`); depois dá para importar o arquivo de
+  novo (ADR 0036).
 
 ## Agentes de IA (MCP)
 

@@ -234,6 +234,13 @@ ROTAS: dict[str, Rota] = {
     # --- Importação ----------------------------------------------------------------------
     f"POST {W}/imports/parse": Rota("Ler CSV", ("imports_preview",), "O agente extrai as linhas do extrato (PDF, foto, texto); o app confere duplicatas."),
     f"POST {W}/imports/commit": Rota("Importar lote", ("imports_commit", "imports_list"), "Os lotes feitos (e desfazer um) em imports_list + transactions_bulk_preview com import_batch_id."),
+    f"GET {W}/imports": Rota("Histórico de importações", ("imports_list",), "Só os lotes da própria pessoa, como no app."),
+    f"GET {W}/imports/{{batch_id}}": Rota("Linhas de uma importação", ("imports_list",), "imports_list com batch_id."),
+    f"POST {W}/imports/{{batch_id}}/undo": Rota(
+        "Desfazer importação", ("transactions_bulk_preview", "transactions_bulk_delete"),
+        "A prévia com filters.import_batch_id mostra o conjunto, os anexos e o que fica de fora; o token confirma. "
+        "Mesma exclusão (delete_transaction); o app recusa o lote inteiro se algum não pode sair.",
+    ),
 
     # --- Lançamentos ---------------------------------------------------------------------
     f"GET {W}/transactions/": Rota("Lançamentos do espaço", ("transactions_search", "view_show"), "view_show(view=transactions) desenha a lista paginada."),

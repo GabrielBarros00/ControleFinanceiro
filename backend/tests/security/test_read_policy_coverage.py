@@ -60,6 +60,10 @@ _DISPENSADAS = {
     # Já filtra por dono INCONDICIONALMENTE (ADR 0017), mais estrito que a
     # política: nem owner nem admin veem a meta pessoal de outro membro.
     "analytics.list_estimates": "filtro por dono incondicional (mais estrito)",
+    # Só as importações de QUEM PEDE (`created_by`), incondicional (ADR 0036): os
+    # lançamentos do lote são dela; nem owner nem admin veem a de outro membro.
+    "imports.list_imports": "filtro por quem importou, incondicional (mais estrito)",
+    "imports.get_import": "filtro por quem importou, incondicional (mais estrito)",
 }
 
 

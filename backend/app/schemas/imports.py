@@ -17,6 +17,7 @@ from typing import List, Optional
 from pydantic import BaseModel, Field
 
 from app.core.config import settings
+from app.models.import_batch import ImportRowStatus
 
 
 class ParsedCsvRow(BaseModel):
@@ -97,3 +98,49 @@ class CommitRequest(BaseModel):
     # 0026), é checado no handler e serve para o admin apertar o limite abaixo
     # deste — nunca acima; `app_settings` recusa valor maior.
     rows: List[CommitRow] = Field(max_length=settings.IMPORT_MAX_ROWS)
+
+
+# --- Histórico e desfazer (ADR 0036) -----------------------------------------------------
+
+class ImportBatchRead(BaseModel):
+    """Uma importação da pessoa, com quanto dela ainda está no app."""
+    id: int
+    filename: Optional[str] = None
+    created_at: datetime
+    total_rows: int
+    imported: int
+    ignored: int
+    duplicate: int
+    skipped: int
+    #: Lançamentos criados por ela que ainda existem. 0 com `imported` > 0 =
+    #: desfeita (ou todos excluídos um a um).
+    live_transactions: int
+    #: Recibos anexados a esses lançamentos — apagados para sempre se desfizer.
+    attachments: int
+
+
+class ImportRowRead(BaseModel):
+    line: Optional[int] = None
+    title: str
+    amount: Decimal
+    transaction_date: datetime
+    status: ImportRowStatus
+    reason: Optional[str] = None
+    transaction_id: Optional[int] = None
+    #: O lançamento que a linha criou ainda existe.
+    transaction_alive: bool
+
+
+class ImportBatchDetail(ImportBatchRead):
+    rows: List[ImportRowRead] = []
+
+
+class UndoImportRequest(BaseModel):
+    #: Com anexo, o desfazer apaga os recibos para sempre: só com esta confirmação.
+    confirm_attachments: bool = False
+
+
+class UndoImportResult(BaseModel):
+    batch_id: int
+    deleted: int
+    attachments_removed: int

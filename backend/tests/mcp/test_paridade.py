@@ -343,6 +343,13 @@ def test_desfazer_importacao_pela_previa(mcp_client, db_session, c):
     assert previa["count"] == 2
     ok(call_tool(mcp_client, c.token, "transactions_bulk_delete", {"confirmation_token": previa["confirmation_token"]}))
     assert ok(call_tool(mcp_client, c.token, "imports_list", {}))["batches"][0]["live_transactions"] == 0
+    # Desfeita, as mesmas linhas voltam a entrar (ADR 0036) — como no app.
+    de_novo = ok(call_tool(mcp_client, c.token, "imports_commit", {
+        "idempotency_key": chave(), "space": "Casa",
+        "rows": [{"date": c.hoje.isoformat(), "title": "Uber", "amount": "23.00"},
+                 {"date": c.hoje.isoformat(), "title": "Padaria", "amount": "9.50"}],
+    }))
+    assert (de_novo["imported"], de_novo["duplicate"]) == (2, 0)
     # O lote é de quem importou: nem outro membro do MESMO espaço o vê.
     token_joao = issue_token(db_session, c.joao)
     assert ok(call_tool(mcp_client, token_joao, "imports_list", {}))["batches"] == []
