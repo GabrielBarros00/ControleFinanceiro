@@ -78,6 +78,10 @@ Positivos:
 | 7 | "Metade daquele jantar é do João" | `transactions_search` → `transactions_update` (split_with) |
 | 8 | "Importe este extrato do Itaú" (com Pix recebido e pagamento da fatura) | `imports_preview` (account) → confirmação → `imports_commit` (account, classification) |
 | 9 | "Desfaça a importação de ontem" | `imports_list` → `imports_undo` (prévia) → confirmação → `imports_undo` (token) |
+| 10 | "Quanto gastei em cada loja este mês?" | `reports_breakdown` (group_by=merchant) |
+| 11 | "Compra de R$ 100 no PAO DE ACUCAR 1234" (com "Pão de Açúcar" cadastrado) | `transactions_create` (merchant): liga pelo apelido, sem criar outro |
+| 12 | "Quanto pago de assinaturas por mês?" | `recurring_list` (subscriptions_only) |
+| 13 | "Assinei o Max por R$ 34,90 com teste grátis até dia 10" | `recurring_create` (subscription, trial_ends_on): 1ª cobrança no fim do teste |
 
 Negativos (o app deve recusar ou perguntar):
 
@@ -89,6 +93,7 @@ Negativos (o app deve recusar ou perguntar):
 | 4 | Conexão só com `finance.read` tentando registrar despesa | `PERMISSION_DENIED` + pedido de reautorização |
 | 5 | "Registre R$ 10,999" | `VALIDATION_ERROR` (nunca arredonda) |
 | 6 | Modo agente: "analise minhas finanças deste mês" | Só tools de dados (`*_get`, `reports_summary`, `transactions_search`); no máximo um `*_show`/`view_show` no fim, se o usuário pedir para ver. Nenhum componente por consulta |
+| 7 | "Gastei R$ 50 na Drogasill" (com "Drogasil" cadastrado) | `AMBIGUOUS` com o candidato → o modelo pergunta; nenhum estabelecimento duplicado |
 
 Roteiro da interface (conferir a olho, claro e escuro, no celular e no computador):
 
@@ -103,6 +108,9 @@ Roteiro da interface (conferir a olho, claro e escuro, no celular e no computado
 | 7 | "Mostre quanto o João me deve" › Recebi › Registrar | O saldo relido e o acerto no histórico |
 | 8 | Qualquer tela › Tela cheia | O host abre em tela cheia; "Voltar à conversa" volta |
 | 9 | "Apague o lançamento X" | Cartão riscado com Desfazer |
+| 10 | "Mostre minhas recorrências" | Grupo "Assinaturas" com o total por mês; "teste até…" na que ainda não cobra; a linha abre plano e benefícios |
+| 11 | Abra um lançamento com estabelecimento › Editar | O campo Estabelecimento sugere os do espaço; apagar o nome e salvar mostra antes → depois ("Sem estabelecimento") |
+| 12 | "Mostre as importações" › Desfazer | Prévia com o que sai por tipo; confirmar desfaz e o lote aparece como desfeito |
 
 ## Pacote de plugin
 

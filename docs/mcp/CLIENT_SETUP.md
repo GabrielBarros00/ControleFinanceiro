@@ -1,7 +1,8 @@
 # Conectando cada cliente
 
 Passos conferidos na documentação oficial de cada produto em **22/09/2026**;
-Claude Code, Codex e Gemini CLI testados na prática em **23/09/2026** (ver
+Claude Code, Codex e Gemini CLI testados na prática em **23/09/2026** e de novo em
+**25/09/2026**, com estabelecimentos, assinaturas e desfazer importação (ver
 [TESTING.md](TESTING.md#agentes-de-terminal-de-verdade-manual)).
 Menus e planos mudam com frequência: o link oficial vale mais que esta página, e a
 tela **Configurações › Integrações com IA** do app mostra os mesmos guias com a URL

@@ -140,5 +140,25 @@ apareceu no lançamento com a origem `mcp:<cliente>` na auditoria. O Gemini CLI 
 e listou as tools, mas o modelo não rodou: o Google deixou de aceitar o login com conta
 pessoal gratuita no Gemini CLI. Com `GEMINI_API_KEY` ou Vertex AI, funciona.
 
+**25/09/2026** (servidor 1.7.0, depois das novidades do app).
+
+Preparação:
+- o banco foi uma cópia do `shots.db` recém-semeado (`npm run shots`), que já traz
+  estabelecimentos, assinaturas e importações;
+- o token foi emitido para a conta de demonstração;
+- o `claude -p` rodou com `--output-format stream-json --verbose`, para ver cada
+  chamada.
+
+| Cliente | Pedido | O que fez |
+|---|---|---|
+| Claude Code | gasto por estabelecimento e assinaturas do mês | `reports_breakdown` (`group_by=merchant`) e `recurring_list` (`subscriptions_only`); apontou a assinatura em teste grátis |
+| Claude Code | compra no "PAO DE ACUCAR 1234" com dois itens | `transactions_create` com `merchant` e `items`; ligou ao "Pão de Açúcar" pelo apelido, sem criar outro |
+| Claude Code | assinatura com teste grátis até 10/10 | `recurring_create` (`subscription`, `trial_ends_on`); 1ª cobrança no fim do teste |
+| Claude Code | desfazer a importação `extrato-setembro.csv`, já confirmado | `imports_list` → `imports_undo` (prévia) → `imports_undo` com o token |
+| Claude Code | "IFOOD *PAO DE ACUCAR" é o Pão de Açúcar | `categories_list` → `categories_update` (`kind=merchant`) mandando os apelidos antigos junto com o novo |
+| Codex | assinaturas por mês e maior estabelecimento | uma validação recusada e corrigida sozinho; resposta certa |
+| Codex | R$ 50 na "Drogasill" (existe "Drogasil") | `AMBIGUOUS` → perguntou "é esse mesmo?" e não gravou |
+| Gemini CLI | `gemini mcp list` | Connected |
+
 Repita ao mexer no catálogo, no formato do schema ou no fluxo de anexo. O token de teste
 vale 60 minutos; apague o banco de teste depois.

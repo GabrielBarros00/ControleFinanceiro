@@ -73,6 +73,9 @@ de vocabulário e de lançamento.
 
 ## Consequências
 
+- O nome e os apelidos são vistos por todo membro do espaço (vocabulário, como a
+  categoria). Um apelido copiado do extrato com nome de pessoa ("PIX ENVIADO MARIA")
+  fica visível a todos; a tela de estabelecimentos existe também para apagá-lo.
 - O vínculo automático não alcança o passado: lançamentos antigos ficam sem
   estabelecimento até alguém escolher. Não há "sugerir" no servidor; a tela sugere
   pela lista, e o agente pergunta.
