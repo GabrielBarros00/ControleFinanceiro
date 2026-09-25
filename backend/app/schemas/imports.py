@@ -12,7 +12,7 @@ por decisão, duplicata e inválida.
 """
 from datetime import datetime
 from decimal import Decimal
-from typing import List, Optional
+from typing import Dict, List, Literal, Optional
 
 from pydantic import BaseModel, Field
 
@@ -143,4 +143,115 @@ class UndoImportRequest(BaseModel):
 class UndoImportResult(BaseModel):
     batch_id: int
     deleted: int
+    attachments_removed: int
+
+
+# --- Extrato de CONTA: entradas, transferências e pagamento de fatura (ADR 0037) -------
+
+Direction = Literal["in", "out"]
+Classification = Literal["expense", "income", "transfer", "statement_payment"]
+
+
+class AccountParsedRow(BaseModel):
+    """Uma linha do extrato, com o sinal preservado em `direction` e o palpite."""
+    line: int
+    title: str
+    #: Sempre positivo; o sentido está em `direction`.
+    total_amount: Decimal
+    transaction_date: datetime
+    direction: Direction
+    external_id: Optional[str] = None
+    #: Já importada antes e o que ela criou ainda existe (ADR 0036/0037).
+    duplicate: bool = False
+    #: Palpite (`app/domain/classificacao_de_extrato.py`); a pessoa confirma.
+    suggested_classification: Classification
+    suggested_card_id: Optional[int] = None
+    suggested_account_id: Optional[int] = None
+
+
+class AccountParseResult(BaseModel):
+    account_id: int
+    currency: str
+    rows: List[AccountParsedRow] = []
+    skipped: List[SkippedCsvRow] = []
+
+
+class AccountCommitRow(BaseModel):
+    """A decisão da pessoa sobre uma linha do extrato."""
+    line: Optional[int] = None
+    title: str = Field(min_length=1, max_length=200)
+    total_amount: Decimal = Field(gt=0)
+    transaction_date: datetime
+    direction: Direction
+    external_id: Optional[str] = Field(default=None, max_length=120)
+    decision: Literal["import", "ignore"] = "import"
+    #: Omitida: saiu é despesa, entrou é renda.
+    classification: Optional[Classification] = None
+    #: Despesa: em qual espaço ela entra, e a categoria (do espaço).
+    space_id: Optional[int] = None
+    category_id: Optional[int] = None
+    #: Renda: a categoria livre da renda ("Salário", "Freela").
+    income_category: Optional[str] = Field(default=None, max_length=120)
+    #: Transferência: a OUTRA conta (sua). Saiu = para ela; entrou = dela.
+    counterpart_account_id: Optional[int] = None
+    #: Pagamento de fatura: o cartão (seu). A fatura é a que o pagamento quita.
+    card_id: Optional[int] = None
+
+
+class AccountCommitRequest(BaseModel):
+    account_id: int
+    filename: Optional[str] = None
+    rows: List[AccountCommitRow] = Field(max_length=settings.IMPORT_MAX_ROWS)
+
+
+class AccountCommitResult(BaseModel):
+    batch_id: int
+    imported: int
+    ignored: int
+    duplicate: int
+    skipped: int
+    #: Quantas de cada tipo entraram.
+    by_classification: Dict[str, int] = {}
+    #: As que não entraram por um motivo (ADR 0008: nenhuma some calada).
+    problems: List[SkippedCsvRow] = []
+
+
+class AccountImportBatchRead(BaseModel):
+    """Uma importação de extrato da pessoa, com quanto dela ainda existe."""
+    id: int
+    account_id: int
+    account_name: str
+    filename: Optional[str] = None
+    created_at: datetime
+    total_rows: int
+    imported: int
+    ignored: int
+    duplicate: int
+    skipped: int
+    live: int
+    attachments: int
+
+
+class AccountImportRowRead(BaseModel):
+    line: Optional[int] = None
+    title: str
+    amount: Decimal
+    transaction_date: datetime
+    direction: Optional[Direction] = None
+    classification: Optional[Classification] = None
+    status: ImportRowStatus
+    reason: Optional[str] = None
+    external_id: Optional[str] = None
+    alive: bool
+
+
+class AccountImportBatchDetail(AccountImportBatchRead):
+    rows: List[AccountImportRowRead] = []
+
+
+class AccountUndoResult(BaseModel):
+    batch_id: int
+    #: Quanto de cada tipo saiu (despesa excluída, renda excluída, transferência
+    #: excluída, pagamento estornado).
+    undone: Dict[str, int] = {}
     attachments_removed: int

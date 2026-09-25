@@ -140,3 +140,62 @@ export function useUndoImport() {
     },
   });
 }
+
+// --- Extrato de CONTA (ADR 0037): pessoal, como a conta -------------------------------
+
+export type AccountParsedRow = components['schemas']['AccountParsedRow'];
+export type AccountCommitRow = components['schemas']['AccountCommitRow'];
+export type AccountCommitResult = components['schemas']['AccountCommitResult'];
+export type AccountImportBatch = components['schemas']['AccountImportBatchRead'];
+export type AccountUndoResult = components['schemas']['AccountUndoResult'];
+export type ImportClassification = NonNullable<AccountCommitRow['classification']>;
+
+/** Mapeamento do extrato de conta: o de sempre, mais a coluna do id da linha (opcional). */
+export type AccountCsvMapping = Omit<CsvMapping, 'invert_amount'> & { id_column?: string };
+
+/**
+ * Um extrato de conta mexe em várias telas de uma vez — lançamentos de mais de um
+ * espaço, rendas, saldo das contas, transferências, faturas —, então a importação
+ * e o desfazer recarregam tudo o que estiver aberto.
+ */
+export function useAccountStatementImport() {
+  const queryClient = useQueryClient();
+  const parse = useMutation({
+    mutationFn: async ({ accountId, file, mapping }: { accountId: number; file: File; mapping: AccountCsvMapping }) => {
+      const form = new FormData();
+      form.append('account_id', String(accountId));
+      form.append('file', file);
+      (Object.keys(mapping) as (keyof AccountCsvMapping)[]).forEach((k) => {
+        const v = mapping[k];
+        if (v !== undefined && v !== '') form.append(k, String(v));
+      });
+      const r = await apiClient.post('/me/imports/parse', form, { headers: { 'Content-Type': 'multipart/form-data' } });
+      return r.data as components['schemas']['AccountParseResult'];
+    },
+  });
+  const commit = useMutation({
+    mutationFn: async (body: { account_id: number; filename?: string; rows: AccountCommitRow[] }) =>
+      (await apiClient.post('/me/imports/commit', body)).data as AccountCommitResult,
+    onSuccess: () => queryClient.invalidateQueries(),
+  });
+  return {
+    parse: parse.mutateAsync, isParsing: parse.isPending,
+    commit: commit.mutateAsync, isCommitting: commit.isPending,
+  };
+}
+
+export function useAccountImportHistory() {
+  return useQuery({
+    queryKey: ['me-imports'],
+    queryFn: async () => (await apiClient.get('/me/imports')).data as AccountImportBatch[],
+  });
+}
+
+export function useUndoAccountImport() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ batchId, confirmAttachments }: { batchId: number; confirmAttachments: boolean }) =>
+      (await apiClient.post(`/me/imports/${batchId}/undo`, { confirm_attachments: confirmAttachments })).data as AccountUndoResult,
+    onSuccess: () => queryClient.invalidateQueries(),
+  });
+}

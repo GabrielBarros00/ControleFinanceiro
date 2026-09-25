@@ -47,6 +47,7 @@ Confirmação: `host` = o cliente pede confirmação por não ser `readOnlyHint`
 | `imports_preview` | Leitura | `finance.read` | Fingerprint (ADR 0008) + heurística | `commands.imports._mark_duplicates` | baixo | nenhum | — | natural |
 | `imports_commit` | Escrita | `transactions.write` | Dedup por fingerprint (ADR 0008), trava do espaço | `commands.imports.commit_import` | alto — em lote | WS + auditoria | host | `idempotency_key` |
 | `imports_list` | Leitura | `finance.read` | Só os lotes que a própria pessoa importou | `ImportBatch, ImportRow` | baixo | nenhum | — | natural |
+| `imports_undo` | Escrita | `transactions.write` | Tudo ou nada, regras da exclusão; token de uso único amarrado ao conjunto (ADR 0036/0037) | `commands.imports.undo_batch, commands.account_imports.undo_account_import` | alto — em lote, apaga recibos | WS + auditoria | host | por estado (definir X) |
 | `statements_pay` | Escrita | `accounts.write` | Saldo cumulativo, sem sobrepagamento, UPDATE condicional | `commands.statements.pay_statement` | alto — caixa | fecha a fatura se o ciclo acabou; auditoria | host | `idempotency_key` |
 | `transfers_create` | Escrita | `accounts.write` | Moeda da conta = moeda do movimento (0034) | `commands.accounts.create_transfer` | alto — caixa | auditoria | host | `idempotency_key` |
 | `accounts_adjust_balance` | Escrita | `accounts.write` | Ajuste datado, não reescreve o passado (0034) | `commands.accounts.adjust_balance` | alto — caixa | auditoria | host | `idempotency_key` |
@@ -71,7 +72,7 @@ Confirmação: `host` = o cliente pede confirmação por não ser `readOnlyHint`
 
 ## Por rota REST
 
-176 rotas.
+181 rotas.
 
 | Rota | Funcionalidade | Tool(s) | Observação |
 |---|---|---|---|
@@ -182,6 +183,11 @@ Confirmação: `host` = o cliente pede confirmação por não ser `readOnlyHint`
 | `GET /api/v1/me/settlements` | Acertos (todas as casas) | `debts_summary` |  |
 | `PUT /api/v1/me/settlements/{settlement_id}/account` | Conta do credor num acerto | **não exposta** | Operação rara e destrutiva, sem pedido real de uso por agente; fica no app, com a confirmação da tela. |
 | `GET /api/v1/me/transfers` | Transferências | `transfers_list` |  |
+| `POST /api/v1/me/imports/parse` | Ler extrato de conta | `imports_preview` | Com `account`: o agente extrai as linhas com o sentido; o app confere duplicatas e sugere a classificação. |
+| `POST /api/v1/me/imports/commit` | Importar extrato de conta | `imports_commit` | Com `account`: mesmo comando (commit_account_statement). |
+| `GET /api/v1/me/imports` | Importações de extrato | `imports_list` | Os lotes de extrato entram na mesma lista. |
+| `GET /api/v1/me/imports/{batch_id}` | Linhas de uma importação de extrato | `imports_list` | imports_list com batch_id. |
+| `POST /api/v1/me/imports/{batch_id}/undo` | Desfazer importação de extrato | `imports_undo` | Mesmo comando (undo_account_import): exclui despesa, renda e transferência e estorna o pagamento de fatura. |
 | `POST /api/v1/me/transfers` | Transferir entre contas | `transfers_create` |  |
 | `DELETE /api/v1/me/transfers/{transfer_id}` | Excluir transferência | `transfers_delete` |  |
 | `GET /api/v1/notifications` | Notificações | **não exposta** | Recurso de interface do app (notificações, push, avatar, preferências), sem sentido para um agente. |
@@ -233,7 +239,7 @@ Confirmação: `host` = o cliente pede confirmação por não ser `readOnlyHint`
 | `POST /api/v1/workspaces/{workspace_id}/imports/commit` | Importar lote | `imports_commit`, `imports_list` | Os lotes feitos (e desfazer um) em imports_list + transactions_bulk_preview com import_batch_id. |
 | `GET /api/v1/workspaces/{workspace_id}/imports` | Histórico de importações | `imports_list` | Só os lotes da própria pessoa, como no app. |
 | `GET /api/v1/workspaces/{workspace_id}/imports/{batch_id}` | Linhas de uma importação | `imports_list` | imports_list com batch_id. |
-| `POST /api/v1/workspaces/{workspace_id}/imports/{batch_id}/undo` | Desfazer importação | `transactions_bulk_preview`, `transactions_bulk_delete` | A prévia com filters.import_batch_id mostra o conjunto, os anexos e o que fica de fora; o token confirma. Mesma exclusão (delete_transaction); o app recusa o lote inteiro se algum não pode sair. |
+| `POST /api/v1/workspaces/{workspace_id}/imports/{batch_id}/undo` | Desfazer importação | `imports_undo` | Mesmo comando (undo_batch), em duas etapas: a prévia mostra o que sai e os recibos, o token executa. |
 | `GET /api/v1/workspaces/{workspace_id}/transactions/` | Lançamentos do espaço | `transactions_search`, `view_show` | view_show(view=transactions) desenha a lista paginada. |
 | `POST /api/v1/workspaces/{workspace_id}/transactions/` | Criar lançamento | `transactions_create` |  |
 | `POST /api/v1/workspaces/{workspace_id}/transactions/bulk` | Criar em lote | `imports_commit`, `transactions_create` | Lote pela importação (com dedup) ou uma criação por despesa (com idempotency_key). |

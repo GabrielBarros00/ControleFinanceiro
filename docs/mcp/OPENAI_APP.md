@@ -76,6 +76,8 @@ Positivos:
 | 5 | "Quanto o João está me devendo?" | `debts_summary` (person) |
 | 6 | "Apague as compras do McDonald's deste mês" | `transactions_bulk_preview` → confirmação → `transactions_bulk_delete` |
 | 7 | "Metade daquele jantar é do João" | `transactions_search` → `transactions_update` (split_with) |
+| 8 | "Importe este extrato do Itaú" (com Pix recebido e pagamento da fatura) | `imports_preview` (account) → confirmação → `imports_commit` (account, classification) |
+| 9 | "Desfaça a importação de ontem" | `imports_list` → `imports_undo` (prévia) → confirmação → `imports_undo` (token) |
 
 Negativos (o app deve recusar ou perguntar):
 

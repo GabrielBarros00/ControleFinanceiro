@@ -68,7 +68,7 @@ describe('ImportHistory', () => {
     renderizar();
     fireEvent.click(await screen.findByRole('button', { name: /Desfazer/ }));
     const dialogo = await screen.findByRole('dialog');
-    expect(within(dialogo).getByText(/41 lançamentos criados por ela serão excluídos/)).toBeInTheDocument();
+    expect(within(dialogo).getByText(/41 lançamentos criados por ela saem/)).toBeInTheDocument();
     expect(corpo).not.toHaveBeenCalled();
     fireEvent.click(within(dialogo).getByRole('button', { name: 'Desfazer importação' }));
     await waitFor(() => expect(corpo).toHaveBeenCalledWith({ confirm_attachments: false }));

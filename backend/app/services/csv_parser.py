@@ -1,5 +1,5 @@
 import csv
-from typing import TextIO, Dict, Any
+from typing import TextIO, Dict, Any, Optional
 from pydantic import BaseModel
 from datetime import datetime
 from decimal import Decimal
@@ -17,6 +17,13 @@ class CSVColumnMapping(BaseModel):
     # extratos bancários trazem despesas negativas; positivos ficam como estão.
     # Se false, mantém o sinal original (linhas <= 0 são recusadas no /bulk).
     invert_amount: bool = True
+    # Extrato de CONTA (ADR 0037): o sinal É a informação — positivo entrou,
+    # negativo saiu. A linha sai com `direction` e o valor em módulo; o
+    # `invert_amount` não se aplica.
+    keep_sign: bool = False
+    # Coluna com o id que o banco dá à linha (opcional): deduplica melhor que a
+    # impressão digital de data + valor + título.
+    id_column: Optional[str] = None
 
 class CSVParserService:
     @staticmethod
@@ -76,6 +83,22 @@ class CSVParserService:
                     "line": line_no,
                     "reason": f"valor '{raw_amount.strip()}' não é um número válido",
                 })
+                continue
+
+            if mapping.keep_sign:
+                if amount == 0:
+                    skipped.append({"line": line_no, "reason": "valor zero não é movimento"})
+                    continue
+                linha = {
+                    "line": line_no,
+                    "title": raw_desc.strip(),
+                    "total_amount": abs(amount),
+                    "transaction_date": dt,
+                    "direction": "in" if amount > 0 else "out",
+                }
+                if mapping.id_column:
+                    linha["external_id"] = (row.get(mapping.id_column) or "").strip()[:120] or None
+                rows.append(linha)
                 continue
 
             if mapping.invert_amount:

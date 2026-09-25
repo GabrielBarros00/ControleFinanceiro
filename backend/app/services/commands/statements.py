@@ -3,16 +3,17 @@
 Movidos de `api/routes/me_cards.py` sem mudança de regra (ADR 0035): só o
 `commit` saiu — quem chama (rota REST ou pipeline do MCP) comanda a transação.
 """
-from datetime import datetime
+from datetime import UTC, date, datetime
 from decimal import Decimal
 from typing import Optional
 
 from fastapi import HTTPException
-from sqlmodel import Session
+from sqlmodel import Session, select
 
 from app.domain.access_policy import assert_owns
 from app.domain.account_policy import AccountCurrencyMismatch, assert_conta_na_moeda
-from app.models.credit_card import CardStatement, CreditCard
+from app.domain.dates import civil_day
+from app.models.credit_card import CardStatement, CreditCard, StatementPayment, StatementStatus
 from app.models.payment_account import PaymentAccount
 from app.services.credit_card_service import CreditCardService, StatementStateError
 
@@ -91,3 +92,74 @@ def reopen_statement(session: Session, user_id: int, card_id: int, statement_id:
     except StatementStateError as exc:
         raise HTTPException(status_code=409, detail=str(exc))
     return stmt
+
+
+# --- Pagamento registrado DEPOIS do fato (extrato importado, agente) — ADR 0037 ----------------
+
+def fechar_se_o_ciclo_acabou(session: Session, stmt: CardStatement, referencia: date) -> bool:
+    """Fatura ainda `open` com o fechamento em `referencia` ou antes: fecha.
+
+    Pagar exige a fatura fechada (`CreditCardService.pay_statement`). Na tela,
+    fechar é um clique separado; quem registra o pagamento depois do fato (a
+    linha do extrato, o "paguei a fatura" dito ao agente) já diz que o ciclo
+    acabou. Antes do fechamento, não: pagamento antecipado de fatura em curso
+    fica para a tela, onde a pessoa vê o total ainda mudando.
+    """
+    if stmt.status != StatementStatus.open or civil_day(stmt.closing_date) > referencia:
+        return False
+    try:
+        CreditCardService.close_statement(session, stmt)
+    except StatementStateError as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
+    return True
+
+
+def fatura_do_pagamento(session: Session, card: CreditCard, quando: date) -> Optional[CardStatement]:
+    """A fatura que um pagamento feito em `quando` quita: a de fechamento mais
+    recente até essa data que ainda tem saldo. None = nada a pagar nesse cartão."""
+    candidatas = [
+        f for f in session.exec(
+            select(CardStatement)
+            .where(
+                CardStatement.card_id == card.id,
+                CardStatement.status.in_([StatementStatus.closed, StatementStatus.open]),
+            )
+            .order_by(CardStatement.month)
+        ).all()
+        if civil_day(f.closing_date) <= quando
+    ]
+    if not candidatas:
+        return None
+    saldos = CreditCardService.balances(session, card, candidatas)
+    com_saldo = [f for f in candidatas if saldos[f.id] > 0]
+    return com_saldo[-1] if com_saldo else None
+
+
+def estornar_pagamento(session: Session, user_id: int, payment_id: int) -> StatementPayment:
+    """Estorna UM pagamento (o "Reabrir" da tela estorna todos os da fatura).
+
+    Para desfazer a importação de um extrato: os outros pagamentos da mesma
+    fatura não vieram do extrato e ficam. Fatura `paid` volta a `closed`, porque
+    o saldo deixa de ser zero; `closed` continua `closed`. Idempotente.
+    """
+    pagamento = session.get(StatementPayment, payment_id)
+    if pagamento is None:
+        raise HTTPException(status_code=404, detail="Pagamento não encontrado")
+    stmt = session.get(CardStatement, pagamento.statement_id)
+    card = session.get(CreditCard, stmt.card_id) if stmt else None
+    if card is None:
+        raise HTTPException(status_code=404, detail="Pagamento não encontrado")
+    _get_card_or_404(session, card.id, user_id)
+    if pagamento.deleted_at is not None:
+        return pagamento
+    agora = datetime.now(UTC)
+    pagamento.deleted_at = agora
+    session.add(pagamento)
+    if stmt.status == StatementStatus.paid:
+        stmt.status = StatementStatus.closed
+        stmt.paid_at = None
+    stmt.updated_at = agora
+    session.add(stmt)
+    session.flush()
+    return pagamento
+

@@ -8,7 +8,7 @@ from app.core.config import settings
 from app.db.session import get_session
 from app.api.routes import (
     admin, ai_integrations, analytics, attachments, audit, auth, categories, debts, imports, mcp_uploads, me,
-    me_accounts, me_balance, me_cards, me_financing, me_income, me_push, me_search,
+    me_accounts, me_balance, me_cards, me_financing, me_imports, me_income, me_push, me_search,
     me_settlements, members, notifications, oauth, payables, recurring, settlements, tags,
     transactions, workspaces,
 )
@@ -49,6 +49,7 @@ router.include_router(me_accounts.router)
 router.include_router(me_balance.router)
 router.include_router(me_search.router)
 router.include_router(me_financing.router)
+router.include_router(me_imports.router)
 router.include_router(me_push.router)
 # Acerto entre pessoas atravessa as casas (ADR 0027): só leitura aqui, porque
 # registrar continua sendo ato de UM workspace — é lá que ficam o teto do ADR 0009

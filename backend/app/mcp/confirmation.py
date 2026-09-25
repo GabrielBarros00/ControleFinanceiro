@@ -59,12 +59,20 @@ def issue(
     return token, expira
 
 
-def _invalido() -> McpToolError:
+#: A tool que gera a prévia de cada ação (para a mensagem de token vencido/inválido).
+_PREVIA = {"imports_undo": "imports_undo (sem token)"}
+
+
+def _previa(action: str) -> str:
+    return _PREVIA.get(action, "transactions_bulk_preview")
+
+
+def _invalido(action: str = "") -> McpToolError:
     # Mesma resposta para "não existe", "é de outra pessoa" e "é de outra
     # ação": o token não serve, e o motivo não ajuda quem o forjou.
     return McpToolError(
         ErrorCode.VALIDATION_ERROR,
-        "confirmation_token inválido. Gere uma nova prévia com transactions_bulk_preview.",
+        f"confirmation_token inválido. Gere uma nova prévia com {_previa(action)}.",
     )
 
 
@@ -83,7 +91,7 @@ def consume(call: ToolCall, token: str, action: str) -> McpConfirmation:
         or registro.grant_id != call.identity.grant_id
         or registro.action != action
     ):
-        raise _invalido()
+        raise _invalido(action)
     if registro.used_at is not None:
         if registro.result is not None:
             return registro
@@ -91,7 +99,7 @@ def consume(call: ToolCall, token: str, action: str) -> McpConfirmation:
     if _aware(registro.expires_at) <= _agora():
         raise McpToolError(
             ErrorCode.VALIDATION_ERROR,
-            "A prévia expirou (vale 10 minutos). Gere uma nova com transactions_bulk_preview e confirme de novo.",
+            f"A prévia expirou (vale 10 minutos). Gere uma nova com {_previa(action)} e confirme de novo.",
         )
     reservado = call.session.execute(
         update(McpConfirmation)

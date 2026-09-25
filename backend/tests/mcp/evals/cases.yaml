@@ -453,7 +453,7 @@
 
 - id: desfazer-importacao
   prompt: "Desfaça a importação de extrato que eu fiz hoje."
-  expected_tools: [imports_list, transactions_bulk_preview, transactions_bulk_delete]
+  expected_tools: [imports_list, imports_undo]
   forbidden_tools: [transactions_delete]
   max_calls: 4
   risk: destructive
@@ -466,6 +466,24 @@
     - tool: imports_list
       args: {}
       expect: {ok: true, path: "batches.0.live_transactions", equals: 1}
-    - tool: transactions_bulk_preview
-      args: {action: "delete", filters: {import_batch_id: "{id:lote}"}}
-      expect: {ok: true, path: "count", equals: 1}
+    - tool: imports_undo
+      args: {batch_id: "{id:lote}"}
+      expect: {ok: true, path: "will_undo.expense", equals: 1}
+
+- id: extrato-com-pix-recebido
+  prompt: "Importe este extrato do Itaú: 05/09 PIX RECEBIDO JOAO +900,00; 06/09 PADARIA -12,50."
+  expected_tools: [imports_preview, imports_commit]
+  forbidden_tools: [transactions_create, income_create]
+  max_calls: 4
+  risk: write
+  must_ask_user: true
+  golden:
+    - tool: imports_preview
+      args: {account: "Itaú", rows: [{date: "{ontem}", title: "PIX RECEBIDO JOAO", amount: "900.00", direction: "in"},
+                                      {date: "{ontem}", title: "PADARIA", amount: "12.50", direction: "out"}]}
+      expect: {ok: true, path: "rows.0.suggestion", equals: "income"}
+    - tool: imports_commit
+      args: {idempotency_key: "{uuid}", account: "Itaú", space: "Meu espaço",
+             rows: [{date: "{ontem}", title: "PIX RECEBIDO JOAO", amount: "900.00", direction: "in"},
+                    {date: "{ontem}", title: "PADARIA", amount: "12.50", direction: "out"}]}
+      expect: {ok: true, path: "by_classification.income", equals: 1}

@@ -382,17 +382,27 @@ describe('Vistas: importações e histórico', () => {
     expect(screen.getByText('Linha 4')).toBeInTheDocument();
   });
 
-  it('resultado da importação com Desfazer chama a prévia pelo lote', async () => {
-    const b = ponte({ transactions_bulk_preview: () => ({ structuredContent: { count: 2, confirmation_token: 'tok', items: [] } }) });
+  it('resultado da importação com Desfazer: prévia do imports_undo, depois o token (ADR 0037)', async () => {
+    const b = ponte({
+      imports_undo: (a) => ({
+        structuredContent: a.confirmation_token
+          ? { batch_id: 5, undone: { expense: 2 } }
+          : { batch_id: 5, confirmation_token: 'tok', will_undo: { expense: 2 }, attachments: 1 },
+      }),
+    });
     monta(b);
     b.entregar({
       structuredContent: { batch_id: 5, imported: 2, duplicate: 1, ignored: 1, skipped: 1, space: CASA, replayed: true },
-      _meta: { view: 'imports', tool: 'imports_commit', undo: { tool: 'transactions_bulk_preview', args: {} } },
+      _meta: { view: 'imports', tool: 'imports_commit', undo: { tool: 'imports_undo', args: { batch_id: 5 } } },
     });
     expect(screen.getByText('2 lançamentos importados')).toBeInTheDocument();
     expect(screen.getByText(/nada foi duplicado/)).toBeInTheDocument();
     await clica(botao('Desfazer importação'));
-    expect(b.chamadas[0]).toEqual({ name: 'transactions_bulk_preview', args: { action: 'delete', filters: { import_batch_id: 5 } } });
+    expect(b.chamadas[0]).toEqual({ name: 'imports_undo', args: { batch_id: 5 } });
+    expect(screen.getByText(/1 recibo anexado será apagado/)).toBeInTheDocument();
+    await clica(botao('Confirmar e desfazer'));
+    expect(b.chamadas[1]).toEqual({ name: 'imports_undo', args: { batch_id: 5, confirmation_token: 'tok' } });
+    expect(screen.getByRole('status')).toHaveTextContent('Importação desfeita: 2 despesas');
   });
 
   it('histórico de um lançamento', () => {

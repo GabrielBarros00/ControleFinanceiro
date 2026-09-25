@@ -13,7 +13,8 @@ import { parseApiDate } from '@/lib/date';
 import { formatMoney } from '@/lib/money';
 import { useBaseCurrency } from '@/hooks/use-base-currency';
 import { PageHeader } from '@/components/layout/PageHeader';
-import { ImportHistory } from '@/components/imports/ImportHistory';
+import { AccountImportHistory, ImportHistory } from '@/components/imports/ImportHistory';
+import { AccountStatementImport } from '@/components/imports/AccountStatementImport';
 
 interface ParsedRow {
   line?: number;
@@ -31,7 +32,43 @@ interface SkippedRow {
 // Espelha settings.IMPORT_MAX_ROWS do backend (que devolve 422 acima disso).
 const IMPORT_MAX_ROWS = 5000;
 
+/**
+ * Dois jeitos de importar (ADR 0008 e 0037): despesas de UM espaço (toda linha
+ * vira lançamento) ou o extrato de UMA conta sua (entradas, transferências e
+ * pagamento de fatura viram o que são).
+ */
 export function ImportPage() {
+  const [modo, setModo] = React.useState<'despesas' | 'conta'>('despesas');
+  return (
+    <div className="space-y-6">
+      <PageHeader
+        title="Importar"
+        subtitle={modo === 'despesas' ? 'Traga um extrato em CSV para dentro deste espaço.' : 'Traga o extrato de uma conta sua: entradas, saídas, transferências e fatura.'}
+      />
+      <div role="group" aria-label="O que importar" className="inline-flex flex-wrap rounded-lg bg-muted p-1">
+        {([['despesas', 'Despesas deste espaço'], ['conta', 'Extrato de uma conta']] as const).map(([valor, rotulo]) => (
+          <button
+            key={valor}
+            type="button"
+            aria-pressed={modo === valor}
+            onClick={() => setModo(valor)}
+            className={`rounded-md px-3 py-1.5 text-sm font-medium transition-colors ${modo === valor ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'}`}
+          >
+            {rotulo}
+          </button>
+        ))}
+      </div>
+      {modo === 'despesas' ? <ImportacaoDeDespesas /> : (
+        <>
+          <AccountStatementImport />
+          <AccountImportHistory />
+        </>
+      )}
+    </div>
+  );
+}
+
+function ImportacaoDeDespesas() {
   const navigate = useNavigate();
   const { parse, isParsing, commit, isCommitting } = useImports();
   const baseCurrency = useBaseCurrency();
@@ -116,7 +153,6 @@ export function ImportPage() {
 
   return (
     <div className="space-y-6">
-      <PageHeader title="Importar" subtitle="Traga um extrato em CSV para dentro deste espaço." />
       <div className="grid gap-6 lg:grid-cols-3">
         <Card className="lg:col-span-1 bg-card border-border shadow-xl">
           <CardHeader>
