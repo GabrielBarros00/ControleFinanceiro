@@ -18,6 +18,8 @@ import { Avatar } from '@/components/ui/avatar';
 interface TransactionItemProps {
   tx: TransactionRead;
   category?: CategoryLike | null;
+  /** Nome do cartão da compra, quando o cartão é da pessoa ("Cartão Nubank"). */
+  cardName?: string | null;
   memberName?: (userId: number) => string;
   /** Token de cache da foto de cada membro — sem ele, os avatares empilhados
    *  continuam mostrando a inicial. */
@@ -45,6 +47,7 @@ interface TransactionItemProps {
 export function TransactionItem({
   tx,
   category,
+  cardName,
   marcada,
   onMarcar,
   memberName,
@@ -89,7 +92,7 @@ export function TransactionItem({
   // informa nada: numa lista de lançamentos sem forma de pagamento preenchida,
   // eram oito linhas seguidas exibindo um "—" solitário debaixo do título. Só
   // entra quando acompanha alguma coisa.
-  const formaDePagamento = paymentMethodLabel(tx.payment_method, tx.credit_card_id);
+  const formaDePagamento = cardName ? `Cartão ${cardName}` : paymentMethodLabel(tx.payment_method, tx.credit_card_id);
   if (formaDePagamento !== '—' || meta.length > 0) meta.push(formaDePagamento);
   if (tx.installments_of && tx.installments_of > 1) {
     meta.push(`${tx.installment_no}/${tx.installments_of}`);

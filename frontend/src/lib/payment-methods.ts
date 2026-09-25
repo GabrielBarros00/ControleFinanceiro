@@ -24,3 +24,21 @@ export function paymentMethodLabel(
   }
   return creditCardId ? PAYMENT_METHOD_LABELS.credit_card : '—';
 }
+
+/**
+ * A forma de pagamento dizendo QUAL cartão: "Cartão Nubank".
+ *
+ * Sem o nome, uma compra no cartão aparecia só como "Cartão de crédito" — e quem
+ * tem mais de um cartão não tinha como saber em qual ela caiu sem abrir a
+ * edição, o que levou a achar que o cartão não tinha sido gravado. O nome vem dos
+ * cartões da PRÓPRIA pessoa (`cartoes`): o cartão de outro membro do espaço é
+ * pessoal dele (ADR 0021) e continua como "Cartão de crédito".
+ */
+export function paymentMethodWithCard(
+  method: string | null | undefined,
+  creditCardId: number | null | undefined,
+  cartoes: ReadonlyArray<{ id: number; name: string }> | undefined,
+): string {
+  const nome = creditCardId != null ? cartoes?.find((c) => c.id === creditCardId)?.name : undefined;
+  return nome ? `Cartão ${nome}` : paymentMethodLabel(method, creditCardId);
+}

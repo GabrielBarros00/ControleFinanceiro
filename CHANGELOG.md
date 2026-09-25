@@ -137,6 +137,14 @@ registro por CIMD/DCR, 59 tools documentadas em `docs/mcp/TOOLS.md` (geradas do
 código), e as escritas das rotas REST passaram a morar em comandos
 compartilhados (`app/services/commands/`) — sem mudança de comportamento.
 
+### O lançamento no cartão diz qual cartão
+
+Uma compra no cartão aparecia na lista e no detalhe só como "Cartão de crédito". Quem
+tem mais de um cartão não via em qual ela caiu, e uma compra registrada pela IA
+parecia ter ficado sem cartão (ele estava gravado, com a fatura). Agora aparece
+"Cartão Nubank", "Cartão C6 Bank". Compra no cartão de outra pessoa do espaço
+continua como "Cartão de crédito": o cartão é dela.
+
 ### O filtro "Sem categoria" dos Lançamentos passou a filtrar
 
 Escolher "Sem categoria" no filtro de categoria (ou chegar pelo link "Categorizar

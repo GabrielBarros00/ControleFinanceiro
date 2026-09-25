@@ -2,6 +2,7 @@ import * as React from 'react';
 import type { TransactionRead } from '@/types/transaction';
 import { useCategories } from '@/hooks/use-categories';
 import { useMembers } from '@/hooks/use-members';
+import { useCreditCards } from '@/hooks/use-credit-cards';
 import { formatMoney } from '@/lib/money';
 import { useBaseCurrency } from '@/hooks/use-base-currency';
 import { TransactionItem } from './TransactionItem';
@@ -51,6 +52,7 @@ export function TransactionLedger({
   onMarcar,
 }: TransactionLedgerProps) {
   const { categories } = useCategories();
+  const { cards } = useCreditCards();
   const { members } = useMembers();
   const baseCurrency = useBaseCurrency();
 
@@ -84,6 +86,12 @@ export function TransactionLedger({
     return out;
   }, [transactions]);
 
+  // Só os cartões da pessoa: o de outro membro é pessoal dele (ADR 0021).
+  const cardNameFor = (tx: TransactionRead) =>
+    tx.credit_card_id != null
+      ? (cards as { id: number; name: string }[]).find((c) => c.id === tx.credit_card_id)?.name ?? null
+      : null;
+
   const catFor = (tx: TransactionRead) => {
     const id = tx.items?.[0]?.category_id;
     return id != null ? categoryById.get(id) ?? null : null;
@@ -105,6 +113,7 @@ export function TransactionLedger({
                 key={tx.id}
                 tx={tx}
                 category={catFor(tx)}
+                cardName={cardNameFor(tx)}
                 memberName={memberName}
                 memberAvatar={memberAvatar}
                 canWrite={canWrite}
