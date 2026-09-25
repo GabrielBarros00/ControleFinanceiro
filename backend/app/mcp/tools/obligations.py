@@ -14,7 +14,6 @@ from sqlmodel import select
 from app.domain.access_policy import personal_scope, shared_or_mine_scope
 from app.domain.dates import local_day, month_bounds_utc, parse_month, today_local
 from app.domain.income_settlement import income_status
-from app.domain.money import Money, MoneyError
 from app.mcp import resolve, versioning
 from app.mcp.dates import MonthKey
 from app.mcp.errors import ErrorCode, McpToolError
@@ -26,16 +25,15 @@ from app.mcp.tools.reports import _moeda
 from app.models.category import Category
 from app.models.credit_card import CreditCard
 from app.models.income import Income
+from app.models.merchant import Merchant
 from app.models.payment_account import PaymentAccount
 from app.models.recurring import RecurringIncome
 from app.models.recurring import RecurringExpense
-from app.models.transaction import SplitMethod
 from app.services.oauth import scopes as escopos
 from app.services.overview_service import OverviewService
 from app.services.payables_service import PayablesService
 from app.services.personal_debt_service import PersonalDebtService
 from app.services.recurring_service import RecurringService
-from app.services.split_service import SplitService
 
 _LEITURA = dict(scope=escopos.FINANCE_READ, kind="read", read_only=True, destructive=False, idempotent=True)
 
@@ -455,6 +453,13 @@ class RecurringIn(ToolInput):
     space_id: Optional[int] = None
     kind: Literal["all", "expense", "income"] = "all"
     active_only: bool = True
+    subscriptions_only: bool = Field(False, description="Só assinaturas.")
+
+
+class SubscriptionOut(BaseModel):
+    plan: Optional[str] = None
+    trial_ends_on: Optional[dt.date] = Field(None, description="Fim do teste grátis.")
+    notes: Optional[str] = Field(None, description="Benefícios/observações.")
 
 
 class RecurringOut(BaseModel):
@@ -483,41 +488,22 @@ class RecurringOut(BaseModel):
     auto_settle: Optional[bool] = Field(None, description="Despesa: marca como paga sozinha na data. Renda: confirma sozinha.")
     card_id: Optional[int] = None
     category_id: Optional[int] = None
+    merchant: Optional[Ref] = Field(None, description="Estabelecimento (o provedor, numa assinatura).")
+    subscription: Optional[SubscriptionOut] = Field(None, description="Presente quando é assinatura (ADR 0039).")
+    my_monthly: Optional[MoneyOut] = Field(None, description="A SUA parte por mês (anual ÷ 12, semanal × 52 ÷ 12).")
     version: str = Field("", description="Versão do estado; mande em `expected_version` ao editar.")
 
 
 def _proximas(template, hoje: date, quantas: int = 1) -> list[date]:
-    datas: list[date] = []
-    y, m = hoje.year, hoje.month
-    for _ in range(36):
-        for occ in RecurringService.occurrences_in_month(template, y, m):
-            if occ >= hoje:
-                datas.append(occ)
-                if len(datas) >= quantas:
-                    return datas
-        y, m = (y + 1, 1) if m == 12 else (y, m + 1)
-    return datas
+    return RecurringService.next_occurrences(template, hoje, quantas)
 
 
 def _divisao_da_recorrencia(t: RecurringExpense, nomes: dict[int, str], me: int) -> tuple[list[PersonAmount], Decimal, Optional[int]]:
     """A divisão de CADA ocorrência, pelo mesmo cálculo que a gera (snapshot → SplitService)."""
-    pagador, partes = RecurringService._participants(t)
-    if not partes:
-        return [], Decimal("0.00"), pagador
-    metodo = partes[0].split_method
-    try:
-        calculado = SplitService.calculate_splits(
-            total_amount=Money(t.base_amount),
-            method=metodo,
-            user_ids=[p.user_id for p in partes] if metodo == SplitMethod.equal else None,
-            input_data=[{"user_id": p.user_id, "value": p.input_value} for p in partes],
-        )
-    except (MoneyError, ValueError):
-        return [], Decimal("0.00"), pagador
+    pagador, _ = RecurringService._participants(t)
     pessoas = [
-        PersonAmount(person=Ref(id=c["user_id"], name=nomes.get(c["user_id"], f"Pessoa {c['user_id']}")),
-                     amount=Decimal(str(c["amount"])), is_me=c["user_id"] == me)
-        for c in calculado
+        PersonAmount(person=Ref(id=uid, name=nomes.get(uid, f"Pessoa {uid}")), amount=valor, is_me=uid == me)
+        for uid, valor in RecurringService.shares_per_occurrence(t)
     ]
     minha = sum((p.amount for p in pessoas if p.is_me), Decimal("0.00"))
     return pessoas, minha, pagador
@@ -535,6 +521,7 @@ def recurring_expense_out(
     cartao = call.session.get(CreditCard, t.credit_card_id) if t.credit_card_id else None
     conta = call.session.get(PaymentAccount, t.account_id) if t.account_id else None
     categoria = call.session.get(Category, t.category_id) if t.category_id else None
+    estabelecimento = call.session.get(Merchant, t.merchant_id) if t.merchant_id else None
     proxima = _proximas(t, hoje) if t.is_active else []
     saida = RecurringOut(
         id=t.id, kind="expense", space=espaco,
@@ -552,6 +539,10 @@ def recurring_expense_out(
         category=Ref(id=categoria.id, name=categoria.name) if categoria else None,
         auto_settle=t.auto_settle,
         card_id=t.credit_card_id, category_id=t.category_id,
+        merchant=Ref(id=estabelecimento.id, name=estabelecimento.name)
+        if estabelecimento and estabelecimento.deleted_at is None else None,
+        subscription=SubscriptionOut(plan=t.plan, trial_ends_on=t.trial_ends_on, notes=t.notes) if t.is_subscription else None,
+        my_monthly=RecurringService.monthly_equivalent(minha, t.frequency, t.interval),
     )
     saida.version = versioning.version_of(saida, ignore=("next_occurrence", "occurrences_remaining"))
     return saida
@@ -586,13 +577,9 @@ class RecurringListOut(BaseModel):
     )
 
 
-_POR_MES = {"daily": Decimal("365") / 12, "weekly": Decimal("52") / 12, "monthly": Decimal("1"), "yearly": Decimal("1") / 12}
-
-
 def por_mes(item: RecurringOut) -> Decimal:
-    """Equivalente mensal de uma ocorrência (a cada N períodos divide por N)."""
-    fator = _POR_MES.get(item.frequency, Decimal("1")) / Decimal(max(item.interval or 1, 1))
-    return (Decimal(item.my_share) * fator).quantize(Decimal("0.01"))
+    """A SUA parte por mês (a mesma conta da tela de recorrências, ADR 0039)."""
+    return RecurringService.monthly_equivalent(Decimal(item.my_share), item.frequency, item.interval)
 
 
 @tool(
@@ -601,7 +588,8 @@ def por_mes(item: RecurringOut) -> Decimal:
     description=(
         "Lista suas despesas recorrentes (aluguel, assinaturas, contas fixas) por espaço e suas "
         "rendas recorrentes (salário): valor cheio, a SUA parte, divisão, quem paga, cartão/conta, "
-        "próxima ocorrência e se ainda estão ativas.\n"
+        "próxima ocorrência e se ainda estão ativas. Assinaturas (`subscriptions_only`) com plano, "
+        "teste grátis e o custo por mês.\n"
         "Use quando: 'quais são minhas assinaturas?', 'quanto pago de contas fixas?', ou antes de "
         "editar uma recorrência (recurring_update precisa do id).\n"
         "Não use quando: quiser os lançamentos já gerados (transactions_search)."
@@ -626,10 +614,12 @@ def recurring_list(call: ToolCall) -> ToolOutput:
             )
             if a.active_only:
                 consulta = consulta.where(RecurringExpense.is_active.is_(True))
+            if a.subscriptions_only:
+                consulta = consulta.where(RecurringExpense.is_subscription.is_(True))
             nomes = {m.id: m.name for m in resolve.space_members(call.session, ref.id)}
             for t in call.session.exec(consulta.order_by(RecurringExpense.title)).all():
                 itens.append(recurring_expense_out(call, t, Ref(id=ref.id, name=ref.workspace.name), hoje, nomes))
-    if a.kind in ("all", "income") and alvo is None:
+    if a.kind in ("all", "income") and alvo is None and not a.subscriptions_only:
         consulta = select(RecurringIncome).where(personal_scope(RecurringIncome.user_id, me))
         if a.active_only:
             consulta = consulta.where(RecurringIncome.is_active.is_(True))

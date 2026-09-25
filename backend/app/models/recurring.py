@@ -34,6 +34,16 @@ class RecurringExpenseBase(SQLModel):
     day_of_week: Optional[int] = Field(default=None, ge=0, le=6)  # weekly preset (0=segunda)
     month_of_year: Optional[int] = Field(default=None, ge=1, le=12)  # yearly preset
     is_active: bool = Field(default=True)
+    # Assinatura (ADR 0039): Netflix, academia, domínio. Só o que a recorrência
+    # NÃO diz: o período e a renovação JÁ SÃO a frequência e a próxima ocorrência,
+    # e o provedor é o estabelecimento (`merchant_id`, ADR 0038).
+    is_subscription: bool = Field(default=False)
+    plan: Optional[str] = Field(default=None, max_length=120)
+    #: Fim do teste grátis: a data a lembrar para cancelar antes de pagar.
+    trial_ends_on: Optional[date] = Field(default=None)
+    #: Benefícios e observações da assinatura. Não vai para as ocorrências (a
+    #: `description` vai).
+    notes: Optional[str] = Field(default=None, max_length=1000)
 
 class RecurringExpense(RecurringExpenseBase, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)

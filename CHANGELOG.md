@@ -101,6 +101,14 @@ cliente MCP ([ADR 0035](docs/adr/0035-integracao-com-agentes-de-ia-mcp.md)).
   filtra por estabelecimento. Pela IA: "o MC DONALDS e o McDonald's são o mesmo", "quanto
   gastei em cada loja?", e na compra ela pergunta quando o nome só lembra um cadastrado,
   em vez de criar um segundo.
+- **Assinaturas: quanto você paga por mês, e quando o teste grátis vira cobrança.** Na
+  recorrência, "É uma assinatura" guarda o plano, o fim do teste grátis e os benefícios,
+  e o estabelecimento vira o provedor. A tela de Recorrência ganha o quadro
+  **Assinaturas**: a sua parte por mês somada (o domínio anual entra como ÷ 12), a
+  próxima cobrança de cada uma e o aviso "teste grátis até…"; a lista ganha o selo e o
+  recorte "Só assinaturas". Assinatura em teste sem data de início começa a cobrar no
+  fim do teste. Pela IA: "quanto pago de assinaturas por mês?", "assinei o Disney+ com
+  7 dias grátis".
 - **Você vê na conversa o que a IA fez, e corrige ali mesmo** (ChatGPT e Claude):
   - o lançamento que ela registrou aparece com **Editar** e **Desfazer**; editar abre
     o formulário no próprio cartão (título, valor, data, categoria, cartão, divisão,

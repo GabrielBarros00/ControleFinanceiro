@@ -81,6 +81,12 @@ Nomes que já causaram defeito por dizerem uma coisa e significarem outra.
   igual a um apelido (ou ao nome) se liga sozinho. **Mesclar** junta dois cadastros do
   mesmo lugar. A **categoria padrão** vale para o lançamento novo que chega sem
   categoria. Não confundir com o título, que continua texto livre.
+- **Assinatura** (ADR 0039): uma recorrência marcada (`is_subscription`), com
+  **plano**, **teste grátis** (`trial_ends_on`: sem início declarado, a 1ª cobrança é
+  nele) e **benefícios** (`notes`, que não vão para as ocorrências). O provedor é o
+  estabelecimento. **Por mês** (`monthly_equivalent`, `my_monthly_equivalent`) é o
+  custo da série na medida do mês: anual ÷ 12, semanal × 52 ÷ 12, "a cada N" ÷ N,
+  calculado no servidor.
 
 ## Tempo: competência, caixa, saldo e previsão
 

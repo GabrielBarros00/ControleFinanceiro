@@ -436,6 +436,64 @@ class RecurringService:
                     return occ
         return None
 
+    # ---- Leitura: parte, mês equivalente, próximas (ADR 0039) ----------------
+
+    @staticmethod
+    def next_occurrences(template, hoje: date, quantas: int = 1) -> List[date]:
+        """As próximas datas (hoje inclusive), pela MESMA `occurrences_in_month`
+        que materializa — a "próxima cobrança" da tela não pode divergir da
+        ocorrência que de fato nasce. Horizonte de 36 meses."""
+        datas: List[date] = []
+        y, m = hoje.year, hoje.month
+        for _ in range(36):
+            for occ in RecurringService.occurrences_in_month(template, y, m):
+                if occ >= hoje:
+                    datas.append(occ)
+                    if len(datas) >= quantas:
+                        return datas
+            y, m = (y + 1, 1) if m == 12 else (y, m + 1)
+        return datas
+
+    @staticmethod
+    def shares_per_occurrence(template: RecurringExpense) -> List[Tuple[int, Decimal]]:
+        """De quem é quanto em CADA ocorrência: o snapshot da divisão passado pelo
+        `SplitService`, o mesmo cálculo da materialização. Divisão inválida (um
+        snapshot antigo que não fecha) devolve lista vazia em vez de estourar
+        uma leitura."""
+        from app.domain.money import Money, MoneyError
+        from app.services.split_service import SplitService
+
+        _, partes = RecurringService._participants(template)
+        if not partes:
+            return []
+        metodo = partes[0].split_method
+        try:
+            calculado = SplitService.calculate_splits(
+                total_amount=Money(template.base_amount),
+                method=metodo,
+                user_ids=[p.user_id for p in partes] if metodo == SplitMethod.equal else None,
+                input_data=[{"user_id": p.user_id, "value": p.input_value} for p in partes],
+            )
+        except (MoneyError, ValueError):
+            return []
+        return [(int(c["user_id"]), Decimal(str(c["amount"]))) for c in calculado]
+
+    @staticmethod
+    def monthly_equivalent(valor: Decimal, frequency, interval: int) -> Decimal:
+        """Quanto a série custa POR MÊS: anual ÷ 12, semanal × 52 ÷ 12, diária ×
+        365 ÷ 12, e "a cada N" divide por N. É o número que compara a academia
+        mensal com o domínio anual (ADR 0039)."""
+        por_mes = {
+            RecurrenceFrequency.daily: Decimal("365") / 12,
+            RecurrenceFrequency.weekly: Decimal("52") / 12,
+            RecurrenceFrequency.monthly: Decimal("1"),
+            RecurrenceFrequency.yearly: Decimal("1") / 12,
+        }
+        fator = por_mes.get(RecurrenceFrequency(getattr(frequency, "value", frequency)), Decimal("1"))
+        return (Decimal(valor) * fator / Decimal(max(interval or 1, 1))).quantize(
+            Decimal("0.01"), rounding=ROUND_HALF_UP
+        )
+
     # ---- Materialização COMPLETA (ADR 0012) ---------------------------------
 
     @staticmethod

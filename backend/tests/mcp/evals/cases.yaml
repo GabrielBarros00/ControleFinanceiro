@@ -522,3 +522,29 @@
     - tool: transactions_create
       args: {idempotency_key: "{uuid}", title: "Lanche", amount: "32.00", space: "Casa", merchant: "Mc Donalds"}
       expect: {error: "AMBIGUOUS"}
+
+- id: quanto-pago-de-assinaturas
+  prompt: "Quanto eu pago de assinaturas por mês?"
+  expected_tools: [recurring_list]
+  forbidden_tools: [transactions_search, reports_breakdown]
+  max_calls: 2
+  risk: read
+  golden:
+    - tool: recurring_create
+      args: {idempotency_key: "{uuid}", title: "Streaming", amount: "39.90", space: "Casa", subscription: true}
+      expect: {ok: true, path: "recurring.subscription.plan", equals: null}
+    - tool: recurring_list
+      args: {subscriptions_only: true}
+      expect: {ok: true, path: "monthly_my_share.BRL", equals: "39.90"}
+
+- id: assinatura-com-teste-gratis
+  prompt: "Assinei o Disney+ por 33,90 por mês; o teste grátis acaba hoje."
+  expected_tools: [recurring_create]
+  forbidden_tools: [transactions_create]
+  max_calls: 2
+  risk: write
+  golden:
+    - tool: recurring_create
+      args: {idempotency_key: "{uuid}", title: "Disney+", amount: "33.90", space: "Casa", merchant: "Disney+",
+             trial_ends_on: "{hoje}"}
+      expect: {ok: true, path: "recurring.merchant.name", equals: "Disney+"}

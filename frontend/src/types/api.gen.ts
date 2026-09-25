@@ -6111,6 +6111,19 @@ export interface components {
             split_snapshot?: components["schemas"]["RecurringSplitEntry"][] | null;
             /** Merchant Id */
             merchant_id?: number | null;
+            /** Merchant Name */
+            merchant_name?: string | null;
+            /**
+             * Is Subscription
+             * @default false
+             */
+            is_subscription: boolean;
+            /** Plan */
+            plan?: string | null;
+            /** Trial Ends On */
+            trial_ends_on?: string | null;
+            /** Notes */
+            notes?: string | null;
         };
         /**
          * RecurringIncome
@@ -6352,6 +6365,17 @@ export interface components {
              * @default true
              */
             is_active: boolean;
+            /**
+             * Is Subscription
+             * @default false
+             */
+            is_subscription: boolean;
+            /** Plan */
+            plan?: string | null;
+            /** Trial Ends On */
+            trial_ends_on?: string | null;
+            /** Notes */
+            notes?: string | null;
             /** Id */
             id: number;
             /** Workspace Id */
@@ -6400,6 +6424,18 @@ export interface components {
             occurrences_total?: number | null;
             /** Occurrences Remaining */
             occurrences_remaining?: number | null;
+            /** Next Occurrence */
+            next_occurrence?: string | null;
+            /**
+             * Monthly Equivalent
+             * @default 0
+             */
+            monthly_equivalent: string;
+            /**
+             * My Monthly Equivalent
+             * @default 0
+             */
+            my_monthly_equivalent: string;
         };
         /** RecurringSplitEntry */
         RecurringSplitEntry: {
@@ -6455,6 +6491,16 @@ export interface components {
             split_snapshot?: components["schemas"]["RecurringSplitEntry"][] | null;
             /** Merchant Id */
             merchant_id?: number | null;
+            /** Merchant Name */
+            merchant_name?: string | null;
+            /** Is Subscription */
+            is_subscription?: boolean | null;
+            /** Plan */
+            plan?: string | null;
+            /** Trial Ends On */
+            trial_ends_on?: string | null;
+            /** Notes */
+            notes?: string | null;
         };
         /** RegisterRequest */
         RegisterRequest: {

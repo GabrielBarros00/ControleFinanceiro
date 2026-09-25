@@ -76,5 +76,5 @@ de vocabulário e de lançamento.
 - O vínculo automático não alcança o passado: lançamentos antigos ficam sem
   estabelecimento até alguém escolher. Não há "sugerir" no servidor; a tela sugere
   pela lista, e o agente pergunta.
-- A recorrência guarda o estabelecimento, mas a tela de recorrências ainda não o
-  mostra nem edita. A assinatura (ADR seguinte) é quem vai usá-lo como provedor.
+- A recorrência guarda o estabelecimento; a tela de recorrências passou a editá-lo
+  com o [ADR 0039](0039-assinaturas.md), em que ele é o provedor da assinatura.

@@ -27,6 +27,22 @@ interface Recorrencia {
   my_share?: string | null; split?: PessoaValor[]; paid_by?: Ref | null; frequency: string; interval?: number; day_of_month?: number | null;
   active: boolean; start_date?: string | null; end_date?: string | null; next_occurrence?: string | null; occurrences_remaining?: number | null;
   payment_method?: string | null; card?: Ref | null; account?: Ref | null; category?: Ref | null; auto_settle?: boolean; version?: string;
+  merchant?: Ref | null; my_monthly?: string | null;
+  subscription?: { plan?: string | null; trial_ends_on?: string | null; notes?: string | null } | null;
+}
+
+/** "Teste até 12/10" enquanto o teste grátis não acabou (ADR 0039). */
+function emTeste(r: Recorrencia): string | null {
+  const fim = r.subscription?.trial_ends_on;
+  // Dia LOCAL (o sueco escreve AAAA-MM-DD): o `toISOString` é UTC e, à noite no
+  // Brasil, já seria amanhã.
+  return fim && fim >= new Date().toLocaleDateString('sv') ? `teste até ${day(fim)}` : null;
+}
+
+function somaPorMoeda(itens: Recorrencia[]): Array<[string, string]> {
+  const total: Record<string, number> = {};
+  for (const r of itens) if (r.active && r.my_monthly) total[r.currency] = (total[r.currency] ?? 0) + Number(r.my_monthly);
+  return Object.entries(total).map(([m, v]) => [m, v.toFixed(2)]);
 }
 
 const FREQUENCIA: Record<string, [string, string]> = {
@@ -50,6 +66,11 @@ function DetalheDaRecorrencia({ r }: { r: Recorrencia }) {
   if (r.account) linhas.push(['Conta', r.account.name]);
   if (r.paid_by) linhas.push(['Quem paga', r.paid_by.name]);
   if (r.kind === 'expense' && !r.card) linhas.push(['Paga sozinha', r.auto_settle ? 'Sim' : 'Não']);
+  if (r.merchant) linhas.push(['Estabelecimento', r.merchant.name]);
+  if (r.subscription?.plan) linhas.push(['Plano', r.subscription.plan]);
+  if (r.subscription?.trial_ends_on) linhas.push(['Teste grátis até', day(r.subscription.trial_ends_on)]);
+  // Por mês só diz algo novo quando a série não é mensal (ou é "a cada N").
+  if (r.my_monthly && (r.frequency !== 'monthly' || (r.interval ?? 1) > 1)) linhas.push(['Sua parte por mês', money(r.my_monthly, r.currency)]);
   return (
     <div class="space-y-2 text-[13px]">
       <dl class="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1">
@@ -65,6 +86,7 @@ function DetalheDaRecorrencia({ r }: { r: Recorrencia }) {
         </ul>
       )}
       {r.description && <p class="text-muted-fg">{r.description}</p>}
+      {r.subscription?.notes && <p class="rounded-md bg-subtle px-3 py-2 text-muted-fg">{r.subscription.notes}</p>}
     </div>
   );
 }
@@ -91,12 +113,13 @@ function LinhaDeRecorrencia({ inicial, bridge, podeEditar }: { inicial: Recorren
   return (
     <Linha titulo={r.title} riscada={excluida || !r.active}
       esquerda={<span class={`inline-flex size-8 shrink-0 items-center justify-center rounded-md ${renda ? 'bg-ok-bg text-income' : 'bg-muted text-muted-fg'}`}><IconRepeat size={15} /></span>}
-      detalhe={[frequencia(r), r.next_occurrence && `próxima ${day(r.next_occurrence)}`, r.space?.name].filter(Boolean).join(' · ')}
+      detalhe={[r.subscription?.plan, frequencia(r), r.next_occurrence && `próxima ${day(r.next_occurrence)}`, r.space?.name].filter(Boolean).join(' · ')}
       direita={
         <>
           <Money valor={r.amount} moeda={r.currency} tom={renda ? 'entrada' : undefined} class="font-medium" />
           {r.my_share && r.my_share !== r.amount && <span class="block text-[11px] text-muted-fg">sua parte {money(r.my_share, r.currency)}</span>}
           {(excluida || !r.active) && <span class="block"><Badge tom={excluida ? 'perigo' : 'aviso'}>{excluida ? 'excluída' : 'pausada'}</Badge></span>}
+          {!excluida && r.active && emTeste(r) && <span class="block"><Badge tom="aviso">{emTeste(r)}</Badge></span>}
         </>
       }
       onClick={() => setAberta(!aberta)} expandida={aberta}>
@@ -124,6 +147,7 @@ const ROTULO_RECORRENCIA: Record<string, string> = {
   title: 'Título', amount: 'Valor', active: 'Ativa', frequency: 'Frequência', interval: 'Intervalo', day_of_month: 'Dia',
   start_date: 'Começa', end_date: 'Termina', category: 'Categoria', card: 'Cartão', payment_method: 'Forma', account: 'Conta',
   paid_by: 'Quem paga', split: 'Divisão', auto_settle: 'Paga sozinha', description: 'Observação',
+  merchant: 'Estabelecimento', subscription: 'Assinatura',
 };
 function textoDaRecorrencia(c: string, r: Recorrencia): string {
   const v = (r as unknown as Record<string, unknown>)[c];
@@ -132,6 +156,11 @@ function textoDaRecorrencia(c: string, r: Recorrencia): string {
   if (c.endsWith('_date')) return day(v as string);
   if (c === 'frequency' || c === 'interval' || c === 'day_of_month') return frequencia(r);
   if (c === 'split') return (r.split ?? []).map((p) => `${p.person.name} ${money(p.amount, r.currency)}`).join(' · ') || '—';
+  if (c === 'subscription') {
+    if (!r.subscription) return 'Não';
+    const { plan, trial_ends_on } = r.subscription;
+    return [plan ?? 'Sim', trial_ends_on && `teste até ${day(trial_ends_on)}`].filter(Boolean).join(' · ');
+  }
   if (v && typeof v === 'object' && 'name' in v) return String((v as Ref).name);
   return v === null || v === undefined || v === '' ? '—' : String(v);
 }
@@ -150,6 +179,8 @@ export function RecorrenciasView({ dados, meta, bridge }: { dados: Record<string
           direita={<Money valor={unica.amount} moeda={unica.currency} class="text-[17px] font-semibold" />} />
         <div class="flex flex-wrap gap-1.5">
           {rotulo && <Badge tom={tom}>{rotulo}</Badge>}
+          {unica.subscription && <Badge>Assinatura</Badge>}
+          {emTeste(unica) && <Badge tom="aviso">{emTeste(unica)}</Badge>}
           {!unica.active && <Badge tom="aviso">Pausada</Badge>}
           {dados.replayed === true && <Badge tom="aviso">Já registrada antes</Badge>}
         </div>
@@ -163,14 +194,23 @@ export function RecorrenciasView({ dados, meta, bridge }: { dados: Record<string
   }
   const itens = (dados.items as Recorrencia[] | undefined) ?? [];
   const mensal = Object.entries((dados.monthly_my_share as Record<string, string> | undefined) ?? {});
-  const despesas = itens.filter((r) => r.kind !== 'income');
+  // Assinaturas num grupo próprio, com o custo delas por mês (ADR 0039).
+  const assinaturas = itens.filter((r) => r.kind !== 'income' && r.subscription);
+  const despesas = itens.filter((r) => r.kind !== 'income' && !r.subscription);
   const rendas = itens.filter((r) => r.kind === 'income');
+  const porMesAssinaturas = somaPorMoeda(assinaturas);
   const podeEditar = meta.can_edit !== false;
   return (
     <div class="space-y-3">
       <Header icone={<IconRepeat size={18} />} tom="destaque" titulo="Recorrências" subtitulo={plural(itens.length, 'recorrência', 'recorrências')}
         direita={mensal.length ? <><p class="text-[11px] text-muted-fg">Sua parte por mês</p><p class="num text-[15px] font-semibold">{mensal.map(([m, v]) => money(v, m)).join(' + ')}</p></> : undefined} />
       {itens.length === 0 && <Vazio>Nenhuma recorrência.</Vazio>}
+      {assinaturas.length > 0 && (
+        <Section titulo="Assinaturas" contagem={assinaturas.length} aberta
+          direita={porMesAssinaturas.length ? <span class="num font-medium normal-case tracking-normal text-fg">{porMesAssinaturas.map(([m, v]) => money(v, m)).join(' + ')}/mês</span> : undefined}>
+          <ul>{assinaturas.map((r) => <LinhaDeRecorrencia key={`s${r.id}`} inicial={r} bridge={bridge} podeEditar={podeEditar} />)}</ul>
+        </Section>
+      )}
       {despesas.length > 0 && (
         <Section titulo="Despesas" contagem={despesas.length} aberta>
           <ul>{despesas.map((r) => <LinhaDeRecorrencia key={`e${r.id}`} inicial={r} bridge={bridge} podeEditar={podeEditar} />)}</ul>

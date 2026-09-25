@@ -98,6 +98,11 @@ class _RecurringFields(ToolInput):
     auto_settle: Optional[bool] = Field(None, description="Débito automático: cada ocorrência já nasce paga.")
     statement_shift: Optional[int] = Field(None, ge=STATEMENT_SHIFT_MIN, le=STATEMENT_SHIFT_MAX)
     description: Optional[str] = Field(None, max_length=DESCRIPTION_MAX)
+    merchant: Optional[str] = Field(None, max_length=120, description="Estabelecimento/provedor (nome ou apelido); \"\" tira.")
+    subscription: Optional[bool] = Field(None, description="Assinatura (streaming, academia…). plan/trial_ends_on já implicam.")
+    plan: Optional[str] = Field(None, max_length=120)
+    trial_ends_on: Optional[CivilDate] = Field(None, description="Fim do teste grátis; sem start_date, a 1ª cobrança é nele.")
+    notes: Optional[str] = Field(None, max_length=1000, description="Benefícios da assinatura.")
 
     @model_validator(mode="after")
     def _pares_recorrencia(self):
@@ -124,6 +129,8 @@ _SO_DESPESA = (
     ("paid_by", "paid_by"), ("paid_by_id", "paid_by"), ("split_with", "split_with"),
     ("split_with_ids", "split_with"), ("split", "split"), ("remove_card", "remove_card"),
     ("category_id", "category_id (renda usa `category` em texto)"),
+    ("merchant", "merchant"), ("subscription", "subscription"), ("plan", "plan"),
+    ("trial_ends_on", "trial_ends_on"), ("notes", "notes"),
 )
 
 
@@ -338,7 +345,8 @@ def recurring_create(call: ToolCall) -> ToolOutput:
         start_date=a.start_date,
         end_date=a.end_date,
         end_after_occurrences=a.end_after_occurrences,
-        day_of_month=a.day_of_month or (a.start_date.day if a.start_date else today_local().day),
+        # Sem dia: o do início; numa assinatura em teste, o do fim do teste.
+        day_of_month=a.day_of_month or (a.start_date or a.trial_ends_on or today_local()).day,
         day_of_week=a.day_of_week,
         month_of_year=a.month_of_year,
         currency=a.currency.upper() if a.currency else None,
@@ -349,6 +357,11 @@ def recurring_create(call: ToolCall) -> ToolOutput:
         category_id=categoria.id if categoria else None,
         payer_user_id=pagador,
         split_snapshot=snapshot,
+        is_subscription=bool(a.subscription or a.plan or a.trial_ends_on),
+        plan=a.plan or None,
+        trial_ends_on=a.trial_ends_on,
+        notes=a.notes or None,
+        **(resolve.merchant_for_write(call.session, ref.id, a.merchant) if a.merchant else {}),
     )
     t = rec_cmd.create_recurring(call.session, ref.id, entrada, membership, a.materialize)
     call.session.flush()
@@ -478,6 +491,18 @@ def recurring_update(call: ToolCall) -> ToolOutput:
         pagador, snapshot = _snapshot(call, ws_id, a, a.amount or t.base_amount)
         dados["payer_user_id"] = pagador
         dados["split_snapshot"] = snapshot
+    # Assinatura (ADR 0039): "" apaga plano e observações; `merchant` "" desvincula.
+    if a.subscription is not None:
+        dados["is_subscription"] = a.subscription
+    elif a.plan or a.trial_ends_on:
+        dados["is_subscription"] = True
+    for campo in ("plan", "notes"):
+        if getattr(a, campo) is not None:
+            dados[campo] = getattr(a, campo) or None
+    if a.trial_ends_on is not None:
+        dados["trial_ends_on"] = a.trial_ends_on
+    if a.merchant is not None:
+        dados.update(resolve.merchant_for_write(call.session, ws_id, a.merchant) if a.merchant.strip() else {"merchant_id": None})
 
     atualizado = rec_cmd.update_recurring(
         call.session, ws_id, t.id, RecurringUpdate(**dados), membership, scope=a.apply_to,

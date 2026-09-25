@@ -48,8 +48,12 @@ import { PAYMENT_METHOD_OPTIONS, paymentMethodLabel } from '@/lib/payment-method
 import { getApiErrorMessage } from '@/lib/api-error';
 import { toast } from '@/stores/toast';
 import { useConfirm } from '@/components/ui/confirm';
-import { firstOfCurrentMonth, todayLocalISO } from '@/lib/date';
+import { firstOfCurrentMonth, parseApiDay, todayLocalISO } from '@/lib/date';
 import { PageHeader } from '@/components/layout/PageHeader';
+import { SubscriptionFields, type SubscriptionFieldsValue } from '@/components/recurrence/SubscriptionFields';
+import { SubscriptionsPanel } from '@/components/recurrence/SubscriptionsPanel';
+import { emTeste } from '@/lib/assinatura';
+import { useMerchants } from '@/hooks/use-merchants';
 
 // Base UI Select foge do focus-trap do Dialog (Radix) — dentro de modal usamos
 // <select> nativo, mesmo padrão de AmortizationTable/PaymentMethodField.
@@ -92,6 +96,14 @@ const recurringSchema = z.object({
    * importa porque a recorrência materializa sozinha.
    */
   split_user_ids: z.array(z.string()),
+  // Assinatura (ADR 0039) e o estabelecimento/provedor (ADR 0038).
+  is_subscription: z.boolean(),
+  plan: z.string().max(120),
+  trial_ends_on: z.string(),
+  notes: z.string().max(1000),
+  merchant_name: z.string().max(120),
+  /** O nome com que o formulário abriu: o campo só vai quando muda. */
+  merchant_initial: z.string(),
 });
 
 type RecurringValues = z.infer<typeof recurringSchema>;
@@ -120,6 +132,15 @@ interface RecurringItem {
   /** Derivados do servidor: alimentam o "87 de 144 restantes" da lista. */
   occurrences_total?: number | null;
   occurrences_remaining?: number | null;
+  next_occurrence?: string | null;
+  /** Por mês, cheio e a sua parte — calculados no servidor (ADR 0039). */
+  monthly_equivalent?: string | null;
+  my_monthly_equivalent?: string | null;
+  merchant_id?: number | null;
+  is_subscription?: boolean | null;
+  plan?: string | null;
+  trial_ends_on?: string | null;
+  notes?: string | null;
 }
 
 /**
@@ -136,19 +157,14 @@ interface RecurringItem {
  * de diferença que o número existe para mostrar.
  *
  * `interval` divide: "a cada 2 meses" custa metade, por mês, de "todo mês".
+ *
+ * A conta vem do SERVIDOR (`monthly_equivalent`, ADR 0039): o quadro de
+ * assinaturas e o agente de IA somam com ela, e uma cópia aqui divergiria no
+ * arredondamento.
  */
-const POR_MES: Record<string, number> = {
-  daily: 365 / 12,
-  weekly: 52 / 12,
-  monthly: 1,
-  yearly: 1 / 12,
-};
-
 function custoMensal(item: RecurringItem): number {
-  const valor = parseFloat(item.base_amount);
-  if (!Number.isFinite(valor)) return 0;
-  const fator = POR_MES[item.frequency] ?? 1;
-  return (valor * fator) / Math.max(1, item.interval ?? 1);
+  const valor = Number(item.monthly_equivalent ?? 0);
+  return Number.isFinite(valor) ? valor : 0;
 }
 
 /** A linha de apoio da lista — vazia quando não há o que dizer. */
@@ -157,7 +173,7 @@ function metaDaLinha(item: RecurringItem, cards: unknown[]): string {
   const cartao = item.credit_card_id != null
     ? (cards as { id: number; name: string }[]).find((c) => c.id === item.credit_card_id)?.name
     : null;
-  return [forma === '—' ? null : forma, cartao, item.description || null]
+  return [item.plan || null, forma === '—' ? null : forma, cartao, item.description || null]
     .filter(Boolean).join(' · ');
 }
 
@@ -185,6 +201,12 @@ const DEFAULTS: RecurringValues = {
   month_of_year: 1,
   is_active: true,
   split_user_ids: [],
+  is_subscription: false,
+  plan: '',
+  trial_ends_on: '',
+  notes: '',
+  merchant_name: '',
+  merchant_initial: '',
 };
 
 export function RecurringTransactionsPage() {
@@ -196,8 +218,14 @@ export function RecurringTransactionsPage() {
   const baseCurrency = useBaseCurrency();
   const { cards } = useCreditCards();
   const { members } = useMembers();
+  const { merchants } = useMerchants();
   const currentWorkspaceId = useWorkspaceId();
   const confirm = useConfirm();
+  const hoje = todayStr();
+  // "Todas" ou só as assinaturas (ADR 0039) — o recorte da lista.
+  const [soAssinaturas, setSoAssinaturas] = React.useState(false);
+  const temAssinatura = (recurring as RecurringItem[]).some((r) => r.is_subscription);
+  const lista = (recurring as RecurringItem[]).filter((r) => !soAssinaturas || r.is_subscription);
 
   /* Só as ATIVAS: uma recorrência desligada não tira dinheiro de ninguém, e
      somá-la faria o compromisso do mês parecer maior do que é. */
@@ -310,6 +338,12 @@ export function RecurringTransactionsPage() {
       auto_settle: item.auto_settle ?? false,
       is_active: item.is_active,
       split_user_ids: (item.split_snapshot ?? []).map((p) => String(p.user_id)),
+      is_subscription: item.is_subscription ?? false,
+      plan: item.plan ?? '',
+      trial_ends_on: item.trial_ends_on ?? '',
+      notes: item.notes ?? '',
+      merchant_name: merchants.find((m) => m.id === item.merchant_id)?.name ?? '',
+      merchant_initial: merchants.find((m) => m.id === item.merchant_id)?.name ?? '',
       ...rec,
     });
     setDialogOpen(true);
@@ -355,6 +389,17 @@ export function RecurringTransactionsPage() {
         user_id: Number(id), split_method: 'equal', input_value: 0,
       }))
       : null,
+    // Assinatura: desmarcada, os campos dela saem juntos (escondidos na tela,
+    // não ficam valendo por baixo).
+    is_subscription: data.is_subscription,
+    plan: data.is_subscription ? data.plan.trim() || null : null,
+    trial_ends_on: data.is_subscription ? data.trial_ends_on || null : null,
+    notes: data.is_subscription ? data.notes.trim() || null : null,
+    // Estabelecimento só quando mudou: vazio na criação deixa o servidor ligar
+    // pelo apelido do título; apagado na edição desvincula.
+    ...(data.merchant_name.trim() === data.merchant_initial
+      ? {}
+      : data.merchant_name.trim() ? { merchant_name: data.merchant_name.trim() } : { merchant_id: null }),
     ...toRecurrencePayload({
       custom: data.custom,
       frequency: data.frequency,
@@ -548,7 +593,26 @@ export function RecurringTransactionsPage() {
         </div>
       )}
 
+      <SubscriptionsPanel itens={recurring as RecurringItem[]} moedaBase={baseCurrency} hoje={hoje} />
+
       <div className="flex flex-wrap items-center justify-end gap-2">
+        {temAssinatura && (
+          <div role="group" aria-label="Mostrar" className="mr-auto inline-flex rounded-lg border border-border p-0.5">
+            {([[false, 'Todas'], [true, 'Só assinaturas']] as const).map(([valor, rotulo]) => (
+              <button
+                key={rotulo}
+                type="button"
+                aria-pressed={soAssinaturas === valor}
+                onClick={() => setSoAssinaturas(valor)}
+                className={`rounded-md px-3 py-1.5 text-sm font-medium transition-colors ${
+                  soAssinaturas === valor ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:text-foreground'
+                }`}
+              >
+                {rotulo}
+              </button>
+            ))}
+          </div>
+        )}
         <Button variant="outline" onClick={handleGenerate} disabled={isGenerating} className="gap-2 font-bold">
           {isGenerating ? <Loader2 className="h-4 w-4 animate-spin" /> : <Repeat className="h-4 w-4" />}
           Lançar pendentes
@@ -561,7 +625,7 @@ export function RecurringTransactionsPage() {
       <CardsOrTable
         cards={
       <div className="space-y-2">
-        {recurring.length === 0 ? (
+        {lista.length === 0 ? (
           // `EmptyState` como as outras telas: diz o que é e como criar a
           // primeira, em vez de só constatar que não há nada.
           <div className="rounded-xl border border-border bg-card">
@@ -572,17 +636,20 @@ export function RecurringTransactionsPage() {
               action={<Button onClick={() => setDialogOpen(true)} className="gap-2"><Plus className="h-4 w-4" /> Nova despesa recorrente</Button>}
             />
           </div>
-        ) : recurring.map((item: RecurringItem) => (
+        ) : lista.map((item: RecurringItem) => (
           <DataCard
             key={item.id}
             title={item.title}
             badge={
-              <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase ${
-                item.is_active
-                  ? 'border border-income/20 bg-income-subtle text-income'
-                  : 'border border-border bg-muted text-muted-foreground'
-              }`}>
-                {item.is_active ? 'Ativo' : 'Inativo'}
+              <span className="flex flex-wrap gap-1">
+                {item.is_subscription && <SeloDeAssinatura item={item} hoje={hoje} />}
+                <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase ${
+                  item.is_active
+                    ? 'border border-income/20 bg-income-subtle text-income'
+                    : 'border border-border bg-muted text-muted-foreground'
+                }`}>
+                  {item.is_active ? 'Ativo' : 'Inativo'}
+                </span>
               </span>
             }
             meta={[
@@ -634,7 +701,7 @@ export function RecurringTransactionsPage() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {recurring.length === 0 ? (
+              {lista.length === 0 ? (
                 <TableRow>
                   <TableCell colSpan={4} className="p-0">
                     <EmptyState
@@ -645,7 +712,7 @@ export function RecurringTransactionsPage() {
                     />
                   </TableCell>
                 </TableRow>
-              ) : recurring.map((item: RecurringItem) => (
+              ) : lista.map((item: RecurringItem) => (
                 <TableRow key={item.id} className="border-border group hover:bg-accent/30 transition-colors">
                   <TableCell>
                     <div className="flex flex-col">
@@ -662,6 +729,7 @@ export function RecurringTransactionsPage() {
                             Inativa
                           </span>
                         )}
+                        {item.is_subscription && <SeloDeAssinatura item={item} hoje={hoje} />}
                         {item.category_id != null && (
                           <span className="rounded-full bg-primary/10 px-1.5 py-0.5 text-[9px] font-semibold uppercase text-primary">
                             {categoryName(item.category_id)}
@@ -874,6 +942,19 @@ export function RecurringTransactionsPage() {
 
             <RecurrenceEditor value={recurrence} onChange={patchRecurrence} idPrefix="rec" />
 
+            <SubscriptionFields
+              value={{
+                is_subscription: watch('is_subscription'),
+                plan: watch('plan'),
+                trial_ends_on: watch('trial_ends_on'),
+                notes: watch('notes'),
+                merchant_name: watch('merchant_name'),
+              }}
+              onChange={(patch: Partial<SubscriptionFieldsValue>) =>
+                (Object.entries(patch) as [keyof SubscriptionFieldsValue, never][])
+                  .forEach(([k, v]) => setValue(k, v, { shouldDirty: true }))}
+            />
+
             {/* DIVIDIR COM — a mesma pergunta da despesa avulsa, e as mesmas
                 pílulas (`components/money/ChipsDeDivisao`).
 
@@ -991,5 +1072,17 @@ export function RecurringTransactionsPage() {
         onConfirm={confirmaRevisao}
       />
     </div>
+  );
+}
+
+/** "Assinatura" — e "teste até 12 out." enquanto o teste grátis não acabou. */
+function SeloDeAssinatura({ item, hoje }: { item: RecurringItem; hoje: string }) {
+  const teste = emTeste(item, hoje) && item.trial_ends_on
+    ? ` · teste até ${parseApiDay(item.trial_ends_on).toLocaleDateString('pt-BR', { day: '2-digit', month: 'short' })}`
+    : '';
+  return (
+    <span className="rounded-full bg-primary/10 px-1.5 py-0.5 text-[9px] font-semibold uppercase text-primary">
+      Assinatura{teste}
+    </span>
   );
 }
