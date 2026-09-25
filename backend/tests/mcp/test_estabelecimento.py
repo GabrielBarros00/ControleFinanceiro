@@ -141,3 +141,15 @@ def test_a_compra_parcelada_inteira_troca_de_estabelecimento(mcp_client, db_sess
 def test_nome_exato_sem_chave_de_apelido_serve(mcp_client, db_session, c):
     m = _estabelecimento(mcp_client, c, "7-11")
     assert _cria(mcp_client, c, merchant="7-11")["merchant"]["id"] == m["id"]
+
+
+def test_editar_itens_da_nota_junto_com_o_estabelecimento(mcp_client, db_session, c):
+    """Itens na edição vão pela edição COMPLETA do app, onde o nome do
+    estabelecimento não era resolvido (erro interno)."""
+    tx = _cria(mcp_client, c, title="Feira", amount="50.00")
+    r = ok(call_tool(mcp_client, c.token, "transactions_update", {
+        "transaction_id": tx["id"], "merchant": "Hortifruti Central",
+        "items": [{"title": "Tomate", "amount": "20.00"}, {"title": "Alface", "amount": "30.00"}],
+    }))
+    assert r["transaction"]["merchant"]["name"] == "Hortifruti Central"
+    assert [i["title"] for i in r["transaction"]["items"]] == ["Tomate", "Alface"]

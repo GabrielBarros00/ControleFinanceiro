@@ -137,6 +137,14 @@ registro por CIMD/DCR, 59 tools documentadas em `docs/mcp/TOOLS.md` (geradas do
 código), e as escritas das rotas REST passaram a morar em comandos
 compartilhados (`app/services/commands/`) — sem mudança de comportamento.
 
+### Editar um lançamento e pôr o estabelecimento não dá mais erro interno
+
+Salvar a edição de um lançamento que já existia com um estabelecimento novo (junto ou
+não com a categoria) respondia "Erro interno". A tela edita pelo caminho completo
+(pagadores, divisão e itens), e o nome do estabelecimento só era tratado no caminho
+parcial. O mesmo acontecia com a IA ao editar os itens da nota junto com o
+estabelecimento.
+
 ### Categoria, tags e observação à vista no lançamento
 
 - **Categoria** (a que entra nos relatórios e nas metas) saiu de "Opções avançadas" e

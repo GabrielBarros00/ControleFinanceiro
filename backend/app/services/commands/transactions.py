@@ -1131,6 +1131,22 @@ def update_transaction(
     if tag_ids is not None:
         _set_transaction_tags(session, workspace_id, db_transaction.id, tag_ids)
 
+    # Estabelecimento (ADR 0038), também nos DOIS caminhos, e antes de escolher
+    # entre eles: `merchant_name` não é coluna. Resolvido só no caminho parcial,
+    # a edição completa (a da tela) o repassava ao `setattr` e caía em erro 500.
+    # `merchant_id` nulo explícito desvincula; o nome acha pelo nome/apelido ou cria.
+    if "merchant_id" in update_data or update_data.get("merchant_name"):
+        from app.services.commands import merchants as merchant_cmd
+
+        nome = update_data.pop("merchant_name", None)
+        escolhido = update_data.pop("merchant_id", None)
+        merchant = (
+            merchant_cmd.resolve_merchant(session, workspace_id, membership, merchant_id=escolhido, merchant_name=nome)
+            if (escolhido is not None or nome) else None
+        )
+        update_data["merchant_id"] = merchant.id if merchant else None
+    update_data.pop("merchant_name", None)
+
     # Mudou a data sem informar billing_month explicitamente? Recalcula —
     # senão a transação some do filtro do mês novo e continua no antigo
     if "transaction_date" in update_data and "billing_month" not in update_data:
@@ -1289,18 +1305,6 @@ def update_transaction(
                 update_data[k] = None
 
     # Categoria: upsert do item único (modelo simplificado de 1 categoria/transação)
-    if "merchant_id" in update_data or update_data.get("merchant_name"):
-        from app.services.commands import merchants as merchant_cmd
-
-        nome = update_data.pop("merchant_name", None)
-        escolhido = update_data.pop("merchant_id", None)
-        merchant = (
-            merchant_cmd.resolve_merchant(session, workspace_id, membership, merchant_id=escolhido, merchant_name=nome)
-            if (escolhido is not None or nome) else None
-        )
-        update_data["merchant_id"] = merchant.id if merchant else None
-    update_data.pop("merchant_name", None)
-
     if "category_id" in update_data:
         category_id = update_data.pop("category_id")
         if category_id is not None:
