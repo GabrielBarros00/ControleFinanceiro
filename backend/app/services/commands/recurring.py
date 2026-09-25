@@ -15,7 +15,7 @@ from app.domain.recurrence_rules import validate_frequency_fields as _validate_f
 from app.models.category import Category
 from app.models.credit_card import CreditCard
 from app.models.recurring import RecurringExpense
-from app.models.transaction import PaymentMethod
+from app.models.transaction import PaymentMethod, Transaction, TransactionStatus
 from app.models.workspace import WorkspaceMembership
 from app.schemas.recurring import RecurringCreate, RecurringSplitEntry, RecurringUpdate
 from app.services.event_service import publish_event
@@ -301,3 +301,52 @@ def update_recurring(
     # Instâncias podem ter mudado → invalida caixa/relatórios também
     publish_event(session, workspace_id, "transaction.bulk_updated", "transaction", None, membership.user_id)
     return db_recurring
+
+
+def delete_recurring(
+    session: Session,
+    workspace_id: int,
+    recurring_id: int,
+    membership: WorkspaceMembership,
+    cancel_instance: Optional[List[int]] = None,
+) -> List[int]:
+    """Exclui o template. Os lançamentos já gerados sobrevivem, salvo escolha.
+
+    Movido de `api/routes/recurring.py` sem mudança de regra. O que a pessoa
+    marcar em `cancel_instance` é CANCELADO (status terminal), não excluído; paga
+    é pulada (ADR 0003). Devolve os ids efetivamente cancelados.
+    """
+    db_recurring = _get_recurring_or_404(session, workspace_id, recurring_id, membership)
+    _check_ownership(membership, db_recurring)
+
+    # Desvincula instâncias já geradas antes de excluir o template — sem isso
+    # a FK transaction.recurring_expense_id viola no Postgres (500)
+    instances = session.exec(
+        select(Transaction).where(Transaction.recurring_expense_id == recurring_id)
+    ).all()
+    escolhidos = set(cancel_instance or [])
+    cancelados: List[int] = []
+    for tx in instances:
+        # Cancela ANTES de desvincular: depois do `recurring_expense_id = None` a
+        # linha deixa de ser identificável como ocorrência desta recorrência.
+        # Paga não se toca (ADR 0003) — ela é pulada, não recusada, senão excluir
+        # um template inteiro falharia por causa de um mês já quitado.
+        if tx.id in escolhidos and tx.status not in (
+            TransactionStatus.paid, TransactionStatus.cancelled
+        ):
+            tx.status = TransactionStatus.cancelled
+            cancelados.append(tx.id)
+        tx.recurring_expense_id = None
+        session.add(tx)
+
+    session.delete(db_recurring)
+    publish_event(session, workspace_id, "recurring.deleted", "recurring", recurring_id, membership.user_id)
+    if escolhidos:
+        # Cancelar lançamento muda caixa, dívidas e relatórios — o evento de
+        # recorrência sozinho não alcança quem está com o extrato aberto.
+        publish_event(
+            session, workspace_id, "transaction.bulk_updated",
+            "transaction", None, membership.user_id,
+        )
+    session.flush()
+    return cancelados

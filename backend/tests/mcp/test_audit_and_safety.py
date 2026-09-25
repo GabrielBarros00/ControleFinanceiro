@@ -216,11 +216,13 @@ def test_saude_do_admin_mostra_os_agentes_sem_conteudo(mcp_client, db_session, c
     c.alice.platform_role = PlatformRole.superadmin
     db_session.add(c.alice)
     db_session.commit()
-    ok(call_tool(mcp_client, c.token, "transactions_create", {"idempotency_key": str(uuid4()), "title": "Sigilo", "amount": "9.99"}))
+    ok(call_tool(mcp_client, c.token, "transactions_create", {"idempotency_key": str(uuid4()), "title": "Sigilo", "amount": "4321.87"}))
     err(call_tool(mcp_client, c.token, "transactions_get", {"transaction_id": 999999}))
     r = mcp_client.get("/api/v1/admin/health", headers=cookie_headers(c.alice))
     assert r.status_code == 200, r.text
     saude = r.json()
     assert saude["mcp_conexoes_ativas"] >= 2 and saude["mcp_chamadas_24h"] == 2 and saude["mcp_erros_24h"] == 1
     assert {f["tool"] for f in saude["mcp_ferramentas_24h"]} == {"transactions_create", "transactions_get"}
-    assert "Sigilo" not in r.text and "9.99" not in r.text
+    # Valor com 4 dígitos antes do ponto: "9.99" aparecia por acaso no horário
+    # ("13:27:19.992481Z") e o teste caía conforme o relógio.
+    assert "Sigilo" not in r.text and "4321.87" not in r.text

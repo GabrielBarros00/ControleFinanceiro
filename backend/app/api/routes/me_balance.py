@@ -17,7 +17,6 @@ Tudo é PESSOAL (ADR 0021): o gate é `get_current_user` e o recorte é
 transferência de outra pessoa — dividir despesa com alguém não dá acesso ao
 extrato bancário dele.
 """
-from datetime import UTC, datetime
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -25,7 +24,6 @@ from sqlmodel import Session, select
 
 from app.api.routes.auth import get_current_user
 from app.db.session import get_session
-from app.domain.access_policy import assert_owns
 from app.domain.dates import (
     InvalidMonth,
     parse_month,
@@ -158,16 +156,6 @@ def delete_transfer(
     current_user: User = Depends(get_current_user),
 ):
     """Soft delete: as duas pernas somem juntas, porque são a mesma linha."""
-    t = session.get(AccountTransfer, transfer_id)
-    if not t or t.deleted_at:
-        raise HTTPException(status_code=404, detail="Transferência não encontrada")
-    origem = session.get(PaymentAccount, t.from_account_id)
-    assert_owns(
-        origem.owner_user_id if origem else None,
-        current_user.id,
-        detail="Transferência não encontrada",
-    )
-    t.deleted_at = datetime.now(UTC)
-    session.add(t)
+    acc_cmd.delete_transfer(session, current_user.id, transfer_id)
     session.commit()
     return {"status": "ok"}

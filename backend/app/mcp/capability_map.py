@@ -25,8 +25,11 @@ CREDENCIAL = "Credencial e sessão (senha, cadastro, Google, refresh): nada diss
 PESSOAS = "Quem participa de um espaço e com que papel muda quem vê o dinheiro de outras pessoas: decisão humana, no app."
 ESPACO = "Criar/excluir espaço ou trocar a moeda-base reescreve a visão de todos os membros: raro e amplo demais para um agente."
 CADASTRO = "Cadastro de cartão/conta é raro, tem efeitos em fatura e saldo, e é feito uma vez no app."
-FINANCIAMENTO = "Financiamento é contrato com cronograma e quitação; o agente só lê as parcelas (payables_list)."
-ANEXO = "Arquivo binário: o agente não lê nem apaga anexos."
+FINANCIAMENTO = (
+    "Financiamento é contrato com cronograma e quitação: cadastrar, editar, quitar ou excluir fica no app "
+    "(decisão do dono). O agente lê tudo (financings_list) e paga/desfaz parcela (financings_installment)."
+)
+ANEXO = "Anexos: o agente lê o conteúdo (attachments_get) e apaga (attachments_delete)."
 #: O envio sim, pelos agentes de terminal: link de uso único + curl (app/mcp/uploads.py).
 ANEXO_ENVIO = (
     "Pelo terminal: `attachments_upload_link` emite um link de uso único e o arquivo vai do disco "
@@ -36,6 +39,10 @@ INTERFACE = "Recurso de interface do app (notificações, push, avatar, preferê
 INFRA = "Infraestrutura (saúde, raiz)."
 PROPRIA = "Tela da própria integração com IA — alcançável só pela sessão do app, nunca por token de agente."
 RARO = "Operação rara e destrutiva, sem pedido real de uso por agente; fica no app, com a confirmação da tela."
+ANEXO_CHAT = (
+    "No ChatGPT, o arquivo que a pessoa pôs na conversa chega por `openai/fileParams` e o servidor o baixa "
+    "(attachments_add, hosts permitidos em MCP_FILE_URL_HOSTS). Pelo terminal: attachments_upload_link."
+)
 
 API = "/api/v1"
 W = f"{API}/workspaces/{{workspace_id}}"
@@ -110,28 +117,28 @@ ROTAS: dict[str, Rota] = {
     f"POST {API}/me/credit-cards/{{card_id}}/statements/{{statement_id}}/close": Rota(
         "Fechar fatura", ("statements_pay",), "Só fechada junto com o pagamento, e só com o ciclo já encerrado."),
     f"POST {API}/me/credit-cards/{{card_id}}/statements/{{statement_id}}/pay": Rota("Pagar fatura", ("statements_pay",)),
-    f"POST {API}/me/credit-cards/{{card_id}}/statements/{{statement_id}}/reopen": Rota("Reabrir fatura", nota=RARO),
+    f"POST {API}/me/credit-cards/{{card_id}}/statements/{{statement_id}}/reopen": Rota("Reabrir fatura", ("statements_reopen",), "Só quando há pagamento a estornar: repetir a chamada não anda mais um passo."),
     f"GET {API}/me/debts": Rota("Dívidas (todas as casas)", ("debts_summary",)),
     f"GET {API}/me/debts/by-month": Rota("Dívidas por mês", ("debts_summary",)),
     f"GET {API}/me/debts/monthly": Rota("Dívidas do mês", ("debts_summary",)),
-    f"GET {API}/me/financing": Rota("Financiamentos", ("payables_list",), FINANCIAMENTO),
+    f"GET {API}/me/financing": Rota("Financiamentos", ("financings_list", "payables_list"), FINANCIAMENTO),
     f"POST {API}/me/financing": Rota("Cadastrar financiamento", nota=FINANCIAMENTO),
     f"DELETE {API}/me/financing/{{financing_id}}": Rota("Excluir financiamento", nota=FINANCIAMENTO),
-    f"GET {API}/me/financing/{{financing_id}}": Rota("Detalhe do financiamento", ("payables_list",), FINANCIAMENTO),
+    f"GET {API}/me/financing/{{financing_id}}": Rota("Detalhe do financiamento", ("financings_list",), FINANCIAMENTO),
     f"PUT {API}/me/financing/{{financing_id}}": Rota("Editar financiamento", nota=FINANCIAMENTO),
     f"POST {API}/me/financing/{{financing_id}}/early-settlement": Rota("Quitação antecipada", nota=FINANCIAMENTO),
     f"POST {API}/me/financing/{{financing_id}}/installments/settle-past": Rota("Quitar parcelas passadas", nota=FINANCIAMENTO),
-    f"POST {API}/me/financing/{{financing_id}}/installments/{{installment_number}}/pay": Rota("Pagar parcela", nota=FINANCIAMENTO),
-    f"POST {API}/me/financing/{{financing_id}}/installments/{{installment_number}}/unpay": Rota("Desfazer pagamento de parcela", nota=FINANCIAMENTO),
-    f"GET {API}/me/financing/{{financing_id}}/schedule": Rota("Cronograma", ("payables_list",), FINANCIAMENTO),
+    f"POST {API}/me/financing/{{financing_id}}/installments/{{installment_number}}/pay": Rota("Pagar parcela", ("financings_installment",), "action=pay"),
+    f"POST {API}/me/financing/{{financing_id}}/installments/{{installment_number}}/unpay": Rota("Desfazer pagamento de parcela", ("financings_installment",), "action=unpay"),
+    f"GET {API}/me/financing/{{financing_id}}/schedule": Rota("Cronograma", ("financings_list",), "Cronograma paginado com `financing`."),
     f"GET {API}/me/income": Rota("Rendas", ("income_list",)),
     f"POST {API}/me/income": Rota("Registrar renda", ("income_create",)),
-    f"DELETE {API}/me/income/{{income_id}}": Rota("Excluir renda", ("income_update",), "O agente cancela (status=cancelled), não apaga."),
+    f"DELETE {API}/me/income/{{income_id}}": Rota("Excluir renda", ("income_delete", "income_restore"), "Exclusão lógica; income_restore desfaz (o app ainda não tem o botão)."),
     f"PUT {API}/me/income/{{income_id}}": Rota("Editar renda", ("income_update",)),
     f"POST {API}/me/income/{{income_id}}/cancel": Rota("Cancelar renda", ("income_update",)),
     f"POST {API}/me/income/{{income_id}}/receive": Rota("Confirmar recebimento", ("income_update",)),
     f"POST {API}/me/income/{{income_id}}/unreceive": Rota("Desfazer recebimento", ("income_update",)),
-    f"GET {API}/me/ledger": Rota("Extrato global", ("transactions_search", "accounts_list")),
+    f"GET {API}/me/ledger": Rota("Extrato global", ("accounts_statement",), "Sem `account`: o caixa do mês, as mesmas linhas da tela."),
     f"GET {API}/me/notification-preferences": Rota("Preferências de aviso", nota=INTERFACE),
     f"PUT {API}/me/notification-preferences": Rota("Alterar preferências de aviso", nota=INTERFACE),
     f"GET {API}/me/overview": Rota("Visão do mês", ("reports_summary", "reports_show")),
@@ -142,25 +149,25 @@ ROTAS: dict[str, Rota] = {
     f"PUT {API}/me/payment-accounts/{{account_id}}": Rota("Editar conta", nota=CADASTRO),
     f"POST {API}/me/payment-accounts/{{account_id}}/adjustment": Rota("Conciliar saldo", ("accounts_adjust_balance",)),
     f"PUT {API}/me/payment-accounts/{{account_id}}/opening-balance": Rota("Saldo inicial", nota=CADASTRO),
-    f"GET {API}/me/payment-accounts/{{account_id}}/statement": Rota("Extrato da conta", ("accounts_list", "transactions_search")),
+    f"GET {API}/me/payment-accounts/{{account_id}}/statement": Rota("Extrato da conta", ("accounts_statement",), "Com saldo corrente linha a linha."),
     f"GET {API}/me/push/config": Rota("Push: configuração", nota=INTERFACE),
     f"DELETE {API}/me/push/subscriptions": Rota("Push: cancelar", nota=INTERFACE),
     f"POST {API}/me/push/subscriptions": Rota("Push: assinar", nota=INTERFACE),
     f"GET {API}/me/recurring-income": Rota("Rendas recorrentes", ("recurring_list",)),
-    f"POST {API}/me/recurring-income": Rota("Criar renda recorrente", nota="Renda recorrente (salário) é cadastrada uma vez no app; o agente registra rendas avulsas (income_create)."),
+    f"POST {API}/me/recurring-income": Rota("Criar renda recorrente", ("recurring_create",), "kind=income"),
     f"POST {API}/me/recurring-income/generate": Rota("Gerar ocorrências de renda", nota="Materialização é do cron horário; leitura do agente nunca escreve."),
-    f"DELETE {API}/me/recurring-income/{{recurring_id}}": Rota("Excluir renda recorrente", nota=RARO),
-    f"PUT {API}/me/recurring-income/{{recurring_id}}": Rota("Editar renda recorrente", nota="Fica no app (mesmo motivo da criação)."),
+    f"DELETE {API}/me/recurring-income/{{recurring_id}}": Rota("Excluir renda recorrente", ("recurring_delete",), "kind=income"),
+    f"PUT {API}/me/recurring-income/{{recurring_id}}": Rota("Editar renda recorrente", ("recurring_update",), "kind=income"),
     f"GET {API}/me/registration-invites": Rota("Meus convites de cadastro", nota=PESSOAS),
     f"POST {API}/me/registration-invites": Rota("Convidar alguém para o site", nota=PESSOAS),
     f"PATCH {API}/me/report-currency": Rota("Moeda de relatório", nota=INTERFACE),
-    f"GET {API}/me/reports": Rota("Relatórios pessoais", ("reports_summary", "budgets_list")),
+    f"GET {API}/me/reports": Rota("Relatórios pessoais", ("reports_summary", "reports_breakdown", "budgets_list")),
     f"GET {API}/me/search": Rota("Busca global", ("transactions_search",)),
     f"GET {API}/me/settlements": Rota("Acertos (todas as casas)", ("debts_summary",)),
     f"PUT {API}/me/settlements/{{settlement_id}}/account": Rota("Conta do credor num acerto", nota=RARO),
-    f"GET {API}/me/transfers": Rota("Transferências", ("accounts_list",)),
+    f"GET {API}/me/transfers": Rota("Transferências", ("transfers_list",)),
     f"POST {API}/me/transfers": Rota("Transferir entre contas", ("transfers_create",)),
-    f"DELETE {API}/me/transfers/{{transfer_id}}": Rota("Excluir transferência", nota=RARO),
+    f"DELETE {API}/me/transfers/{{transfer_id}}": Rota("Excluir transferência", ("transfers_delete",)),
 
     # --- Notificações -------------------------------------------------------------------
     f"GET {API}/notifications": Rota("Notificações", nota=INTERFACE),
@@ -183,7 +190,7 @@ ROTAS: dict[str, Rota] = {
     f"GET {W}": Rota("Detalhe do espaço", ("spaces_list",)),
     f"PUT {W}": Rota("Editar espaço", nota=ESPACO),
     f"GET {W}/base-currency/preview": Rota("Prévia de troca de moeda-base", nota=ESPACO),
-    f"GET {W}/audit": Rota("Auditoria do espaço", nota="Trilha é sensível (admin do espaço) e mostra ações de outros membros; o agente vê a própria atividade na tela de Integrações."),
+    f"GET {W}/audit": Rota("Auditoria do espaço", ("transactions_history",), "O espaço inteiro segue só no app (admin). O agente vê o histórico de UM lançamento que a pessoa já vê (decisão do dono)."),
 
     # --- Planejamento e relatórios ------------------------------------------------------
     f"GET {W}/analytics/estimates": Rota("Metas do mês", ("budgets_list",)),
@@ -192,16 +199,16 @@ ROTAS: dict[str, Rota] = {
     f"PUT {W}/analytics/estimates/{{estimate_id}}": Rota("Editar meta", ("budgets_set",)),
     f"GET {W}/analytics/exchange-rate": Rota("Cotação isolada", ("transactions_create",), "A conversão acontece dentro da criação (PTAX + IOF), não como consulta solta."),
     f"GET {W}/analytics/forecast": Rota("Previsão", ("reports_summary", "payables_list")),
-    f"GET {W}/analytics/reports": Rota("Relatórios do espaço", ("reports_summary",)),
+    f"GET {W}/analytics/reports": Rota("Relatórios do espaço", ("reports_summary", "reports_breakdown")),
     f"GET {W}/analytics/summary": Rota("Resumo do espaço", ("reports_summary",)),
     f"GET {W}/categories": Rota("Categorias", ("categories_list",)),
     f"POST {W}/categories": Rota("Criar categoria", ("categories_create",)),
-    f"DELETE {W}/categories/{{category_id}}": Rota("Excluir categoria", nota=RARO),
-    f"PUT {W}/categories/{{category_id}}": Rota("Editar categoria", nota=RARO),
+    f"DELETE {W}/categories/{{category_id}}": Rota("Excluir categoria", ("categories_update",), "delete=true"),
+    f"PUT {W}/categories/{{category_id}}": Rota("Editar categoria", ("categories_update",)),
     f"GET {W}/tags": Rota("Tags", ("categories_list",)),
-    f"POST {W}/tags": Rota("Criar tag", nota="Tags são vocabulário da casa, criadas no app; o agente usa as existentes."),
-    f"DELETE {W}/tags/{{tag_id}}": Rota("Excluir tag", nota=RARO),
-    f"PUT {W}/tags/{{tag_id}}": Rota("Editar tag", nota=RARO),
+    f"POST {W}/tags": Rota("Criar tag", ("categories_create",), "kind=tag"),
+    f"DELETE {W}/tags/{{tag_id}}": Rota("Excluir tag", ("categories_update",), "kind=tag, delete=true"),
+    f"PUT {W}/tags/{{tag_id}}": Rota("Editar tag", ("categories_update",), "kind=tag"),
 
     # --- Dívidas e acertos ----------------------------------------------------------------
     f"GET {W}/debts": Rota("Quem deve a quem (acumulado)", ("debts_summary",)),
@@ -219,29 +226,29 @@ ROTAS: dict[str, Rota] = {
     f"GET {W}/recurring": Rota("Recorrências", ("recurring_list",)),
     f"POST {W}/recurring": Rota("Criar recorrência", ("recurring_create",)),
     f"POST {W}/recurring/generate": Rota("Gerar ocorrências", nota="Materialização é do cron horário; leitura do agente nunca escreve."),
-    f"DELETE {W}/recurring/{{recurring_id}}": Rota("Excluir recorrência", ("recurring_update",), "O agente pausa (active=false); excluir fica no app."),
-    f"GET {W}/recurring/{{recurring_id}}": Rota("Detalhe da recorrência", ("recurring_list",)),
+    f"DELETE {W}/recurring/{{recurring_id}}": Rota("Excluir recorrência", ("recurring_delete", "recurring_update"), "Pausar é recurring_update active=false; excluir de vez, recurring_delete."),
+    f"GET {W}/recurring/{{recurring_id}}": Rota("Detalhe da recorrência", ("recurring_get",)),
     f"PUT {W}/recurring/{{recurring_id}}": Rota("Editar recorrência", ("recurring_update",), "Sem o fluxo de revisão por ocorrência (ADR 0030): usa o escopo none|future|all."),
     f"POST {W}/recurring/{{recurring_id}}/preview": Rota("Prévia da revisão", nota="Revisão ocorrência a ocorrência é interação de tela; o agente usa apply_to."),
 
     # --- Importação ----------------------------------------------------------------------
     f"POST {W}/imports/parse": Rota("Ler CSV", ("imports_preview",), "O agente extrai as linhas do extrato (PDF, foto, texto); o app confere duplicatas."),
-    f"POST {W}/imports/commit": Rota("Importar lote", ("imports_commit",)),
+    f"POST {W}/imports/commit": Rota("Importar lote", ("imports_commit", "imports_list"), "Os lotes feitos (e desfazer um) em imports_list + transactions_bulk_preview com import_batch_id."),
 
     # --- Lançamentos ---------------------------------------------------------------------
     f"GET {W}/transactions/": Rota("Lançamentos do espaço", ("transactions_search",)),
     f"POST {W}/transactions/": Rota("Criar lançamento", ("transactions_create",)),
     f"POST {W}/transactions/bulk": Rota("Criar em lote", ("imports_commit", "transactions_create"),
                                         "Lote pela importação (com dedup) ou uma criação por despesa (com idempotency_key)."),
-    f"POST {W}/transactions/bulk-categorize": Rota("Categorizar em lote", ("transactions_bulk_preview", "transactions_bulk_categorize")),
+    f"POST {W}/transactions/bulk-categorize": Rota("Categorizar em lote", ("transactions_bulk_preview", "transactions_bulk_categorize", "transactions_bulk_update"), "Recategorizar, tag e marcar como pago em lote: transactions_bulk_update, pela mesma prévia."),
     f"POST {W}/transactions/preview": Rota("Prévia da divisão", ("transactions_create",), "A saída da criação já traz a divisão calculada."),
     f"DELETE {W}/transactions/{{transaction_id}}": Rota("Excluir lançamento", ("transactions_delete", "transactions_bulk_preview", "transactions_bulk_delete")),
     f"GET {W}/transactions/{{transaction_id}}": Rota("Ver lançamento", ("transactions_get", "transactions_show")),
     f"PUT {W}/transactions/{{transaction_id}}": Rota("Editar lançamento", ("transactions_update",)),
-    f"GET {W}/transactions/{{transaction_id}}/attachments": Rota("Anexos do lançamento", ("transactions_get",), "O agente vê só a contagem de anexos. " + ANEXO),
-    f"POST {W}/transactions/{{transaction_id}}/attachments": Rota("Enviar anexo", ("attachments_upload_link",), ANEXO_ENVIO),
-    f"DELETE {W}/attachments/{{attachment_id}}": Rota("Excluir anexo", nota=ANEXO),
-    f"GET {W}/attachments/{{attachment_id}}": Rota("Baixar anexo", nota=ANEXO),
+    f"GET {W}/transactions/{{transaction_id}}/attachments": Rota("Anexos do lançamento", ("transactions_get",), "`files` traz os metadados de cada anexo."),
+    f"POST {W}/transactions/{{transaction_id}}/attachments": Rota("Enviar anexo", ("attachments_upload_link", "attachments_add"), ANEXO_CHAT),
+    f"DELETE {W}/attachments/{{attachment_id}}": Rota("Excluir anexo", ("attachments_delete",), ANEXO),
+    f"GET {W}/attachments/{{attachment_id}}": Rota("Baixar anexo", ("attachments_get",), "Imagem ou PDF entregue ao modelo até MCP_ATTACHMENT_TO_MODEL_MAX_BYTES."),
     f"DELETE {W}/transactions/{{transaction_id}}/installment-group": Rota("Excluir compra parcelada", ("transactions_delete",), "scope=purchase"),
     f"GET {W}/transactions/{{transaction_id}}/installment-group": Rota("Compra parcelada inteira", ("transactions_search", "transactions_get")),
     f"PUT {W}/transactions/{{transaction_id}}/installment-group": Rota("Editar compra parcelada", ("transactions_update",), "scope=purchase"),
@@ -313,5 +320,33 @@ FICHAS: dict[str, Ficha] = {
                               "materializa ocorrências conforme `materialize`; WS"),
     "recurring_update": Ficha("Pagas congeladas; escopo das não pagas (0012)", "commands.recurring.update_recurring", "médio", "reescreve ocorrências não pagas; WS"),
     "budgets_set": Ficha("Upsert por (espaço, dono, categoria, mês)", "commands.planning.create_estimate", "baixo", "WS"),
-    "categories_create": Ficha("Nome único por espaço; excluída é reativada", "commands.planning.create_category", "baixo", "WS"),
+    "categories_create": Ficha("Nome único por espaço; excluída é reativada (categoria ou tag)", "commands.planning.create_category / create_tag", "baixo", "WS"),
+    "categories_update": Ficha("Nome único; tag excluída sai dos lançamentos", "commands.planning.update_*/delete_*", "médio — renomeia para todos", "WS"),
+    "transactions_history": Ficha("Histórico de UM lançamento visível (decisão do dono); só campos permitidos, sem IP", "AuditLog (fotos da linha)",
+                                  "médio — mostra quem mudou", "nenhum"),
+    "recurring_get": Ficha("shared_or_mine_scope; divisão pelo snapshot (0012)", "RecurringService._participants + SplitService", "baixo", "nenhum"),
+    "recurring_delete": Ficha("Lançado continua; `cancel_open_occurrences` cancela os não pagos (ADR 0030)", "commands.recurring.delete_recurring / income.delete_recurring_income",
+                              "médio", "WS"),
+    "accounts_statement": Ficha("Saldo corrente desde a abertura; caixa = mesma origem dos totais (0022/0034)",
+                                "AccountBalanceService.statement, OverviewService.get_ledger", "médio — movimentos de caixa", "nenhum"),
+    "transfers_list": Ficha("Só contas da pessoa", "AccountTransfer", "baixo", "nenhum"),
+    "transfers_delete": Ficha("Soft delete das duas pernas", "commands.accounts.delete_transfer", "alto — caixa", "auditoria"),
+    "statements_reopen": Ficha("Estorna os pagamentos (reopen do app); sem pagamento, nada", "commands.statements.reopen_statement",
+                               "alto — caixa", "a fatura volta um passo; auditoria"),
+    "income_delete": Ficha("Exclusão lógica (a vaga da ocorrência fica)", "commands.income.delete_income", "médio", "auditoria"),
+    "income_restore": Ficha("Desfaz a exclusão lógica", "commands.income.restore_income", "baixo", "auditoria"),
+    "financings_list": Ficha("Contrato pessoal (ADR 0021); saldo devedor = principal em aberto", "Financing, AmortizationInstallment", "médio", "nenhum"),
+    "financings_installment": Ficha("Reivindicação atômica da parcela; estorno apaga a despesa vinculada", "commands.financing.pay_/unpay_installment",
+                                    "alto — caixa", "lança despesa no espaço se pedido; WS"),
+    "attachments_get": Ficha("Anexo herda a visibilidade do lançamento (0018); teto de tamanho", "commands.attachments.read_attachment_bytes",
+                             "alto — o conteúdo vai para o provedor do agente", "nenhum"),
+    "attachments_delete": Ficha("Membro apaga os próprios; admin, qualquer um", "commands.attachments.delete_attachment", "alto — sem desfazer",
+                                "blob liberado após o commit; WS"),
+    "attachments_add": Ficha("Mesmo comando da tela (tipos, conteúdo real, cota); download SSRF-seguro com hosts permitidos",
+                             "services/remote_file + commands.attachments.store_attachment", "médio", "cria 1 anexo; WS"),
+    "reports_breakdown": Ficha("Mesmos filtros e escopo da busca; minha parte rateada em centavos (0001/0019)", "services/transaction_query.breakdown",
+                               "médio", "nenhum"),
+    "imports_list": Ficha("Só os lotes que a própria pessoa importou", "ImportBatch, ImportRow", "baixo", "nenhum"),
+    "transactions_bulk_update": Ficha("Conjunto exato da prévia, tudo ou nada; trava de paga", "commands.transactions.update_transaction ×N",
+                                      "médio — em massa", "WS + auditoria"),
 }

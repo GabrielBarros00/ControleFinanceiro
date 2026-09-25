@@ -25,6 +25,12 @@
 | Link de envio de anexo vazado ou reaproveitado | `cfm_up_` de uso único, 10 min, amarrado a usuário + concessão + UM lançamento; só o SHA-256 no banco; vai no cabeçalho `Authorization`, nunca na URL (que acaba em log de app, nginx e proxy). Na hora do envio tudo é conferido de novo: concessão revogada, conta inativa ou papel rebaixado a viewer recusam; o uso é marcado por UPDATE condicional (dois envios simultâneos não anexam duas vezes) e o reenvio devolve o resultado anterior |
 | Arquivo malicioso pelo terminal | O envio pelo link passa pelo MESMO comando da tela: só JPG/PNG/WebP/PDF, conteúdo conferido pelos bytes (PDF disfarçado de PNG é recusado), teto por arquivo e cota do espaço com trava; o agente não lê nem apaga anexos |
 | Anexo apagado sem aviso | Exclusão de lançamento com anexo exige o fluxo de prévia, que mostra quantos recibos serão apagados |
+| Conteúdo de anexo alheio lido pelo agente | `attachments_get` só entrega o anexo se o LANÇAMENTO é visível (`access_policy`, a mesma do download pela tela); id de outra pessoa = `NOT_FOUND`; teto de tamanho; matriz A×B cobre |
+| SSRF pelo arquivo da conversa (`attachments_add`) | A URL vem do modelo: só https/443, host numa lista de sufixos (`MCP_FILE_URL_HOSTS`, vazio desliga), nome resolvido uma vez com todo IP público e a conexão indo para esse IP (defesas do CIMD), sem redirect, teto de `upload_max_bytes`; o conteúdo passa pela mesma conferência de tipo do envio pela tela |
+| Histórico vazando o que a pessoa não vê | `transactions_history` exige ver o lançamento; só campos de uma lista permitida; sem IP/user-agent; lançamento invisível = `NOT_FOUND` (testado com membro sem visão total e com terceiro) |
+| Edição concorrente sobrescrevendo outra pessoa | `version` (hash do estado) na leitura; `expected_version` na escrita trava a linha e responde `CONFLICT` com a versão atual |
+| Retry que anda um passo a mais | `statements_reopen` só age com pagamento vivo; exclusões e restaurações são idempotentes por estado; massa pelo token de uso único |
+| Alteração em massa fora do que foi mostrado | `transactions_bulk_update` só aceita o token da prévia e reconfere a elegibilidade de cada item (pago, cancelado, excluído, fora do espaço); qualquer mudança = nada é alterado |
 | Conta desativada/senha trocada | Usuário recarregado a cada chamada; troca/redefinição de senha e "encerrar sessões" revogam as concessões |
 
 ## O que o operador vê

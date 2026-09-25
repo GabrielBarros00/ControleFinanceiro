@@ -5,16 +5,18 @@ de regra (ADR 0035): só o `commit` saiu — quem chama (rota REST ou pipeline d
 MCP) comanda a transação.
 """
 from datetime import datetime, UTC
-from typing import Tuple
+from typing import Optional, Tuple
 
 from fastapi import HTTPException
 from sqlmodel import Session, select
 
 from app.models.category import Category
 from app.models.estimate import MonthlyEstimate
+from app.models.tag import Tag, TransactionTagLink
 from app.models.workspace import WorkspaceMembership
-from app.schemas.category import CategoryCreate
+from app.schemas.category import CategoryCreate, CategoryUpdate
 from app.schemas.estimate import MonthlyEstimateCreate
+from app.schemas.tag import TagCreate, TagUpdate
 from app.services.event_service import publish_event
 
 
@@ -142,3 +144,141 @@ def create_category(
     session.flush()
     publish_event(session, workspace_id, "category.created", "category", category.id, membership.user_id)
     return category
+
+
+# ---------------------------------------------------------------------------
+# Categoria e tag: editar e excluir (movido de `api/routes/categories.py` e
+# `api/routes/tags.py` sem mudança de regra)
+# ---------------------------------------------------------------------------
+
+def get_category_or_404(session: Session, workspace_id: int, category_id: int) -> Category:
+    category = session.get(Category, category_id)
+    if not category or category.workspace_id != workspace_id or category.deleted_at:
+        raise HTTPException(status_code=404, detail="Categoria não encontrada")
+    return category
+
+
+def update_category(
+    session: Session,
+    workspace_id: int,
+    category_id: int,
+    category_in: CategoryUpdate,
+    membership: WorkspaceMembership,
+) -> Category:
+    category = get_category_or_404(session, workspace_id, category_id)
+    update_data = category_in.model_dump(exclude_unset=True)
+    if "name" in update_data:
+        name = (update_data["name"] or "").strip()
+        if not name:
+            raise HTTPException(status_code=400, detail="Nome da categoria é obrigatório")
+        clash = session.exec(
+            select(Category).where(
+                Category.workspace_id == workspace_id,
+                Category.name == name,
+                Category.deleted_at.is_(None),
+            )
+        ).first()
+        if clash and clash.id != category.id:
+            raise HTTPException(status_code=400, detail=f"Categoria '{name}' já existe neste workspace")
+        update_data["name"] = name
+    for key, value in update_data.items():
+        setattr(category, key, value)
+    category.updated_at = datetime.now(UTC)
+    session.add(category)
+    publish_event(session, workspace_id, "category.updated", "category", category.id, membership.user_id)
+    session.flush()
+    return category
+
+
+def delete_category(
+    session: Session, workspace_id: int, category_id: int, membership: WorkspaceMembership
+) -> Category:
+    category = get_category_or_404(session, workspace_id, category_id)
+    category.deleted_at = datetime.now(UTC)
+    session.add(category)
+    publish_event(session, workspace_id, "category.deleted", "category", category.id, membership.user_id)
+    session.flush()
+    return category
+
+
+def get_tag_or_404(session: Session, workspace_id: int, tag_id: int) -> Tag:
+    tag = session.get(Tag, tag_id)
+    if not tag or tag.workspace_id != workspace_id or tag.deleted_at:
+        raise HTTPException(status_code=404, detail="Tag não encontrada")
+    return tag
+
+
+def _tag_name_taken(session: Session, workspace_id: int, name: str, exclude_id: Optional[int] = None) -> bool:
+    stmt = select(Tag).where(
+        Tag.workspace_id == workspace_id,
+        Tag.name == name,
+        Tag.deleted_at.is_(None),
+    )
+    existing = session.exec(stmt).first()
+    return existing is not None and existing.id != exclude_id
+
+
+def create_tag(
+    session: Session, workspace_id: int, tag_in: TagCreate, membership: WorkspaceMembership
+) -> Tag:
+    name = tag_in.name.strip()
+    if not name:
+        raise HTTPException(status_code=400, detail="Nome da tag é obrigatório")
+
+    # Reativação (TAG-001): criar com nome de tag excluída volta a antiga à vida
+    # em vez de bloquear para sempre
+    existing = session.exec(
+        select(Tag).where(Tag.workspace_id == workspace_id, Tag.name == name)
+    ).first()
+    if existing:
+        if existing.deleted_at is None:
+            raise HTTPException(status_code=400, detail=f"Tag '{name}' já existe neste workspace")
+        existing.deleted_at = None
+        existing.color = tag_in.color
+        existing.updated_at = datetime.now(UTC)
+        session.add(existing)
+        tag = existing
+    else:
+        tag = Tag(workspace_id=workspace_id, name=name, color=tag_in.color)
+        session.add(tag)
+    session.flush()
+    publish_event(session, workspace_id, "tag.created", "tag", tag.id, membership.user_id)
+    return tag
+
+
+def update_tag(
+    session: Session, workspace_id: int, tag_id: int, tag_in: TagUpdate, membership: WorkspaceMembership
+) -> Tag:
+    tag = get_tag_or_404(session, workspace_id, tag_id)
+    update_data = tag_in.model_dump(exclude_unset=True)
+    if "name" in update_data:
+        name = (update_data["name"] or "").strip()
+        if not name:
+            raise HTTPException(status_code=400, detail="Nome da tag é obrigatório")
+        if _tag_name_taken(session, workspace_id, name, exclude_id=tag.id):
+            raise HTTPException(status_code=400, detail=f"Tag '{name}' já existe neste workspace")
+        update_data["name"] = name
+
+    for key, value in update_data.items():
+        setattr(tag, key, value)
+    tag.updated_at = datetime.now(UTC)
+    session.add(tag)
+    publish_event(session, workspace_id, "tag.updated", "tag", tag.id, membership.user_id)
+    session.flush()
+    return tag
+
+
+def delete_tag(session: Session, workspace_id: int, tag_id: int, membership: WorkspaceMembership) -> Tag:
+    tag = get_tag_or_404(session, workspace_id, tag_id)
+
+    # Remove vínculos para a tag não continuar aparecendo nas transações
+    for link in session.exec(
+        select(TransactionTagLink).where(TransactionTagLink.tag_id == tag.id)
+    ).all():
+        session.delete(link)
+
+    tag.deleted_at = datetime.now(UTC)
+    session.add(tag)
+    publish_event(session, workspace_id, "tag.deleted", "tag", tag_id, membership.user_id)
+    session.flush()
+    return tag

@@ -111,9 +111,10 @@ conciliar-extrato) e `assets/`. Ver o README do pacote.
 
 ## Limitações conhecidas
 
-- No ChatGPT não há como anexar recibo pela conversa: o envio de anexo pelo agente
-  (`attachments_upload_link`) depende de um terminal que rode `curl` (Claude Code,
-  Codex, Gemini CLI). O agente não lê nem apaga anexos.
+- Anexar recibo pela conversa usa `openai/fileParams`: o ChatGPT entrega à tool
+  `attachments_add` uma URL temporária do arquivo, e o servidor a baixa só de
+  `MCP_FILE_URL_HOSTS` (padrão `oaiusercontent.com`, a confirmar no Developer Mode — a
+  documentação não fixa o domínio). Pelo terminal, `attachments_upload_link`.
 - Mudar valor/divisão de lançamento dividido POR ITEM ou com ajustes de total fica
   no app (a tool explica e devolve o link); categoria, título, data, tags, "já
   paguei" e cancelamento funcionam em todos.

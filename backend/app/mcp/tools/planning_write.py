@@ -12,24 +12,34 @@ from pydantic import BaseModel, Field, model_validator
 from sqlmodel import select
 
 from app.domain.dates import today_local
-from app.mcp import resolve
+from app.mcp import resolve, versioning
 from app.mcp.dates import CivilDate, MonthKey
 from app.mcp.errors import ErrorCode, McpToolError
 from app.mcp.money import MoneyIn, MoneyInOrZero, MoneyOut, fmt_brl
 from app.mcp.registry import ToolCall, ToolInput, ToolOutput, tool
 from app.mcp.schemas import Ref
 from app.mcp.serializers import app_url
-from app.mcp.tools.obligations import RecurringOut, recurring_expense_out
+from app.mcp.tools.obligations import (
+    RecurringOut,
+    own_recurring_income,
+    recurring_expense_out,
+    recurring_income_out,
+    visible_recurring,
+)
 from app.mcp.tools.transactions import PaymentMethodIn
+from app.mcp.versioning import ExpectedVersion
 from app.mcp.writes import DivisionIn, IdempotencyKey, build_division, membership_for_write
 from app.models.category import Category
-from app.models.recurring import RecurrenceFrequency, RecurringExpense
-from app.models.transaction import STATEMENT_SHIFT_MAX, STATEMENT_SHIFT_MIN, PaymentMethod
+from app.models.recurring import RecurrenceFrequency, RecurringExpense, RecurringIncome
+from app.models.transaction import STATEMENT_SHIFT_MAX, STATEMENT_SHIFT_MIN, PaymentMethod, Transaction
 from app.models.workspace import Workspace
-from app.schemas.category import CategoryCreate
+from app.schemas.category import CategoryCreate, CategoryUpdate
 from app.schemas.common import DESCRIPTION_MAX, NAME_MAX, TITLE_MAX
 from app.schemas.estimate import MonthlyEstimateCreate
+from app.schemas.income import RecurringIncomeCreate, RecurringIncomeUpdate
 from app.schemas.recurring import RecurringCreate, RecurringSplitEntry, RecurringUpdate
+from app.schemas.tag import TagCreate, TagUpdate
+from app.services.commands import income as inc_cmd
 from app.services.commands import planning as plan_cmd
 from app.services.commands import recurring as rec_cmd
 from app.services.oauth import scopes as escopos
@@ -58,7 +68,7 @@ class RecurringResult(BaseModel):
 
 def _out(call: ToolCall, t: RecurringExpense) -> RecurringOut:
     espaco = call.session.get(Workspace, t.workspace_id)
-    return recurring_expense_out(t, Ref(id=espaco.id, name=espaco.name), today_local())
+    return recurring_expense_out(call, t, Ref(id=espaco.id, name=espaco.name), today_local())
 
 
 def _frase(r: RecurringOut) -> str:
@@ -98,13 +108,132 @@ class _RecurringFields(ToolInput):
 
 def _sem_conta(d: DivisionIn) -> None:
     if d.account is not None or d.account_id is not None:
-        raise McpToolError(ErrorCode.VALIDATION_ERROR, "Recorrência não guarda conta de origem; registre-a no app se precisar.")
+        raise McpToolError(
+            ErrorCode.VALIDATION_ERROR,
+            "Despesa recorrente não guarda conta de origem pela IA; `account` vale para renda recorrente (kind=income).",
+        )
+
+# --- renda recorrente (kind=income) -------------------------------------------------------
+
+_SO_DESPESA = (
+    ("space", "space"), ("space_id", "space"), ("card", "card"), ("card_id", "card"),
+    ("payment_method", "payment_method"), ("statement_shift", "statement_shift"),
+    ("paid_by", "paid_by"), ("paid_by_id", "paid_by"), ("split_with", "split_with"),
+    ("split_with_ids", "split_with"), ("split", "split"), ("remove_card", "remove_card"),
+    ("category_id", "category_id (renda usa `category` em texto)"),
+)
+
+
+def _recusa_campos_de_despesa(a) -> None:
+    """Renda é pessoal (ADR 0021): sem espaço, divisão, cartão ou forma de pagamento."""
+    usados = sorted({rotulo for campo, rotulo in _SO_DESPESA if getattr(a, campo, None) not in (None, False)})
+    if usados:
+        raise McpToolError(
+            ErrorCode.VALIDATION_ERROR,
+            f"Renda recorrente é só sua (sem espaço, divisão ou cartão): tire {', '.join(usados)}. "
+            "Use `account` para dizer em qual conta o dinheiro cai.",
+        )
+
+
+def _conta_da_renda(call: ToolCall, a) -> Optional[int]:
+    if a.account is None and a.account_id is None:
+        return None
+    return resolve.resolve_account(call.session, call.identity.user_id, account_id=a.account_id, account=a.account).id
+
+
+def _out_income(call: ToolCall, r: RecurringIncome) -> RecurringOut:
+    return recurring_income_out(call, r, today_local())
+
+
+def _frase_renda(r: RecurringOut) -> str:
+    cada = {"daily": "dia", "weekly": "semana", "monthly": "mês", "yearly": "ano"}[r.frequency]
+    intervalo = f"a cada {r.interval} {cada}s" if r.interval > 1 else f"todo {cada}"
+    return f"Renda {r.title}: {fmt_brl(r.amount, r.currency)} {intervalo}."
+
+
+def _create_income(call: ToolCall, a: "RecurringCreateIn") -> ToolOutput:
+    _recusa_campos_de_despesa(a)
+    entrada = RecurringIncomeCreate(
+        title=a.title,
+        description=a.description,
+        base_amount=a.amount,
+        currency=a.currency.upper() if a.currency else None,
+        category=a.category,
+        frequency=RecurrenceFrequency(a.frequency or "monthly"),
+        interval=a.interval or 1,
+        start_date=a.start_date,
+        end_date=a.end_date,
+        day_of_month=a.day_of_month or (a.start_date.day if a.start_date else today_local().day),
+        day_of_week=a.day_of_week,
+        month_of_year=a.month_of_year,
+        auto_confirm=True if a.auto_settle is None else a.auto_settle,
+        account_id=_conta_da_renda(call, a),
+    )
+    if a.end_after_occurrences is not None:
+        raise McpToolError(ErrorCode.VALIDATION_ERROR, "Para renda recorrente, informe o fim por `end_date`.")
+    r = inc_cmd.create_recurring_income(call.session, call.identity.user_id, entrada, a.materialize)
+    call.session.flush()
+    saida = _out_income(call, r)
+    return ToolOutput(
+        structured=RecurringResult(recurring=saida),
+        summary="Renda recorrente criada. " + _frase_renda(saida),
+        entity_type="recurring_income",
+        entity_ids=[r.id],
+        result_ref={"recurring_id": r.id, "kind": "income"},
+    )
+
+
+def _update_income(call: ToolCall, a: "RecurringUpdateIn") -> ToolOutput:
+    _recusa_campos_de_despesa(a)
+    r = own_recurring_income(call, a.recurring_id)
+    antes = _out_income(call, r)
+    versioning.check(a.expected_version, antes.version, what="A recorrência")
+    dados: dict = {}
+    for campo, destino in (("title", "title"), ("description", "description"), ("interval", "interval"),
+                           ("day_of_month", "day_of_month"), ("day_of_week", "day_of_week"),
+                           ("month_of_year", "month_of_year"), ("start_date", "start_date"),
+                           ("end_date", "end_date"), ("category", "category")):
+        valor = getattr(a, campo)
+        if valor is not None:
+            dados[destino] = valor
+    if a.end_after_occurrences is not None:
+        raise McpToolError(ErrorCode.VALIDATION_ERROR, "Para renda recorrente, informe o fim por `end_date`.")
+    if a.amount is not None:
+        dados["base_amount"] = a.amount
+    if a.frequency is not None:
+        dados["frequency"] = RecurrenceFrequency(a.frequency)
+    if a.active is not None:
+        dados["is_active"] = a.active
+    if a.auto_settle is not None:
+        dados["auto_confirm"] = a.auto_settle
+    if a.remove_category:
+        dados["category"] = None
+    conta = _conta_da_renda(call, a)
+    if conta is not None:
+        dados["account_id"] = conta
+    atualizado = inc_cmd.update_recurring_income(
+        call.session, call.identity.user_id, r.id, RecurringIncomeUpdate(**dados),
+    )
+    call.session.flush()
+    depois = _out_income(call, atualizado)
+    a_json, d_json = antes.model_dump(mode="json"), depois.model_dump(mode="json")
+    mudou = [k for k in d_json if k != "version" and a_json.get(k) != d_json.get(k)]
+    return ToolOutput(
+        structured=RecurringResult(recurring=depois, previous=antes, changed=mudou),
+        summary=(f"Renda recorrente atualizada ({', '.join(mudou)}). " if mudou else "Nada mudou. ") + _frase_renda(depois),
+        entity_type="recurring_income",
+        entity_ids=[r.id],
+    )
+
 
 
 # --- recurring_create -----------------------------------------------------------------
 
 class _RecurringCreateCore(ToolInput):
     idempotency_key: IdempotencyKey
+    kind: Literal["expense", "income"] = Field(
+        "expense", description="expense = despesa que se repete; income = renda que se repete (salário).",
+    )
     title: str = Field(min_length=1, max_length=TITLE_MAX)
     amount: MoneyIn = Field(description="Valor de cada ocorrência.")
     space: Optional[str] = Field(None, max_length=120)
@@ -125,6 +254,14 @@ class RecurringCreateIn(DivisionIn, _RecurringFields, _RecurringCreateCore):
 
 
 def _replay_recurring(call: ToolCall, ref: dict) -> ToolOutput:
+    if ref.get("kind") == "income":
+        saida = _out_income(call, own_recurring_income(call, int(ref["recurring_id"])))
+        return ToolOutput(
+            structured=RecurringResult(recurring=saida, replayed=True),
+            summary="Esta renda recorrente já tinha sido criada (mesma idempotency_key). " + _frase_renda(saida),
+            entity_type="recurring_income",
+            entity_ids=[saida.id],
+        )
     t = call.session.get(RecurringExpense, int(ref["recurring_id"]))
     if t is None:
         raise McpToolError(ErrorCode.CONFLICT, "Operação já processada com esta idempotency_key.")
@@ -142,14 +279,15 @@ def _replay_recurring(call: ToolCall, ref: dict) -> ToolOutput:
 
 @tool(
     name="recurring_create",
-    title="Criar despesa recorrente",
+    title="Criar recorrência",
     description=(
-        "Cria uma despesa que se repete (aluguel, assinatura, academia): o app lança cada ocorrência "
-        "sozinho, com a mesma divisão, categoria e cartão.\n"
+        "Cria uma despesa que se repete (aluguel, assinatura, academia) ou, com `kind=income`, uma renda "
+        "que se repete (salário): o app lança cada ocorrência sozinho, com a mesma divisão, categoria e "
+        "cartão (renda: a conta onde cai, em `account`).\n"
         "Use quando: o usuário disser \"todo mês pago R$ 49,90 de streaming no Nubank\", \"o aluguel "
-        "de R$ 2.000 vence dia 5, metade do João\".\n"
-        "Não use quando: for uma compra parcelada (transactions_create com installments) ou uma "
-        "despesa única. Renda recorrente é cadastrada no app.\n"
+        "de R$ 2.000 vence dia 5, metade do João\", \"meu salário é R$ 4.000 todo dia 5\".\n"
+        "Não use quando: for uma compra parcelada (transactions_create com installments) ou um gasto/"
+        "renda única (transactions_create / income_create).\n"
         "Mensal por padrão; `interval` = a cada N períodos; fim por data ou por nº de ocorrências."
     ),
     input_model=RecurringCreateIn,
@@ -167,11 +305,14 @@ def _replay_recurring(call: ToolCall, ref: dict) -> ToolOutput:
     examples=(
         {"idempotency_key": "f1a2b3c4-0001", "title": "Streaming", "amount": "49.90", "card": "Nubank", "day_of_month": 12},
         {"idempotency_key": "f1a2b3c4-0002", "title": "Aluguel", "amount": "2000.00", "day_of_month": 5, "split_with": ["João"], "payment_method": "pix"},
+        {"idempotency_key": "f1a2b3c4-0003", "kind": "income", "title": "Salário", "amount": "4000.00", "day_of_month": 5, "account": "Itaú"},
     ),
 )
 def recurring_create(call: ToolCall) -> ToolOutput:
     a: RecurringCreateIn = call.args
     me = call.identity.user_id
+    if a.kind == "income":
+        return _create_income(call, a)
     _sem_conta(a)
     ref = resolve.resolve_space(call.session, me, space_id=a.space_id, space=a.space)
     if ref is None:
@@ -212,7 +353,7 @@ def recurring_create(call: ToolCall) -> ToolOutput:
         entity_type="recurring",
         entity_ids=[t.id],
         space_id=ref.id,
-        result_ref={"recurring_id": t.id},
+        result_ref={"recurring_id": t.id, "kind": "expense"},
     )
 
 
@@ -220,6 +361,7 @@ def recurring_create(call: ToolCall) -> ToolOutput:
 
 class _RecurringUpdateCore(ToolInput):
     recurring_id: int
+    kind: Literal["expense", "income"] = Field("expense", description="income = renda recorrente.")
     title: Optional[str] = Field(None, min_length=1, max_length=TITLE_MAX)
     amount: Optional[MoneyIn] = None
     active: Optional[bool] = Field(None, description="false = pausar (para de lançar); true = retomar.")
@@ -235,13 +377,15 @@ class _RecurringUpdateCore(ToolInput):
 
 
 class RecurringUpdateIn(DivisionIn, _RecurringFields, _RecurringUpdateCore):
+    expected_version: ExpectedVersion = None
+
     @model_validator(mode="after")
     def _algo(self):
         if self.remove_card and (self.card is not None or self.card_id is not None):
             raise ValueError("remove_card não combina com card/card_id")
         if self.remove_category and (self.category is not None or self.category_id is not None):
             raise ValueError("remove_category não combina com category/category_id")
-        mudancas = self.model_dump(exclude_unset=True, exclude={"recurring_id", "apply_to"})
+        mudancas = self.model_dump(exclude_unset=True, exclude={"recurring_id", "apply_to", "kind", "expected_version"})
         if not self.remove_card:
             mudancas.pop("remove_card", None)
         if not self.remove_category:
@@ -253,10 +397,11 @@ class RecurringUpdateIn(DivisionIn, _RecurringFields, _RecurringUpdateCore):
 
 @tool(
     name="recurring_update",
-    title="Editar despesa recorrente",
+    title="Editar recorrência",
     description=(
-        "Altera uma despesa recorrente: valor, dia, frequência, fim, categoria, cartão, divisão, ou "
-        "pausa/retoma (`active`). Ocorrências já pagas nunca mudam; as não pagas seguem `apply_to`.\n"
+        "Altera uma despesa recorrente (ou, com `kind=income`, uma renda recorrente): valor, dia, "
+        "frequência, fim, categoria, cartão, divisão, conta da renda, ou pausa/retoma (`active`). "
+        "Ocorrências já pagas nunca mudam; as não pagas seguem `apply_to`.\n"
         "Use quando: \"o streaming subiu para R$ 55\", \"pare de lançar a academia\", \"o aluguel "
         "agora vence dia 10\". Pegue o id em recurring_list.\n"
         "Não use quando: quiser mudar uma única ocorrência (transactions_update nela)."
@@ -276,6 +421,8 @@ class RecurringUpdateIn(DivisionIn, _RecurringFields, _RecurringUpdateCore):
 def recurring_update(call: ToolCall) -> ToolOutput:
     a: RecurringUpdateIn = call.args
     me = call.identity.user_id
+    if a.kind == "income":
+        return _update_income(call, a)
     _sem_conta(a)
     ws_id = call.session.exec(select(RecurringExpense.workspace_id).where(RecurringExpense.id == a.recurring_id)).first()
     if ws_id is None:
@@ -288,6 +435,7 @@ def recurring_update(call: ToolCall) -> ToolOutput:
         raise
     t = rec_cmd._get_recurring_or_404(call.session, ws_id, a.recurring_id, membership)
     antes = _out(call, t)
+    versioning.check(a.expected_version, antes.version, what="A recorrência")
 
     dados: dict = {}
     for campo, destino in (("title", "title"), ("description", "description"), ("interval", "interval"),
@@ -328,8 +476,8 @@ def recurring_update(call: ToolCall) -> ToolOutput:
     call.session.flush()
     depois = _out(call, atualizado)
     a_json, d_json = antes.model_dump(mode="json"), depois.model_dump(mode="json")
-    mudou = [k for k in d_json if a_json.get(k) != d_json.get(k)]
-    if "split_snapshot" in dados:
+    mudou = [k for k in d_json if k != "version" and a_json.get(k) != d_json.get(k)]
+    if "split_snapshot" in dados and "split" not in mudou:
         mudou.append("split")
     return ToolOutput(
         structured=RecurringResult(recurring=depois, previous=antes, changed=mudou),
@@ -337,6 +485,91 @@ def recurring_update(call: ToolCall) -> ToolOutput:
         entity_type="recurring",
         entity_ids=[t.id],
         space_id=ws_id,
+    )
+
+
+# --- recurring_delete ------------------------------------------------------------------------
+
+class RecurringDeleteIn(ToolInput):
+    recurring_id: int = Field(ge=1)
+    kind: Literal["expense", "income"] = "expense"
+    cancel_open_occurrences: bool = Field(
+        False,
+        description=(
+            "Só despesa: true = cancela também as ocorrências JÁ lançadas deste mês em diante que ainda "
+            "não foram pagas. false (padrão) = o que já foi lançado fica como está."
+        ),
+    )
+    expected_version: ExpectedVersion = None
+
+
+class RecurringDeleteOut(BaseModel):
+    deleted: RecurringOut = Field(description="Como a recorrência estava (para refazer, se preciso).")
+    cancelled_occurrences: List[int] = Field(default_factory=list, description="Lançamentos cancelados junto.")
+
+
+@tool(
+    name="recurring_delete",
+    title="Excluir recorrência",
+    description=(
+        "Exclui uma despesa ou renda recorrente: o app para de lançar novas ocorrências. O que já foi "
+        "lançado continua (e continua contando), salvo `cancel_open_occurrences=true`, que cancela as "
+        "ocorrências deste mês em diante ainda não pagas. Não tem desfazer: para só interromper, "
+        "prefira pausar (recurring_update com active=false).\n"
+        "Use quando: o usuário pedir para excluir/apagar de vez uma recorrência (confirme qual).\n"
+        "Não use quando: quiser pausar, mudar o valor ou o fim (recurring_update)."
+    ),
+    input_model=RecurringDeleteIn,
+    output_model=RecurringDeleteOut,
+    scope=escopos.PLANNING_WRITE,
+    kind="destructive",
+    read_only=False,
+    destructive=True,
+    idempotent=True,
+    cost=3,
+    invoking="Excluindo a recorrência…",
+    invoked="Recorrência excluída",
+    examples=({"recurring_id": 7}, {"recurring_id": 3, "kind": "income"}),
+)
+def recurring_delete(call: ToolCall) -> ToolOutput:
+    a: RecurringDeleteIn = call.args
+    me = call.identity.user_id
+    if a.kind == "income":
+        if a.cancel_open_occurrences:
+            raise McpToolError(ErrorCode.VALIDATION_ERROR, "cancel_open_occurrences vale só para despesa recorrente.")
+        r = own_recurring_income(call, a.recurring_id)
+        antes = _out_income(call, r)
+        versioning.check(a.expected_version, antes.version, what="A recorrência")
+        inc_cmd.delete_recurring_income(call.session, me, r.id)
+        return ToolOutput(
+            structured=RecurringDeleteOut(deleted=antes),
+            summary=f"Renda recorrente {antes.title} excluída. As rendas já lançadas continuam.",
+            entity_type="recurring_income",
+            entity_ids=[r.id],
+        )
+    t, ref = visible_recurring(call, a.recurring_id)
+    membership = membership_for_write(call, ref.id)
+    antes = _out(call, t)
+    versioning.check(a.expected_version, antes.version, what="A recorrência")
+    alvos: list[int] = []
+    if a.cancel_open_occurrences:
+        mes = today_local().strftime("%Y-%m")
+        alvos = list(call.session.exec(
+            select(Transaction.id).where(
+                Transaction.recurring_expense_id == t.id,
+                Transaction.deleted_at.is_(None),
+                Transaction.billing_month >= mes,
+                Transaction.settled_at.is_(None),
+            )
+        ).all())
+    cancelados = rec_cmd.delete_recurring(call.session, ref.id, t.id, membership, alvos)
+    return ToolOutput(
+        structured=RecurringDeleteOut(deleted=antes, cancelled_occurrences=cancelados),
+        summary=f"Recorrência {antes.title} excluída"
+        + (f"; {len(cancelados)} ocorrência(s) em aberto cancelada(s)." if cancelados else "; o que já foi lançado continua."),
+        entity_type="recurring",
+        entity_ids=[t.id] + cancelados,
+        space_id=ref.id,
     )
 
 
@@ -438,6 +671,7 @@ def budgets_set(call: ToolCall) -> ToolOutput:
 # --- categories_create -------------------------------------------------------------------
 
 class CategoryCreateIn(ToolInput):
+    kind: Literal["category", "tag"] = Field("category", description="category (padrão) ou tag.")
     space: Optional[str] = Field(None, max_length=120)
     space_id: Optional[int] = None
     name: str = Field(min_length=1, max_length=NAME_MAX)
@@ -454,16 +688,17 @@ class CategoryOut(BaseModel):
     id: int
     name: str
     space: Ref
+    kind: str = "category"
 
 
 @tool(
     name="categories_create",
-    title="Criar categoria",
+    title="Criar categoria ou tag",
     description=(
-        "Cria uma categoria nova num espaço. Se já existir uma com o mesmo nome (ignorando acento e "
-        "maiúsculas), devolve ALREADY_EXISTS com o id dela — use a existente.\n"
-        "Use quando: o usuário pedir uma categoria que não existe (confira antes com categories_list).\n"
-        "Não use quando: a categoria já existir, mesmo escrita diferente."
+        "Cria uma categoria (ou, com `kind=tag`, uma tag) num espaço. Se já existir uma com o mesmo "
+        "nome (ignorando acento e maiúsculas), devolve ALREADY_EXISTS com o id dela — use a existente.\n"
+        "Use quando: o usuário pedir uma categoria/tag que não existe (confira antes com categories_list).\n"
+        "Não use quando: ela já existir, mesmo escrita diferente; para renomear/excluir (categories_update)."
     ),
     input_model=CategoryCreateIn,
     output_model=CategoryOut,
@@ -475,13 +710,29 @@ class CategoryOut(BaseModel):
     cost=3,
     invoking="Criando a categoria…",
     invoked="Categoria criada",
-    examples=({"name": "Pets", "space": "Casa"},),
+    examples=({"name": "Pets", "space": "Casa"}, {"kind": "tag", "name": "Trabalho"}),
 )
 def categories_create(call: ToolCall) -> ToolOutput:
     a: CategoryCreateIn = call.args
     ref = resolve.require_space(call.session, call.identity.user_id, space_id=a.space_id, space=a.space)
     membership = membership_for_write(call, ref.id)
     alvo = resolve.norm(a.name)
+    if a.kind == "tag":
+        for existente in resolve.space_tags(call.session, ref.id):
+            if resolve.norm(existente.name) == alvo:
+                raise McpToolError(
+                    ErrorCode.ALREADY_EXISTS,
+                    f"A tag '{existente.name}' já existe em {ref.workspace.name}.",
+                    details={"tag_id": existente.id, "name": existente.name, "space_id": ref.id},
+                )
+        tag = plan_cmd.create_tag(call.session, ref.id, TagCreate(name=a.name, color=a.color), membership)
+        return ToolOutput(
+            structured=CategoryOut(id=tag.id, name=tag.name, space=Ref(id=ref.id, name=ref.workspace.name), kind="tag"),
+            summary=f"Tag '{tag.name}' criada em {ref.workspace.name}.",
+            entity_type="tag",
+            entity_ids=[tag.id],
+            space_id=ref.id,
+        )
     for existente in resolve.space_categories(call.session, ref.id):
         if resolve.norm(existente.name) == alvo:
             raise McpToolError(
@@ -498,4 +749,113 @@ def categories_create(call: ToolCall) -> ToolOutput:
         entity_type="category",
         entity_ids=[categoria.id],
         space_id=ref.id,
+    )
+
+
+# --- categories_update ---------------------------------------------------------------------
+
+class CategoryUpdateIn(ToolInput):
+    kind: Literal["category", "tag"] = "category"
+    space: Optional[str] = Field(None, max_length=120)
+    space_id: Optional[int] = None
+    name: Optional[str] = Field(None, max_length=NAME_MAX, description="Nome ATUAL da categoria/tag.")
+    id: Optional[int] = Field(None, ge=1)
+    new_name: Optional[str] = Field(None, min_length=1, max_length=NAME_MAX, description="Nome novo (renomear).")
+    color: Optional[str] = Field(None, pattern=r"^#[0-9A-Fa-f]{6}$")
+    delete: bool = Field(
+        False,
+        description=(
+            "true = excluir. Categoria excluída some das listas (os lançamentos antigos a mantêm); "
+            "tag excluída sai de todos os lançamentos."
+        ),
+    )
+
+    @model_validator(mode="after")
+    def _coerente(self):
+        if (self.name is None) == (self.id is None):
+            raise ValueError("informe name (o atual) OU id")
+        if self.space is not None and self.space_id is not None:
+            raise ValueError("informe space ou space_id, não os dois")
+        if self.delete and (self.new_name is not None or self.color is not None):
+            raise ValueError("delete não combina com new_name/color")
+        if not self.delete and self.new_name is None and self.color is None:
+            raise ValueError("nada para alterar: informe new_name, color ou delete=true")
+        return self
+
+
+class CategoryUpdateOut(BaseModel):
+    kind: str
+    id: int
+    name: str
+    previous_name: str
+    space: Ref
+    deleted: bool = False
+
+
+@tool(
+    name="categories_update",
+    title="Renomear ou excluir categoria/tag",
+    description=(
+        "Renomeia, muda a cor ou exclui uma categoria ou tag de um espaço (`kind`). Nome novo que já "
+        "exista volta erro.\n"
+        "Use quando: \"renomeie Restaurantes para Alimentação fora\", \"apague a tag viagem-2024\".\n"
+        "Não use quando: quiser criar (categories_create) ou trocar a categoria de lançamentos "
+        "(transactions_update / transactions_bulk_preview)."
+    ),
+    input_model=CategoryUpdateIn,
+    output_model=CategoryUpdateOut,
+    scope=escopos.PLANNING_WRITE,
+    kind="write",
+    read_only=False,
+    destructive=True,
+    idempotent=True,
+    cost=3,
+    invoking="Atualizando…",
+    invoked="Atualizado",
+    examples=({"name": "Restaurantes", "new_name": "Alimentação fora", "space": "Casa"}, {"kind": "tag", "name": "viagem-2024", "delete": True}),
+)
+def categories_update(call: ToolCall) -> ToolOutput:
+    a: CategoryUpdateIn = call.args
+    ref = resolve.require_space(call.session, call.identity.user_id, space_id=a.space_id, space=a.space)
+    membership = membership_for_write(call, ref.id)
+    espaco = Ref(id=ref.id, name=ref.workspace.name)
+    if a.kind == "tag":
+        tags = resolve.space_tags(call.session, ref.id)
+        if a.id is not None:
+            alvo = next((t for t in tags if t.id == a.id), None)
+            if alvo is None:
+                raise McpToolError(ErrorCode.NOT_FOUND, "Tag não encontrada neste espaço.", details={"id": a.id})
+        else:
+            escolhida = resolve.pick("tag", a.name, [resolve.Match(t.id, t.name) for t in tags], id_param="id")
+            alvo = next(t for t in tags if t.id == escolhida.id)
+        anterior = alvo.name
+        if a.delete:
+            plan_cmd.delete_tag(call.session, ref.id, alvo.id, membership)
+            return ToolOutput(
+                structured=CategoryUpdateOut(kind="tag", id=alvo.id, name=anterior, previous_name=anterior, space=espaco, deleted=True),
+                summary=f"Tag '{anterior}' excluída de {ref.workspace.name} (e dos lançamentos).",
+                entity_type="tag", entity_ids=[alvo.id], space_id=ref.id,
+            )
+        dados = {k: v for k, v in (("name", a.new_name), ("color", a.color)) if v is not None}
+        tag = plan_cmd.update_tag(call.session, ref.id, alvo.id, TagUpdate(**dados), membership)
+        return ToolOutput(
+            structured=CategoryUpdateOut(kind="tag", id=tag.id, name=tag.name, previous_name=anterior, space=espaco),
+            summary=f"Tag '{anterior}' atualizada para '{tag.name}'.",
+            entity_type="tag", entity_ids=[tag.id], space_id=ref.id,
+        )
+    alvo = resolve.resolve_category(call.session, ref.id, category_id=a.id, category=a.name)
+    anterior = alvo.name
+    if a.delete:
+        plan_cmd.delete_category(call.session, ref.id, alvo.id, membership)
+        return ToolOutput(
+            structured=CategoryUpdateOut(kind="category", id=alvo.id, name=anterior, previous_name=anterior, space=espaco, deleted=True),
+            summary=f"Categoria '{anterior}' excluída de {ref.workspace.name}. Os lançamentos antigos continuam com ela.",
+            entity_type="category", entity_ids=[alvo.id], space_id=ref.id,
+        )
+    dados = {k: v for k, v in (("name", a.new_name), ("color", a.color)) if v is not None}
+    categoria = plan_cmd.update_category(call.session, ref.id, alvo.id, CategoryUpdate(**dados), membership)
+    return ToolOutput(
+        structured=CategoryUpdateOut(kind="category", id=categoria.id, name=categoria.name, previous_name=anterior, space=espaco),
+        summary=f"Categoria '{anterior}' atualizada para '{categoria.name}'.",
+        entity_type="category", entity_ids=[categoria.id], space_id=ref.id,
     )

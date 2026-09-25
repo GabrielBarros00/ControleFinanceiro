@@ -61,6 +61,8 @@ class ToolOutput:
     #: `_meta` só para a UI (o modelo não vê): links, contexto de exibição.
     widget: Optional[dict] = None
     replayed: bool = False
+    #: Blocos de conteúdo além do texto (ex.: a imagem de um recibo para o modelo ler).
+    extra_content: list = field(default_factory=list)
 
 
 Handler = Callable[[ToolCall], ToolOutput]

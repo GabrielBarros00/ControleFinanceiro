@@ -70,6 +70,8 @@ que entra sem convite — o cadastro do site já nasce fechado (veja
 | `MCP_ALLOWED_ORIGINS` | deixar vazio | Origens de navegador aceitas no `/mcp` além do próprio site | Vazio em produção. Para testar com o MCP Inspector em modo direto: `http://localhost:6274` |
 | `MCP_CIMD_ENABLED` / `MCP_DCR_ENABLED` | padrão serve | Registro de cliente por URL (CIMD) e dinâmico (DCR) | `True` / `True` — o Antigravity e o Gemini só fazem DCR |
 | `MCP_RATE_LIMIT_UNITS_PER_MINUTE` / `MCP_WRITE_RATE_LIMIT_PER_MINUTE` / `MCP_BULK_MAX_ITEMS` | padrão serve | Teto por conexão de IA (unidades e escritas por minuto) e maior lote de ação em massa | `120` / `30` / `200` |
+| `MCP_FILE_URL_HOSTS` | padrão serve | De onde o servidor aceita baixar o arquivo que a pessoa pôs na conversa do ChatGPT (sufixos; vazio desliga `attachments_add`) | `oaiusercontent.com` |
+| `MCP_ATTACHMENT_TO_MODEL_MAX_BYTES` | padrão serve | Maior anexo cujo conteúdo vai para o modelo em `attachments_get` | `3145728` (3 MB) |
 | `OPENAI_APPS_CHALLENGE_TOKEN` | só na submissão | Token da verificação de domínio da OpenAI | Vazio; preencha apenas no dia de publicar o app (ver [docs/mcp/OPENAI_APP.md](docs/mcp/OPENAI_APP.md)) |
 
 ### Decisão HTTPS vs HTTP (a mais importante)

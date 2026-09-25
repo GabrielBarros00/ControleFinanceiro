@@ -22,12 +22,10 @@ from pydantic import ConfigDict
 from app.core.config import settings
 from app.mcp import instructions, invoke, registry
 from app.mcp.ui import WIDGET_URI
+from app.mcp.version import SERVER_VERSION  # noqa: F401 (reexportado: docs e tela de integrações)
 
 SERVER_NAME = "controle-financeiro"
-#: Versão do CONTRATO das tools (semver), independente da versão do app. Tool
-#: publicada nunca é renomeada; argumento novo só entra opcional; quebra vira
-#: tool nova `_v2` com a antiga marcada [DEPRECATED] por >= 90 dias.
-SERVER_VERSION = "1.2.0"
+# A versão do contrato das tools (semver) mora em `app/mcp/version.py`.
 _WIDGET_FILE = Path(__file__).parent / "ui" / "widget.html"
 
 

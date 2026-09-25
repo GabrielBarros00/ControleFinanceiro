@@ -93,8 +93,9 @@ algumas telas fazem (o `cron` horário cuida disso).
 
 ### 5. Tools orientadas a intenção, não espelho de endpoint
 
-39 tools com nome `dominio_acao` (ver `docs/mcp/TOOLS.md`, gerado do código): as 35 do
-plano, as três de exibição da seção 8 e o link de anexo da seção 9. Cada
+57 tools com nome `dominio_acao` (ver `docs/mcp/TOOLS.md`, gerado do código): as 35 do
+plano, as três de exibição da seção 8, o link de anexo da seção 9 e as 18 da paridade
+(seção 10). Cada
 uma tem título, descrição com "Use quando / Não use quando", schema de entrada
 fechado (`additionalProperties: false`, sem objeto genérico), schema de saída, as
 quatro annotations explícitas e o escopo exigido. Não há `execute_sql`,
@@ -274,6 +275,65 @@ As escolhas que importam:
 - **Nos apps de chat na web não há como rodar o comando.** A descrição da tool manda o
   modelo dizer que o anexo se envia pela tela.
 
+### 10. Paridade com o app (2026-09-24)
+
+O ChatGPT, já conectado, auditou as 39 tools e apontou um padrão: **escrita sem
+leitura equivalente** e **escrita sem desfazer**. A recorrência se gravava com
+divisão e conta, mas se lia sem elas. A transferência e o pagamento de fatura só
+tinham criação. Os itens da nota não existiam. O relatório não viu o código; ao
+conferi-lo, quase tudo **já existia no app** e só não tinha chegado ao MCP. A regra
+passou a ser: *se a IA grava, ela lê o estado inteiro de volta; se o app desfaz,
+a IA também desfaz*.
+
+O que entrou (57 tools):
+
+| Lacuna | Resposta | Peça do app reaproveitada |
+|---|---|---|
+| Itens da compra | `items` e `adjustments` em `transactions_create`/`_update`; a leitura traz os itens, a divisão por item e `purchase` (a compra inteira do parcelado, com os itens uma vez só) | `compute_transaction_breakdown`, `_plan_installment_items` |
+| Recorrência sem leitura completa | `recurring_get`; lista com a sua parte, divisão, pagador, cartão/conta, próxima ocorrência | `RecurringService._participants` + `SplitService` |
+| Renda recorrente sem escrita | `recurring_create`/`_update` com `kind=income`; `recurring_delete` | comando novo em `commands/income.py` (era a rota) |
+| Sem extrato | `accounts_statement` | `AccountBalanceService.statement`, `OverviewService.get_ledger` |
+| Transferência só de escrita | `transfers_list`, `transfers_delete` | comando extraído da rota |
+| Pagamento de fatura sem desfazer | `payments` na fatura, `statements_reopen` | `CreditCardService.reopen_statement` |
+| Anexo só como número | `files` na leitura, `attachments_get` (conteúdo ao modelo), `attachments_delete`, `attachments_add` (arquivo da conversa do ChatGPT) | `commands/attachments.py` |
+| Renda sem excluir | `income_delete`, `income_restore` | exclusão lógica que já existia |
+| Categorias e tags | `categories_create` com `kind`, `categories_update` | comandos extraídos das rotas |
+| Financiamento só em "a pagar" | `financings_list` (com cronograma), `financings_installment` (pagar/desfazer) | comando extraído da rota |
+| Relatórios que obrigam a paginar | `reports_breakdown` (categoria, tag, pessoa, cartão, conta, forma, mês, espaço, título) | filtros e escopo da busca; rateio do `ReportService` |
+| Massa só exclui ou categoriza | `transactions_bulk_update` (recategorizar, tag, marcar como pago); desfazer importação com `import_batch_id` | `update_transaction` ×N, tudo ou nada |
+| Histórico | `transactions_history` | `AuditLog` (fotos da linha) |
+| Concorrência | `version` na saída, `expected_version` na escrita | — |
+
+As decisões que importam:
+
+- **Itens.** O app já garante itens + ajustes = total e reparte os ajustes em
+  centavos. A tool só traduz. Duas situações em que o app perderia dado em
+  silêncio viraram recusa ou conversão explícita:
+  - parcelado com ajustes é recusado, porque as parcelas não levam o desconto;
+  - parcelado com itens vira divisão por item, porque no modo "divisão pela
+    despesa" o parcelamento guarda um item só.
+- **A versão é o estado, não um carimbo.** `updated_at` só muda quando a linha
+  principal muda; trocar só as tags não mudaria a versão. `version` é um hash curto
+  do estado que a própria tool devolve. A conferência trava a linha antes.
+- **Histórico, com a decisão do dono:** o de UM lançamento, para quem já o vê. A
+  auditoria do espaço inteiro segue no app, para o admin. Saem só campos de uma
+  lista permitida, sem IP nem user-agent. Mudanças só de divisão, itens ou tags
+  aparecem marcadas, porque a trilha não guarda o antes delas.
+- **Conteúdo de anexo vai ao modelo** quando a pessoa pede, até
+  `MCP_ATTACHMENT_TO_MODEL_MAX_BYTES`: imagem como `ImageContent`, PDF como
+  recurso embutido. É o que permite "leia o recibo e registre os itens".
+- **Arquivo da conversa do ChatGPT** chega por `openai/fileParams` (URL temporária)
+  e o servidor o baixa com as defesas do CIMD. A diferença é uma lista de hosts
+  permitidos (`MCP_FILE_URL_HOSTS`), porque a URL vem do modelo.
+- **Estorno de fatura só estorna.** O "Reabrir" do app anda um passo por clique.
+  Pela IA, repetir a chamada (retry de rede) andaria dois. A tool só age quando há
+  pagamento vivo.
+- **Cadastro fica no app** (decisão do dono): cartão, conta, financiamento, espaço e
+  membros.
+- **Catálogo:** o teto do que o modelo lê em toda conversa subiu de 60 para 90 mil
+  caracteres. Hoje são ~83 mil. As descrições de dinheiro e de item foram enxugadas
+  para caber.
+
 ## Divergências do pedido original (e por quê)
 
 - **Nomes com sublinhado** (`transactions_create`), não ponto: Claude Desktop e
@@ -286,9 +346,10 @@ As escolhas que importam:
   fica no app.
 - **Importação de extrato** não recebe arquivo: o agente extrai as linhas (PDF,
   foto, texto) e o app confere duplicatas e grava com as regras do ADR 0008.
-- **Anexos: só o envio, e só pelo terminal** (seção 9). Ler e apagar anexo seguem
-  fora; nos apps de chat na web o arquivo não chega ao servidor sem API específica
-  de cada host.
+- **Anexos por caminhos diferentes por host.** Pelo terminal, o link de uso único
+  (seção 9). No ChatGPT, o arquivo da conversa por `openai/fileParams` (seção 10). No
+  Claude web não há como o arquivo chegar ao servidor, e o anexo é pela tela. Ler e
+  apagar valem em todos (seção 10).
 
 ## Consequências
 
@@ -299,4 +360,6 @@ As escolhas que importam:
   Redis é `app/mcp/rate_limit.py`.
 - O que não é exposto está listado com motivo em `CAPABILITY_MAP.md`: admin,
   membros/convites/papéis, criação/exclusão de espaço e moeda-base, cadastro de
-  cartão/conta, financiamento (só leitura), ler/apagar anexo, notificações.
+  cartão, conta e financiamento, notificações.
+- Tool que grava algo tem de ter a leitura do estado inteiro e, se o app desfaz,
+  o desfazer (seção 10).

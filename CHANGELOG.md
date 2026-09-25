@@ -55,13 +55,33 @@ cliente MCP ([ADR 0035](docs/adr/0035-integracao-com-agentes-de-ia-mcp.md)).
   Gemini aceita no formato dos parâmetros (há um teste que barra o resto). O guia do
   Gemini CLI avisa que o Google deixou de aceitar o login com conta pessoal gratuita —
   para conta pessoal, o caminho é o Antigravity ou uma chave de API.
+- **A IA passou a alcançar quase tudo o que o app faz** (o próprio ChatGPT auditou as
+  ferramentas e listou o que faltava):
+  - **Itens da nota**: "arroz R$ 30 é meu, shampoo do João, refrigerante dividido" vira
+    uma compra com itens, a divisão de cada um e o desconto ou frete da nota. Nas
+    parceladas, a IA vê a compra inteira, com os itens uma vez só.
+  - **Extrato da conta** com o saldo linha a linha ("por que meu saldo é esse?") e o
+    caixa do mês.
+  - **Desfazer**: transferência, pagamento de fatura (estorno), renda excluída,
+    importação de extrato inteira, parcela de financiamento marcada errado.
+  - **Renda recorrente** ("meu salário é R$ 4.000 todo dia 5"), recorrência com a SUA
+    parte numa assinatura dividida, e excluir recorrência cancelando o que ficou em aberto.
+  - **Recibos**: a IA lê o recibo anexado (para registrar os itens), apaga anexo e, no
+    ChatGPT, anexa o arquivo que você mandou na conversa.
+  - **Histórico** de um lançamento: quem mudou o quê, antes e depois.
+  - **Gastos agrupados** por categoria, tag, pessoa, cartão, conta, mês ou
+    estabelecimento, direto do banco.
+  - **Em massa**: trocar categoria, pôr/tirar tag e marcar como pago, sempre com prévia.
+  - **Categorias e tags**: criar, renomear e excluir.
+  - Quando duas pessoas (ou você e a IA) editam o mesmo lançamento ao mesmo tempo, a
+    segunda edição é recusada em vez de apagar a primeira.
 - **Contas, Cartões e Contas a pagar ficaram mais rápidos com histórico longo**: o
   total e o saldo de cada fatura eram calculados um por um, e o custo crescia com a
   idade do cartão (18 meses de dois cartões: ~70 consultas por tela). Agora é uma
   consulta agrupada, com o mesmo resultado.
 
 Por dentro: servidor MCP em `/mcp` (SDK oficial 2.2), OAuth 2.1 com PKCE e
-registro por CIMD/DCR, 39 tools documentadas em `docs/mcp/TOOLS.md` (geradas do
+registro por CIMD/DCR, 57 tools documentadas em `docs/mcp/TOOLS.md` (geradas do
 código), e as escritas das rotas REST passaram a morar em comandos
 compartilhados (`app/services/commands/`) — sem mudança de comportamento.
 

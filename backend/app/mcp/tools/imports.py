@@ -19,7 +19,7 @@ from decimal import Decimal
 from typing import List, Literal, Optional
 
 from pydantic import BaseModel, Field, model_validator
-from sqlmodel import select
+from sqlmodel import func, select
 
 from app.core.config import settings
 from app.domain.dates import civil_instant
@@ -259,4 +259,133 @@ def imports_commit(call: ToolCall) -> ToolOutput:
         entity_ids=saida.transaction_ids,
         space_id=ref.id,
         result_ref={"batch_id": batch.id},
+    )
+
+
+# --- imports_list --------------------------------------------------------------------------
+
+class ImportsListIn(ToolInput):
+    batch_id: Optional[int] = Field(None, ge=1, description="Um lote: devolve também as linhas.")
+    limit: int = Field(20, ge=1, le=100, description="Lotes (sem batch_id) ou linhas (com batch_id) por página.")
+    cursor: Optional[str] = Field(None, max_length=512)
+
+
+class ImportBatchOut(BaseModel):
+    id: int
+    space: Ref
+    filename: Optional[str] = None
+    imported_on: dt.date
+    total_rows: int
+    imported: int
+    ignored: int
+    duplicates: int
+    skipped: int
+    live_transactions: int = Field(description="Lançamentos do lote que ainda existem (não excluídos).")
+
+
+class ImportRowOut(BaseModel):
+    line: Optional[int] = None
+    date: dt.date
+    title: str
+    amount: MoneyOut
+    status: str = Field(description="imported | ignored | duplicate | skipped")
+    transaction_id: Optional[int] = None
+    reason: Optional[str] = None
+
+
+class ImportsListOut(BaseModel):
+    batches: List[ImportBatchOut]
+    rows: List[ImportRowOut] = Field(default_factory=list)
+    next_cursor: Optional[str] = None
+
+
+def _lote_out(call: ToolCall, b: ImportBatch, espacos: dict[int, str]) -> ImportBatchOut:
+    from app.domain.dates import local_day
+    from app.models.transaction import Transaction
+
+    vivos = call.session.exec(
+        select(func.count()).select_from(ImportRow)
+        .join(Transaction, Transaction.id == ImportRow.transaction_id)
+        .where(ImportRow.batch_id == b.id, Transaction.deleted_at.is_(None))
+    ).one()
+    return ImportBatchOut(
+        id=b.id, space=Ref(id=b.workspace_id, name=espacos.get(b.workspace_id, "?")), filename=b.filename,
+        imported_on=local_day(b.created_at), total_rows=b.total_rows, imported=b.imported_count,
+        ignored=b.ignored_count, duplicates=b.duplicate_count, skipped=b.skipped_count,
+        live_transactions=int(vivos),
+    )
+
+
+@tool(
+    name="imports_list",
+    title="Importações feitas",
+    description=(
+        "Lista os lotes de importação de extrato que VOCÊ fez (mais recentes primeiro), com quantas "
+        "linhas entraram, foram ignoradas ou eram duplicadas. Com `batch_id`, traz as linhas do lote.\n"
+        "Use quando: 'o que entrou na importação de ontem?', ou para DESFAZER uma importação: pegue o "
+        "id aqui e use transactions_bulk_preview (action=delete, import_batch_id) + transactions_bulk_delete.\n"
+        "Não use quando: quiser importar um extrato novo (imports_preview → imports_commit)."
+    ),
+    input_model=ImportsListIn,
+    output_model=ImportsListOut,
+    scope=escopos.FINANCE_READ,
+    kind="read",
+    read_only=True,
+    destructive=False,
+    idempotent=True,
+    cost=2,
+)
+def imports_list(call: ToolCall) -> ToolOutput:
+    from app.services import transaction_query
+
+    a: ImportsListIn = call.args
+    me = call.identity.user_id
+    espacos = {r.id: r.workspace.name for r in resolve.user_spaces(call.session, me)}
+    base = select(ImportBatch).where(
+        ImportBatch.created_by_user_id == me, ImportBatch.workspace_id.in_(list(espacos) or [-1]),
+    )
+    impressao = f"imp:{a.batch_id or '*'}"
+    try:
+        inicio = transaction_query.decode_cursor(a.cursor, impressao) if a.cursor else 0
+    except transaction_query.InvalidCursor as exc:
+        raise McpToolError(ErrorCode.VALIDATION_ERROR, str(exc))
+    if a.batch_id is None:
+        total = call.session.exec(select(func.count()).select_from(base.subquery())).one()
+        lotes = call.session.exec(
+            base.order_by(ImportBatch.created_at.desc(), ImportBatch.id.desc()).offset(inicio).limit(a.limit)
+        ).all()
+        saida = ImportsListOut(
+            batches=[_lote_out(call, b, espacos) for b in lotes],
+            next_cursor=transaction_query.encode_cursor(inicio + a.limit, impressao) if inicio + a.limit < total else None,
+        )
+        return ToolOutput(structured=saida, summary=f"{total} importação(ões).", entity_type="import", entity_ids=[b.id for b in lotes])
+    lote = call.session.exec(base.where(ImportBatch.id == a.batch_id)).first()
+    if lote is None:
+        raise McpToolError(ErrorCode.NOT_FOUND, "Importação não encontrada.", details={"batch_id": a.batch_id})
+    from app.domain.dates import local_day
+
+    linhas_q = select(ImportRow).where(ImportRow.batch_id == lote.id)
+    total = call.session.exec(select(func.count()).select_from(linhas_q.subquery())).one()
+    linhas = call.session.exec(linhas_q.order_by(ImportRow.line, ImportRow.id).offset(inicio).limit(a.limit)).all()
+    resumo = _lote_out(call, lote, espacos)
+    saida = ImportsListOut(
+        batches=[resumo],
+        rows=[
+            ImportRowOut(
+                line=r.line, date=local_day(r.transaction_date), title=r.title, amount=r.amount,
+                status=getattr(r.status, "value", r.status), transaction_id=r.transaction_id, reason=r.reason,
+            )
+            for r in linhas
+        ],
+        next_cursor=transaction_query.encode_cursor(inicio + a.limit, impressao) if inicio + a.limit < total else None,
+    )
+    return ToolOutput(
+        structured=saida,
+        summary=(
+            f"Importação {lote.id} ({resumo.imported_on.strftime('%d/%m/%Y')}): {lote.imported_count} importada(s), "
+            f"{resumo.live_transactions} ainda no app."
+        ),
+        entity_type="import",
+        entity_ids=[lote.id],
+        space_id=lote.workspace_id,
     )

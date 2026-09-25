@@ -5,8 +5,17 @@
 Só o que a própria pessoa vê no app, dentro das permissões que ela marcou ao
 autorizar. Leituras respeitam o acesso de cada espaço (quem só vê "o que o
 envolve" continua vendo só isso). O agente **não** vê: outras contas, espaços de
-que a pessoa não participa, anexos (só a contagem), senhas, sessões, a trilha de
-auditoria de outros membros, nem nada da administração do site.
+que a pessoa não participa, senhas, sessões, a auditoria do espaço inteiro, nem nada
+da administração do site.
+
+**Anexos:** o agente vê o nome, o tipo e o tamanho de cada recibo. O CONTEÚDO (a
+foto, o PDF) só vai para a conversa quando a pessoa pede para lê-lo
+(`attachments_get`), e aí passa a estar sob a política do provedor do agente, como
+qualquer resposta. Arquivos acima de `MCP_ATTACHMENT_TO_MODEL_MAX_BYTES` nunca vão.
+
+**Histórico:** o de UM lançamento que a pessoa já vê (`transactions_history`): quando,
+quem mudou (nome), se foi via IA e os campos antes → depois. Sem IP, sem
+user-agent, sem a auditoria do resto do espaço.
 
 No anexo pelo terminal, o arquivo vai do computador direto para o app pelo link de
 envio: ele não passa pela conversa nem pelo provedor do agente. O agente recebe de

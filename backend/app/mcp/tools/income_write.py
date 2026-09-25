@@ -8,15 +8,17 @@ from __future__ import annotations
 
 from typing import List, Literal, Optional
 
+from fastapi import HTTPException
 from pydantic import BaseModel, Field, model_validator
 
 from app.domain.dates import civil_instant, today_local
-from app.mcp import resolve
+from app.mcp import resolve, versioning
 from app.mcp.dates import CivilDate
 from app.mcp.errors import ErrorCode, McpToolError
 from app.mcp.money import MoneyIn, fmt_brl
 from app.mcp.registry import ToolCall, ToolInput, ToolOutput, tool
-from app.mcp.tools.obligations import IncomeOut, income_out
+from app.mcp.tools.obligations import IncomeOut, income_out, nomes_de_contas
+from app.mcp.versioning import ExpectedVersion
 from app.mcp.writes import IdempotencyKey
 from app.models.income import Income
 from app.schemas.common import DESCRIPTION_MAX, TITLE_MAX
@@ -38,6 +40,10 @@ def _renda(call: ToolCall, income_id: int) -> Income:
 def _conta_id(call: ToolCall, account_id: Optional[int], account: Optional[str]) -> Optional[int]:
     conta = resolve.resolve_account(call.session, call.identity.user_id, account_id=account_id, account=account)
     return conta.id if conta else None
+
+
+def _saida_de(call: ToolCall, renda: Income) -> IncomeOut:
+    return income_out(renda, nomes_de_contas(call, [renda.account_id]))
 
 
 class IncomeResult(BaseModel):
@@ -74,7 +80,7 @@ class IncomeCreateIn(ToolInput):
 
 
 def _replay_income(call: ToolCall, ref: dict) -> ToolOutput:
-    saida = income_out(_renda(call, int(ref["income_id"])))
+    saida = _saida_de(call, _renda(call, int(ref["income_id"])))
     return ToolOutput(
         structured=IncomeResult(income=saida, replayed=True),
         summary="Esta renda já tinha sido registrada (mesma idempotency_key); nada novo foi criado. " + _frase(saida),
@@ -120,7 +126,7 @@ def income_create(call: ToolCall) -> ToolOutput:
         account_id=_conta_id(call, a.account_id, a.account),
         received=a.received,
     ))
-    saida = income_out(renda)
+    saida = _saida_de(call, renda)
     return ToolOutput(
         structured=IncomeResult(income=saida),
         summary="Renda registrada. " + _frase(saida),
@@ -158,6 +164,7 @@ class IncomeUpdateIn(ToolInput):
         ),
     )
     received_on: Optional[CivilDate] = Field(None, description="Dia em que caiu (com status=received). Omitido = hoje.")
+    expected_version: ExpectedVersion = None
 
     @model_validator(mode="after")
     def _coerencia(self):
@@ -165,7 +172,7 @@ class IncomeUpdateIn(ToolInput):
             raise ValueError("informe account ou account_id, não os dois")
         if self.received_on is not None and self.status != "received":
             raise ValueError("received_on só com status=received")
-        if not self.model_dump(exclude_unset=True, exclude={"income_id"}):
+        if not self.model_dump(exclude_unset=True, exclude={"income_id", "expected_version"}):
             raise ValueError("nada para alterar: informe ao menos um campo")
         return self
 
@@ -202,8 +209,9 @@ def income_update(call: ToolCall) -> ToolOutput:
     a: IncomeUpdateIn = call.args
     me = call.identity.user_id
     renda = _renda(call, a.income_id)
-    antes = income_out(renda)
-    campos = a.model_dump(exclude_unset=True, exclude={"income_id", "status", "received_on", "account", "account_id", "date"})
+    antes = _saida_de(call, renda)
+    versioning.check(a.expected_version, antes.version, what="A renda")
+    campos = a.model_dump(exclude_unset=True, exclude={"income_id", "status", "received_on", "account", "account_id", "date", "expected_version"})
     if a.date is not None:
         campos["received_at"] = civil_instant(a.date)
     if "currency" in campos and campos["currency"]:
@@ -225,12 +233,99 @@ def income_update(call: ToolCall) -> ToolOutput:
         inc_cmd.cancel_income(call.session, me, renda.id)
     call.session.flush()
     call.session.refresh(renda)
-    depois = income_out(renda)
+    depois = _saida_de(call, renda)
     a_json, d_json = antes.model_dump(mode="json"), depois.model_dump(mode="json")
-    mudou = [k for k in d_json if k != "id" and a_json.get(k) != d_json.get(k)]
+    mudou = [k for k in d_json if k not in ("id", "version") and a_json.get(k) != d_json.get(k)]
     return ToolOutput(
         structured=IncomeUpdateResult(income=depois, previous=antes, changed=mudou),
         summary=(f"Renda atualizada ({', '.join(mudou)}). " if mudou else "Nada mudou. ") + _frase(depois),
+        entity_type="income",
+        entity_ids=[renda.id],
+    )
+
+
+# --- income_delete / income_restore ---------------------------------------------------
+
+class IncomeDeleteIn(ToolInput):
+    income_id: int = Field(ge=1)
+    expected_version: ExpectedVersion = None
+
+
+class IncomeDeleteResult(BaseModel):
+    deleted: IncomeOut = Field(description="Como a renda estava (dá para restaurar com income_restore).")
+
+
+@tool(
+    name="income_delete",
+    title="Excluir renda",
+    description=(
+        "Exclui uma renda registrada por engano (some das listas e dos totais). Dá para desfazer com "
+        "income_restore.\n"
+        "Use quando: o usuário pedir para apagar uma renda que não devia existir.\n"
+        "Não use quando: a renda prevista simplesmente não veio — aí é cancelar (income_update "
+        "status=cancelled), que continua visível e impede o salário do mês de ser recriado."
+    ),
+    input_model=IncomeDeleteIn,
+    output_model=IncomeDeleteResult,
+    scope=escopos.INCOME_WRITE,
+    kind="destructive",
+    read_only=False,
+    destructive=True,
+    idempotent=True,
+    cost=3,
+    invoking="Excluindo a renda…",
+    invoked="Renda excluída",
+    examples=({"income_id": 12},),
+)
+def income_delete(call: ToolCall) -> ToolOutput:
+    a: IncomeDeleteIn = call.args
+    renda = _renda(call, a.income_id)
+    antes = _saida_de(call, renda)
+    versioning.check(a.expected_version, antes.version, what="A renda")
+    inc_cmd.delete_income(call.session, call.identity.user_id, renda.id)
+    return ToolOutput(
+        structured=IncomeDeleteResult(deleted=antes),
+        summary=f"Renda excluída: {_frase(antes)} Dá para desfazer com income_restore.",
+        entity_type="income",
+        entity_ids=[renda.id],
+    )
+
+
+class IncomeRestoreIn(ToolInput):
+    income_id: int = Field(ge=1)
+
+
+@tool(
+    name="income_restore",
+    title="Restaurar renda excluída",
+    description=(
+        "Desfaz a exclusão de uma renda (volta às listas e aos totais).\n"
+        "Use quando: o usuário pedir para desfazer uma exclusão feita por income_delete.\n"
+        "Não use quando: a renda estiver cancelada (reative com income_update status=expected)."
+    ),
+    input_model=IncomeRestoreIn,
+    output_model=IncomeResult,
+    scope=escopos.INCOME_WRITE,
+    kind="write",
+    read_only=False,
+    destructive=False,
+    idempotent=True,
+    cost=3,
+    invoking="Restaurando a renda…",
+    invoked="Renda restaurada",
+    examples=({"income_id": 12},),
+)
+def income_restore(call: ToolCall) -> ToolOutput:
+    a: IncomeRestoreIn = call.args
+    try:
+        renda = inc_cmd.restore_income(call.session, call.identity.user_id, a.income_id)
+    except HTTPException:
+        raise McpToolError(ErrorCode.NOT_FOUND, "Renda não encontrada.", details={"income_id": a.income_id})
+    call.session.flush()
+    saida = _saida_de(call, renda)
+    return ToolOutput(
+        structured=IncomeResult(income=saida),
+        summary="Renda restaurada. " + _frase(saida),
         entity_type="income",
         entity_ids=[renda.id],
     )

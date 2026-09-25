@@ -8,7 +8,7 @@ e permissões do app. A decisão e suas razões estão no
 
 | Documento | Para quê |
 |---|---|
-| [TOOLS.md](TOOLS.md) | Referência das 39 tools (gerada do código) |
+| [TOOLS.md](TOOLS.md) | Referência das 57 tools (gerada do código) |
 | [CAPABILITY_MAP.md](CAPABILITY_MAP.md) | Toda rota do app → tool que a cobre ou motivo de não haver (gerado) |
 | [AUTHENTICATION.md](AUTHENTICATION.md) | OAuth 2.1: descoberta, PKCE, CIMD/DCR, tokens, revogação |
 | [CLIENT_SETUP.md](CLIENT_SETUP.md) | Como conectar cada cliente e anexar arquivo pelo terminal (verificado em 23/09/2026) |
@@ -60,6 +60,9 @@ backend/app/
     idempotency.py     chave de idempotência (mcpoperation)
     confirmation.py    token de confirmação de massa (mcpconfirmation)
     uploads.py         link de envio de anexo pelo terminal (cfm_up_, uso único)
+    items.py           itens da nota e ajustes → entrada do comando do app
+    versioning.py      `version` (hash do estado) e `expected_version`
+    version.py         versão do servidor (semver do contrato)
     rate_limit.py      teto por pessoa + cliente, com custo por tool
     audit.py           trilha mcptoolcall + log estruturado
     resolve.py         nomes → ids (AMBIGUOUS / NOT_FOUND)
@@ -67,7 +70,7 @@ backend/app/
     money.py dates.py  fronteira de dinheiro e datas
     capability_map.py  rota REST → tool ou motivo
     docs.py            gera TOOLS.md e CAPABILITY_MAP.md
-    tools/             as 39 tools
+    tools/             as 57 tools
     ui/widget.html     componente MCP Apps (gerado de frontend/src/mcp-widget)
   services/oauth/      authorization server (clientes, CIMD, códigos, tokens, concessões)
   services/commands/   comandos de escrita compartilhados com o REST
@@ -109,4 +112,6 @@ clientes descobrem tudo a partir de um 401 do `/mcp`. Veja [TESTING.md](TESTING.
 | `MCP_RATE_LIMIT_UNITS_PER_MINUTE` | `120` | Teto de unidades por pessoa + cliente |
 | `MCP_WRITE_RATE_LIMIT_PER_MINUTE` | `30` | Teto de escritas por pessoa + cliente |
 | `MCP_BULK_MAX_ITEMS` | `200` | Máximo de lançamentos numa ação em massa |
+| `MCP_FILE_URL_HOSTS` | `oaiusercontent.com` | Hosts de onde o servidor baixa o arquivo da conversa do ChatGPT (`attachments_add`); vazio desliga |
+| `MCP_ATTACHMENT_TO_MODEL_MAX_BYTES` | `3145728` | Maior anexo entregue ao modelo em `attachments_get` |
 | `OPENAI_APPS_CHALLENGE_TOKEN` | vazio | Resposta de `/.well-known/openai-apps-challenge` |

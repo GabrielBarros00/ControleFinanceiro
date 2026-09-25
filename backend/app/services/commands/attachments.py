@@ -15,9 +15,11 @@ from fastapi import HTTPException, UploadFile
 from sqlmodel import Session, func, select
 
 from app.db.locks import trava_workspace
+from app.domain.access_policy import assert_can_write, get_visible_transaction
 from app.models.attachment import Attachment
+from app.models.workspace import WorkspaceMembership
 from app.services import app_settings, upload_validation
-from app.services.attachment_storage import AttachmentStorage, AttachmentStorageError
+from app.services.attachment_storage import AttachmentStorage, AttachmentStorageError, keys_to_free
 from app.services.event_service import publish_event
 
 logger = structlog.get_logger("app.attachments")
@@ -61,6 +63,16 @@ def ensure_quota(session: Session, workspace_id: int, incoming_bytes: int) -> No
         )
 
 
+def _tipo_permitido(content_type: str) -> str:
+    tipo = (content_type or "").lower()
+    if tipo not in ALLOWED_CONTENT_TYPES:
+        raise HTTPException(
+            status_code=400,
+            detail="Tipo de arquivo não permitido: use JPG, PNG, WebP ou PDF",
+        )
+    return tipo
+
+
 async def add_attachment(
     session: Session,
     workspace_id: int,
@@ -69,14 +81,34 @@ async def add_attachment(
     uploaded_by_user_id: int,
 ) -> Attachment:
     """Valida, grava o conteúdo e cria a linha do anexo (flush, sem commit)."""
-    content_type = (file.content_type or "").lower()
-    if content_type not in ALLOWED_CONTENT_TYPES:
-        raise HTTPException(
-            status_code=400,
-            detail="Tipo de arquivo não permitido: use JPG, PNG, WebP ou PDF",
-        )
-
+    content_type = _tipo_permitido(file.content_type)
     data = await upload_validation.read_limited(file, app_settings.get(session, "upload_max_bytes"))
+    return store_attachment(
+        session, workspace_id, transaction_id,
+        data=data, filename=file.filename, content_type=content_type,
+        uploaded_by_user_id=uploaded_by_user_id,
+    )
+
+
+def store_attachment(
+    session: Session,
+    workspace_id: int,
+    transaction_id: int,
+    *,
+    data: bytes,
+    filename: str | None,
+    content_type: str,
+    uploaded_by_user_id: int,
+) -> Attachment:
+    """O corpo do envio, com o conteúdo já em memória (o MCP baixa o arquivo do app de chat).
+
+    Mesmas regras do envio pela tela: tipo permitido, teto por arquivo, conteúdo
+    conferido pelos bytes, cota do espaço com trava.
+    """
+    content_type = _tipo_permitido(content_type)
+    limite = app_settings.get(session, "upload_max_bytes")
+    if len(data) > limite:
+        raise HTTPException(status_code=400, detail=f"Arquivo excede o limite de {limite // (1024 * 1024)} MB")
     if len(data) == 0:
         raise HTTPException(status_code=400, detail="Arquivo vazio")
     if not upload_validation.content_matches_type(content_type, data):
@@ -110,7 +142,7 @@ async def add_attachment(
     attachment = Attachment(
         workspace_id=workspace_id,
         transaction_id=transaction_id,
-        filename=file.filename or "anexo",
+        filename=filename or "anexo",
         content_type=content_type,
         size_bytes=len(data),
         sha256=digest,
@@ -122,3 +154,52 @@ async def add_attachment(
     session.flush()
     publish_event(session, workspace_id, "attachment.created", "attachment", attachment.id, uploaded_by_user_id)
     return attachment
+
+
+def delete_attachment(
+    session: Session,
+    workspace_id: int,
+    attachment_id: int,
+    membership: WorkspaceMembership,
+) -> list:
+    """Remove o anexo e devolve as chaves que ficaram sem referência.
+
+    Movido de `api/routes/attachments.py` sem mudança de regra. Quem chama libera
+    as chaves com `free_keys` DEPOIS do commit: o armazenamento dedupica por
+    conteúdo, e apagar o objeto antes do commit perderia o arquivo se a transação
+    falhasse.
+    """
+    attachment = session.get(Attachment, attachment_id)
+    if not attachment or attachment.workspace_id != workspace_id:
+        raise HTTPException(status_code=404, detail="Anexo não encontrado")
+
+    # Invisível responde 404 antes de qualquer coisa: um 403 aqui confirmaria que
+    # o anexo existe naquele id
+    get_visible_transaction(session, workspace_id, attachment.transaction_id, membership)
+
+    # Member remove apenas os próprios anexos; admin+ remove qualquer um
+    assert_can_write(
+        attachment.uploaded_by_user_id,
+        membership,
+        detail="Você só pode remover os próprios anexos",
+    )
+
+    # Quais objetos ficarão sem referência (o armazenamento dedupica por
+    # conteúdo). Calculado ANTES de remover a linha; aplicado DEPOIS do commit.
+    liberar = keys_to_free(session, [attachment])
+    session.delete(attachment)
+    publish_event(session, workspace_id, "attachment.deleted", "attachment", attachment_id, membership.user_id)
+    session.flush()
+    return liberar
+
+
+def read_attachment_bytes(attachment: Attachment) -> bytes | None:
+    """Conteúdo do anexo: do armazenamento (ADR 0007) ou da coluna LEGADA.
+
+    O fallback existe porque a migração de schema não move os bytes — quem já
+    tinha recibos continua servindo do banco até rodar
+    `scripts/migrate_attachments_to_disk.py`.
+    """
+    if attachment.storage_key:
+        return AttachmentStorage.read(attachment.storage_key)
+    return attachment.data

@@ -60,7 +60,7 @@ def success_result(spec: ToolSpec, saida: ToolOutput) -> CallToolResult:
     if saida.replayed:
         meta["controle-financeiro/replayed"] = True
     return CallToolResult(
-        content=[TextContent(type="text", text=_texto(saida, estruturado))],
+        content=[TextContent(type="text", text=_texto(saida, estruturado)), *saida.extra_content],
         structured_content=estruturado,
         _meta=meta or None,
     )

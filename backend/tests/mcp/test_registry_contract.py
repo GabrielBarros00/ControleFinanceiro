@@ -31,11 +31,14 @@ def todas():
     return list(REGISTRY.values())
 
 
-def test_catalogo_tem_as_39_tools():
+def test_catalogo_tem_as_57_tools():
     # 35 do plano + 3 de exibição (`*_show`), separadas das de dados para o
     # ChatGPT não desenhar um componente a cada consulta, + o link de envio de
-    # anexo pelo terminal (`attachments_upload_link`).
-    assert len(REGISTRY) == 39
+    # anexo pelo terminal (`attachments_upload_link`) + as 18 da paridade com o
+    # app (histórico, extrato, transferências, estorno de fatura, renda e
+    # recorrência, financiamento, anexos, categorias/tags, agrupamento,
+    # importações e alteração em massa).
+    assert len(REGISTRY) == 57
 
 
 @pytest.mark.parametrize("spec", todas(), ids=lambda s: s.name)
@@ -99,11 +102,15 @@ def test_schema_de_entrada_fechado(spec):
         assert nome not in {"user_id", "owner_user_id", "created_by_user_id", "sql", "query_sql", "where"}
 
 
-#: O que o modelo lê do catálogo em TODA conversa: descrição + schema de entrada
-#: das 38 tools (~56,6 mil caracteres hoje; eram ~80 mil antes de o schema perder
-#: `title` automático e `anyOf` com nulo). Passar do teto é decisão consciente:
-#: suba o número aqui, e diga no PR por que a tool nova vale os tokens.
-TETO_DO_CATALOGO = 60_000
+#: O que o modelo lê do catálogo em TODA conversa: descrição + schema de entrada.
+#: Eram ~80 mil caracteres antes de o schema perder `title` automático e `anyOf`
+#: com nulo, e 57 mil nas 39 tools do primeiro ciclo. A paridade com o app (itens
+#: da nota, extrato, renda recorrente, anexos, histórico, estabelecimento…) subiu
+#: o teto para 90 mil (≈ 22 mil tokens) de propósito: o relatório de lacunas do
+#: próprio ChatGPT mostrou que o que faltava custava análises erradas. Passar
+#: deste teto é decisão consciente: suba o número aqui, e diga no PR por que a
+#: tool nova vale os tokens.
+TETO_DO_CATALOGO = 90_000
 
 
 def test_catalogo_cabe_no_orcamento_de_contexto():

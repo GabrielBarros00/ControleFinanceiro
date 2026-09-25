@@ -16,7 +16,7 @@ from typing import List, Optional
 from pydantic import BaseModel, Field
 from sqlmodel import select
 
-from app.domain.dates import today_local
+from app.domain.dates import local_day, today_local
 from app.mcp import resolve
 from app.mcp.dates import MonthKey
 from app.mcp.errors import ErrorCode, McpToolError
@@ -25,7 +25,8 @@ from app.mcp.ui import WIDGET_URI
 from app.mcp.registry import ToolCall, ToolInput, ToolOutput, tool
 from app.mcp.schemas import Ref, TransactionBrief
 from app.mcp.serializers import app_url, civil, load_bundle, to_brief
-from app.models.credit_card import CardStatement, CreditCard
+from app.models.credit_card import CardStatement, CreditCard, StatementPayment
+from app.models.payment_account import PaymentAccount
 from app.models.transaction import Transaction
 from app.services import transaction_query
 from app.services.credit_card_service import CreditCardService
@@ -70,6 +71,36 @@ class CategoryShare(BaseModel):
     count: int
 
 
+class PaymentLine(BaseModel):
+    id: int
+    amount: MoneyOut
+    date: date
+    account: Optional[Ref] = None
+    note: Optional[str] = None
+
+
+def payment_lines(call: ToolCall, fatura: CardStatement) -> List[PaymentLine]:
+    """Pagamentos vivos da fatura (os estornados ficam de fora)."""
+    pagamentos = call.session.exec(
+        select(StatementPayment)
+        .where(StatementPayment.statement_id == fatura.id, StatementPayment.deleted_at.is_(None))
+        .order_by(StatementPayment.paid_at, StatementPayment.id)
+    ).all()
+    contas = {
+        c.id: c.name for c in call.session.exec(
+            select(PaymentAccount).where(PaymentAccount.id.in_({p.account_id for p in pagamentos if p.account_id}))
+        ).all()
+    } if any(p.account_id for p in pagamentos) else {}
+    return [
+        PaymentLine(
+            id=p.id, amount=p.amount, date=local_day(p.paid_at),
+            account=Ref(id=p.account_id, name=contas.get(p.account_id, "?")) if p.account_id else None,
+            note=p.note,
+        )
+        for p in pagamentos
+    ]
+
+
 class StatementOut(BaseModel):
     card: Ref
     currency: str
@@ -86,6 +117,7 @@ class StatementOut(BaseModel):
     purchases: List[StatementPurchase]
     next_cursor: Optional[str] = None
     by_category: List[CategoryShare]
+    payments: List[PaymentLine] = Field(default_factory=list, description="Pagamentos registrados (estorno: statements_reopen).")
     available_months: List[str] = Field(description="Faturas existentes deste cartão (mais recentes primeiro).")
     app_url: str
 
@@ -178,6 +210,7 @@ def _fatura(call: ToolCall, a: StatementIn) -> ToolOutput:
             [CategoryShare(category=k, amount=v[0], count=v[1]) for k, v in por_categoria.items()],
             key=lambda c: c.amount, reverse=True,
         ),
+        payments=payment_lines(call, fatura) if fatura is not None else [],
         available_months=meses,
         app_url=app_url("/me/cards"),
     )

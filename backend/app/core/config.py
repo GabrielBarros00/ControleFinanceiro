@@ -228,6 +228,14 @@ class Settings(BaseSettings):
     # disto a prévia recusa e pede filtro mais estreito: confirmar 5.000 linhas
     # num diálogo não é confirmação de verdade.
     MCP_BULK_MAX_ITEMS: int = 200
+    # Hosts (sufixos, separados por vírgula) de onde o servidor aceita BAIXAR um
+    # arquivo que o app de chat entregou por URL (`openai/fileParams` no ChatGPT).
+    # A URL vem do modelo: sem esta lista o servidor viraria um "baixe o que eu
+    # mandar". Vazio desliga o anexo pela conversa (`attachments_add`).
+    MCP_FILE_URL_HOSTS: str = "oaiusercontent.com"
+    # Maior anexo cujo CONTEÚDO vai para o modelo em `attachments_get` (imagem ou
+    # PDF). Acima disto a tool devolve só os dados do arquivo e o link do app.
+    MCP_ATTACHMENT_TO_MODEL_MAX_BYTES: int = 3 * 1024 * 1024
     # Token da verificação de domínio da OpenAI (`/.well-known/openai-apps-challenge`).
     # Só é preciso no dia da submissão do app; ausente, a rota responde 404.
     OPENAI_APPS_CHALLENGE_TOKEN: Optional[str] = None
@@ -251,6 +259,10 @@ class Settings(BaseSettings):
         """URI canônica do servidor MCP (RFC 8707/9728): o `resource` e o `aud`
         de todo token emitido para ele."""
         return f"{self.oauth_issuer}/mcp"
+
+    @property
+    def mcp_file_url_hosts_list(self) -> List[str]:
+        return [h.strip() for h in self.MCP_FILE_URL_HOSTS.split(",") if h.strip()]
 
     @property
     def mcp_allowed_origins_list(self) -> List[str]:

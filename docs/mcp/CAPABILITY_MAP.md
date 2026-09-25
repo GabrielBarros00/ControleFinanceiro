@@ -19,15 +19,22 @@ Confirmação: `host` = o cliente pede confirmação por não ser `readOnlyHint`
 | `transactions_search` | Leitura | `finance.read` | transaction_scope (ADR 0018), minha parte | `services/transaction_query` | médio — lançamentos | nenhum | — | natural |
 | `transactions_get` | Leitura | `finance.read` | get_visible_transaction | `access_policy` | médio | nenhum | — | natural |
 | `transactions_show` | Leitura | `finance.read` | A mesma leitura de transactions_get, desenhada no componente | `transactions_get` | médio | nenhum (desenha um componente na conversa) | — | natural |
+| `transactions_history` | Leitura | `finance.read` | Histórico de UM lançamento visível (decisão do dono); só campos permitidos, sem IP | `AuditLog (fotos da linha)` | médio — mostra quem mudou | nenhum | — | natural |
 | `statements_get` | Leitura | `finance.read` | Fatura cumulativa (ADR 0023) | `CreditCardService.statement_population` | médio | nenhum (não cria fatura) | — | natural |
 | `statements_show` | Leitura | `finance.read` | A mesma leitura de statements_get, com a 1ª página de compras | `statements_get` | médio | nenhum (desenha um componente na conversa) | — | natural |
 | `reports_summary` | Leitura | `finance.read` | Consumo = minha parte; caixa ≠ competência | `OverviewService, ReportService` | médio | nenhum | — | natural |
 | `reports_show` | Leitura | `finance.read` | A mesma leitura de reports_summary, de um mês | `reports_summary` | médio | nenhum (desenha um componente na conversa) | — | natural |
 | `budgets_list` | Leitura | `finance.read` | Meta pessoal × da casa | `MonthlyEstimate, ReportService` | baixo | nenhum | — | natural |
+| `reports_breakdown` | Leitura | `finance.read` | Mesmos filtros e escopo da busca; minha parte rateada em centavos (0001/0019) | `services/transaction_query.breakdown` | médio | nenhum | — | natural |
 | `debts_summary` | Leitura | `finance.read` | Espaços não se compensam (ADR 0031) | `PersonalDebtService` | médio | nenhum | — | natural |
 | `payables_list` | Leitura | `finance.read` | A pagar = não liquidado (ADR 0029) | `PayablesService, OverviewService` | médio | nenhum | — | natural |
 | `income_list` | Leitura | `finance.read` | Renda pessoal, status derivado | `Income, income_status` | médio | nenhum | — | natural |
 | `recurring_list` | Leitura | `finance.read` | shared_or_mine_scope | `RecurringExpense, RecurringIncome` | baixo | nenhum | — | natural |
+| `recurring_get` | Leitura | `finance.read` | shared_or_mine_scope; divisão pelo snapshot (0012) | `RecurringService._participants + SplitService` | baixo | nenhum | — | natural |
+| `accounts_statement` | Leitura | `finance.read` | Saldo corrente desde a abertura; caixa = mesma origem dos totais (0022/0034) | `AccountBalanceService.statement, OverviewService.get_ledger` | médio — movimentos de caixa | nenhum | — | natural |
+| `transfers_list` | Leitura | `finance.read` | Só contas da pessoa | `AccountTransfer` | baixo | nenhum | — | natural |
+| `financings_list` | Leitura | `finance.read` | Contrato pessoal (ADR 0021); saldo devedor = principal em aberto | `Financing, AmortizationInstallment` | médio | nenhum | — | natural |
+| `financings_installment` | Escrita | `accounts.write` | Reivindicação atômica da parcela; estorno apaga a despesa vinculada | `commands.financing.pay_/unpay_installment` | alto — caixa | lança despesa no espaço se pedido; WS | host | por estado (definir X) |
 | `transactions_create` | Escrita | `transactions.write` | Divisão em centavos (0001), fatura (0002), parcelas, moeda (0006/0015), liquidação (0029) | `commands.transactions.create_transaction` | alto — cria dívida entre pessoas | WS + auditoria; cria fatura se preciso | host | `idempotency_key` |
 | `transactions_update` | Escrita | `transactions.write` | Máquina de estados (0003), trava de paga, vínculo de financiamento | `commands.transactions.update_*` | alto — reescreve valor/divisão | WS + auditoria; reroteia fatura | host | por estado (definir X) |
 | `transactions_delete` | Destrutiva | `transactions.write` | Soft delete; paga é imutável; anexos exigem prévia | `commands.transactions.delete_*` | alto | WS + auditoria; blobs de anexo liberados após o commit | host | por estado (definir X) |
@@ -35,20 +42,31 @@ Confirmação: `host` = o cliente pede confirmação por não ser `readOnlyHint`
 | `transactions_bulk_preview` | Leitura | `finance.read` | Elegibilidade = regras do delete/categorizar | `confirmation.issue` | baixo | grava só o token de confirmação (hash) | — | natural |
 | `transactions_bulk_delete` | Destrutiva | `transactions.write` | Conjunto exato da prévia, tudo ou nada | `commands.transactions.delete_transaction ×N` | alto — em massa | WS + auditoria; blobs após o commit | servidor (token) + host | token de uso único |
 | `transactions_bulk_categorize` | Escrita | `transactions.write` | Só sem categoria (regra do app) | `commands.transactions.bulk_categorize` | médio — em massa | WS + auditoria | servidor (token) + host | token de uso único |
+| `transactions_bulk_update` | Escrita | `transactions.write` | Conjunto exato da prévia, tudo ou nada; trava de paga | `commands.transactions.update_transaction ×N` | médio — em massa | WS + auditoria | host | token de uso único |
 | `imports_preview` | Leitura | `finance.read` | Fingerprint (ADR 0008) + heurística | `commands.imports._mark_duplicates` | baixo | nenhum | — | natural |
 | `imports_commit` | Escrita | `transactions.write` | Dedup por fingerprint (ADR 0008), trava do espaço | `commands.imports.commit_import` | alto — em lote | WS + auditoria | host | `idempotency_key` |
+| `imports_list` | Leitura | `finance.read` | Só os lotes que a própria pessoa importou | `ImportBatch, ImportRow` | baixo | nenhum | — | natural |
 | `statements_pay` | Escrita | `accounts.write` | Saldo cumulativo, sem sobrepagamento, UPDATE condicional | `commands.statements.pay_statement` | alto — caixa | fecha a fatura se o ciclo acabou; auditoria | host | `idempotency_key` |
 | `transfers_create` | Escrita | `accounts.write` | Moeda da conta = moeda do movimento (0034) | `commands.accounts.create_transfer` | alto — caixa | auditoria | host | `idempotency_key` |
 | `accounts_adjust_balance` | Escrita | `accounts.write` | Ajuste datado, não reescreve o passado (0034) | `commands.accounts.adjust_balance` | alto — caixa | auditoria | host | `idempotency_key` |
+| `transfers_delete` | Destrutiva | `accounts.write` | Soft delete das duas pernas | `commands.accounts.delete_transfer` | alto — caixa | auditoria | host | por estado (definir X) |
+| `statements_reopen` | Destrutiva | `accounts.write` | Estorna os pagamentos (reopen do app); sem pagamento, nada | `commands.statements.reopen_statement` | alto — caixa | a fatura volta um passo; auditoria | host | por estado (definir X) |
 | `income_create` | Escrita | `income.write` | Conversão na data do recebimento | `commands.income.create_income` | médio | auditoria | host | `idempotency_key` |
 | `income_update` | Escrita | `income.write` | Competência ≠ caixa; cancelada ocupa a vaga | `commands.income.*` | médio | auditoria | host | por estado (definir X) |
+| `income_delete` | Destrutiva | `income.write` | Exclusão lógica (a vaga da ocorrência fica) | `commands.income.delete_income` | médio | auditoria | host | por estado (definir X) |
+| `income_restore` | Escrita | `income.write` | Desfaz a exclusão lógica | `commands.income.restore_income` | baixo | auditoria | host | por estado (definir X) |
 | `settlements_create` | Escrita | `settlements.write` | Direção e teto da dívida (0009/0031), trava do espaço | `commands.settlements.create_settlement` | alto — dívida entre pessoas | WS + auditoria | host | `idempotency_key` |
 | `settlements_delete` | Destrutiva | `settlements.write` | Só o autor (ou admin) | `commands.settlements.delete_settlement` | alto | WS + auditoria | host | por estado (definir X) |
 | `recurring_create` | Escrita | `planning.write` | Snapshot da divisão (0012), cartão coerente (0032) | `commands.recurring.create_recurring` | médio | materializa ocorrências conforme `materialize`; WS | host | `idempotency_key` |
 | `recurring_update` | Escrita | `planning.write` | Pagas congeladas; escopo das não pagas (0012) | `commands.recurring.update_recurring` | médio | reescreve ocorrências não pagas; WS | host | por estado (definir X) |
+| `recurring_delete` | Destrutiva | `planning.write` | Lançado continua; `cancel_open_occurrences` cancela os não pagos (ADR 0030) | `commands.recurring.delete_recurring / income.delete_recurring_income` | médio | WS | host | por estado (definir X) |
 | `budgets_set` | Escrita | `planning.write` | Upsert por (espaço, dono, categoria, mês) | `commands.planning.create_estimate` | baixo | WS | host | por estado (definir X) |
-| `categories_create` | Escrita | `planning.write` | Nome único por espaço; excluída é reativada | `commands.planning.create_category` | baixo | WS | host | por estado (definir X) |
+| `categories_create` | Escrita | `planning.write` | Nome único por espaço; excluída é reativada (categoria ou tag) | `commands.planning.create_category / create_tag` | baixo | WS | host | por estado (definir X) |
+| `categories_update` | Escrita | `planning.write` | Nome único; tag excluída sai dos lançamentos | `commands.planning.update_*/delete_*` | médio — renomeia para todos | WS | host | por estado (definir X) |
 | `attachments_upload_link` | Escrita | `transactions.write` | Anexo pelo mesmo comando da tela (tipos, conteúdo real, cota; ADR 0007); link de uso único, 10 min | `commands/attachments.add_attachment` | médio — o link de envio aparece na conversa | emite o link; o curl cria 1 anexo | host | por estado (definir X) |
+| `attachments_get` | Leitura | `finance.read` | Anexo herda a visibilidade do lançamento (0018); teto de tamanho | `commands.attachments.read_attachment_bytes` | alto — o conteúdo vai para o provedor do agente | nenhum | — | natural |
+| `attachments_delete` | Destrutiva | `transactions.write` | Membro apaga os próprios; admin, qualquer um | `commands.attachments.delete_attachment` | alto — sem desfazer | blob liberado após o commit; WS | host | por estado (definir X) |
+| `attachments_add` | Escrita | `transactions.write` | Mesmo comando da tela (tipos, conteúdo real, cota); download SSRF-seguro com hosts permitidos | `services/remote_file + commands.attachments.store_attachment` | médio | cria 1 anexo; WS | host | por estado (definir X) |
 
 ## Por rota REST
 
@@ -114,28 +132,28 @@ Confirmação: `host` = o cliente pede confirmação por não ser `readOnlyHint`
 | `GET /api/v1/me/credit-cards/{card_id}/statements/{statement_id}` | Detalhe da fatura | `statements_get`, `statements_show` |  |
 | `POST /api/v1/me/credit-cards/{card_id}/statements/{statement_id}/close` | Fechar fatura | `statements_pay` | Só fechada junto com o pagamento, e só com o ciclo já encerrado. |
 | `POST /api/v1/me/credit-cards/{card_id}/statements/{statement_id}/pay` | Pagar fatura | `statements_pay` |  |
-| `POST /api/v1/me/credit-cards/{card_id}/statements/{statement_id}/reopen` | Reabrir fatura | **não exposta** | Operação rara e destrutiva, sem pedido real de uso por agente; fica no app, com a confirmação da tela. |
+| `POST /api/v1/me/credit-cards/{card_id}/statements/{statement_id}/reopen` | Reabrir fatura | `statements_reopen` | Só quando há pagamento a estornar: repetir a chamada não anda mais um passo. |
 | `GET /api/v1/me/debts` | Dívidas (todas as casas) | `debts_summary` |  |
 | `GET /api/v1/me/debts/by-month` | Dívidas por mês | `debts_summary` |  |
 | `GET /api/v1/me/debts/monthly` | Dívidas do mês | `debts_summary` |  |
-| `GET /api/v1/me/financing` | Financiamentos | `payables_list` | Financiamento é contrato com cronograma e quitação; o agente só lê as parcelas (payables_list). |
-| `POST /api/v1/me/financing` | Cadastrar financiamento | **não exposta** | Financiamento é contrato com cronograma e quitação; o agente só lê as parcelas (payables_list). |
-| `DELETE /api/v1/me/financing/{financing_id}` | Excluir financiamento | **não exposta** | Financiamento é contrato com cronograma e quitação; o agente só lê as parcelas (payables_list). |
-| `GET /api/v1/me/financing/{financing_id}` | Detalhe do financiamento | `payables_list` | Financiamento é contrato com cronograma e quitação; o agente só lê as parcelas (payables_list). |
-| `PUT /api/v1/me/financing/{financing_id}` | Editar financiamento | **não exposta** | Financiamento é contrato com cronograma e quitação; o agente só lê as parcelas (payables_list). |
-| `POST /api/v1/me/financing/{financing_id}/early-settlement` | Quitação antecipada | **não exposta** | Financiamento é contrato com cronograma e quitação; o agente só lê as parcelas (payables_list). |
-| `POST /api/v1/me/financing/{financing_id}/installments/settle-past` | Quitar parcelas passadas | **não exposta** | Financiamento é contrato com cronograma e quitação; o agente só lê as parcelas (payables_list). |
-| `POST /api/v1/me/financing/{financing_id}/installments/{installment_number}/pay` | Pagar parcela | **não exposta** | Financiamento é contrato com cronograma e quitação; o agente só lê as parcelas (payables_list). |
-| `POST /api/v1/me/financing/{financing_id}/installments/{installment_number}/unpay` | Desfazer pagamento de parcela | **não exposta** | Financiamento é contrato com cronograma e quitação; o agente só lê as parcelas (payables_list). |
-| `GET /api/v1/me/financing/{financing_id}/schedule` | Cronograma | `payables_list` | Financiamento é contrato com cronograma e quitação; o agente só lê as parcelas (payables_list). |
+| `GET /api/v1/me/financing` | Financiamentos | `financings_list`, `payables_list` | Financiamento é contrato com cronograma e quitação: cadastrar, editar, quitar ou excluir fica no app (decisão do dono). O agente lê tudo (financings_list) e paga/desfaz parcela (financings_installment). |
+| `POST /api/v1/me/financing` | Cadastrar financiamento | **não exposta** | Financiamento é contrato com cronograma e quitação: cadastrar, editar, quitar ou excluir fica no app (decisão do dono). O agente lê tudo (financings_list) e paga/desfaz parcela (financings_installment). |
+| `DELETE /api/v1/me/financing/{financing_id}` | Excluir financiamento | **não exposta** | Financiamento é contrato com cronograma e quitação: cadastrar, editar, quitar ou excluir fica no app (decisão do dono). O agente lê tudo (financings_list) e paga/desfaz parcela (financings_installment). |
+| `GET /api/v1/me/financing/{financing_id}` | Detalhe do financiamento | `financings_list` | Financiamento é contrato com cronograma e quitação: cadastrar, editar, quitar ou excluir fica no app (decisão do dono). O agente lê tudo (financings_list) e paga/desfaz parcela (financings_installment). |
+| `PUT /api/v1/me/financing/{financing_id}` | Editar financiamento | **não exposta** | Financiamento é contrato com cronograma e quitação: cadastrar, editar, quitar ou excluir fica no app (decisão do dono). O agente lê tudo (financings_list) e paga/desfaz parcela (financings_installment). |
+| `POST /api/v1/me/financing/{financing_id}/early-settlement` | Quitação antecipada | **não exposta** | Financiamento é contrato com cronograma e quitação: cadastrar, editar, quitar ou excluir fica no app (decisão do dono). O agente lê tudo (financings_list) e paga/desfaz parcela (financings_installment). |
+| `POST /api/v1/me/financing/{financing_id}/installments/settle-past` | Quitar parcelas passadas | **não exposta** | Financiamento é contrato com cronograma e quitação: cadastrar, editar, quitar ou excluir fica no app (decisão do dono). O agente lê tudo (financings_list) e paga/desfaz parcela (financings_installment). |
+| `POST /api/v1/me/financing/{financing_id}/installments/{installment_number}/pay` | Pagar parcela | `financings_installment` | action=pay |
+| `POST /api/v1/me/financing/{financing_id}/installments/{installment_number}/unpay` | Desfazer pagamento de parcela | `financings_installment` | action=unpay |
+| `GET /api/v1/me/financing/{financing_id}/schedule` | Cronograma | `financings_list` | Cronograma paginado com `financing`. |
 | `GET /api/v1/me/income` | Rendas | `income_list` |  |
 | `POST /api/v1/me/income` | Registrar renda | `income_create` |  |
-| `DELETE /api/v1/me/income/{income_id}` | Excluir renda | `income_update` | O agente cancela (status=cancelled), não apaga. |
+| `DELETE /api/v1/me/income/{income_id}` | Excluir renda | `income_delete`, `income_restore` | Exclusão lógica; income_restore desfaz (o app ainda não tem o botão). |
 | `PUT /api/v1/me/income/{income_id}` | Editar renda | `income_update` |  |
 | `POST /api/v1/me/income/{income_id}/cancel` | Cancelar renda | `income_update` |  |
 | `POST /api/v1/me/income/{income_id}/receive` | Confirmar recebimento | `income_update` |  |
 | `POST /api/v1/me/income/{income_id}/unreceive` | Desfazer recebimento | `income_update` |  |
-| `GET /api/v1/me/ledger` | Extrato global | `transactions_search`, `accounts_list` |  |
+| `GET /api/v1/me/ledger` | Extrato global | `accounts_statement` | Sem `account`: o caixa do mês, as mesmas linhas da tela. |
 | `GET /api/v1/me/notification-preferences` | Preferências de aviso | **não exposta** | Recurso de interface do app (notificações, push, avatar, preferências), sem sentido para um agente. |
 | `PUT /api/v1/me/notification-preferences` | Alterar preferências de aviso | **não exposta** | Recurso de interface do app (notificações, push, avatar, preferências), sem sentido para um agente. |
 | `GET /api/v1/me/overview` | Visão do mês | `reports_summary`, `reports_show` |  |
@@ -146,25 +164,25 @@ Confirmação: `host` = o cliente pede confirmação por não ser `readOnlyHint`
 | `PUT /api/v1/me/payment-accounts/{account_id}` | Editar conta | **não exposta** | Cadastro de cartão/conta é raro, tem efeitos em fatura e saldo, e é feito uma vez no app. |
 | `POST /api/v1/me/payment-accounts/{account_id}/adjustment` | Conciliar saldo | `accounts_adjust_balance` |  |
 | `PUT /api/v1/me/payment-accounts/{account_id}/opening-balance` | Saldo inicial | **não exposta** | Cadastro de cartão/conta é raro, tem efeitos em fatura e saldo, e é feito uma vez no app. |
-| `GET /api/v1/me/payment-accounts/{account_id}/statement` | Extrato da conta | `accounts_list`, `transactions_search` |  |
+| `GET /api/v1/me/payment-accounts/{account_id}/statement` | Extrato da conta | `accounts_statement` | Com saldo corrente linha a linha. |
 | `GET /api/v1/me/push/config` | Push: configuração | **não exposta** | Recurso de interface do app (notificações, push, avatar, preferências), sem sentido para um agente. |
 | `DELETE /api/v1/me/push/subscriptions` | Push: cancelar | **não exposta** | Recurso de interface do app (notificações, push, avatar, preferências), sem sentido para um agente. |
 | `POST /api/v1/me/push/subscriptions` | Push: assinar | **não exposta** | Recurso de interface do app (notificações, push, avatar, preferências), sem sentido para um agente. |
 | `GET /api/v1/me/recurring-income` | Rendas recorrentes | `recurring_list` |  |
-| `POST /api/v1/me/recurring-income` | Criar renda recorrente | **não exposta** | Renda recorrente (salário) é cadastrada uma vez no app; o agente registra rendas avulsas (income_create). |
+| `POST /api/v1/me/recurring-income` | Criar renda recorrente | `recurring_create` | kind=income |
 | `POST /api/v1/me/recurring-income/generate` | Gerar ocorrências de renda | **não exposta** | Materialização é do cron horário; leitura do agente nunca escreve. |
-| `DELETE /api/v1/me/recurring-income/{recurring_id}` | Excluir renda recorrente | **não exposta** | Operação rara e destrutiva, sem pedido real de uso por agente; fica no app, com a confirmação da tela. |
-| `PUT /api/v1/me/recurring-income/{recurring_id}` | Editar renda recorrente | **não exposta** | Fica no app (mesmo motivo da criação). |
+| `DELETE /api/v1/me/recurring-income/{recurring_id}` | Excluir renda recorrente | `recurring_delete` | kind=income |
+| `PUT /api/v1/me/recurring-income/{recurring_id}` | Editar renda recorrente | `recurring_update` | kind=income |
 | `GET /api/v1/me/registration-invites` | Meus convites de cadastro | **não exposta** | Quem participa de um espaço e com que papel muda quem vê o dinheiro de outras pessoas: decisão humana, no app. |
 | `POST /api/v1/me/registration-invites` | Convidar alguém para o site | **não exposta** | Quem participa de um espaço e com que papel muda quem vê o dinheiro de outras pessoas: decisão humana, no app. |
 | `PATCH /api/v1/me/report-currency` | Moeda de relatório | **não exposta** | Recurso de interface do app (notificações, push, avatar, preferências), sem sentido para um agente. |
-| `GET /api/v1/me/reports` | Relatórios pessoais | `reports_summary`, `budgets_list` |  |
+| `GET /api/v1/me/reports` | Relatórios pessoais | `reports_summary`, `reports_breakdown`, `budgets_list` |  |
 | `GET /api/v1/me/search` | Busca global | `transactions_search` |  |
 | `GET /api/v1/me/settlements` | Acertos (todas as casas) | `debts_summary` |  |
 | `PUT /api/v1/me/settlements/{settlement_id}/account` | Conta do credor num acerto | **não exposta** | Operação rara e destrutiva, sem pedido real de uso por agente; fica no app, com a confirmação da tela. |
-| `GET /api/v1/me/transfers` | Transferências | `accounts_list` |  |
+| `GET /api/v1/me/transfers` | Transferências | `transfers_list` |  |
 | `POST /api/v1/me/transfers` | Transferir entre contas | `transfers_create` |  |
-| `DELETE /api/v1/me/transfers/{transfer_id}` | Excluir transferência | **não exposta** | Operação rara e destrutiva, sem pedido real de uso por agente; fica no app, com a confirmação da tela. |
+| `DELETE /api/v1/me/transfers/{transfer_id}` | Excluir transferência | `transfers_delete` |  |
 | `GET /api/v1/notifications` | Notificações | **não exposta** | Recurso de interface do app (notificações, push, avatar, preferências), sem sentido para um agente. |
 | `POST /api/v1/notifications/read-all` | Marcar todas como lidas | **não exposta** | Recurso de interface do app (notificações, push, avatar, preferências), sem sentido para um agente. |
 | `POST /api/v1/notifications/{notification_id}/read` | Marcar como lida | **não exposta** | Recurso de interface do app (notificações, push, avatar, preferências), sem sentido para um agente. |
@@ -178,23 +196,23 @@ Confirmação: `host` = o cliente pede confirmação por não ser `readOnlyHint`
 | `GET /api/v1/workspaces/{workspace_id}` | Detalhe do espaço | `spaces_list` |  |
 | `PUT /api/v1/workspaces/{workspace_id}` | Editar espaço | **não exposta** | Criar/excluir espaço ou trocar a moeda-base reescreve a visão de todos os membros: raro e amplo demais para um agente. |
 | `GET /api/v1/workspaces/{workspace_id}/base-currency/preview` | Prévia de troca de moeda-base | **não exposta** | Criar/excluir espaço ou trocar a moeda-base reescreve a visão de todos os membros: raro e amplo demais para um agente. |
-| `GET /api/v1/workspaces/{workspace_id}/audit` | Auditoria do espaço | **não exposta** | Trilha é sensível (admin do espaço) e mostra ações de outros membros; o agente vê a própria atividade na tela de Integrações. |
+| `GET /api/v1/workspaces/{workspace_id}/audit` | Auditoria do espaço | `transactions_history` | O espaço inteiro segue só no app (admin). O agente vê o histórico de UM lançamento que a pessoa já vê (decisão do dono). |
 | `GET /api/v1/workspaces/{workspace_id}/analytics/estimates` | Metas do mês | `budgets_list` |  |
 | `POST /api/v1/workspaces/{workspace_id}/analytics/estimates` | Definir meta | `budgets_set` |  |
 | `DELETE /api/v1/workspaces/{workspace_id}/analytics/estimates/{estimate_id}` | Excluir meta | `budgets_set` | Zerar a meta (amount=0) em vez de apagar. |
 | `PUT /api/v1/workspaces/{workspace_id}/analytics/estimates/{estimate_id}` | Editar meta | `budgets_set` |  |
 | `GET /api/v1/workspaces/{workspace_id}/analytics/exchange-rate` | Cotação isolada | `transactions_create` | A conversão acontece dentro da criação (PTAX + IOF), não como consulta solta. |
 | `GET /api/v1/workspaces/{workspace_id}/analytics/forecast` | Previsão | `reports_summary`, `payables_list` |  |
-| `GET /api/v1/workspaces/{workspace_id}/analytics/reports` | Relatórios do espaço | `reports_summary` |  |
+| `GET /api/v1/workspaces/{workspace_id}/analytics/reports` | Relatórios do espaço | `reports_summary`, `reports_breakdown` |  |
 | `GET /api/v1/workspaces/{workspace_id}/analytics/summary` | Resumo do espaço | `reports_summary` |  |
 | `GET /api/v1/workspaces/{workspace_id}/categories` | Categorias | `categories_list` |  |
 | `POST /api/v1/workspaces/{workspace_id}/categories` | Criar categoria | `categories_create` |  |
-| `DELETE /api/v1/workspaces/{workspace_id}/categories/{category_id}` | Excluir categoria | **não exposta** | Operação rara e destrutiva, sem pedido real de uso por agente; fica no app, com a confirmação da tela. |
-| `PUT /api/v1/workspaces/{workspace_id}/categories/{category_id}` | Editar categoria | **não exposta** | Operação rara e destrutiva, sem pedido real de uso por agente; fica no app, com a confirmação da tela. |
+| `DELETE /api/v1/workspaces/{workspace_id}/categories/{category_id}` | Excluir categoria | `categories_update` | delete=true |
+| `PUT /api/v1/workspaces/{workspace_id}/categories/{category_id}` | Editar categoria | `categories_update` |  |
 | `GET /api/v1/workspaces/{workspace_id}/tags` | Tags | `categories_list` |  |
-| `POST /api/v1/workspaces/{workspace_id}/tags` | Criar tag | **não exposta** | Tags são vocabulário da casa, criadas no app; o agente usa as existentes. |
-| `DELETE /api/v1/workspaces/{workspace_id}/tags/{tag_id}` | Excluir tag | **não exposta** | Operação rara e destrutiva, sem pedido real de uso por agente; fica no app, com a confirmação da tela. |
-| `PUT /api/v1/workspaces/{workspace_id}/tags/{tag_id}` | Editar tag | **não exposta** | Operação rara e destrutiva, sem pedido real de uso por agente; fica no app, com a confirmação da tela. |
+| `POST /api/v1/workspaces/{workspace_id}/tags` | Criar tag | `categories_create` | kind=tag |
+| `DELETE /api/v1/workspaces/{workspace_id}/tags/{tag_id}` | Excluir tag | `categories_update` | kind=tag, delete=true |
+| `PUT /api/v1/workspaces/{workspace_id}/tags/{tag_id}` | Editar tag | `categories_update` | kind=tag |
 | `GET /api/v1/workspaces/{workspace_id}/debts` | Quem deve a quem (acumulado) | `debts_summary` |  |
 | `GET /api/v1/workspaces/{workspace_id}/debts/by-month` | Dívidas por mês | `debts_summary` |  |
 | `GET /api/v1/workspaces/{workspace_id}/debts/monthly` | Ledger do mês | `debts_summary` |  |
@@ -206,24 +224,24 @@ Confirmação: `host` = o cliente pede confirmação por não ser `readOnlyHint`
 | `GET /api/v1/workspaces/{workspace_id}/recurring` | Recorrências | `recurring_list` |  |
 | `POST /api/v1/workspaces/{workspace_id}/recurring` | Criar recorrência | `recurring_create` |  |
 | `POST /api/v1/workspaces/{workspace_id}/recurring/generate` | Gerar ocorrências | **não exposta** | Materialização é do cron horário; leitura do agente nunca escreve. |
-| `DELETE /api/v1/workspaces/{workspace_id}/recurring/{recurring_id}` | Excluir recorrência | `recurring_update` | O agente pausa (active=false); excluir fica no app. |
-| `GET /api/v1/workspaces/{workspace_id}/recurring/{recurring_id}` | Detalhe da recorrência | `recurring_list` |  |
+| `DELETE /api/v1/workspaces/{workspace_id}/recurring/{recurring_id}` | Excluir recorrência | `recurring_delete`, `recurring_update` | Pausar é recurring_update active=false; excluir de vez, recurring_delete. |
+| `GET /api/v1/workspaces/{workspace_id}/recurring/{recurring_id}` | Detalhe da recorrência | `recurring_get` |  |
 | `PUT /api/v1/workspaces/{workspace_id}/recurring/{recurring_id}` | Editar recorrência | `recurring_update` | Sem o fluxo de revisão por ocorrência (ADR 0030): usa o escopo none\|future\|all. |
 | `POST /api/v1/workspaces/{workspace_id}/recurring/{recurring_id}/preview` | Prévia da revisão | **não exposta** | Revisão ocorrência a ocorrência é interação de tela; o agente usa apply_to. |
 | `POST /api/v1/workspaces/{workspace_id}/imports/parse` | Ler CSV | `imports_preview` | O agente extrai as linhas do extrato (PDF, foto, texto); o app confere duplicatas. |
-| `POST /api/v1/workspaces/{workspace_id}/imports/commit` | Importar lote | `imports_commit` |  |
+| `POST /api/v1/workspaces/{workspace_id}/imports/commit` | Importar lote | `imports_commit`, `imports_list` | Os lotes feitos (e desfazer um) em imports_list + transactions_bulk_preview com import_batch_id. |
 | `GET /api/v1/workspaces/{workspace_id}/transactions/` | Lançamentos do espaço | `transactions_search` |  |
 | `POST /api/v1/workspaces/{workspace_id}/transactions/` | Criar lançamento | `transactions_create` |  |
 | `POST /api/v1/workspaces/{workspace_id}/transactions/bulk` | Criar em lote | `imports_commit`, `transactions_create` | Lote pela importação (com dedup) ou uma criação por despesa (com idempotency_key). |
-| `POST /api/v1/workspaces/{workspace_id}/transactions/bulk-categorize` | Categorizar em lote | `transactions_bulk_preview`, `transactions_bulk_categorize` |  |
+| `POST /api/v1/workspaces/{workspace_id}/transactions/bulk-categorize` | Categorizar em lote | `transactions_bulk_preview`, `transactions_bulk_categorize`, `transactions_bulk_update` | Recategorizar, tag e marcar como pago em lote: transactions_bulk_update, pela mesma prévia. |
 | `POST /api/v1/workspaces/{workspace_id}/transactions/preview` | Prévia da divisão | `transactions_create` | A saída da criação já traz a divisão calculada. |
 | `DELETE /api/v1/workspaces/{workspace_id}/transactions/{transaction_id}` | Excluir lançamento | `transactions_delete`, `transactions_bulk_preview`, `transactions_bulk_delete` |  |
 | `GET /api/v1/workspaces/{workspace_id}/transactions/{transaction_id}` | Ver lançamento | `transactions_get`, `transactions_show` |  |
 | `PUT /api/v1/workspaces/{workspace_id}/transactions/{transaction_id}` | Editar lançamento | `transactions_update` |  |
-| `GET /api/v1/workspaces/{workspace_id}/transactions/{transaction_id}/attachments` | Anexos do lançamento | `transactions_get` | O agente vê só a contagem de anexos. Arquivo binário: o agente não lê nem apaga anexos. |
-| `POST /api/v1/workspaces/{workspace_id}/transactions/{transaction_id}/attachments` | Enviar anexo | `attachments_upload_link` | Pelo terminal: `attachments_upload_link` emite um link de uso único e o arquivo vai do disco direto para o app (curl), pelo mesmo comando da tela. Nos apps de chat na web, pela tela. |
-| `DELETE /api/v1/workspaces/{workspace_id}/attachments/{attachment_id}` | Excluir anexo | **não exposta** | Arquivo binário: o agente não lê nem apaga anexos. |
-| `GET /api/v1/workspaces/{workspace_id}/attachments/{attachment_id}` | Baixar anexo | **não exposta** | Arquivo binário: o agente não lê nem apaga anexos. |
+| `GET /api/v1/workspaces/{workspace_id}/transactions/{transaction_id}/attachments` | Anexos do lançamento | `transactions_get` | `files` traz os metadados de cada anexo. |
+| `POST /api/v1/workspaces/{workspace_id}/transactions/{transaction_id}/attachments` | Enviar anexo | `attachments_upload_link`, `attachments_add` | No ChatGPT, o arquivo que a pessoa pôs na conversa chega por `openai/fileParams` e o servidor o baixa (attachments_add, hosts permitidos em MCP_FILE_URL_HOSTS). Pelo terminal: attachments_upload_link. |
+| `DELETE /api/v1/workspaces/{workspace_id}/attachments/{attachment_id}` | Excluir anexo | `attachments_delete` | Anexos: o agente lê o conteúdo (attachments_get) e apaga (attachments_delete). |
+| `GET /api/v1/workspaces/{workspace_id}/attachments/{attachment_id}` | Baixar anexo | `attachments_get` | Imagem ou PDF entregue ao modelo até MCP_ATTACHMENT_TO_MODEL_MAX_BYTES. |
 | `DELETE /api/v1/workspaces/{workspace_id}/transactions/{transaction_id}/installment-group` | Excluir compra parcelada | `transactions_delete` | scope=purchase |
 | `GET /api/v1/workspaces/{workspace_id}/transactions/{transaction_id}/installment-group` | Compra parcelada inteira | `transactions_search`, `transactions_get` |  |
 | `PUT /api/v1/workspaces/{workspace_id}/transactions/{transaction_id}/installment-group` | Editar compra parcelada | `transactions_update` | scope=purchase |

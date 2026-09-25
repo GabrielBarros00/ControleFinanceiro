@@ -75,8 +75,8 @@ def _com_sinal(valor: Any) -> Decimal:
 _SCHEMA_ENTRADA = {
     "type": "string",
     "pattern": r"^\d{1,16}([.,]\d{1,2})?$",
-    "description": "Valor em string decimal com ponto e até 2 casas.",
-    "examples": ["89.90", "3000", "0.99"],
+    "description": "Decimal em texto, até 2 casas.",
+    "examples": ["89.90"],
 }
 
 #: Valor > 0 (preço, total, parcela).
@@ -110,6 +110,34 @@ PercentIn = Annotated[
         "type": "string",
         "pattern": r"^\d{1,3}([.,]\d{1,2})?$",
         "description": "Percentual entre 0 e 100 em string decimal, ex.: \"50\" ou \"33.33\".",
+    }),
+]
+
+
+_QUANTIDADE = re.compile(r"^\d{1,9}([.,]\d{1,3})?$")
+
+
+def _quantidade(valor: Any) -> Decimal:
+    """Quantidade de um item da nota: > 0, até 3 casas (1,250 kg)."""
+    if isinstance(valor, bool):
+        raise ValueError("quantidade inválida")
+    texto = (repr(valor) if isinstance(valor, float) else str(valor)).strip()
+    if not _QUANTIDADE.match(texto):
+        raise ValueError("quantidade em string decimal com até 3 casas, ex.: \"2\" ou \"1.250\"")
+    numero = Decimal(texto.replace(",", "."))
+    if numero <= 0:
+        raise ValueError("quantidade deve ser maior que zero")
+    return numero
+
+
+#: Quantidade de item: 0 < q, até 3 casas.
+QuantityIn = Annotated[
+    Decimal,
+    BeforeValidator(_quantidade),
+    WithJsonSchema({
+        "type": "string",
+        "pattern": r"^\d{1,9}([.,]\d{1,3})?$",
+        "description": "Quantidade em string decimal, até 3 casas (ex.: \"2\", \"1.250\").",
     }),
 ]
 

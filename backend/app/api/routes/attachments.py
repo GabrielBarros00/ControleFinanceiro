@@ -13,15 +13,12 @@ from app.models.attachment import Attachment
 from app.models.transaction import Transaction
 from app.models.workspace import WorkspaceMembership, WorkspaceRole
 from app.api.deps import get_workspace_membership, require_role
-from app.domain.access_policy import assert_can_write, get_visible_transaction
+from app.domain.access_policy import get_visible_transaction
 from app.services import upload_validation
 from app.services.attachment_storage import (
-    AttachmentStorage,
     free_keys,
-    keys_to_free,
 )
 from app.services.commands import attachments as cmd_anexos
-from app.services.event_service import publish_event
 
 logger = structlog.get_logger("app.attachments")
 
@@ -91,16 +88,7 @@ def list_attachments(
     ).all()
 
 
-def read_attachment_bytes(attachment: Attachment) -> Optional[bytes]:
-    """Conteúdo do anexo: do armazenamento (ADR 0007) ou da coluna LEGADA.
-
-    O fallback existe porque a migração de schema não move os bytes — quem já
-    tinha recibos continua servindo do banco até rodar
-    `scripts/migrate_attachments_to_disk.py`.
-    """
-    if attachment.storage_key:
-        return AttachmentStorage.read(attachment.storage_key)
-    return attachment.data
+read_attachment_bytes = cmd_anexos.read_attachment_bytes
 
 
 @router.get("/attachments/{attachment_id}")
@@ -153,26 +141,7 @@ def delete_attachment(
     session: Session = Depends(get_session),
     membership: WorkspaceMembership = Depends(require_role(WorkspaceRole.member)),
 ):
-    attachment = session.get(Attachment, attachment_id)
-    if not attachment or attachment.workspace_id != workspace_id:
-        raise HTTPException(status_code=404, detail="Anexo não encontrado")
-
-    # Invisível responde 404 antes de qualquer coisa: um 403 aqui confirmaria que
-    # o anexo existe naquele id
-    _get_transaction_or_404(session, workspace_id, attachment.transaction_id, membership)
-
-    # Member remove apenas os próprios anexos; admin+ remove qualquer um
-    assert_can_write(
-        attachment.uploaded_by_user_id,
-        membership,
-        detail="Você só pode remover os próprios anexos",
-    )
-
-    # Quais objetos ficarão sem referência (o armazenamento dedupica por
-    # conteúdo). Calculado ANTES de remover a linha; aplicado DEPOIS do commit.
-    liberar = keys_to_free(session, [attachment])
-    session.delete(attachment)
-    publish_event(session, workspace_id, "attachment.deleted", "attachment", attachment_id, membership.user_id)
+    liberar = cmd_anexos.delete_attachment(session, workspace_id, attachment_id, membership)
     session.commit()
     free_keys(liberar)
     return {"status": "ok"}

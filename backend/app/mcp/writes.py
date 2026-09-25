@@ -176,8 +176,15 @@ class Division:
 
 
 def build_division(
-    session: Session, workspace_id: int, me_id: int, d: DivisionIn, total: Decimal
+    session: Session, workspace_id: int, me_id: int, d: DivisionIn, total: Decimal,
+    *, items_have_division: bool = False,
 ) -> Division:
+    """Pagador e divisão do total.
+
+    `items_have_division`: todos os itens da nota trazem a própria divisão, então
+    o total não precisa de uma (e outra pessoa pode ter pago sem que a tool exija
+    `split_with`). Os itens resolvem as partes em `app/mcp/items.py`.
+    """
     membros = resolve.space_members(session, workspace_id)
 
     def pessoa(nome: Optional[str], pid: Optional[int]) -> resolve.Match:
@@ -227,6 +234,8 @@ def build_division(
                 splits.append(TransactionSplitBase(user_id=m.id, split_method=SplitMethod.fixed, input_value=parte.amount))
             else:
                 splits.append(TransactionSplitBase(user_id=m.id, split_method=SplitMethod.percentage, input_value=parte.percent))
+    elif items_have_division:
+        participantes, splits = [], []
     else:
         if pagador.id != me_id:
             raise McpToolError(

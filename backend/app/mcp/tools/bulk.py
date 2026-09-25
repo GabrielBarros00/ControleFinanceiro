@@ -33,9 +33,10 @@ from app.mcp.serializers import app_url, load_bundle, to_brief
 from app.mcp.tools.transactions import WIDGET, SearchFilters, build_filters
 from app.mcp.writes import ConfirmationToken, membership_for_write
 from app.models.attachment import Attachment
-from app.models.transaction import Transaction, TransactionItem, TransactionStatus
+from app.models.tag import TransactionTagLink
+from app.models.transaction import SplitMode, Transaction, TransactionItem, TransactionStatus
 from app.models.workspace import WorkspaceRole, role_level
-from app.schemas.transaction import BulkCategorizeRequest
+from app.schemas.transaction import BulkCategorizeRequest, TransactionUpdate
 from app.services import transaction_query
 from app.services.attachment_storage import free_keys
 from app.services.commands import transactions as tx_cmd
@@ -45,8 +46,16 @@ AMOSTRA = 10
 MAX_INELEGIVEIS = 20
 
 
+_ACOES_DE_EDICAO = ("recategorize", "tag", "untag", "settle")
+
+
 class BulkPreviewIn(ToolInput):
-    action: Literal["delete", "categorize"] = Field(description="O que fazer com o conjunto.")
+    action: Literal["delete", "categorize", "recategorize", "tag", "untag", "settle"] = Field(
+        description=(
+            "delete = excluir; categorize = pôr categoria nos SEM categoria; recategorize = trocar a "
+            "categoria; tag / untag = pôr/tirar uma tag; settle = marcar como pago."
+        ),
+    )
     transaction_ids: Optional[List[int]] = Field(
         None, min_length=1, max_length=settings.MCP_BULK_MAX_ITEMS,
         description="Ids exatos (de transactions_search). Use isto OU `filters`.",
@@ -54,8 +63,9 @@ class BulkPreviewIn(ToolInput):
     filters: Optional[SearchFilters] = Field(
         None, description="Os mesmos filtros de transactions_search (ao menos um). Use isto OU `transaction_ids`.",
     )
-    category: Optional[str] = Field(None, max_length=120, description="Categoria a aplicar (action=categorize).")
+    category: Optional[str] = Field(None, max_length=120, description="Categoria a aplicar (categorize/recategorize).")
     category_id: Optional[int] = None
+    tag: Optional[str] = Field(None, max_length=60, description="Tag a pôr ou tirar (tag/untag).")
 
     @model_validator(mode="after")
     def _alvo(self):
@@ -63,11 +73,16 @@ class BulkPreviewIn(ToolInput):
             raise ValueError("informe transaction_ids OU filters (exatamente um)")
         if self.filters is not None and not self.filters.model_dump(exclude_defaults=True):
             raise ValueError("filters precisa de ao menos um critério — não há ação em massa sobre tudo")
-        if self.action == "categorize":
+        if self.action in ("categorize", "recategorize"):
             if (self.category is None) == (self.category_id is None):
                 raise ValueError("para categorizar, informe category OU category_id")
         elif self.category is not None or self.category_id is not None:
-            raise ValueError("category só vale com action=categorize")
+            raise ValueError("category só vale com action=categorize ou recategorize")
+        if self.action in ("tag", "untag"):
+            if not self.tag:
+                raise ValueError("informe a tag")
+        elif self.tag is not None:
+            raise ValueError("tag só vale com action=tag ou untag")
         return self
 
 
@@ -87,24 +102,38 @@ class BulkPreviewOut(BaseModel):
     not_found_ids: List[int] = Field(default_factory=list, description="Ids pedidos que não existem ou não são visíveis.")
     attachments: int = Field(0, description="Anexos (recibos) que seriam apagados para sempre (action=delete).")
     category: Optional[Ref] = None
+    tag: Optional[Ref] = None
     space: Optional[Ref] = None
     confirmation_token: Optional[str] = Field(None, description="Passe para a tool de execução DEPOIS de o usuário confirmar.")
     expires_at: Optional[datetime] = None
     next_step: str
 
 
-def _inelegivel(tx: Transaction, action: str, membership, categorizados: set[int]) -> Optional[str]:
+def _inelegivel(
+    tx: Transaction, action: str, membership, categorizados: set[int], *,
+    detalhados: frozenset | set = frozenset(), tags: Optional[dict] = None, tag_id: Optional[int] = None,
+) -> Optional[str]:
     if membership is None or role_level(membership.role) < role_level(WorkspaceRole.member):
         return "seu papel neste espaço é somente leitura"
     if not can_write(tx.created_by_user_id, membership):
         return "lançamento de outra pessoa"
-    if action == "delete" and tx.status == TransactionStatus.paid:
+    if action in ("delete",) + _ACOES_DE_EDICAO and tx.status == TransactionStatus.paid:
         return "marcado como pago (reabra antes)"
-    if action == "categorize":
-        if tx.status == TransactionStatus.cancelled:
-            return "cancelado"
-        if tx.id in categorizados:
-            return "já tem categoria (use transactions_update para trocar)"
+    if action in ("categorize", "recategorize", "settle") and tx.status == TransactionStatus.cancelled:
+        return "cancelado"
+    if action == "categorize" and tx.id in categorizados:
+        return "já tem categoria (use recategorize para trocar)"
+    if action == "recategorize" and tx.id in detalhados:
+        return "tem itens com categorias próprias (edite um a um)"
+    if action == "tag" and tag_id is not None and tag_id in (tags or {}).get(tx.id, set()):
+        return "já tem a tag"
+    if action == "untag" and tag_id is not None and tag_id not in (tags or {}).get(tx.id, set()):
+        return "não tem a tag"
+    if action == "settle":
+        if tx.credit_card_id:
+            return "compra no cartão se paga pela fatura"
+        if tx.settled_at is not None:
+            return "já está paga"
     return None
 
 
@@ -120,15 +149,16 @@ def _totais(txs: list[Transaction]) -> List[MoneyTotal]:
     name="transactions_bulk_preview",
     title="Prévia de ação em massa",
     description=(
-        "Primeiro passo OBRIGATÓRIO para excluir ou categorizar vários lançamentos (ou um lançamento "
-        "com anexos). Não altera nada: calcula o conjunto exato, o total, uma amostra e o que ficou de "
-        "fora, e devolve um `confirmation_token` válido por 10 minutos.\n"
-        "Use quando: o usuário pedir para apagar/categorizar vários lançamentos (\"apague as compras "
-        "do McDonald's deste mês\", \"categorize tudo sem categoria de setembro como Mercado\").\n"
+        "Primeiro passo OBRIGATÓRIO para alterar vários lançamentos (ou excluir um com anexos): "
+        "excluir, categorizar os sem categoria, trocar categoria, pôr/tirar tag, marcar como pago — ou "
+        "DESFAZER UMA IMPORTAÇÃO (action=delete com filters.import_batch_id). Não altera nada: calcula "
+        "o conjunto exato, o total, uma amostra e o que ficou de fora, e devolve um `confirmation_token` "
+        "válido por 10 minutos.\n"
+        "Use quando: \"apague as compras do McDonald's deste mês\", \"categorize tudo sem categoria de "
+        "setembro como Mercado\", \"ponha a tag viagem nas compras de julho\".\n"
         "Não use quando: for um único lançamento sem anexos (transactions_delete/transactions_update).\n"
-        "Depois: MOSTRE count, total e amostra ao usuário e só com a confirmação dele chame "
-        "transactions_bulk_delete ou transactions_bulk_categorize com o token. Categorizar só alcança "
-        "lançamentos SEM categoria."
+        "Depois: MOSTRE count, total e amostra ao usuário e só com a confirmação dele chame a tool que "
+        "`next_step` indicar (bulk_delete, bulk_categorize ou bulk_update) com o token."
     ),
     input_model=BulkPreviewIn,
     output_model=BulkPreviewOut,
@@ -172,21 +202,32 @@ def transactions_bulk_preview(call: ToolCall) -> ToolOutput:
     nao_achados = sorted(set(a.transaction_ids or []) - {t.id for t in txs})
 
     por_espaco = {m.workspace_id: m for m in memberships}
-    categorizados: set[int] = set()
-    if a.action == "categorize" and txs:
-        categorizados = set(call.session.exec(
-            select(TransactionItem.transaction_id).where(
-                TransactionItem.transaction_id.in_([t.id for t in txs]),
-                TransactionItem.category_id.is_not(None),
+    categorizados, detalhados, tags_de = _estado_para_elegibilidade(call, txs)
+
+    # Tag e categoria são do espaço: com ação que usa uma delas, o conjunto tem de
+    # estar num espaço só (resolvido ANTES da elegibilidade, que depende da tag).
+    categoria = espaco = etiqueta = None
+    alvo_tag_id = None
+    if a.action in ("tag", "untag") and txs:
+        espacos_tag = {t.workspace_id for t in txs}
+        if len(espacos_tag) > 1:
+            raise McpToolError(
+                ErrorCode.VALIDATION_ERROR,
+                "Os lançamentos estão em mais de um espaço, e cada espaço tem as próprias tags. "
+                "Restrinja com filters.space e faça uma prévia por espaço.",
+                details={"space_ids": sorted(espacos_tag)},
             )
-        ).all())
+        ws_tag = next(iter(espacos_tag))
+        alvo_tag_id = resolve.resolve_tags(call.session, ws_tag, [a.tag])[0]
     elegiveis, fora = [], []
     for t in txs:
-        motivo = _inelegivel(t, a.action, por_espaco.get(t.workspace_id), categorizados)
+        motivo = _inelegivel(
+            t, a.action, por_espaco.get(t.workspace_id), categorizados,
+            detalhados=detalhados, tags=tags_de, tag_id=alvo_tag_id,
+        )
         (fora if motivo else elegiveis).append((t, motivo))
 
-    categoria = espaco = None
-    if a.action == "categorize" and elegiveis:
+    if a.action in ("categorize", "recategorize", "tag", "untag", "settle") and elegiveis:
         espacos = {t.workspace_id for t, _ in elegiveis}
         if len(espacos) > 1:
             raise McpToolError(
@@ -196,8 +237,12 @@ def transactions_bulk_preview(call: ToolCall) -> ToolOutput:
                 details={"space_ids": sorted(espacos)},
             )
         ws_id = espacos.pop()
-        cat = resolve.resolve_category(call.session, ws_id, category_id=a.category_id, category=a.category)
-        categoria = Ref(id=cat.id, name=cat.name)
+        if a.action in ("categorize", "recategorize"):
+            cat = resolve.resolve_category(call.session, ws_id, category_id=a.category_id, category=a.category)
+            categoria = Ref(id=cat.id, name=cat.name)
+        if alvo_tag_id is not None:
+            nome_tag = next(t.name for t in resolve.space_tags(call.session, ws_id) if t.id == alvo_tag_id)
+            etiqueta = Ref(id=alvo_tag_id, name=nome_tag)
         ref = next(r for r in resolve.user_spaces(call.session, me) if r.id == ws_id)
         espaco = Ref(id=ws_id, name=ref.workspace.name)
 
@@ -211,13 +256,23 @@ def transactions_bulk_preview(call: ToolCall) -> ToolOutput:
 
     token = expira = None
     if so_txs:
-        acao = "bulk_delete" if a.action == "delete" else "bulk_categorize"
-        params = {"category_id": categoria.id, "space_id": espaco.id} if categoria else {}
-        token, expira = confirmation.issue(call, acao, [t.id for t in so_txs], params)
+        executora = {
+            "delete": ("bulk_delete", "transactions_bulk_delete"),
+            "categorize": ("bulk_categorize", "transactions_bulk_categorize"),
+        }.get(a.action, ("bulk_update", "transactions_bulk_update"))
+        params: dict = {}
+        if a.action == "categorize":
+            params = {"category_id": categoria.id, "space_id": espaco.id}
+        elif a.action in _ACOES_DE_EDICAO:
+            params = {"action": a.action, "space_id": espaco.id}
+            if categoria:
+                params["category_id"] = categoria.id
+            if etiqueta:
+                params["tag_id"] = etiqueta.id
+        token, expira = confirmation.issue(call, executora[0], [t.id for t in so_txs], params)
         proximo = (
             "Mostre a prévia ao usuário. Só depois da confirmação dele chame "
-            + ("transactions_bulk_delete" if a.action == "delete" else "transactions_bulk_categorize")
-            + " com o confirmation_token (vale 10 minutos, uma vez)."
+            + executora[1] + " com o confirmation_token (vale 10 minutos, uma vez)."
         )
     else:
         proximo = "Nada a fazer: nenhum lançamento elegível. Explique ao usuário o motivo (ver `ineligible`)."
@@ -232,12 +287,20 @@ def transactions_bulk_preview(call: ToolCall) -> ToolOutput:
         not_found_ids=nao_achados,
         attachments=anexos,
         category=categoria,
+        tag=etiqueta,
         space=espaco,
         confirmation_token=token,
         expires_at=expira,
         next_step=proximo,
     )
-    verbo = "excluir" if a.action == "delete" else f"categorizar como {categoria.name}" if categoria else "categorizar"
+    verbo = {
+        "delete": "excluir",
+        "categorize": f"categorizar como {categoria.name}" if categoria else "categorizar",
+        "recategorize": f"mudar a categoria para {categoria.name}" if categoria else "recategorizar",
+        "tag": f"pôr a tag {etiqueta.name}" if etiqueta else "pôr a tag",
+        "untag": f"tirar a tag {etiqueta.name}" if etiqueta else "tirar a tag",
+        "settle": "marcar como pago",
+    }[a.action]
     total_txt = "; ".join(fmt_brl(t.amount, t.currency) for t in saida.totals) or "nada"
     resumo = f"Prévia: {verbo} {saida.count} lançamento(s), total {total_txt}."
     if anexos:
@@ -395,6 +458,100 @@ def transactions_bulk_categorize(call: ToolCall) -> ToolOutput:
     return ToolOutput(
         structured=BulkResult(**resultado),
         summary=resumo,
+        entity_type="transaction",
+        entity_ids=ids,
+        space_id=ws_id,
+    )
+
+
+# --- transactions_bulk_update ---------------------------------------------------------
+
+def _estado_para_elegibilidade(call: ToolCall, txs: list[Transaction]) -> tuple[set[int], set[int], dict[int, set[int]]]:
+    """(com categoria, detalhados por item, tags de cada um) — o que decide quem entra."""
+    ids = [t.id for t in txs]
+    if not ids:
+        return set(), set(), {}
+    categorizados = set(call.session.exec(
+        select(TransactionItem.transaction_id).where(
+            TransactionItem.transaction_id.in_(ids), TransactionItem.category_id.is_not(None),
+        )
+    ).all())
+    contagem = dict(call.session.exec(
+        select(TransactionItem.transaction_id, func.count())
+        .where(TransactionItem.transaction_id.in_(ids)).group_by(TransactionItem.transaction_id)
+    ).all())
+    detalhados = {t.id for t in txs if t.split_mode == SplitMode.item or contagem.get(t.id, 0) > 1}
+    tags: dict[int, set[int]] = defaultdict(set)
+    for tx_id, tag_id in call.session.exec(
+        select(TransactionTagLink.transaction_id, TransactionTagLink.tag_id).where(TransactionTagLink.transaction_id.in_(ids))
+    ).all():
+        tags[tx_id].add(tag_id)
+    return categorizados, detalhados, tags
+
+
+@tool(
+    name="transactions_bulk_update",
+    title="Alterar em massa (confirmado)",
+    description=(
+        "Executa a alteração preparada por transactions_bulk_preview com action recategorize (troca a "
+        "categoria), tag / untag (põe ou tira uma tag) ou settle (marca como pago). Recebe só o "
+        "`confirmation_token` e altera exatamente o conjunto da prévia, tudo ou nada; se algo mudou "
+        "desde a prévia, nada é alterado e é preciso nova prévia.\n"
+        "Use quando: o usuário CONFIRMOU a prévia que você mostrou.\n"
+        "Não use quando: não houver prévia confirmada; para excluir (transactions_bulk_delete) ou "
+        "categorizar só os sem categoria (transactions_bulk_categorize)."
+    ),
+    input_model=BulkExecIn,
+    output_model=BulkResult,
+    scope=escopos.TRANSACTIONS_WRITE,
+    kind="write",
+    read_only=False,
+    destructive=True,
+    idempotent=True,
+    cost=5,
+    app_callable=True,
+    invoking="Aplicando…",
+    invoked="Alteração concluída",
+    examples=({"confirmation_token": "cfm_cf_…"},),
+)
+def transactions_bulk_update(call: ToolCall) -> ToolOutput:
+    registro = confirmation.consume(call, call.args.confirmation_token, "bulk_update")
+    if registro.result is not None:
+        return _replay(call, registro, "update")
+    params = registro.params or {}
+    acao = params["action"]
+    ws_id = int(params["space_id"])
+    membership = membership_for_write(call, ws_id)
+    ids = list(registro.target_ids)
+    txs = _alvos(call, ids)
+    categorizados, detalhados, tags = _estado_para_elegibilidade(call, txs)
+    tag_id = params.get("tag_id")
+    if len(txs) != len(ids) or any(
+        t.deleted_at is not None or t.workspace_id != ws_id
+        or _inelegivel(t, acao, membership, categorizados, detalhados=detalhados, tags=tags, tag_id=tag_id)
+        for t in txs
+    ):
+        raise McpToolError(
+            ErrorCode.CONFLICT,
+            "O conjunto mudou desde a prévia (algum lançamento foi pago, excluído, alterado ou saiu do seu "
+            "alcance). Nada foi alterado. Gere uma nova prévia com transactions_bulk_preview.",
+        )
+    for t in txs:
+        if acao == "recategorize":
+            entrada = TransactionUpdate(category_id=int(params["category_id"]))
+        elif acao == "tag":
+            entrada = TransactionUpdate(tag_ids=sorted(tags.get(t.id, set()) | {int(tag_id)}))
+        elif acao == "untag":
+            entrada = TransactionUpdate(tag_ids=sorted(tags.get(t.id, set()) - {int(tag_id)}))
+        else:
+            entrada = TransactionUpdate(settled=True)
+        tx_cmd.update_transaction(call.session, ws_id, t.id, entrada, membership)
+    resultado = {"action": acao, "count": len(ids), "transaction_ids": ids, "skipped": 0, "attachments_removed": 0}
+    confirmation.store_result(call, registro, resultado)
+    verbo = {"recategorize": "Recategorizados", "tag": "Marcados com a tag", "untag": "Tag removida de", "settle": "Marcados como pagos"}[acao]
+    return ToolOutput(
+        structured=BulkResult(**resultado),
+        summary=f"{verbo}: {len(ids)} lançamento(s).",
         entity_type="transaction",
         entity_ids=ids,
         space_id=ws_id,

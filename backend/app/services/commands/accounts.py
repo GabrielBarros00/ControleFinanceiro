@@ -4,6 +4,7 @@ Movidos de `api/routes/me_balance.py` e `api/routes/me_accounts.py` sem mudança
 de regra (ADR 0035): só o `commit` saiu — quem chama (rota REST ou pipeline do
 MCP) comanda a transação. O `flush` no fim garante o `id` para quem chamou.
 """
+from datetime import UTC, datetime
 from decimal import Decimal
 from typing import Tuple
 
@@ -155,3 +156,23 @@ def adjust_balance(
         "previous_balance": anterior,
         "new_balance": body.real_balance,
     }
+
+
+def delete_transfer(session: Session, user_id: int, transfer_id: int) -> AccountTransfer:
+    """Soft delete: as duas pernas somem juntas, porque são a mesma linha.
+
+    Movido de `api/routes/me_balance.py` sem mudança de regra.
+    """
+    t = session.get(AccountTransfer, transfer_id)
+    if not t or t.deleted_at:
+        raise HTTPException(status_code=404, detail="Transferência não encontrada")
+    origem = session.get(PaymentAccount, t.from_account_id)
+    assert_owns(
+        origem.owner_user_id if origem else None,
+        user_id,
+        detail="Transferência não encontrada",
+    )
+    t.deleted_at = datetime.now(UTC)
+    session.add(t)
+    session.flush()
+    return t
