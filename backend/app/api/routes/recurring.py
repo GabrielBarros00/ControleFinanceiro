@@ -79,6 +79,7 @@ class RecurringRead(RecurringExpenseBase):
     credit_card_id: Optional[int] = None
     statement_shift: int = 0
     category_id: Optional[int] = None
+    merchant_id: Optional[int] = None
     payer_user_id: Optional[int] = None
     split_snapshot: Optional[List[dict]] = None
     created_at: datetime

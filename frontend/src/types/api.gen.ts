@@ -1004,6 +1004,82 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/workspaces/{workspace_id}/merchants": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Merchants */
+        get: operations["list_merchants_api_v1_workspaces__workspace_id__merchants_get"];
+        put?: never;
+        /** Create Merchant */
+        post: operations["create_merchant_api_v1_workspaces__workspace_id__merchants_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/workspaces/{workspace_id}/merchants/spending": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Merchant Spending
+         * @description Gasto do mês (competência) por estabelecimento: o valor cheio e a sua parte.
+         *
+         *     A soma é a mesma do agrupamento do agente (`transaction_query.breakdown`):
+         *     status realizados, por moeda, só o que esta pessoa vê.
+         */
+        get: operations["merchant_spending_api_v1_workspaces__workspace_id__merchants_spending_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/workspaces/{workspace_id}/merchants/{merchant_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Update Merchant */
+        put: operations["update_merchant_api_v1_workspaces__workspace_id__merchants__merchant_id__put"];
+        post?: never;
+        /** Delete Merchant */
+        delete: operations["delete_merchant_api_v1_workspaces__workspace_id__merchants__merchant_id__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/workspaces/{workspace_id}/merchants/{merchant_id}/merge": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Merge Merchant */
+        post: operations["merge_merchant_api_v1_workspaces__workspace_id__merchants__merchant_id__merge_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/workspaces/{workspace_id}/transactions/{transaction_id}/attachments": {
         parameters: {
             query?: never;
@@ -5237,6 +5313,76 @@ export interface components {
             financial_access?: components["schemas"]["FinancialAccess"] | null;
         };
         /**
+         * MerchantBrief
+         * @description O estabelecimento de um lançamento, na leitura.
+         */
+        MerchantBrief: {
+            /** Id */
+            id: number;
+            /** Name */
+            name: string;
+        };
+        /** MerchantCreate */
+        MerchantCreate: {
+            /** Name */
+            name: string;
+            /** Aliases */
+            aliases?: string[];
+            /** Default Category Id */
+            default_category_id?: number | null;
+        };
+        /** MerchantMerge */
+        MerchantMerge: {
+            /** Into Id */
+            into_id: number;
+        };
+        /** MerchantRead */
+        MerchantRead: {
+            /** Id */
+            id: number;
+            /** Name */
+            name: string;
+            /**
+             * Aliases
+             * @default []
+             */
+            aliases: string[];
+            /** Default Category Id */
+            default_category_id?: number | null;
+            /**
+             * Transaction Count
+             * @default 0
+             */
+            transaction_count: number;
+        };
+        /**
+         * MerchantSpendingRead
+         * @description Uma linha do gasto por estabelecimento no mês (sem vínculo = `id` nulo).
+         */
+        MerchantSpendingRead: {
+            /** Id */
+            id?: number | null;
+            /** Name */
+            name: string;
+            /** Currency */
+            currency: string;
+            /** Total */
+            total: string;
+            /** My Share */
+            my_share: string;
+            /** Count */
+            count: number;
+        };
+        /** MerchantUpdate */
+        MerchantUpdate: {
+            /** Name */
+            name?: string | null;
+            /** Aliases */
+            aliases?: string[] | null;
+            /** Default Category Id */
+            default_category_id?: number | null;
+        };
+        /**
          * MessageRead
          * @description Confirmação com texto para a tela — em PT-BR, como todo o app.
          */
@@ -5963,6 +6109,8 @@ export interface components {
             payer_user_id?: number | null;
             /** Split Snapshot */
             split_snapshot?: components["schemas"]["RecurringSplitEntry"][] | null;
+            /** Merchant Id */
+            merchant_id?: number | null;
         };
         /**
          * RecurringIncome
@@ -6230,6 +6378,8 @@ export interface components {
             statement_shift: number;
             /** Category Id */
             category_id?: number | null;
+            /** Merchant Id */
+            merchant_id?: number | null;
             /** Payer User Id */
             payer_user_id?: number | null;
             /** Split Snapshot */
@@ -6303,6 +6453,8 @@ export interface components {
             payer_user_id?: number | null;
             /** Split Snapshot */
             split_snapshot?: components["schemas"]["RecurringSplitEntry"][] | null;
+            /** Merchant Id */
+            merchant_id?: number | null;
         };
         /** RegisterRequest */
         RegisterRequest: {
@@ -7091,6 +7243,8 @@ export interface components {
             /** @default transaction */
             split_mode: components["schemas"]["SplitMode"];
             payment_method?: components["schemas"]["PaymentMethod"] | null;
+            /** Merchant Id */
+            merchant_id?: number | null;
             /** Payers */
             payers: components["schemas"]["TransactionPayerBase-Input"][];
             /**
@@ -7108,6 +7262,8 @@ export interface components {
             installments_count?: number | null;
             /** Settled */
             settled?: boolean | null;
+            /** Merchant Name */
+            merchant_name?: string | null;
         };
         /** TransactionItemCreate */
         TransactionItemCreate: {
@@ -7303,6 +7459,8 @@ export interface components {
             /** @default transaction */
             split_mode: components["schemas"]["SplitMode"];
             payment_method?: components["schemas"]["PaymentMethod"] | null;
+            /** Merchant Id */
+            merchant_id?: number | null;
             /** Id */
             id: number;
             /** Workspace Id */
@@ -7358,6 +7516,7 @@ export interface components {
              * @default []
              */
             tags: components["schemas"]["TransactionTagRead"][];
+            merchant?: components["schemas"]["MerchantBrief"] | null;
         };
         /** TransactionSplitBase */
         TransactionSplitBase: {
@@ -7419,6 +7578,10 @@ export interface components {
             category_id?: number | null;
             /** Tag Ids */
             tag_ids?: number[] | null;
+            /** Merchant Id */
+            merchant_id?: number | null;
+            /** Merchant Name */
+            merchant_name?: string | null;
             split_mode?: components["schemas"]["SplitMode"] | null;
             /** Payers */
             payers?: components["schemas"]["TransactionPayerBase-Input"][] | null;
@@ -8425,6 +8588,7 @@ export interface operations {
                 category_id?: number | null;
                 payment_method?: components["schemas"]["PaymentMethod"] | null;
                 tag_id?: number | null;
+                merchant_id?: number | null;
                 settled?: boolean | null;
                 uncategorized?: boolean;
             };
@@ -10166,6 +10330,221 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["StatusRead"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_merchants_api_v1_workspaces__workspace_id__merchants_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                workspace_id: number;
+            };
+            cookie?: {
+                access_token?: string | null;
+            };
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MerchantRead"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    create_merchant_api_v1_workspaces__workspace_id__merchants_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                workspace_id: number;
+            };
+            cookie?: {
+                access_token?: string | null;
+            };
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MerchantCreate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MerchantRead"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    merchant_spending_api_v1_workspaces__workspace_id__merchants_spending_get: {
+        parameters: {
+            query?: {
+                month?: string | null;
+            };
+            header?: never;
+            path: {
+                workspace_id: number;
+            };
+            cookie?: {
+                access_token?: string | null;
+            };
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MerchantSpendingRead"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_merchant_api_v1_workspaces__workspace_id__merchants__merchant_id__put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                workspace_id: number;
+                merchant_id: number;
+            };
+            cookie?: {
+                access_token?: string | null;
+            };
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MerchantUpdate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MerchantRead"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_merchant_api_v1_workspaces__workspace_id__merchants__merchant_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                workspace_id: number;
+                merchant_id: number;
+            };
+            cookie?: {
+                access_token?: string | null;
+            };
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StatusRead"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    merge_merchant_api_v1_workspaces__workspace_id__merchants__merchant_id__merge_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                workspace_id: number;
+                merchant_id: number;
+            };
+            cookie?: {
+                access_token?: string | null;
+            };
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MerchantMerge"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MerchantRead"];
                 };
             };
             /** @description Validation Error */

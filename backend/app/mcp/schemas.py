@@ -110,6 +110,7 @@ class TransactionOut(BaseModel):
     category: Optional[Ref] = Field(None, description="Categoria única; ver `categories` quando há várias.")
     categories: List[Ref] = Field(default_factory=list)
     tags: List[str] = Field(default_factory=list)
+    merchant: Optional[Ref] = Field(None, description="Estabelecimento (onde foi a compra).")
     installment: Optional[InstallmentInfo] = None
     split_mode: str = Field("transaction", description="transaction = divisão do total; item = cada item tem a sua.")
     payers: List[PersonAmount] = Field(default_factory=list)
@@ -143,6 +144,7 @@ class TransactionBrief(BaseModel):
     category: Optional[str] = None
     installment: Optional[str] = Field(None, description="\"3/10\" quando parcelado.")
     tags: List[str] = Field(default_factory=list)
+    merchant: Optional[str] = None
 
 
 class MoneyTotal(BaseModel):

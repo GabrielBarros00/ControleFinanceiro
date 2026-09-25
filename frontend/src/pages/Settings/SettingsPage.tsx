@@ -11,7 +11,7 @@ import { CardsOrTable, DataCard } from "@/components/ui/data-card";
 import { Switch } from "@/components/ui/switch";
 import { Avatar } from "@/components/ui/avatar";
 import { AVATAR_ACCEPT, reduzirImagem } from '@/lib/avatar';
-import { User, Shield, Users, Palette, LogOut, Globe, Moon, Sun, Laptop, Loader2, Trash2, LinkIcon, Copy, Check, Tag, Plus, Wallet, History, Ticket, Camera, Bot } from 'lucide-react';
+import { User, Shield, Users, Palette, LogOut, Globe, Moon, Sun, Laptop, Loader2, Trash2, LinkIcon, Copy, Check, Tag, Plus, Wallet, History, Ticket, Camera, Bot, Store } from 'lucide-react';
 import { useAuthStore } from '@/stores';
 import { useTheme } from '@/hooks/use-theme';
 import { InstallAppCard } from '@/components/pwa/InstallApp';
@@ -35,6 +35,7 @@ import { toast } from '@/stores/toast';
 import { useConfirm } from '@/components/ui/confirm';
 import { useTabParam } from '@/hooks/use-tab-param';
 import { AiIntegrationsTab } from '@/components/ai-integrations/AiIntegrationsTab';
+import { MerchantsTab } from '@/components/merchants/MerchantsTab';
 import { CategoryGlyph } from '@/components/money/CategoryGlyph';
 import { parseApiDate } from '@/lib/date';
 import type { components } from '@/types/api.gen';
@@ -42,11 +43,11 @@ import { CURRENCIES } from '@/lib/currencies';
 import { PageHeader } from '@/components/layout/PageHeader';
 import { rotuloDeEspaco } from '@/components/layout/nav-items';
 
-type Tab = 'profile' | 'security' | 'members' | 'categories' | 'accounts' | 'appearance' | 'audit' | 'convites' | 'ai';
+type Tab = 'profile' | 'security' | 'members' | 'categories' | 'merchants' | 'accounts' | 'appearance' | 'audit' | 'convites' | 'ai';
 
 /** As abas de cada tela — o `useTabParam` usa isto para descartar valor inventado na URL. */
 const ABAS_PESSOAIS = ['profile', 'security', 'accounts', 'ai', 'convites', 'appearance'] as const satisfies readonly Tab[];
-const ABAS_DO_ESPACO = ['members', 'categories', 'audit'] as const satisfies readonly Tab[];
+const ABAS_DO_ESPACO = ['members', 'categories', 'merchants', 'audit'] as const satisfies readonly Tab[];
 
 // Moeda-base do workspace: a lista curada de moedas do app, com o código à mostra
 const BASE_CURRENCY_OPTIONS = CURRENCIES.map((c) => ({
@@ -1651,6 +1652,7 @@ export function SettingsPage() {
   const menuItems: MenuItem[] = [
     { id: 'members', label: 'Espaço e membros', icon: Users },
     { id: 'categories', label: 'Categorias', icon: Tag },
+    { id: 'merchants', label: 'Estabelecimentos', icon: Store },
     // Auditoria é sensível (AUD-001): só admin/owner
     ...(isAdmin ? [{ id: 'audit' as Tab, label: 'Auditoria', icon: History }] : []),
   ];
@@ -1664,6 +1666,7 @@ export function SettingsPage() {
     switch (activeTab) {
       case 'members': return <MembersTab />;
       case 'categories': return <CategoriesTab />;
+      case 'merchants': return <MerchantsTab />;
       case 'audit': return isAdmin ? <AuditTab /> : null;
       default: return null;
     }

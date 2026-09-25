@@ -82,6 +82,8 @@ export function TransactionItem({
   const liquidacao = settlementPill(tx.settled_at, tx.credit_card_id);
 
   const meta: string[] = [];
+  // Onde foi (ADR 0038) — só quando diz algo que o título já não disse.
+  if (tx.merchant?.name && tx.merchant.name.toLowerCase() !== tx.title.toLowerCase()) meta.push(tx.merchant.name);
   if (category?.name) meta.push(category.name);
   // O travessão é o "não informado" do `paymentMethodLabel`, e sozinho ele não
   // informa nada: numa lista de lançamentos sem forma de pagamento preenchida,

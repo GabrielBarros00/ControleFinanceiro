@@ -13,7 +13,7 @@ Confirmação: `host` = o cliente pede confirmação por não ser `readOnlyHint`
 | `profile_get` | Leitura | `finance.read` | Identidade do token (ADR 0035) | `User.public_id, today_local` | baixo | nenhum | — | natural |
 | `spaces_list` | Leitura | `finance.read` | Membership e papel (ADR 0018) | `WorkspaceMembership` | baixo | nenhum | — | natural |
 | `people_list` | Leitura | `finance.read` | Só quem divide espaço com a pessoa | `space_members` | baixo — nomes de membros | nenhum | — | natural |
-| `categories_list` | Leitura | `finance.read` | Vocabulário do espaço | `Category, Tag` | baixo | nenhum | — | natural |
+| `categories_list` | Leitura | `finance.read` | Vocabulário do espaço | `Category, Tag, Merchant` | baixo | nenhum | — | natural |
 | `cards_list` | Leitura | `finance.read` | Cartão pessoal (ADR 0021), fatura derivada (0002) | `CreditCardService` | médio — limite e fatura | nenhum | — | natural |
 | `accounts_list` | Leitura | `finance.read` | Saldo derivado (ADR 0034) | `AccountBalanceService, ProjectionService` | médio — saldos | nenhum | — | natural |
 | `transactions_search` | Leitura | `finance.read` | transaction_scope (ADR 0018), minha parte | `services/transaction_query` | médio — lançamentos | nenhum | — | natural |
@@ -63,8 +63,8 @@ Confirmação: `host` = o cliente pede confirmação por não ser `readOnlyHint`
 | `recurring_update` | Escrita | `planning.write` | Pagas congeladas; escopo das não pagas (0012) | `commands.recurring.update_recurring` | médio | reescreve ocorrências não pagas; WS | host | por estado (definir X) |
 | `recurring_delete` | Destrutiva | `planning.write` | Lançado continua; `cancel_open_occurrences` cancela os não pagos (ADR 0030) | `commands.recurring.delete_recurring / income.delete_recurring_income` | médio | WS | host | por estado (definir X) |
 | `budgets_set` | Escrita | `planning.write` | Upsert por (espaço, dono, categoria, mês) | `commands.planning.create_estimate` | baixo | WS | host | por estado (definir X) |
-| `categories_create` | Escrita | `planning.write` | Nome único por espaço; excluída é reativada (categoria ou tag) | `commands.planning.create_category / create_tag` | baixo | WS | host | por estado (definir X) |
-| `categories_update` | Escrita | `planning.write` | Nome único; tag excluída sai dos lançamentos | `commands.planning.update_*/delete_*` | médio — renomeia para todos | WS | host | por estado (definir X) |
+| `categories_create` | Escrita | `planning.write` | Nome único por espaço; excluída é reativada (categoria, tag ou estabelecimento) | `commands.planning.create_category / create_tag, commands.merchants.create_merchant` | baixo | WS | host | por estado (definir X) |
+| `categories_update` | Escrita | `planning.write` | Nome único; tag e estabelecimento excluídos saem dos lançamentos; apelido de um só (0038) | `commands.planning.update_*/delete_*, commands.merchants` | médio — renomeia para todos | WS | host | por estado (definir X) |
 | `attachments_upload_link` | Escrita | `transactions.write` | Anexo pelo mesmo comando da tela (tipos, conteúdo real, cota; ADR 0007); link de uso único, 10 min | `commands/attachments.add_attachment` | médio — o link de envio aparece na conversa | emite o link; o curl cria 1 anexo | host | por estado (definir X) |
 | `attachments_get` | Leitura | `finance.read` | Anexo herda a visibilidade do lançamento (0018); teto de tamanho | `commands.attachments.read_attachment_bytes` | alto — o conteúdo vai para o provedor do agente | nenhum | — | natural |
 | `attachments_delete` | Destrutiva | `transactions.write` | Membro apaga os próprios; admin, qualquer um | `commands.attachments.delete_attachment` | alto — sem desfazer | blob liberado após o commit; WS | host | por estado (definir X) |
@@ -72,7 +72,7 @@ Confirmação: `host` = o cliente pede confirmação por não ser `readOnlyHint`
 
 ## Por rota REST
 
-181 rotas.
+187 rotas.
 
 | Rota | Funcionalidade | Tool(s) | Observação |
 |---|---|---|---|
@@ -220,6 +220,12 @@ Confirmação: `host` = o cliente pede confirmação por não ser `readOnlyHint`
 | `POST /api/v1/workspaces/{workspace_id}/tags` | Criar tag | `categories_create` | kind=tag |
 | `DELETE /api/v1/workspaces/{workspace_id}/tags/{tag_id}` | Excluir tag | `categories_update` | kind=tag, delete=true |
 | `PUT /api/v1/workspaces/{workspace_id}/tags/{tag_id}` | Editar tag | `categories_update` | kind=tag |
+| `GET /api/v1/workspaces/{workspace_id}/merchants` | Estabelecimentos | `categories_list` |  |
+| `POST /api/v1/workspaces/{workspace_id}/merchants` | Criar estabelecimento | `categories_create` | kind=merchant |
+| `PUT /api/v1/workspaces/{workspace_id}/merchants/{merchant_id}` | Editar estabelecimento | `categories_update` | kind=merchant |
+| `DELETE /api/v1/workspaces/{workspace_id}/merchants/{merchant_id}` | Excluir estabelecimento | `categories_update` | kind=merchant, delete=true |
+| `POST /api/v1/workspaces/{workspace_id}/merchants/{merchant_id}/merge` | Mesclar estabelecimentos | `categories_update` | kind=merchant, merge_into |
+| `GET /api/v1/workspaces/{workspace_id}/merchants/spending` | Gasto por estabelecimento | `reports_breakdown` | group_by=merchant |
 | `GET /api/v1/workspaces/{workspace_id}/debts` | Quem deve a quem (acumulado) | `debts_summary` |  |
 | `GET /api/v1/workspaces/{workspace_id}/debts/by-month` | Dívidas por mês | `debts_summary` |  |
 | `GET /api/v1/workspaces/{workspace_id}/debts/monthly` | Ledger do mês | `debts_summary` |  |

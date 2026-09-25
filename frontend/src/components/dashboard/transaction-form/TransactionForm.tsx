@@ -28,6 +28,7 @@ import { ItemsEditor } from './ItemsEditor';
 import { PaymentMethodField } from './PaymentMethodField';
 import { PayersEditor } from './PayersEditor';
 import { TagMultiSelect } from './TagMultiSelect';
+import { MerchantField } from './MerchantField';
 import { SimpleSplitChips } from './SimpleSplitChips';
 import { CurrencyCombobox } from './CurrencyCombobox';
 import { nativeSelectClass as selectClass } from '@/components/ui/native-select';
@@ -305,6 +306,8 @@ export function TransactionForm({ initialValues, onSubmit, submitLabel, resetOnS
               </span>
             </label>
           )}
+
+          {detalhado && <MerchantField />}
 
           {detalhado && <TagMultiSelect />}
 

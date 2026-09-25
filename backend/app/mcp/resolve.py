@@ -416,6 +416,60 @@ def tags_any(session: Session, spaces: list[SpaceRef], *, tag: Optional[str]) ->
     return _mesmo_nome(find(tag, itens), "tag", tag, "tag")
 
 
+def space_merchants(session: Session, workspace_id: int) -> list:
+    from app.services.commands import merchants as merchant_cmd
+
+    return merchant_cmd.list_merchants(session, workspace_id)
+
+
+def merchants_any(session: Session, spaces: list[SpaceRef], *, merchant: Optional[str]) -> Optional[list[int]]:
+    """Estabelecimento no filtro: o de nome ou apelido exato (ADR 0038) em cada
+    espaço; sem nenhum exato, a busca por nome, como a das tags."""
+    from app.services.commands import merchants as merchant_cmd
+
+    if not merchant:
+        return None
+    exatos = {
+        m.id for r in spaces
+        if (m := merchant_cmd.pelo_nome(session, r.id, merchant) or merchant_cmd.do_titulo(session, r.id, merchant)) is not None
+    }
+    if exatos:
+        return sorted(exatos)
+    itens = [
+        Match(m.id, m.name, {"space_id": r.id, "space": r.workspace.name})
+        for r in spaces for m in space_merchants(session, r.id)
+    ]
+    return _mesmo_nome(find(merchant, itens), "estabelecimento", merchant, "merchant")
+
+
+def merchant_for_write(session: Session, workspace_id: int, nome: str) -> dict:
+    """O estabelecimento que a IA grava num lançamento, como argumentos do comando.
+
+    O de nome ou apelido EXATO serve. Um PARECIDO ("Mc Donalds" com "McDonald's"
+    cadastrado) não vincula nem cria: criar faria dois do mesmo lugar, e a
+    pergunta cabe à pessoa. Sem nada parecido, o comando cria um novo.
+    """
+    from app.services.commands import merchants as merchant_cmd
+
+    achado = merchant_cmd.pelo_nome(session, workspace_id, nome) or merchant_cmd.do_titulo(session, workspace_id, nome)
+    if achado is not None:
+        return {"merchant_id": achado.id}
+    itens = [Match(m.id, m.name) for m in space_merchants(session, workspace_id)]
+    por_nome = {norm(m.name): m for m in itens}
+    parecidos = find(nome, itens) or [
+        por_nome[n] for n in difflib.get_close_matches(norm(nome), list(por_nome), n=MAX_CANDIDATES, cutoff=0.75)
+    ]
+    if parecidos:
+        raise McpToolError(
+            ErrorCode.AMBIGUOUS,
+            f"Há estabelecimento parecido com \"{nome}\". Pergunte ao usuário se é um deles (repita com o "
+            "nome exato) ou se é outro (crie antes com categories_create, kind=merchant).",
+            candidates=[m.candidate() for m in parecidos[:MAX_CANDIDATES]],
+            details={"kind": "estabelecimento", "query": nome},
+        )
+    return {"merchant_name": nome.strip()}
+
+
 def person_any(
     session: Session, spaces: list[SpaceRef], me_id: int, *, person_id: Optional[int], person: Optional[str]
 ) -> Optional[int]:

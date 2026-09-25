@@ -2,7 +2,7 @@
 
 <!-- GERADO por `python -m app.mcp.docs` a partir de `backend/app/mcp/registry.py`. Não edite à mão. -->
 
-Servidor `controle-financeiro` versão `1.5.0` · 59 tools · endpoint `/mcp` (Streamable HTTP).
+Servidor `controle-financeiro` versão `1.6.0` · 59 tools · endpoint `/mcp` (Streamable HTTP).
 
 Convenções que valem para todas: dinheiro em string decimal com ponto (`"89.90"`, até 2 casas, nunca arredondado); datas `YYYY-MM-DD` e meses `YYYY-MM` no fuso da conta (`profile_get.timezone`); nomes resolvidos no servidor (ambíguo → `AMBIGUOUS` com candidatos); nenhuma tool aceita `user_id` — a identidade vem do token.
 
@@ -30,7 +30,7 @@ Toda falha volta com `isError: true` e `{"error": {code, message, details, retry
 | [`profile_get`](#profile_get--conta-conectada) | Conta conectada | Leitura | `finance.read` |
 | [`spaces_list`](#spaces_list--listar-espaços) | Listar espaços | Leitura | `finance.read` |
 | [`people_list`](#people_list--listar-pessoas) | Listar pessoas | Leitura | `finance.read` |
-| [`categories_list`](#categories_list--listar-categorias-e-tags) | Listar categorias e tags | Leitura | `finance.read` |
+| [`categories_list`](#categories_list--categorias-tags-e-estabelecimentos) | Categorias, tags e estabelecimentos | Leitura | `finance.read` |
 | [`cards_list`](#cards_list--listar-cartões) | Listar cartões | Leitura | `finance.read` |
 | [`accounts_list`](#accounts_list--contas-e-saldo) | Contas e saldo | Leitura | `finance.read` |
 | [`transactions_search`](#transactions_search--buscar-lançamentos) | Buscar lançamentos | Leitura | `finance.read` |
@@ -80,8 +80,8 @@ Toda falha volta com `isError: true` e `{"error": {code, message, details, retry
 | [`recurring_update`](#recurring_update--editar-recorrência) | Editar recorrência | Escrita | `planning.write` |
 | [`recurring_delete`](#recurring_delete--excluir-recorrência) | Excluir recorrência | Destrutiva | `planning.write` |
 | [`budgets_set`](#budgets_set--definir-meta-do-mês) | Definir meta do mês | Escrita | `planning.write` |
-| [`categories_create`](#categories_create--criar-categoria-ou-tag) | Criar categoria ou tag | Escrita | `planning.write` |
-| [`categories_update`](#categories_update--renomear-ou-excluir-categoriatag) | Renomear ou excluir categoria/tag | Escrita | `planning.write` |
+| [`categories_create`](#categories_create--criar-categoria-tag-ou-estabelecimento) | Criar categoria, tag ou estabelecimento | Escrita | `planning.write` |
+| [`categories_update`](#categories_update--editar-categoria-tag-ou-estabelecimento) | Editar categoria, tag ou estabelecimento | Escrita | `planning.write` |
 | [`attachments_upload_link`](#attachments_upload_link--link-para-anexar-arquivo) | Link para anexar arquivo | Escrita | `transactions.write` |
 | [`attachments_get`](#attachments_get--ler-anexo-recibo) | Ler anexo (recibo) | Leitura | `finance.read` |
 | [`attachments_delete`](#attachments_delete--excluir-anexo) | Excluir anexo | Destrutiva | `transactions.write` |
@@ -144,12 +144,12 @@ Não use quando: quiser saber quanto alguém deve (debts_summary).
 
 **Saída (`structuredContent`)**: `people`
 
-### `categories_list` — Listar categorias e tags
+### `categories_list` — Categorias, tags e estabelecimentos
 
 - **Classe:** Leitura · **Escopo:** `finance.read` · **Custo:** 1 unidade(s)
 - **Annotations:** readOnlyHint=true, destructiveHint=false, idempotentHint=true, openWorldHint=false
 
-Lista as categorias e as tags de um espaço (cada espaço tem as suas).
+Lista as categorias, as tags e os estabelecimentos (com apelidos) de um espaço (cada espaço tem os seus).
 
 Use quando: precisar escolher a categoria de um lançamento, resolver um nome de categoria ambíguo ou o usuário perguntar quais categorias existem.
 
@@ -162,7 +162,7 @@ Não use quando: quiser o gasto por categoria (reports_summary).
 | `space` | string | não | Nome do espaço. Omitido: seu único espaço. (máx. 120) |
 | `space_id` | integer | não |  |
 
-**Saída (`structuredContent`)**: `space`, `categories`, `tags`
+**Saída (`structuredContent`)**: `space`, `categories`, `tags`, `merchants`
 
 ### `cards_list` — Listar cartões
 
@@ -236,6 +236,7 @@ Não use quando: quiser o resumo do mês por categoria (reports_summary) ou a fa
 | `max_amount` | string | não | Decimal em texto, até 2 casas. Ex.: "89.90". (padrão `^\d{1,16}([.,]\d{1,2})?$`) |
 | `installment_group_id` | string | não | Parcelas de uma mesma compra. (máx. 64) |
 | `import_batch_id` | integer | não | Só o que entrou por uma importação (imports_list). (≥ 1) |
+| `merchant` | string | não | Estabelecimento (nome ou apelido). (máx. 120) |
 | `sort` | `date_desc` \| `date_asc` \| `amount_desc` \| `amount_asc` | não |  |
 | `limit` | integer | não | ≥ 1, ≤ 50 |
 | `cursor` | string | não | `next_cursor` da página anterior. (máx. 512) |
@@ -265,7 +266,7 @@ Não use quando: ainda não souber o id (busque com transactions_search), ou o u
 
 - **Classe:** Leitura · **Escopo:** `finance.read` · **Custo:** 1 unidade(s)
 - **Annotations:** readOnlyHint=true, destructiveHint=false, idempotentHint=true, openWorldHint=false
-- **UI (MCP Apps):** `ui://controle-financeiro/widget-v5.html`
+- **UI (MCP Apps):** `ui://controle-financeiro/widget-v6.html`
 
 Desenha UM lançamento como cartão visual na conversa (valor, divisão, sua parte, cartão/fatura, parcelas) e devolve os mesmos dados de transactions_get.
 
@@ -328,7 +329,7 @@ Não use quando: o usuário pedir para ver/mostrar a fatura (statements_show); q
 
 - **Classe:** Leitura · **Escopo:** `finance.read` · **Custo:** 2 unidade(s)
 - **Annotations:** readOnlyHint=true, destructiveHint=false, idempotentHint=true, openWorldHint=false
-- **UI (MCP Apps):** `ui://controle-financeiro/widget-v5.html`
+- **UI (MCP Apps):** `ui://controle-financeiro/widget-v6.html`
 
 Desenha a fatura de um cartão como componente visual na conversa (total, saldo, vencimento, as maiores categorias e as compras mais recentes) e devolve os mesmos dados de statements_get, só com a primeira página de compras.
 
@@ -374,7 +375,7 @@ Não use quando: o usuário pedir para ver/mostrar o resumo (reports_show); prec
 
 - **Classe:** Leitura · **Escopo:** `finance.read` · **Custo:** 2 unidade(s)
 - **Annotations:** readOnlyHint=true, destructiveHint=false, idempotentHint=true, openWorldHint=false
-- **UI (MCP Apps):** `ui://controle-financeiro/widget-v5.html`
+- **UI (MCP Apps):** `ui://controle-financeiro/widget-v6.html`
 
 Desenha o resumo de UM mês como componente visual na conversa (renda, seu consumo, caixa, a pagar, resultado e consumo por categoria) e devolve os mesmos dados de reports_summary.
 
@@ -420,7 +421,7 @@ Não use quando: quiser definir uma meta (budgets_set).
 - **Classe:** Leitura · **Escopo:** `finance.read` · **Custo:** 3 unidade(s)
 - **Annotations:** readOnlyHint=true, destructiveHint=false, idempotentHint=true, openWorldHint=false
 
-Soma os gastos do filtro por um eixo — categoria, tag, pessoa, cartão, conta, forma de pagamento, mês, espaço ou título (≈ estabelecimento) — direto do banco, com a sua parte ou o valor cheio. Aceita os mesmos filtros de transactions_search (período, texto, cartão, categoria, pessoa…).
+Soma os gastos do filtro por um eixo — categoria, tag, pessoa, cartão, conta, forma de pagamento, mês, espaço, estabelecimento ou título — direto do banco, com a sua parte ou o valor cheio. Aceita os mesmos filtros de transactions_search (período, texto, cartão, categoria, pessoa…).
 
 Use quando: 'quanto gastei em cada mercado nos últimos 6 meses?', 'quanto foi em cada cartão este ano?', 'quanto a Maria consumiu da casa?', séries por mês de uma categoria.
 
@@ -453,7 +454,8 @@ Não use quando: quiser o resumo pronto do mês (reports_summary) ou os lançame
 | `max_amount` | string | não | Decimal em texto, até 2 casas. Ex.: "89.90". (padrão `^\d{1,16}([.,]\d{1,2})?$`) |
 | `installment_group_id` | string | não | Parcelas de uma mesma compra. (máx. 64) |
 | `import_batch_id` | integer | não | Só o que entrou por uma importação (imports_list). (≥ 1) |
-| `group_by` | `category` \| `tag` \| `person` \| `card` \| `account` \| `payment_method` \| `month` \| `space` \| `title` | sim | Eixo: category, tag, person (quanto cabe a CADA pessoa), card, account (conta de onde saiu), payment_method, month (competência), space, title (título normalizado: aproxima o estabelecimento). |
+| `merchant` | string | não | Estabelecimento (nome ou apelido). (máx. 120) |
+| `group_by` | `category` \| `tag` \| `person` \| `card` \| `account` \| `payment_method` \| `month` \| `space` \| `merchant` \| `title` | sim | Eixo: category, tag, person (quanto cabe a CADA pessoa), card, account (conta de onde saiu), payment_method, month (competência), space, merchant (estabelecimento vinculado), title (título normalizado: para o que não tem estabelecimento). |
 | `basis` | `my_share` \| `total` | não | my_share = a SUA parte (padrão); total = o valor cheio dos lançamentos. |
 | `limit` | integer | não | Grupos por moeda; o resto vem somado em `others`. (≥ 1, ≤ 50) |
 
@@ -642,7 +644,7 @@ Não use quando: quiser tudo que vence no mês, de todas as origens (payables_li
 
 - **Classe:** Escrita · **Escopo:** `accounts.write` · **Custo:** 3 unidade(s)
 - **Annotations:** readOnlyHint=false, destructiveHint=true, idempotentHint=true, openWorldHint=false
-- **UI (MCP Apps):** `ui://controle-financeiro/widget-v5.html` · chamável pelo componente
+- **UI (MCP Apps):** `ui://controle-financeiro/widget-v6.html` · chamável pelo componente
 
 Marca uma parcela de financiamento como paga (`action=pay`, na conta e na data informadas; com `space`, lança também a despesa naquele espaço) ou desfaz o pagamento (`action=unpay`: a parcela volta a aberta e a despesa lançada some).
 
@@ -682,7 +684,7 @@ Exemplo:
 
 - **Classe:** Leitura · **Escopo:** `finance.read` · **Custo:** 2 unidade(s)
 - **Annotations:** readOnlyHint=true, destructiveHint=false, idempotentHint=true, openWorldHint=false
-- **UI (MCP Apps):** `ui://controle-financeiro/widget-v5.html`
+- **UI (MCP Apps):** `ui://controle-financeiro/widget-v6.html`
 
 Desenha uma tela na conversa, com os mesmos números da tool de dados: lista de lançamentos filtrada (paginável, com edição), gastos agrupados, extrato de conta, caixa do mês, dívidas, a pagar, metas, recorrências, rendas, financiamento, histórico de um lançamento ou importações.
 
@@ -723,7 +725,7 @@ Não use quando: precisar dos dados para responder ou analisar (use a tool de da
 - **Classe:** Escrita · **Escopo:** `transactions.write` · **Custo:** 3 unidade(s)
 - **Annotations:** readOnlyHint=false, destructiveHint=false, idempotentHint=true, openWorldHint=false
 - **Idempotência:** `idempotency_key` obrigatória (replay devolve o mesmo resultado; outra carga com a mesma chave = `CONFLICT`).
-- **UI (MCP Apps):** `ui://controle-financeiro/widget-v5.html` · chamável pelo componente
+- **UI (MCP Apps):** `ui://controle-financeiro/widget-v6.html` · chamável pelo componente
 
 Registra uma despesa (compra, conta, gasto) numa única chamada atômica: valor, data, categoria, tags, cartão e parcelas, quem pagou, divisão com outras pessoas, conta de origem, moeda estrangeira e se já foi paga. O servidor calcula a fatura, as parcelas e os centavos da divisão — não calcule nada disso.
 
@@ -733,7 +735,7 @@ Não use quando: for renda (income_create), transferência entre contas (transfe
 
 Espaço: informe `space` quando o usuário disser. Omitido, vale o ÚNICO espaço que tem todas as pessoas citadas (sem ninguém citado: seu espaço pessoal); se houver dúvida volta AMBIGUOUS — pergunte ao usuário. Nomes (cartão, categoria, pessoa) ambíguos também voltam AMBIGUOUS com candidatos; repita a chamada com o `*_id` escolhido e a MESMA idempotency_key.
 
-Divisão: `split_with` = partes iguais entre você e as pessoas; `split` = partes desiguais (valor ou percentual de cada um). Sem divisão, a despesa é toda sua.
+Sem `split_with`/`split`, a despesa é toda sua.
 
 Nota com itens: `items` (cada um com categoria e divisão próprias) + `adjustments` (desconto, frete…); o servidor confere que fecham o total e rateia os centavos.
 
@@ -743,7 +745,7 @@ Gere uma idempotency_key nova para cada despesa e reutilize-a só ao repetir a m
 
 | Parâmetro | Tipo | Obrigatório | Descrição |
 |---|---|---|---|
-| `idempotency_key` | string | sim | Identificador ÚNICO desta intenção do usuário (ex.: um UUID novo). Repita a MESMA chave só ao reenviar exatamente a mesma chamada após erro de rede ou timeout — assim nada é criado em dobro. Pedido novo = chave nova. (mín. 8, máx. 100, padrão `^[A-Za-z0-9._:-]+$`) |
+| `idempotency_key` | string | sim | UUID novo por pedido. Repita a MESMA chave só ao reenviar a mesma chamada após erro de rede: nada é criado em dobro. (mín. 8, máx. 100, padrão `^[A-Za-z0-9._:-]+$`) |
 | `title` | string | sim | Descrição curta, como aparece na lista (ex.: "Gasolina"). (mín. 1, máx. 200) |
 | `amount` | string | não | Valor TOTAL da compra (nas parceladas, o total, não a parcela). Com `items` pode ser omitido (= itens + ajustes); se vier, tem de fechar com eles. Ex.: "89.90". (padrão `^\d{1,16}([.,]\d{1,2})?$`) |
 | `date` | data `YYYY-MM-DD` | não | Dia da compra. Omitido = hoje (profile_get.today). |
@@ -754,6 +756,7 @@ Gere uma idempotency_key nova para cada despesa e reutilize-a só ao repetir a m
 | `category` | string | não | Nome de uma categoria EXISTENTE do espaço. (máx. 120) |
 | `category_id` | integer | não |  |
 | `tags` | lista de string | não | Nomes de tags EXISTENTES do espaço. (máx. 10) |
+| `merchant` | string | não | Estabelecimento (nome ou apelido); novo se não houver parecido. Omitido: o de apelido igual ao título. (mín. 1, máx. 120) |
 | `card` | string | não | Cartão de crédito seu (nome). Define pagamento no crédito. (máx. 120) |
 | `card_id` | integer | não |  |
 | `installments` | integer | não | Número de parcelas (exige cartão). (≥ 2, ≤ 36) |
@@ -800,7 +803,7 @@ Exemplo:
 
 - **Classe:** Escrita · **Escopo:** `transactions.write` · **Custo:** 3 unidade(s)
 - **Annotations:** readOnlyHint=false, destructiveHint=true, idempotentHint=true, openWorldHint=false
-- **UI (MCP Apps):** `ui://controle-financeiro/widget-v5.html` · chamável pelo componente
+- **UI (MCP Apps):** `ui://controle-financeiro/widget-v6.html` · chamável pelo componente
 
 Altera um lançamento existente: título, observação, valor, data, categoria, tags, cartão, forma de pagamento, quem pagou, divisão, moeda (o valor é convertido na data, com IOF no cartão), "já paguei" (settled) ou cancelamento. Só os campos informados mudam. Devolve como estava ANTES (`previous`) e o que mudou (`changed`).
 
@@ -827,6 +830,7 @@ Despesa paga não muda até ser reaberta (`status=confirmed`); cancelada é defi
 | `category_id` | integer | não |  |
 | `remove_category` | boolean | não | true = deixa o lançamento sem categoria. |
 | `tags` | lista de string | não | Substitui TODAS as tags ([] remove todas). (máx. 10) |
+| `merchant` | string | não | Estabelecimento (nome ou apelido); "" desvincula. (máx. 120) |
 | `card` | string | não | Passa a compra para este cartão seu. (máx. 120) |
 | `card_id` | integer | não |  |
 | `payment_method` | `credit_card` \| `debit_card` \| `pix` \| `cash` \| `bank_transfer` \| `boleto` \| `other` | não | Nova forma de pagamento (fora do cartão remove o cartão). |
@@ -843,7 +847,7 @@ Despesa paga não muda até ser reaberta (`status=confirmed`); cancelada é defi
 | `split` | lista de objeto | não | Divisão desigual: a parte de CADA participante (inclua você, se tiver parte). Todas por valor (somando o total) ou todas por percentual (somando 100). (mín. 1, máx. 20) |
 | `items` | lista de objeto | não | Substitui TODOS os itens da nota (mande a lista completa). Mesmo formato de transactions_create. (mín. 1, máx. 200) |
 | `adjustments` | lista de objeto | não | Substitui os ajustes (só junto com `items`; [] remove). (máx. 20) |
-| `expected_version` | string | não | A `version` que você leu. Se o registro mudou desde então, a escrita volta CONFLICT (com a versão atual) em vez de sobrescrever a mudança de outra pessoa. (mín. 6, máx. 40, padrão `^[0-9a-f]+$`) |
+| `expected_version` | string | não | A `version` lida. Se o registro mudou desde então, volta CONFLICT em vez de sobrescrever. (mín. 6, máx. 40, padrão `^[0-9a-f]+$`) |
 
 **Saída (`structuredContent`)**: `transaction`, `previous`, `changed`, `installments`
 
@@ -875,7 +879,7 @@ Exemplo:
 
 - **Classe:** Destrutiva · **Escopo:** `transactions.write` · **Custo:** 3 unidade(s)
 - **Annotations:** readOnlyHint=false, destructiveHint=true, idempotentHint=true, openWorldHint=false
-- **UI (MCP Apps):** `ui://controle-financeiro/widget-v5.html` · chamável pelo componente
+- **UI (MCP Apps):** `ui://controle-financeiro/widget-v6.html` · chamável pelo componente
 
 Exclui um lançamento (ou, com `scope=purchase`, todas as parcelas em aberto de uma compra parcelada). A exclusão pode ser desfeita com transactions_restore. Despesa paga não é excluída — reabra antes.
 
@@ -891,7 +895,7 @@ Se o lançamento tiver anexos (recibos), eles seriam apagados para sempre: a too
 |---|---|---|---|
 | `transaction_id` | integer | sim |  |
 | `scope` | `installment` \| `purchase` | não | Parcelada: `installment` exclui só esta parcela; `purchase` exclui todas as parcelas em aberto da compra. |
-| `expected_version` | string | não | A `version` que você leu. Se o registro mudou desde então, a escrita volta CONFLICT (com a versão atual) em vez de sobrescrever a mudança de outra pessoa. (mín. 6, máx. 40, padrão `^[0-9a-f]+$`) |
+| `expected_version` | string | não | A `version` lida. Se o registro mudou desde então, volta CONFLICT em vez de sobrescrever. (mín. 6, máx. 40, padrão `^[0-9a-f]+$`) |
 
 **Saída (`structuredContent`)**: `deleted`, `skipped_paid`, `restorable`
 
@@ -911,7 +915,7 @@ Exemplo:
 
 - **Classe:** Escrita · **Escopo:** `transactions.write` · **Custo:** 3 unidade(s)
 - **Annotations:** readOnlyHint=false, destructiveHint=false, idempotentHint=true, openWorldHint=false
-- **UI (MCP Apps):** `ui://controle-financeiro/widget-v5.html` · chamável pelo componente
+- **UI (MCP Apps):** `ui://controle-financeiro/widget-v6.html` · chamável pelo componente
 
 Desfaz a exclusão de um lançamento (volta a contar em tudo). Anexos apagados não voltam.
 
@@ -937,7 +941,7 @@ Exemplo:
 
 - **Classe:** Leitura · **Escopo:** `finance.read` · **Custo:** 3 unidade(s)
 - **Annotations:** readOnlyHint=true, destructiveHint=false, idempotentHint=true, openWorldHint=false
-- **UI (MCP Apps):** `ui://controle-financeiro/widget-v5.html` · chamável pelo componente
+- **UI (MCP Apps):** `ui://controle-financeiro/widget-v6.html` · chamável pelo componente
 
 Primeiro passo OBRIGATÓRIO para alterar vários lançamentos (ou excluir um com anexos): excluir, categorizar os sem categoria, trocar categoria, pôr/tirar tag, marcar como pago — ou DESFAZER UMA IMPORTAÇÃO (action=delete com filters.import_batch_id). Não altera nada: calcula o conjunto exato, o total, uma amostra e o que ficou de fora, e devolve um `confirmation_token` válido por 10 minutos.
 
@@ -976,7 +980,7 @@ Exemplo:
 
 - **Classe:** Destrutiva · **Escopo:** `transactions.write` · **Custo:** 5 unidade(s)
 - **Annotations:** readOnlyHint=false, destructiveHint=true, idempotentHint=true, openWorldHint=false
-- **UI (MCP Apps):** `ui://controle-financeiro/widget-v5.html` · chamável pelo componente
+- **UI (MCP Apps):** `ui://controle-financeiro/widget-v6.html` · chamável pelo componente
 
 Executa a exclusão preparada por transactions_bulk_preview (action=delete). Recebe só o `confirmation_token`: exclui exatamente o conjunto da prévia, tudo ou nada. Se algo mudou desde a prévia (lançamento pago, apagado, fora do seu alcance), nada é excluído e é preciso nova prévia. Anexos dos excluídos são apagados para sempre; os lançamentos podem ser restaurados um a um com transactions_restore.
 
@@ -1002,7 +1006,7 @@ Exemplo:
 
 - **Classe:** Escrita · **Escopo:** `transactions.write` · **Custo:** 5 unidade(s)
 - **Annotations:** readOnlyHint=false, destructiveHint=true, idempotentHint=true, openWorldHint=false
-- **UI (MCP Apps):** `ui://controle-financeiro/widget-v5.html` · chamável pelo componente
+- **UI (MCP Apps):** `ui://controle-financeiro/widget-v6.html` · chamável pelo componente
 
 Executa a categorização preparada por transactions_bulk_preview (action=categorize). Recebe só o `confirmation_token` e aplica a categoria da prévia aos lançamentos da prévia que continuam sem categoria.
 
@@ -1028,7 +1032,7 @@ Exemplo:
 
 - **Classe:** Escrita · **Escopo:** `transactions.write` · **Custo:** 5 unidade(s)
 - **Annotations:** readOnlyHint=false, destructiveHint=true, idempotentHint=true, openWorldHint=false
-- **UI (MCP Apps):** `ui://controle-financeiro/widget-v5.html` · chamável pelo componente
+- **UI (MCP Apps):** `ui://controle-financeiro/widget-v6.html` · chamável pelo componente
 
 Executa a alteração preparada por transactions_bulk_preview com action recategorize (troca a categoria), tag / untag (põe ou tira uma tag) ou settle (marca como pago). Recebe só o `confirmation_token` e altera exatamente o conjunto da prévia, tudo ou nada; se algo mudou desde a prévia, nada é alterado e é preciso nova prévia.
 
@@ -1090,7 +1094,7 @@ Exemplo:
 - **Classe:** Escrita · **Escopo:** `transactions.write` · **Custo:** 5 unidade(s)
 - **Annotations:** readOnlyHint=false, destructiveHint=false, idempotentHint=true, openWorldHint=false
 - **Idempotência:** `idempotency_key` obrigatória (replay devolve o mesmo resultado; outra carga com a mesma chave = `CONFLICT`).
-- **UI (MCP Apps):** `ui://controle-financeiro/widget-v5.html` · chamável pelo componente
+- **UI (MCP Apps):** `ui://controle-financeiro/widget-v6.html` · chamável pelo componente
 
 Grava as linhas confirmadas pelo usuário, num lote. Sem `account`: lançamentos pagos por você, 100% seus, liquidados. Com `account`: cada linha vira o que ela é (classification): despesa no espaço, renda na conta, transferência com `counterpart_account` ou pagamento da fatura do `card`. Linhas já importadas são puladas; as que não podem entrar voltam em `problems`.
 
@@ -1106,7 +1110,7 @@ Não use quando: não houver confirmação do usuário, ou para despesa dividida
 | `space_id` | integer | não |  |
 | `account` | string | não | Extrato DE UMA CONTA sua (entradas, transferências, fatura). (máx. 120) |
 | `account_id` | integer | não |  |
-| `idempotency_key` | string | sim | Identificador ÚNICO desta intenção do usuário (ex.: um UUID novo). Repita a MESMA chave só ao reenviar exatamente a mesma chamada após erro de rede ou timeout — assim nada é criado em dobro. Pedido novo = chave nova. (mín. 8, máx. 100, padrão `^[A-Za-z0-9._:-]+$`) |
+| `idempotency_key` | string | sim | UUID novo por pedido. Repita a MESMA chave só ao reenviar a mesma chamada após erro de rede: nada é criado em dobro. (mín. 8, máx. 100, padrão `^[A-Za-z0-9._:-]+$`) |
 | `label` | string | não | Nome do lote (ex.: "Extrato Itaú setembro"). (máx. 120) |
 | `rows` | lista de objeto | sim | mín. 1, máx. 200 |
 
@@ -1143,7 +1147,7 @@ Não use quando: quiser importar um extrato novo (imports_preview → imports_co
 
 - **Classe:** Escrita · **Escopo:** `transactions.write` · **Custo:** 5 unidade(s)
 - **Annotations:** readOnlyHint=false, destructiveHint=true, idempotentHint=true, openWorldHint=false
-- **UI (MCP Apps):** `ui://controle-financeiro/widget-v5.html` · chamável pelo componente
+- **UI (MCP Apps):** `ui://controle-financeiro/widget-v6.html` · chamável pelo componente
 
 Desfaz um lote de importação (os dois modos), com as regras do app e tudo ou nada: exclui despesas e rendas, exclui transferências e estorna pagamentos de fatura que ele criou. Duas etapas: sem `confirmation_token` devolve o que sai (e os recibos apagados) e um token de 10 min; MOSTRE ao usuário e, com a confirmação dele, chame de novo com o token.
 
@@ -1165,7 +1169,7 @@ Não use quando: for excluir só algumas linhas (transactions_bulk_preview).
 - **Classe:** Escrita · **Escopo:** `accounts.write` · **Custo:** 3 unidade(s)
 - **Annotations:** readOnlyHint=false, destructiveHint=false, idempotentHint=true, openWorldHint=false
 - **Idempotência:** `idempotency_key` obrigatória (replay devolve o mesmo resultado; outra carga com a mesma chave = `CONFLICT`).
-- **UI (MCP Apps):** `ui://controle-financeiro/widget-v5.html` · chamável pelo componente
+- **UI (MCP Apps):** `ui://controle-financeiro/widget-v6.html` · chamável pelo componente
 
 Registra o pagamento (total ou parcial) de uma fatura do cartão de crédito cujo ciclo já fechou, com a conta de onde o dinheiro saiu. Não é despesa: as compras já estão na fatura.
 
@@ -1179,7 +1183,7 @@ Sem `amount`, paga o saldo inteiro. Pagamento acima do saldo é recusado.
 
 | Parâmetro | Tipo | Obrigatório | Descrição |
 |---|---|---|---|
-| `idempotency_key` | string | sim | Identificador ÚNICO desta intenção do usuário (ex.: um UUID novo). Repita a MESMA chave só ao reenviar exatamente a mesma chamada após erro de rede ou timeout — assim nada é criado em dobro. Pedido novo = chave nova. (mín. 8, máx. 100, padrão `^[A-Za-z0-9._:-]+$`) |
+| `idempotency_key` | string | sim | UUID novo por pedido. Repita a MESMA chave só ao reenviar a mesma chamada após erro de rede: nada é criado em dobro. (mín. 8, máx. 100, padrão `^[A-Za-z0-9._:-]+$`) |
 | `card` | string | não | Cartão (nome). Omitido: seu único cartão. (máx. 120) |
 | `card_id` | integer | não |  |
 | `month` | string | não | Mês da fatura (YYYY-MM). Omitido: a única fatura fechada com saldo em aberto. (padrão `^\d{4}-(0[1-9]|1[0-2])$`) |
@@ -1202,7 +1206,7 @@ Exemplo:
 - **Classe:** Escrita · **Escopo:** `accounts.write` · **Custo:** 3 unidade(s)
 - **Annotations:** readOnlyHint=false, destructiveHint=false, idempotentHint=true, openWorldHint=false
 - **Idempotência:** `idempotency_key` obrigatória (replay devolve o mesmo resultado; outra carga com a mesma chave = `CONFLICT`).
-- **UI (MCP Apps):** `ui://controle-financeiro/widget-v5.html` · chamável pelo componente
+- **UI (MCP Apps):** `ui://controle-financeiro/widget-v6.html` · chamável pelo componente
 
 Registra dinheiro que passou de uma conta sua para outra conta sua (ex.: da conta corrente para a poupança). Não é despesa nem renda: só move saldo.
 
@@ -1216,7 +1220,7 @@ Contas em moedas diferentes exigem `to_amount` (quanto entrou): o app não inven
 
 | Parâmetro | Tipo | Obrigatório | Descrição |
 |---|---|---|---|
-| `idempotency_key` | string | sim | Identificador ÚNICO desta intenção do usuário (ex.: um UUID novo). Repita a MESMA chave só ao reenviar exatamente a mesma chamada após erro de rede ou timeout — assim nada é criado em dobro. Pedido novo = chave nova. (mín. 8, máx. 100, padrão `^[A-Za-z0-9._:-]+$`) |
+| `idempotency_key` | string | sim | UUID novo por pedido. Repita a MESMA chave só ao reenviar a mesma chamada após erro de rede: nada é criado em dobro. (mín. 8, máx. 100, padrão `^[A-Za-z0-9._:-]+$`) |
 | `from_account` | string | não | Conta de origem (nome). (máx. 120) |
 | `from_account_id` | integer | não |  |
 | `to_account` | string | não | Conta de destino (nome). (máx. 120) |
@@ -1239,7 +1243,7 @@ Exemplo:
 - **Classe:** Escrita · **Escopo:** `accounts.write` · **Custo:** 3 unidade(s)
 - **Annotations:** readOnlyHint=false, destructiveHint=false, idempotentHint=true, openWorldHint=false
 - **Idempotência:** `idempotency_key` obrigatória (replay devolve o mesmo resultado; outra carga com a mesma chave = `CONFLICT`).
-- **UI (MCP Apps):** `ui://controle-financeiro/widget-v5.html` · chamável pelo componente
+- **UI (MCP Apps):** `ui://controle-financeiro/widget-v6.html` · chamável pelo componente
 
 Acerta o saldo de uma conta com o que o banco mostra: você informa o saldo REAL e o app lança a diferença como uma linha de ajuste datada (não é renda nem despesa e não reescreve o passado).
 
@@ -1251,7 +1255,7 @@ Não use quando: faltar lançar despesas/rendas específicas — registre-as, qu
 
 | Parâmetro | Tipo | Obrigatório | Descrição |
 |---|---|---|---|
-| `idempotency_key` | string | sim | Identificador ÚNICO desta intenção do usuário (ex.: um UUID novo). Repita a MESMA chave só ao reenviar exatamente a mesma chamada após erro de rede ou timeout — assim nada é criado em dobro. Pedido novo = chave nova. (mín. 8, máx. 100, padrão `^[A-Za-z0-9._:-]+$`) |
+| `idempotency_key` | string | sim | UUID novo por pedido. Repita a MESMA chave só ao reenviar a mesma chamada após erro de rede: nada é criado em dobro. (mín. 8, máx. 100, padrão `^[A-Za-z0-9._:-]+$`) |
 | `account` | string | não | Conta (nome). (máx. 120) |
 | `account_id` | integer | não |  |
 | `real_balance` | string | sim | O saldo REAL que o banco mostra (não a diferença). (padrão `^-?\d{1,16}([.,]\d{1,2})?$`) |
@@ -1270,7 +1274,7 @@ Exemplo:
 
 - **Classe:** Destrutiva · **Escopo:** `accounts.write` · **Custo:** 3 unidade(s)
 - **Annotations:** readOnlyHint=false, destructiveHint=true, idempotentHint=true, openWorldHint=false
-- **UI (MCP Apps):** `ui://controle-financeiro/widget-v5.html` · chamável pelo componente
+- **UI (MCP Apps):** `ui://controle-financeiro/widget-v6.html` · chamável pelo componente
 
 Desfaz uma transferência entre suas contas: as duas pernas (saída e entrada) somem juntas, e os saldos voltam ao que eram.
 
@@ -1296,7 +1300,7 @@ Exemplo:
 
 - **Classe:** Destrutiva · **Escopo:** `accounts.write` · **Custo:** 3 unidade(s)
 - **Annotations:** readOnlyHint=false, destructiveHint=true, idempotentHint=true, openWorldHint=false
-- **UI (MCP Apps):** `ui://controle-financeiro/widget-v5.html` · chamável pelo componente
+- **UI (MCP Apps):** `ui://controle-financeiro/widget-v6.html` · chamável pelo componente
 
 Estorna os pagamentos de uma fatura, como o botão "Reabrir" do app: os pagamentos somem, o dinheiro volta às contas e a fatura volta um passo (paga → fechada; fechada com pagamento parcial → aberta). Sem pagamento na fatura, não faz nada.
 
@@ -1325,7 +1329,7 @@ Exemplo:
 - **Classe:** Escrita · **Escopo:** `income.write` · **Custo:** 3 unidade(s)
 - **Annotations:** readOnlyHint=false, destructiveHint=false, idempotentHint=true, openWorldHint=false
 - **Idempotência:** `idempotency_key` obrigatória (replay devolve o mesmo resultado; outra carga com a mesma chave = `CONFLICT`).
-- **UI (MCP Apps):** `ui://controle-financeiro/widget-v5.html` · chamável pelo componente
+- **UI (MCP Apps):** `ui://controle-financeiro/widget-v6.html` · chamável pelo componente
 
 Registra uma entrada de dinheiro pessoal: salário, freela, reembolso, venda. Renda é sua, não de um espaço, e não se divide.
 
@@ -1337,7 +1341,7 @@ Não use quando: alguém te pagou uma dívida de despesa dividida (settlements_c
 
 | Parâmetro | Tipo | Obrigatório | Descrição |
 |---|---|---|---|
-| `idempotency_key` | string | sim | Identificador ÚNICO desta intenção do usuário (ex.: um UUID novo). Repita a MESMA chave só ao reenviar exatamente a mesma chamada após erro de rede ou timeout — assim nada é criado em dobro. Pedido novo = chave nova. (mín. 8, máx. 100, padrão `^[A-Za-z0-9._:-]+$`) |
+| `idempotency_key` | string | sim | UUID novo por pedido. Repita a MESMA chave só ao reenviar a mesma chamada após erro de rede: nada é criado em dobro. (mín. 8, máx. 100, padrão `^[A-Za-z0-9._:-]+$`) |
 | `title` | string | sim | Ex.: "Salário", "Freela site". (mín. 1, máx. 200) |
 | `amount` | string | sim | Decimal em texto, até 2 casas. Ex.: "89.90". (padrão `^\d{1,16}([.,]\d{1,2})?$`) |
 | `date` | data `YYYY-MM-DD` | não | Data da renda (competência). Omitido = hoje. |
@@ -1360,7 +1364,7 @@ Exemplo:
 
 - **Classe:** Escrita · **Escopo:** `income.write` · **Custo:** 3 unidade(s)
 - **Annotations:** readOnlyHint=false, destructiveHint=true, idempotentHint=true, openWorldHint=false
-- **UI (MCP Apps):** `ui://controle-financeiro/widget-v5.html` · chamável pelo componente
+- **UI (MCP Apps):** `ui://controle-financeiro/widget-v6.html` · chamável pelo componente
 
 Altera uma renda sua (valor, data, título, categoria, conta) e/ou o estado dela: recebida, prevista de novo ou cancelada. Devolve como estava antes (`previous`).
 
@@ -1383,7 +1387,7 @@ Não use quando: for registrar uma renda nova (income_create).
 | `account_id` | integer | não |  |
 | `status` | `received` \| `expected` \| `cancelled` | não | `received` = caiu na conta (use `received_on`/`account` se souber); `expected` = desfaz o "recebi"; `cancelled` = não veio e não virá (definitivo, continua visível). |
 | `received_on` | data `YYYY-MM-DD` | não | Dia em que caiu (com status=received). Omitido = hoje. |
-| `expected_version` | string | não | A `version` que você leu. Se o registro mudou desde então, a escrita volta CONFLICT (com a versão atual) em vez de sobrescrever a mudança de outra pessoa. (mín. 6, máx. 40, padrão `^[0-9a-f]+$`) |
+| `expected_version` | string | não | A `version` lida. Se o registro mudou desde então, volta CONFLICT em vez de sobrescrever. (mín. 6, máx. 40, padrão `^[0-9a-f]+$`) |
 
 **Saída (`structuredContent`)**: `income`, `previous`, `changed`
 
@@ -1403,7 +1407,7 @@ Exemplo:
 
 - **Classe:** Destrutiva · **Escopo:** `income.write` · **Custo:** 3 unidade(s)
 - **Annotations:** readOnlyHint=false, destructiveHint=true, idempotentHint=true, openWorldHint=false
-- **UI (MCP Apps):** `ui://controle-financeiro/widget-v5.html` · chamável pelo componente
+- **UI (MCP Apps):** `ui://controle-financeiro/widget-v6.html` · chamável pelo componente
 
 Exclui uma renda registrada por engano (some das listas e dos totais). Dá para desfazer com income_restore.
 
@@ -1416,7 +1420,7 @@ Não use quando: a renda prevista simplesmente não veio — aí é cancelar (in
 | Parâmetro | Tipo | Obrigatório | Descrição |
 |---|---|---|---|
 | `income_id` | integer | sim | ≥ 1 |
-| `expected_version` | string | não | A `version` que você leu. Se o registro mudou desde então, a escrita volta CONFLICT (com a versão atual) em vez de sobrescrever a mudança de outra pessoa. (mín. 6, máx. 40, padrão `^[0-9a-f]+$`) |
+| `expected_version` | string | não | A `version` lida. Se o registro mudou desde então, volta CONFLICT em vez de sobrescrever. (mín. 6, máx. 40, padrão `^[0-9a-f]+$`) |
 
 **Saída (`structuredContent`)**: `deleted`
 
@@ -1430,7 +1434,7 @@ Exemplo:
 
 - **Classe:** Escrita · **Escopo:** `income.write` · **Custo:** 3 unidade(s)
 - **Annotations:** readOnlyHint=false, destructiveHint=false, idempotentHint=true, openWorldHint=false
-- **UI (MCP Apps):** `ui://controle-financeiro/widget-v5.html` · chamável pelo componente
+- **UI (MCP Apps):** `ui://controle-financeiro/widget-v6.html` · chamável pelo componente
 
 Desfaz a exclusão de uma renda (volta às listas e aos totais).
 
@@ -1457,7 +1461,7 @@ Exemplo:
 - **Classe:** Escrita · **Escopo:** `settlements.write` · **Custo:** 3 unidade(s)
 - **Annotations:** readOnlyHint=false, destructiveHint=false, idempotentHint=true, openWorldHint=false
 - **Idempotência:** `idempotency_key` obrigatória (replay devolve o mesmo resultado; outra carga com a mesma chave = `CONFLICT`).
-- **UI (MCP Apps):** `ui://controle-financeiro/widget-v5.html` · chamável pelo componente
+- **UI (MCP Apps):** `ui://controle-financeiro/widget-v6.html` · chamável pelo componente
 
 Registra que uma pessoa pagou a outra para quitar (toda ou parte da) dívida de despesas divididas num espaço. Reduz "quem deve a quem".
 
@@ -1471,7 +1475,7 @@ O valor não pode passar da dívida naquela direção. Num espaço em que você 
 
 | Parâmetro | Tipo | Obrigatório | Descrição |
 |---|---|---|---|
-| `idempotency_key` | string | sim | Identificador ÚNICO desta intenção do usuário (ex.: um UUID novo). Repita a MESMA chave só ao reenviar exatamente a mesma chamada após erro de rede ou timeout — assim nada é criado em dobro. Pedido novo = chave nova. (mín. 8, máx. 100, padrão `^[A-Za-z0-9._:-]+$`) |
+| `idempotency_key` | string | sim | UUID novo por pedido. Repita a MESMA chave só ao reenviar a mesma chamada após erro de rede: nada é criado em dobro. (mín. 8, máx. 100, padrão `^[A-Za-z0-9._:-]+$`) |
 | `person` | string | não | A outra pessoa do acerto (membro do espaço). (máx. 120) |
 | `person_id` | integer | não |  |
 | `direction` | `they_paid_me` \| `i_paid_them` | sim | `they_paid_me` = a pessoa te pagou; `i_paid_them` = você pagou a pessoa. |
@@ -1496,7 +1500,7 @@ Exemplo:
 
 - **Classe:** Destrutiva · **Escopo:** `settlements.write` · **Custo:** 3 unidade(s)
 - **Annotations:** readOnlyHint=false, destructiveHint=true, idempotentHint=true, openWorldHint=false
-- **UI (MCP Apps):** `ui://controle-financeiro/widget-v5.html` · chamável pelo componente
+- **UI (MCP Apps):** `ui://controle-financeiro/widget-v6.html` · chamável pelo componente
 
 Desfaz um acerto registrado por engano (a dívida volta a existir).
 
@@ -1523,7 +1527,7 @@ Exemplo:
 - **Classe:** Escrita · **Escopo:** `planning.write` · **Custo:** 3 unidade(s)
 - **Annotations:** readOnlyHint=false, destructiveHint=false, idempotentHint=true, openWorldHint=false
 - **Idempotência:** `idempotency_key` obrigatória (replay devolve o mesmo resultado; outra carga com a mesma chave = `CONFLICT`).
-- **UI (MCP Apps):** `ui://controle-financeiro/widget-v5.html` · chamável pelo componente
+- **UI (MCP Apps):** `ui://controle-financeiro/widget-v6.html` · chamável pelo componente
 
 Cria uma despesa que se repete (aluguel, assinatura, academia) ou, com `kind=income`, uma renda que se repete (salário): o app lança cada ocorrência sozinho, com a mesma divisão, categoria e cartão (renda: a conta onde cai, em `account`).
 
@@ -1537,7 +1541,7 @@ Mensal por padrão; `interval` = a cada N períodos; fim por data ou por nº de 
 
 | Parâmetro | Tipo | Obrigatório | Descrição |
 |---|---|---|---|
-| `idempotency_key` | string | sim | Identificador ÚNICO desta intenção do usuário (ex.: um UUID novo). Repita a MESMA chave só ao reenviar exatamente a mesma chamada após erro de rede ou timeout — assim nada é criado em dobro. Pedido novo = chave nova. (mín. 8, máx. 100, padrão `^[A-Za-z0-9._:-]+$`) |
+| `idempotency_key` | string | sim | UUID novo por pedido. Repita a MESMA chave só ao reenviar a mesma chamada após erro de rede: nada é criado em dobro. (mín. 8, máx. 100, padrão `^[A-Za-z0-9._:-]+$`) |
 | `kind` | `expense` \| `income` | não | expense = despesa que se repete; income = renda que se repete (salário). |
 | `title` | string | sim | mín. 1, máx. 200 |
 | `amount` | string | sim | Valor de cada ocorrência. Ex.: "89.90". (padrão `^\d{1,16}([.,]\d{1,2})?$`) |
@@ -1593,7 +1597,7 @@ Exemplo:
 
 - **Classe:** Escrita · **Escopo:** `planning.write` · **Custo:** 3 unidade(s)
 - **Annotations:** readOnlyHint=false, destructiveHint=true, idempotentHint=true, openWorldHint=false
-- **UI (MCP Apps):** `ui://controle-financeiro/widget-v5.html` · chamável pelo componente
+- **UI (MCP Apps):** `ui://controle-financeiro/widget-v6.html` · chamável pelo componente
 
 Altera uma despesa recorrente (ou, com `kind=income`, uma renda recorrente): valor, dia, frequência, fim, categoria, cartão, divisão, conta da renda, ou pausa/retoma (`active`). Ocorrências já pagas nunca mudam; as não pagas seguem `apply_to`.
 
@@ -1636,7 +1640,7 @@ Não use quando: quiser mudar uma única ocorrência (transactions_update nela).
 | `split_with` | lista de string | não | Divide em partes IGUAIS entre você e estas pessoas (nomes de membros do espaço). Ex.: ["João"] = metade sua, metade do João. (máx. 20) |
 | `split_with_ids` | lista de integer | não | máx. 20 |
 | `split` | lista de objeto | não | Divisão desigual: a parte de CADA participante (inclua você, se tiver parte). Todas por valor (somando o total) ou todas por percentual (somando 100). (mín. 1, máx. 20) |
-| `expected_version` | string | não | A `version` que você leu. Se o registro mudou desde então, a escrita volta CONFLICT (com a versão atual) em vez de sobrescrever a mudança de outra pessoa. (mín. 6, máx. 40, padrão `^[0-9a-f]+$`) |
+| `expected_version` | string | não | A `version` lida. Se o registro mudou desde então, volta CONFLICT em vez de sobrescrever. (mín. 6, máx. 40, padrão `^[0-9a-f]+$`) |
 
 **Saída (`structuredContent`)**: `recurring`, `previous`, `changed`, `replayed`
 
@@ -1656,7 +1660,7 @@ Exemplo:
 
 - **Classe:** Destrutiva · **Escopo:** `planning.write` · **Custo:** 3 unidade(s)
 - **Annotations:** readOnlyHint=false, destructiveHint=true, idempotentHint=true, openWorldHint=false
-- **UI (MCP Apps):** `ui://controle-financeiro/widget-v5.html` · chamável pelo componente
+- **UI (MCP Apps):** `ui://controle-financeiro/widget-v6.html` · chamável pelo componente
 
 Exclui uma despesa ou renda recorrente: o app para de lançar novas ocorrências. O que já foi lançado continua (e continua contando), salvo `cancel_open_occurrences=true`, que cancela as ocorrências deste mês em diante ainda não pagas. Não tem desfazer: para só interromper, prefira pausar (recurring_update com active=false).
 
@@ -1671,7 +1675,7 @@ Não use quando: quiser pausar, mudar o valor ou o fim (recurring_update).
 | `recurring_id` | integer | sim | ≥ 1 |
 | `kind` | `expense` \| `income` | não |  |
 | `cancel_open_occurrences` | boolean | não | Só despesa: true = cancela também as ocorrências JÁ lançadas deste mês em diante que ainda não foram pagas. false (padrão) = o que já foi lançado fica como está. |
-| `expected_version` | string | não | A `version` que você leu. Se o registro mudou desde então, a escrita volta CONFLICT (com a versão atual) em vez de sobrescrever a mudança de outra pessoa. (mín. 6, máx. 40, padrão `^[0-9a-f]+$`) |
+| `expected_version` | string | não | A `version` lida. Se o registro mudou desde então, volta CONFLICT em vez de sobrescrever. (mín. 6, máx. 40, padrão `^[0-9a-f]+$`) |
 
 **Saída (`structuredContent`)**: `deleted`, `cancelled_occurrences`
 
@@ -1691,7 +1695,7 @@ Exemplo:
 
 - **Classe:** Escrita · **Escopo:** `planning.write` · **Custo:** 3 unidade(s)
 - **Annotations:** readOnlyHint=false, destructiveHint=true, idempotentHint=true, openWorldHint=false
-- **UI (MCP Apps):** `ui://controle-financeiro/widget-v5.html` · chamável pelo componente
+- **UI (MCP Apps):** `ui://controle-financeiro/widget-v6.html` · chamável pelo componente
 
 Cria ou atualiza a meta de gasto (orçamento) de uma categoria num mês. Chamar de novo com o mesmo espaço/categoria/mês/escopo só atualiza o valor.
 
@@ -1720,27 +1724,29 @@ Exemplo:
 {"category": "Mercado", "amount": "800.00", "scope": "personal"}
 ```
 
-### `categories_create` — Criar categoria ou tag
+### `categories_create` — Criar categoria, tag ou estabelecimento
 
 - **Classe:** Escrita · **Escopo:** `planning.write` · **Custo:** 3 unidade(s)
 - **Annotations:** readOnlyHint=false, destructiveHint=false, idempotentHint=true, openWorldHint=false
-- **UI (MCP Apps):** `ui://controle-financeiro/widget-v5.html` · chamável pelo componente
+- **UI (MCP Apps):** `ui://controle-financeiro/widget-v6.html` · chamável pelo componente
 
-Cria uma categoria (ou, com `kind=tag`, uma tag) num espaço. Se já existir uma com o mesmo nome (ignorando acento e maiúsculas), devolve ALREADY_EXISTS com o id dela — use a existente.
+Cria uma categoria, uma tag (`kind=tag`) ou um estabelecimento (`kind=merchant`, com apelidos: o lançamento cujo título é um apelido se vincula sozinho) num espaço. Mesmo nome (ignorando acento e maiúsculas) devolve ALREADY_EXISTS com o id — use o existente.
 
-Use quando: o usuário pedir uma categoria/tag que não existe (confira antes com categories_list).
+Use quando: o usuário pedir um que não existe (confira antes com categories_list).
 
-Não use quando: ela já existir, mesmo escrita diferente; para renomear/excluir (categories_update).
+Não use quando: já existir, mesmo escrito diferente; para renomear/excluir (categories_update).
 
 **Entrada**
 
 | Parâmetro | Tipo | Obrigatório | Descrição |
 |---|---|---|---|
-| `kind` | `category` \| `tag` | não | category (padrão) ou tag. |
+| `kind` | `category` \| `tag` \| `merchant` | não | category (padrão), tag ou merchant (estabelecimento). |
 | `space` | string | não | máx. 120 |
 | `space_id` | integer | não |  |
 | `name` | string | sim | mín. 1, máx. 120 |
 | `color` | string | não | Cor em hex, ex.: #22C55E. (padrão `^#[0-9A-Fa-f]{6}$`) |
+| `aliases` | lista de string | não | Só merchant: grafias do extrato ("IFD*MC DONALDS"). (máx. 50) |
+| `default_category` | string | não | Só merchant: categoria dos lançamentos novos sem categoria. (máx. 120) |
 
 **Saída (`structuredContent`)**: `id`, `name`, `space`, `kind`
 
@@ -1753,18 +1759,18 @@ Exemplo:
 Exemplo:
 
 ```json
-{"kind": "tag", "name": "Trabalho"}
+{"kind": "merchant", "name": "Uber", "aliases": ["UBER *TRIP"]}
 ```
 
-### `categories_update` — Renomear ou excluir categoria/tag
+### `categories_update` — Editar categoria, tag ou estabelecimento
 
 - **Classe:** Escrita · **Escopo:** `planning.write` · **Custo:** 3 unidade(s)
 - **Annotations:** readOnlyHint=false, destructiveHint=true, idempotentHint=true, openWorldHint=false
-- **UI (MCP Apps):** `ui://controle-financeiro/widget-v5.html` · chamável pelo componente
+- **UI (MCP Apps):** `ui://controle-financeiro/widget-v6.html` · chamável pelo componente
 
-Renomeia, muda a cor ou exclui uma categoria ou tag de um espaço (`kind`). Nome novo que já exista volta erro.
+Renomeia, muda a cor ou exclui uma categoria, tag ou estabelecimento de um espaço (`kind`); no estabelecimento, também apelidos, categoria padrão e mesclar dois. Nome novo que já exista volta erro.
 
-Use quando: "renomeie Restaurantes para Alimentação fora", "apague a tag viagem-2024".
+Use quando: "renomeie Restaurantes para Alimentação fora", "apague a tag viagem-2024", "MC DONALDS e McDonald's são o mesmo".
 
 Não use quando: quiser criar (categories_create) ou trocar a categoria de lançamentos (transactions_update / transactions_bulk_preview).
 
@@ -1772,14 +1778,17 @@ Não use quando: quiser criar (categories_create) ou trocar a categoria de lanç
 
 | Parâmetro | Tipo | Obrigatório | Descrição |
 |---|---|---|---|
-| `kind` | `category` \| `tag` | não |  |
+| `kind` | `category` \| `tag` \| `merchant` | não |  |
 | `space` | string | não | máx. 120 |
 | `space_id` | integer | não |  |
-| `name` | string | não | Nome ATUAL da categoria/tag. (máx. 120) |
+| `name` | string | não | Nome ATUAL. (máx. 120) |
 | `id` | integer | não | ≥ 1 |
 | `new_name` | string | não | Nome novo (renomear). (mín. 1, máx. 120) |
 | `color` | string | não | padrão `^#[0-9A-Fa-f]{6}$` |
-| `delete` | boolean | não | true = excluir. Categoria excluída some das listas (os lançamentos antigos a mantêm); tag excluída sai de todos os lançamentos. |
+| `aliases` | lista de string | não | Só merchant: substitui TODOS os apelidos. (máx. 50) |
+| `default_category` | string | não | Só merchant: categoria padrão ("" tira). (máx. 120) |
+| `merge_into` | string | não | Só merchant: nome do que FICA; este some e passa lançamentos e apelidos a ele. (mín. 1, máx. 120) |
+| `delete` | boolean | não | true = excluir. Categoria excluída some das listas (os lançamentos antigos a mantêm); tag e estabelecimento excluídos saem dos lançamentos. |
 
 **Saída (`structuredContent`)**: `kind`, `id`, `name`, `previous_name`, `space`, `deleted`
 
@@ -1838,7 +1847,7 @@ Não use quando: só precisar saber se há anexo (transactions_get já diz).
 
 - **Classe:** Destrutiva · **Escopo:** `transactions.write` · **Custo:** 3 unidade(s)
 - **Annotations:** readOnlyHint=false, destructiveHint=true, idempotentHint=true, openWorldHint=false
-- **UI (MCP Apps):** `ui://controle-financeiro/widget-v5.html` · chamável pelo componente
+- **UI (MCP Apps):** `ui://controle-financeiro/widget-v6.html` · chamável pelo componente
 
 Apaga um anexo (recibo) de um lançamento, para sempre — não há como desfazer. Membro apaga os próprios anexos; administrador do espaço, qualquer um.
 
@@ -1858,7 +1867,7 @@ Não use quando: quiser excluir o lançamento (transactions_delete).
 
 - **Classe:** Escrita · **Escopo:** `transactions.write` · **Custo:** 3 unidade(s)
 - **Annotations:** readOnlyHint=false, destructiveHint=false, idempotentHint=true, openWorldHint=false
-- **UI (MCP Apps):** `ui://controle-financeiro/widget-v5.html` · chamável pelo componente
+- **UI (MCP Apps):** `ui://controle-financeiro/widget-v6.html` · chamável pelo componente
 
 Anexa a um lançamento um arquivo que o usuário colocou NESTA conversa (foto do recibo, nota em PDF) — no ChatGPT, que entrega o arquivo à tool. JPG, PNG, WebP ou PDF.
 

@@ -325,10 +325,13 @@ def budgets_list(call: ToolCall) -> ToolOutput:
 # --- reports_breakdown ------------------------------------------------------------------
 
 class BreakdownIn(SearchFilters):
-    group_by: Literal["category", "tag", "person", "card", "account", "payment_method", "month", "space", "title"] = Field(
+    group_by: Literal[
+        "category", "tag", "person", "card", "account", "payment_method", "month", "space", "merchant", "title",
+    ] = Field(
         description=(
             "Eixo: category, tag, person (quanto cabe a CADA pessoa), card, account (conta de onde saiu), "
-            "payment_method, month (competência), space, title (título normalizado: aproxima o estabelecimento)."
+            "payment_method, month (competência), space, merchant (estabelecimento vinculado), "
+            "title (título normalizado: para o que não tem estabelecimento)."
         ),
     )
     basis: Literal["my_share", "total"] = Field(
@@ -360,7 +363,7 @@ class BreakdownOut(BaseModel):
     title="Gastos agrupados",
     description=(
         "Soma os gastos do filtro por um eixo — categoria, tag, pessoa, cartão, conta, forma de "
-        "pagamento, mês, espaço ou título (≈ estabelecimento) — direto do banco, com a sua parte ou o "
+        "pagamento, mês, espaço, estabelecimento ou título — direto do banco, com a sua parte ou o "
         "valor cheio. Aceita os mesmos filtros de transactions_search (período, texto, cartão, "
         "categoria, pessoa…).\n"
         "Use quando: 'quanto gastei em cada mercado nos últimos 6 meses?', 'quanto foi em cada cartão "

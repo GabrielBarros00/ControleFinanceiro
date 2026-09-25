@@ -35,8 +35,8 @@ ExpectedVersion = Annotated[
         max_length=40,
         pattern=r"^[0-9a-f]+$",
         description=(
-            "A `version` que você leu. Se o registro mudou desde então, a escrita volta CONFLICT "
-            "(com a versão atual) em vez de sobrescrever a mudança de outra pessoa."
+            "A `version` lida. Se o registro mudou desde então, volta CONFLICT em vez de "
+            "sobrescrever."
         ),
     ),
 ]

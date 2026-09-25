@@ -132,17 +132,25 @@ class CategoriesIn(ToolInput):
     space_id: Optional[int] = None
 
 
+class MerchantOut(BaseModel):
+    id: int
+    name: str
+    aliases: List[str] = Field(default_factory=list, description="Grafias do extrato que vinculam sozinhas.")
+    default_category: Optional[str] = None
+
+
 class CategoriesOut(BaseModel):
     space: Ref
     categories: List[Ref]
     tags: List[Ref]
+    merchants: List[MerchantOut] = Field(default_factory=list, description="Estabelecimentos (onde se compra).")
 
 
 @tool(
     name="categories_list",
-    title="Listar categorias e tags",
+    title="Categorias, tags e estabelecimentos",
     description=(
-        "Lista as categorias e as tags de um espaço (cada espaço tem as suas).\n"
+        "Lista as categorias, as tags e os estabelecimentos (com apelidos) de um espaço (cada espaço tem os seus).\n"
         "Use quando: precisar escolher a categoria de um lançamento, resolver um nome de "
         "categoria ambíguo ou o usuário perguntar quais categorias existem.\n"
         "Não use quando: quiser o gasto por categoria (reports_summary)."
@@ -155,14 +163,24 @@ class CategoriesOut(BaseModel):
 def categories_list(call: ToolCall) -> ToolOutput:
     a: CategoriesIn = call.args
     ref = resolve.require_space(call.session, call.identity.user_id, space_id=a.space_id, space=a.space)
+    categorias = resolve.space_categories(call.session, ref.id)
+    nome_da_categoria = {c.id: c.name for c in categorias}
     saida = CategoriesOut(
         space=Ref(id=ref.id, name=ref.workspace.name),
-        categories=[Ref(id=c.id, name=c.name) for c in resolve.space_categories(call.session, ref.id)],
+        categories=[Ref(id=c.id, name=c.name) for c in categorias],
         tags=[Ref(id=t.id, name=t.name) for t in resolve.space_tags(call.session, ref.id)],
+        merchants=[
+            MerchantOut(id=m.id, name=m.name, aliases=list(m.aliases or []),
+                        default_category=nome_da_categoria.get(m.default_category_id))
+            for m in resolve.space_merchants(call.session, ref.id)
+        ],
     )
     return ToolOutput(
         structured=saida,
-        summary=f"{len(saida.categories)} categoria(s) e {len(saida.tags)} tag(s) em {ref.workspace.name}.",
+        summary=(
+            f"{len(saida.categories)} categoria(s), {len(saida.tags)} tag(s) e "
+            f"{len(saida.merchants)} estabelecimento(s) em {ref.workspace.name}."
+        ),
         space_id=ref.id,
     )
 

@@ -29,6 +29,7 @@ from app.models import (  # noqa: F401
     import_batch,
     income,
     mcp,
+    merchant,
     notification,
     oauth,
     payment_account,

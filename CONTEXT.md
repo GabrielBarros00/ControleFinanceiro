@@ -74,6 +74,13 @@ Nomes que já causaram defeito por dizerem uma coisa e significarem outra.
   gera **ocorrências**: lançamentos materializados com `occurrence_date`. A ocorrência
   excluída deixa marca e não volta (ADR 0012, ADR 0030).
 - **Categoria** e **tag**: do espaço. A categoria fica no item do lançamento.
+- **Estabelecimento** (`Merchant`, ADR 0038): onde a despesa foi feita, vocabulário do
+  espaço como a categoria. O lançamento e a recorrência apontam para um
+  (`merchant_id`). Os **apelidos** são as grafias do extrato, guardadas normalizadas
+  (sem acento, caixa, dígito e pontuação); o lançamento NOVO cujo título normalizado é
+  igual a um apelido (ou ao nome) se liga sozinho. **Mesclar** junta dois cadastros do
+  mesmo lugar. A **categoria padrão** vale para o lançamento novo que chega sem
+  categoria. Não confundir com o título, que continua texto livre.
 
 ## Tempo: competência, caixa, saldo e previsão
 

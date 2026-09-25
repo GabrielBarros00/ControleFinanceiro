@@ -13,6 +13,7 @@ from app.models.transaction import (
 )
 
 from app.schemas.common import DESCRIPTION_MAX, MAX_MONEY, OptionalCurrencyCode, TITLE_MAX  # noqa: F401
+from app.schemas.merchant import MerchantBrief
 
 
 class TransactionPayerBase(BaseModel):
@@ -116,6 +117,8 @@ class TransactionBase(BaseModel):
     )
     split_mode: SplitMode = SplitMode.transaction
     payment_method: Optional[PaymentMethod] = None
+    #: Onde a despesa foi feita (ADR 0038). Sem ele, o título segue valendo.
+    merchant_id: Optional[int] = None
 
 
 def _ensure_unique_users(entries, context: str) -> None:
@@ -273,6 +276,9 @@ class TransactionCreate(TransactionBase):
     # frente nasce a pagar. Não é o mesmo que `status`: aqui se fala de CAIXA,
     # lá de competência.
     settled: Optional[bool] = None
+    # Estabelecimento pelo NOME (ADR 0038): o de nome ou apelido igual; sem
+    # nenhum, um novo. Alternativa ao `merchant_id` para quem digita.
+    merchant_name: Optional[str] = Field(default=None, max_length=120)
 
     @model_validator(mode="after")
     def _validate_structure(self):
@@ -341,6 +347,7 @@ class TransactionRead(TransactionBase):
     items: List[TransactionItemRead] = []
     adjustments: List[TransactionAdjustmentRead] = []
     tags: List[TransactionTagRead] = []
+    merchant: Optional[MerchantBrief] = None
 
 class TransactionUpdate(BaseModel):
     title: Optional[str] = Field(default=None, min_length=1, max_length=TITLE_MAX)
@@ -366,6 +373,10 @@ class TransactionUpdate(BaseModel):
     # Categoria simplificada: upsert do item único da transação
     category_id: Optional[int] = None
     tag_ids: Optional[List[int]] = None
+    # Estabelecimento (ADR 0038): `merchant_id` null explícito desvincula;
+    # `merchant_name` acha pelo nome/apelido ou cria.
+    merchant_id: Optional[int] = None
+    merchant_name: Optional[str] = Field(default=None, max_length=120)
     # Edição completa da divisão: se qualquer um destes vier, a rota exige o
     # conjunto completo e recria payers/splits/items/ajustes atomicamente
     split_mode: Optional[SplitMode] = None

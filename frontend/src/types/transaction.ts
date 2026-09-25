@@ -118,4 +118,6 @@ export interface TransactionRead {
   items: TransactionItemRead[];
   adjustments: TransactionAdjustmentRead[];
   tags: TransactionTagRead[];
+  /** Onde a despesa foi feita (ADR 0038); `null` = sem estabelecimento. */
+  merchant?: { id: number; name: string } | null;
 }

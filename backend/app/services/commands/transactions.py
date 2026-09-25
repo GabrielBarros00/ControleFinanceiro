@@ -393,7 +393,7 @@ def _create_installments(
 
     base_data = transaction_in.model_dump(exclude={
         "payers", "splits", "items", "adjustments", "tag_ids", "installments_count",
-        "title", "total_amount", "transaction_date", "billing_month", "settled",
+        "title", "total_amount", "transaction_date", "billing_month", "settled", "merchant_name",
     })
 
     first_tx = None
@@ -727,6 +727,8 @@ def _aggregate_group_whole(
         "items": [],
         "adjustments": [],
         "tags": [{"id": t.id, "name": t.name, "color": t.color} for t in ref.tags],
+        "merchant_id": ref.merchant_id,
+        "merchant": {"id": ref.merchant.id, "name": ref.merchant.name} if ref.merchant else None,
     }
 
     if ref.split_mode == SplitMode.transaction:
@@ -875,6 +877,7 @@ def _recompute_open_installments(
         sib.currency = transaction_in.currency
         sib.payment_method = transaction_in.payment_method
         sib.credit_card_id = transaction_in.credit_card_id
+        sib.merchant_id = transaction_in.merchant_id
         sib.installments_of = new_count
         if conv_meta:
             factor = conv_meta["exchange_rate"] * (Decimal("1") + conv_meta["iof_rate"])
@@ -960,12 +963,42 @@ def _recompute_open_installments(
     return first_tx or paid[0]
 
 
+def _com_estabelecimento(
+    session: Session, workspace_id: int, transaction_in: TransactionCreate, membership: WorkspaceMembership,
+):
+    """Resolve o estabelecimento (ADR 0038) antes de gravar: o id, o nome (acha ou
+    cria) ou, sem nenhum, o de apelido EXATO do título. Devolve a entrada com o
+    `merchant_id` e o estabelecimento (para a categoria padrão)."""
+    from app.services.commands import merchants as merchant_cmd
+
+    merchant = merchant_cmd.resolve_merchant(
+        session, workspace_id, membership, merchant_id=transaction_in.merchant_id,
+        merchant_name=transaction_in.merchant_name, titulo=transaction_in.title,
+    )
+    return transaction_in.model_copy(update={"merchant_id": merchant.id if merchant else None, "merchant_name": None}), merchant
+
+
+def _categoria_padrao(session: Session, tx: Transaction, merchant) -> None:
+    """Sem categoria escolhida, a do estabelecimento — no item único, como a edição
+    simplificada faz. Só no lançamento avulso: na parcelada os itens são fatiados
+    por parcela, e ali a categoria vem da escolha da pessoa."""
+    if merchant is None or merchant.default_category_id is None:
+        return
+    if session.exec(select(TransactionItem).where(TransactionItem.transaction_id == tx.id)).first() is not None:
+        return
+    session.add(TransactionItem(
+        transaction_id=tx.id, title=tx.title, amount=tx.total_amount, category_id=merchant.default_category_id,
+    ))
+    session.flush()
+
+
 def create_transaction(
     session: Session,
     workspace_id: int,
     transaction_in: TransactionCreate,
     membership: WorkspaceMembership,
 ) -> Transaction:
+    transaction_in, merchant = _com_estabelecimento(session, workspace_id, transaction_in, membership)
     # Fatura SEMPRE derivada no servidor a partir de cartão + data (ADR 0002)
     statement_id = None
     card = None
@@ -1010,7 +1043,7 @@ def create_transaction(
     transaction_data = transaction_in.model_dump(
         exclude={
             "payers", "splits", "items", "adjustments", "tag_ids",
-            "installments_count", "settled",
+            "installments_count", "settled", "merchant_name",
         }
     )
     if not transaction_data.get("billing_month"):
@@ -1058,6 +1091,7 @@ def create_transaction(
 
     if transaction_in.tag_ids is not None:
         _set_transaction_tags(session, workspace_id, db_transaction.id, transaction_in.tag_ids)
+    _categoria_padrao(session, db_transaction, merchant)
 
     publish_event(session, workspace_id, "transaction.created", "transaction", db_transaction.id, membership.user_id)
     return db_transaction
@@ -1255,6 +1289,18 @@ def update_transaction(
                 update_data[k] = None
 
     # Categoria: upsert do item único (modelo simplificado de 1 categoria/transação)
+    if "merchant_id" in update_data or update_data.get("merchant_name"):
+        from app.services.commands import merchants as merchant_cmd
+
+        nome = update_data.pop("merchant_name", None)
+        escolhido = update_data.pop("merchant_id", None)
+        merchant = (
+            merchant_cmd.resolve_merchant(session, workspace_id, membership, merchant_id=escolhido, merchant_name=nome)
+            if (escolhido is not None or nome) else None
+        )
+        update_data["merchant_id"] = merchant.id if merchant else None
+    update_data.pop("merchant_name", None)
+
     if "category_id" in update_data:
         category_id = update_data.pop("category_id")
         if category_id is not None:
@@ -1430,6 +1476,25 @@ def delete_installment_group(
     return {"status": "ok", "deleted": deleted, "skipped_paid": skipped_paid}, liberar
 
 
+def _estabelecimento_do_grupo(
+    session: Session, workspace_id: int, anchor: Transaction, transaction_in: TransactionCreate,
+    membership: WorkspaceMembership,
+) -> Optional[int]:
+    """O estabelecimento da compra editada (ADR 0038). O corpo é o do create, onde
+    `merchant_id` ausente e nulo se confundem: só muda quando o campo veio (ou o
+    nome); sem ele, fica o da compra — quem não conhece o campo não o apaga. Como
+    na edição avulsa, trocar o título não revincula."""
+    from app.services.commands import merchants as merchant_cmd
+
+    if "merchant_id" not in transaction_in.model_fields_set and not transaction_in.merchant_name:
+        return anchor.merchant_id
+    merchant = merchant_cmd.resolve_merchant(
+        session, workspace_id, membership,
+        merchant_id=transaction_in.merchant_id, merchant_name=transaction_in.merchant_name,
+    )
+    return merchant.id if merchant else None
+
+
 def update_installment_group(
     session: Session,
     workspace_id: int,
@@ -1452,6 +1517,8 @@ def update_installment_group(
     transaction_in = transaction_in.model_copy(update={
         "title": _strip_installment_suffix(transaction_in.title),
         "currency": resolve_currency(session, workspace_id, transaction_in.currency),
+        "merchant_id": _estabelecimento_do_grupo(session, workspace_id, anchor, transaction_in, membership),
+        "merchant_name": None,
     })
 
     # Cartão efetivo (parcelamento sempre é no crédito — o schema já exige)

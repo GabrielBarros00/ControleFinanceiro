@@ -21,6 +21,7 @@ import { BarChart3, TrendingUp, PieChart as PieChartIcon } from 'lucide-react';
 import { useReports } from '@/hooks/use-reports';
 import { Skeleton } from "@/components/ui/skeleton";
 import { BudgetPanel } from './BudgetPanel';
+import { MerchantSpendingPanel } from './MerchantSpendingPanel';
 import { useChartTheme } from '@/hooks/use-chart-theme';
 import { StatTile } from '@/components/ui/stat-tile';
 import { formatCompact, formatMoney, sameMoney } from '@/lib/money';
@@ -36,7 +37,7 @@ import { ArrowRight } from 'lucide-react';
 import { useUIStore } from '@/stores';
 
 
-const ABAS = ['overview', 'categories', 'trends', 'budget'] as const;
+const ABAS = ['overview', 'categories', 'merchants', 'trends', 'budget'] as const;
 type AbaDeRelatorio = (typeof ABAS)[number];
 
 export function ReportsPage() {
@@ -214,6 +215,7 @@ export function ReportsPage() {
         <TabsList>
           <TabsTrigger value="overview">Visão geral</TabsTrigger>
           <TabsTrigger value="categories">Categorias</TabsTrigger>
+          <TabsTrigger value="merchants">Estabelecimentos</TabsTrigger>
           {/* "Fluxo" (de caixa) era promessa que a aba não cumpria: ela desenha
               evolução de DESPESA. Caixa de verdade é global e vive na Visão
               global (ADR 0022). */}
@@ -387,6 +389,10 @@ export function ReportsPage() {
               </CardContent>
             </Card>
           </div>
+        </TabsContent>
+
+        <TabsContent value="merchants" className="animate-in slide-in-from-bottom-4 duration-500">
+          <MerchantSpendingPanel month={month} workspaceId={currentWorkspaceId} />
         </TabsContent>
 
         <TabsContent value="trends" className="animate-in slide-in-from-bottom-4 duration-500">

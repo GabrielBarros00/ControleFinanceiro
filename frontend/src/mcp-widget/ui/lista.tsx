@@ -65,7 +65,7 @@ export function LinhaDeLancamento({ r, bridge, forms, selecionavel, marcado, aoM
             esquerda={<Dia data={r.date} />}
             titulo={r.title}
             riscada={r.status === 'cancelled'}
-            detalhe={[r.category ?? 'Sem categoria', !semCartao && r.card, r.installment && `parcela ${r.installment}`, r.space?.name].filter(Boolean).join(' · ')}
+            detalhe={[r.merchant, r.category ?? 'Sem categoria', !semCartao && r.card, r.installment && `parcela ${r.installment}`, r.space?.name].filter(Boolean).join(' · ')}
             direita={
               <>
                 <Money valor={r.statement_amount ?? r.amount} moeda={r.currency} class="text-[14px] font-medium" />

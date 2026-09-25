@@ -91,6 +91,16 @@ cliente MCP ([ADR 0035](docs/adr/0035-integracao-com-agentes-de-ia-mcp.md)).
   novo: o arquivo volta a entrar. Antes, mesmo excluindo tudo à mão, as linhas ficavam
   marcadas como "já importadas" para sempre. Se algum lançamento tem recibo anexado, a
   tela avisa quantos serão apagados antes de você confirmar.
+- **Estabelecimentos: "quanto gastei no McDonald's" passa a ter resposta certa.** O extrato
+  escreve o mesmo lugar de vários jeitos ("IFD*MC DONALDS 0231", "MCDONALDS"). Agora o
+  lançamento tem um campo **Estabelecimento** (em "Detalhar"), e em Configurações do
+  espaço › Estabelecimentos você cadastra os apelidos de cada lugar, uma categoria padrão
+  e junta dois cadastros do mesmo lugar ("Mesclar"). A despesa nova ou importada cujo
+  título é um apelido se liga sozinha; parecido não liga. Relatórios › Estabelecimentos
+  mostra o gasto do mês por lugar (o valor cheio e a sua parte), e a lista de lançamentos
+  filtra por estabelecimento. Pela IA: "o MC DONALDS e o McDonald's são o mesmo", "quanto
+  gastei em cada loja?", e na compra ela pergunta quando o nome só lembra um cadastrado,
+  em vez de criar um segundo.
 - **Você vê na conversa o que a IA fez, e corrige ali mesmo** (ChatGPT e Claude):
   - o lançamento que ela registrou aparece com **Editar** e **Desfazer**; editar abre
     o formulário no próprio cartão (título, valor, data, categoria, cartão, divisão,
@@ -115,7 +125,7 @@ cliente MCP ([ADR 0035](docs/adr/0035-integracao-com-agentes-de-ia-mcp.md)).
   consulta agrupada, com o mesmo resultado.
 
 Por dentro: servidor MCP em `/mcp` (SDK oficial 2.2), OAuth 2.1 com PKCE e
-registro por CIMD/DCR, 57 tools documentadas em `docs/mcp/TOOLS.md` (geradas do
+registro por CIMD/DCR, 59 tools documentadas em `docs/mcp/TOOLS.md` (geradas do
 código), e as escritas das rotas REST passaram a morar em comandos
 compartilhados (`app/services/commands/`) — sem mudança de comportamento.
 

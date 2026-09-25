@@ -9,6 +9,7 @@ from sqlmodel import SQLModel, Field, Relationship, UniqueConstraint
 from app.models.tag import Tag, TransactionTagLink
 
 if TYPE_CHECKING:
+    from app.models.merchant import Merchant
     from app.models.recurring import RecurringExpense
 
 class TransactionStatus(str, Enum):
@@ -127,6 +128,8 @@ class Transaction(TransactionBase, table=True):
     # roda em TODA listagem de lançamento
     created_by_user_id: Optional[int] = Field(default=None, foreign_key="user.id", index=True)
     recurring_expense_id: Optional[int] = Field(default=None, foreign_key="recurringexpense.id", index=True)
+    #: Onde a despesa foi feita (ADR 0038). Opcional: sem estabelecimento, o título segue valendo.
+    merchant_id: Optional[int] = Field(default=None, foreign_key="merchant.id", index=True)
     occurrence_date: Optional[date] = Field(default=None)
     # Despesa gerada ao PAGAR uma parcela de financiamento. O vínculo era o
     # TÍTULO ("Casa — Parcela 3/60"): renomear o financiamento fazia o estorno
@@ -234,6 +237,7 @@ class Transaction(TransactionBase, table=True):
     adjustments: List["TransactionAdjustment"] = Relationship(back_populates="transaction")
     tags: List[Tag] = Relationship(link_model=TransactionTagLink)
     recurring_expense: Optional["RecurringExpense"] = Relationship(back_populates="transactions")
+    merchant: Optional["Merchant"] = Relationship()
 
 
 class TransactionAdjustment(SQLModel, table=True):

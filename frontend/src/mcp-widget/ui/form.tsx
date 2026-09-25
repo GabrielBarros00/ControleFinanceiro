@@ -21,12 +21,18 @@ export function Campo({ rotulo, children, dica }: { rotulo: string; children: (i
   );
 }
 
-export function Texto({ id, valor, aoMudar, placeholder, max = 200 }: {
+export function Texto({ id, valor, aoMudar, placeholder, max = 200, sugestoes }: {
   id?: string; valor: string; aoMudar: (v: string) => void; placeholder?: string; max?: number;
+  /** Sugestões do campo (datalist): escolhe uma ou digita outra. */
+  sugestoes?: string[];
 }) {
+  const lista = sugestoes?.length && id ? `${id}-sugestoes` : undefined;
   return (
-    <input id={id} class="w-input text-[16px] sm:text-[14px]" value={valor} maxLength={max} placeholder={placeholder}
-      onInput={(e) => aoMudar((e.target as HTMLInputElement).value)} />
+    <>
+      <input id={id} class="w-input text-[16px] sm:text-[14px]" value={valor} maxLength={max} placeholder={placeholder}
+        list={lista} onInput={(e) => aoMudar((e.target as HTMLInputElement).value)} />
+      {lista && <datalist id={lista}>{sugestoes!.map((s) => <option key={s} value={s} />)}</datalist>}
+    </>
   );
 }
 

@@ -27,6 +27,7 @@ const FILTRO: Record<string, (v: unknown) => string> = {
   card: (v) => `cartão ${String(v)}`,
   category: (v) => String(v),
   tag: (v) => `#${String(v)}`,
+  merchant: (v) => `em ${String(v)}`,
   person: (v) => `com ${String(v)}`,
   uncategorized: () => 'sem categoria',
   settled: (v) => (v ? 'pagos' : 'a pagar'),

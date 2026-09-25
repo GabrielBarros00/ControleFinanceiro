@@ -30,6 +30,9 @@ export const WS_EVENT_TYPES = [
   'member.added',
   'member.removed',
   'member.updated',
+  'merchant.created',
+  'merchant.deleted',
+  'merchant.updated',
   'recurring.created',
   'recurring.deleted',
   'recurring.updated',
@@ -107,6 +110,9 @@ const BY_PREFIX: Record<string, string[]> = {
     'payables', 'me-payables',
     // Liquidar um lançamento tira dinheiro de uma CONTA (ADR 0034).
     'me-balance', 'account-statement',
+    // O gasto e a contagem por estabelecimento (ADR 0038); e o lançamento
+    // pode CRIAR um estabelecimento pelo nome.
+    'merchants',
     ...AUDIT,
   ],
   income: [
@@ -146,6 +152,8 @@ const BY_PREFIX: Record<string, string[]> = {
   ],
   category: ['categories', 'reports', 'transactions', ...AUDIT],
   tag: ['tags', 'transactions', ...AUDIT],
+  // Estabelecimento (ADR 0038): o vocabulário e a lista, que mostra o nome dele.
+  merchant: ['merchants', 'transactions', ...AUDIT],
   estimate: ['estimates', 'analytics-forecast', 'reports', ...AUDIT],
   financing: [
     'financing', 'me-commitments', 'me-overview', 'me-ledger', 'me-reports',

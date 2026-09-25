@@ -58,6 +58,11 @@ export const transactionFormSchema = z.object({
   installments: z.number().int().min(1).max(36),
   category_id: z.string(),    // modo transaction: item único p/ relatórios
   tag_ids: z.array(z.number()),
+  // Estabelecimento pelo nome (ADR 0038): o servidor acha pelo nome ou apelido,
+  // ou cria. `merchant_initial` é o que veio do lançamento, para só mandar o
+  // campo quando ele MUDOU (e para "apagar" poder desvincular).
+  merchant_name: z.string().max(120, 'No máximo 120 caracteres'),
+  merchant_initial: z.string(),
   split_mode: z.enum(['transaction', 'item']),
   split_method: z.enum(['equal', 'percentage', 'fixed']),
   splits: z.array(shareSchema),
@@ -282,6 +287,16 @@ function isToday(dateStr: string): boolean {
 // Reexportado de @/lib/date: uma única definição de "hoje" no app inteiro
 export { todayLocalISO };
 
+/**
+ * O estabelecimento só vai quando mudou. Na criação, vazio não manda nada e o
+ * servidor liga pelo apelido do título; na edição, apagar desvincula.
+ */
+function estabelecimento(v: TransactionFormValues): { merchant_name?: string; merchant_id?: null } {
+  const nome = v.merchant_name.trim();
+  if (nome === v.merchant_initial) return {};
+  return nome ? { merchant_name: nome } : { merchant_id: null };
+}
+
 export function toApiPayload(v: TransactionFormValues) {
   // Data de hoje mantém o horário real; retroativa fixa 12:00 local (padrão do
   // app). billing_month sai da data ESCOLHIDA no fuso local — nunca do UTC.
@@ -313,6 +328,7 @@ export function toApiPayload(v: TransactionFormValues) {
     statement_shift: v.credit_card_id ? v.statement_shift : 0,
     split_mode: v.split_mode,
     tag_ids: v.tag_ids,
+    ...estabelecimento(v),
     // Sempre explícito (ADR 0029): sem o campo, o backend cai no palpite pela
     // data, e o palpite discordaria da caixa que a pessoa acabou de ver marcada
     // na tela. Compra no cartão ignora — quem paga é a fatura.
@@ -401,6 +417,8 @@ export function fromApiTransaction(tx: TransactionRead): TransactionFormValues {
     statement_shift: tx.statement_shift ?? 0,
     installments: 1, // reparcelar não existe na edição
     tag_ids: (tx.tags ?? []).map((t) => t.id),
+    merchant_name: tx.merchant?.name ?? '',
+    merchant_initial: tx.merchant?.name ?? '',
     split_mode: tx.split_mode ?? 'transaction',
     // O estado REAL da liquidação, não um default (ADR 0029): abrir uma conta
     // ainda não paga com a caixa marcada, e salvar, a daria por paga sem que

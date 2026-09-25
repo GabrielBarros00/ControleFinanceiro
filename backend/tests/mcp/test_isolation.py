@@ -75,8 +75,12 @@ def mundo(db_session, mcp_client):
         "idempotency_key": str(uuid4()), "space_id": c.pessoal.id,
         "rows": [{"date": c.hoje.isoformat(), "title": SEGREDO + " importado", "amount": "12.34"}],
     }))
+    estab = ok(call_tool(mcp_client, c.token, "categories_create", {
+        "kind": "merchant", "name": SEGREDO + " Loja", "space_id": c.casa.id, "aliases": [SEGREDO + " apelido"],
+    }))
     return {
         "c": c,
+        "estab": estab["id"],
         "tx": avulsa["id"],
         "parcela": parcelada["id"],
         "grupo": parcelada["installment_group_id"],
@@ -139,7 +143,8 @@ def _casos(m: dict) -> dict[str, list[dict]]:
         "budgets_set": [{"space_id": c.casa.id, "category": "Alimentação", "amount": "1", "scope": "personal"}],
         "categories_create": [{"space_id": c.casa.id, "name": "Invasão"}, {"space_id": c.casa.id, "name": "x", "kind": "tag"}],
         "categories_update": [{"space_id": c.casa.id, "name": "Alimentação", "new_name": "Invasão"},
-                              {"space_id": c.casa.id, "id": 1, "delete": True}],
+                              {"space_id": c.casa.id, "id": 1, "delete": True},
+                              {"space_id": c.casa.id, "kind": "merchant", "id": m["estab"], "delete": True}],
         "transactions_history": [{"transaction_id": m["tx"]}, {"transaction_id": m["parcela"]}],
         "recurring_get": [{"recurring_id": m["recorrente"]}, {"recurring_id": m["renda_fixa"], "kind": "income"}],
         "recurring_delete": [{"recurring_id": m["recorrente"]}, {"recurring_id": m["renda_fixa"], "kind": "income"}],
@@ -161,7 +166,8 @@ def _casos(m: dict) -> dict[str, list[dict]]:
                       {"view": "account", "account_id": c.conta.id}, {"view": "imports", "batch_id": m["lote"]},
                       {"view": "breakdown", "group_by": "person", "space_id": c.casa.id}],
         "reports_breakdown": [{"group_by": "category", "space_id": c.casa.id}, {"group_by": "card", "card_id": c.nubank.id},
-                              {"group_by": "person", "person_id": c.alice.id}, {"group_by": "title", "import_batch_id": m["lote"]}],
+                              {"group_by": "person", "person_id": c.alice.id}, {"group_by": "title", "import_batch_id": m["lote"]},
+                              {"group_by": "merchant", "space_id": c.casa.id}],
     }
 
 
@@ -175,7 +181,7 @@ def test_toda_tool_com_id_tem_caso_de_isolamento(db_session, mcp_client):
     get_server()
     com_id = {n for n in REGISTRY if _tem_id(n)}
     assert len(com_id) >= 25, com_id  # denominador: a varredura enxerga as tools
-    chaves = ("tx", "parcela", "grupo", "renda", "acerto", "recorrente", "renda_fixa", "transf", "anexo", "fin", "lote")
+    chaves = ("tx", "parcela", "grupo", "renda", "acerto", "recorrente", "renda_fixa", "transf", "anexo", "fin", "lote", "estab")
     faltando = com_id - set(_casos({"c": _Falso(), **{k: 0 for k in chaves}}))
     assert not faltando, f"tools com id sem caso A×B: {sorted(faltando)}"
 
@@ -237,6 +243,7 @@ def _fotografia(db) -> dict:
     from app.models.income import Income
     from app.models.recurring import RecurringIncome
     from app.models.settlement import Settlement
+    from app.models.merchant import Merchant
     from app.models.tag import Tag
     from app.models.transaction import Transaction
 
@@ -256,6 +263,7 @@ def _fotografia(db) -> dict:
         "parcelas_fin": sorted((p.id, p.is_paid) for p in db.exec(select(AmortizationInstallment)).all()),
         "nomes_cat": sorted(cat.name for cat in db.exec(select(Category)).all()),
         "tags": len(db.exec(select(Tag)).all()),
+        "estabs": sorted((e.id, e.name, tuple(e.aliases), e.deleted_at is None) for e in db.exec(select(Merchant)).all()),
     }
 
 

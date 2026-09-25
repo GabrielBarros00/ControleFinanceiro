@@ -152,6 +152,11 @@ def commit_import(
         )
     ).all())
 
+    # Estabelecimento por apelido EXATO do título (ADR 0038): o mapa é lido uma vez.
+    from app.services.commands import merchants as merchant_cmd
+
+    estabelecimentos = merchant_cmd.mapa_de_chaves(session, workspace_id)
+
     imported = ignored = duplicate = skipped = 0
     for row in body.rows:
         title = (row.title or "Imported Transaction").strip()[:200]
@@ -191,6 +196,8 @@ def commit_import(
                     session, workspace_id, transaction_date=quando, explicit=True
                 ),
             )
+            estabelecimento = merchant_cmd.do_titulo(session, workspace_id, title, estabelecimentos)
+            tx.merchant_id = estabelecimento.id if estabelecimento else None
             session.add(tx)
             session.flush()
             session.add(TransactionPayer(

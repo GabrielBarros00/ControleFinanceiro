@@ -21,6 +21,7 @@ import { useBaseCurrency } from '@/hooks/use-base-currency';
 import { PAYMENT_METHOD_OPTIONS } from '@/lib/payment-methods';
 import { useCategories } from '@/hooks/use-categories';
 import { useTags } from '@/hooks/use-tags';
+import { useMerchants } from '@/hooks/use-merchants';
 import { FilterBar } from '@/components/layout/FilterBar';
 import { nativeSelectClass as selectClass } from '@/components/ui/native-select';
 
@@ -59,6 +60,7 @@ export function TransactionsPage() {
     // link ser compartilhável e o voltar do navegador não perder o recorte.
     uncategorized: searchParams.get('semcategoria') === 'sim' || undefined,
     tag_id: numeroDaUrl('tag'),
+    merchant_id: numeroDaUrl('estabelecimento'),
     // `settled` é booleano de três estados: ausente = "pagas e a pagar".
     settled: searchParams.has('pagas') ? searchParams.get('pagas') === 'sim' : undefined,
   };
@@ -97,6 +99,7 @@ export function TransactionsPage() {
   const baseCurrency = useBaseCurrency();
   const { categories } = useCategories();
   const { tags } = useTags();
+  const { merchants } = useMerchants();
   const setNewTxOpen = useNewTxStore((s) => s.setOpen);
   const openDetail = useTxDetailStore((s) => s.open);
 
@@ -109,6 +112,7 @@ export function TransactionsPage() {
       ...('category_id' in p ? { categoria: p.category_id } : {}),
       ...('uncategorized' in p ? { semcategoria: p.uncategorized ? 'sim' : undefined } : {}),
       ...('tag_id' in p ? { tag: p.tag_id } : {}),
+      ...('merchant_id' in p ? { estabelecimento: p.merchant_id } : {}),
       ...('settled' in p ? { pagas: p.settled === undefined ? undefined : (p.settled ? 'sim' : 'nao') } : {}),
       page: p.page ?? undefined,
     });
@@ -235,10 +239,14 @@ export function TransactionsPage() {
     () => tags.map((t) => ({ value: String(t.id), label: t.name })),
     [tags],
   );
+  const merchantOptions = React.useMemo(
+    () => merchants.map((m) => ({ value: String(m.id), label: m.name })),
+    [merchants],
+  );
 
   const hasFilters =
     !!searchInput || !!filters.payment_method || !!filters.category_id || !!filters.uncategorized ||
-    !!filters.tag_id || filters.settled !== undefined;
+    !!filters.tag_id || !!filters.merchant_id || filters.settled !== undefined;
 
   return (
     <div className="space-y-6">
@@ -261,7 +269,7 @@ export function TransactionsPage() {
 
       <FilterBar
         ativos={
-          [filters.payment_method, filters.category_id || filters.uncategorized || undefined, filters.tag_id, filters.settled]
+          [filters.payment_method, filters.category_id || filters.uncategorized || undefined, filters.tag_id, filters.merchant_id, filters.settled]
             .filter((f) => f !== undefined && f !== null && f !== '')
             .length
         }
@@ -269,11 +277,11 @@ export function TransactionsPage() {
           setSearchInput('');
           patch({
             search: '', payment_method: undefined, category_id: undefined, uncategorized: false,
-            tag_id: undefined, settled: undefined,
+            tag_id: undefined, merchant_id: undefined, settled: undefined,
           });
         }}
         destaque={
-          <div className="relative flex-1">
+          <div className="relative min-w-60 flex-1">
             <Search className="pointer-events-none absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
             <Input
               type="search"
@@ -378,6 +386,28 @@ export function TransactionsPage() {
             ))}
           </SelectContent>
         </Select>
+        {/* Estabelecimento (ADR 0038): só aparece no espaço que já tem algum. */}
+        {(merchantOptions.length > 0 || !!filters.merchant_id) && (
+          <Select
+            items={[{ value: 'all', label: 'Todo estabelecimento' }, ...merchantOptions]}
+            value={filters.merchant_id ? String(filters.merchant_id) : 'all'}
+            onValueChange={(v: string | null) =>
+              patch({ merchant_id: v && v !== 'all' ? Number(v) : undefined })
+            }
+          >
+            <SelectTrigger aria-label="Filtrar por estabelecimento" className="w-full sm:w-[184px]">
+              <SelectValue placeholder="Estabelecimento" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">Todo estabelecimento</SelectItem>
+              {merchantOptions.map((o) => (
+                <SelectItem key={o.value} value={o.value}>
+                  {o.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        )}
         {hasFilters && (
           <Button
             variant="ghost"
@@ -392,6 +422,7 @@ export function TransactionsPage() {
                 category_id: undefined,
                 uncategorized: false,
                 tag_id: undefined,
+                merchant_id: undefined,
               });
             }}
           >
