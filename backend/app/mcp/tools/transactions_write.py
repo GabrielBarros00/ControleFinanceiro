@@ -127,6 +127,10 @@ class _CreateCore(ToolInput):
     category: Optional[str] = Field(None, max_length=120, description="Nome de uma categoria EXISTENTE do espaço.")
     category_id: Optional[int] = None
     tags: Optional[List[str]] = Field(None, max_length=10, description="Nomes de tags EXISTENTES do espaço.")
+    merchant: Optional[str] = Field(
+        None, min_length=1, max_length=120,
+        description="Estabelecimento (nome ou apelido); novo se não houver parecido. Omitido: o de apelido igual ao título.",
+    )
     card: Optional[str] = Field(None, max_length=120, description="Cartão de crédito seu (nome). Define pagamento no crédito.")
     card_id: Optional[int] = None
     installments: Optional[int] = Field(None, ge=2, le=36, description="Número de parcelas (exige cartão).")
@@ -215,8 +219,7 @@ def _replay_create(call: ToolCall, ref: dict) -> ToolOutput:
         "as pessoas citadas (sem ninguém citado: seu espaço pessoal); se houver dúvida volta AMBIGUOUS — "
         "pergunte ao usuário. Nomes (cartão, categoria, pessoa) ambíguos também voltam AMBIGUOUS com "
         "candidatos; repita a chamada com o `*_id` escolhido e a MESMA idempotency_key.\n"
-        "Divisão: `split_with` = partes iguais entre você e as pessoas; `split` = partes desiguais "
-        "(valor ou percentual de cada um). Sem divisão, a despesa é toda sua.\n"
+        "Sem `split_with`/`split`, a despesa é toda sua.\n"
         "Nota com itens: `items` (cada um com categoria e divisão próprias) + `adjustments` "
         "(desconto, frete…); o servidor confere que fecham o total e rateia os centavos.\n"
         "Gere uma idempotency_key nova para cada despesa e reutilize-a só ao repetir a mesma chamada."
@@ -298,6 +301,7 @@ def transactions_create(call: ToolCall) -> ToolOutput:
         tag_ids=tag_ids,
         installments_count=a.installments,
         settled=a.settled,
+        **(resolve.merchant_for_write(call.session, ref.id, a.merchant) if a.merchant else {}),
     )
     tx = tx_cmd.create_transaction(call.session, ref.id, entrada, membership)
     call.session.flush()
@@ -339,6 +343,7 @@ class _UpdateCore(ToolInput):
     category_id: Optional[int] = None
     remove_category: bool = Field(False, description="true = deixa o lançamento sem categoria.")
     tags: Optional[List[str]] = Field(None, max_length=10, description="Substitui TODAS as tags ([] remove todas).")
+    merchant: Optional[str] = Field(None, max_length=120, description="Estabelecimento (nome ou apelido); \"\" desvincula.")
     card: Optional[str] = Field(None, max_length=120, description="Passa a compra para este cartão seu.")
     card_id: Optional[int] = None
     payment_method: Optional[PaymentMethodIn] = Field(None, description="Nova forma de pagamento (fora do cartão remove o cartão).")
@@ -386,7 +391,7 @@ class UpdateResult(BaseModel):
 
 
 _COMPARAVEIS = ("title", "description", "date", "billing_month", "amount", "currency", "status", "settled",
-                "payment_method", "card", "statement", "category", "categories", "tags", "payers", "split",
+                "payment_method", "card", "statement", "category", "categories", "tags", "merchant", "payers", "split",
                 "split_mode", "items", "adjustments")
 
 
@@ -449,6 +454,15 @@ def _divisao_existente(call: ToolCall, tx: Transaction, total: Decimal, *, mante
     return [pagador], splits
 
 
+def _estabelecimento(call: ToolCall, ws: int, a: UpdateIn) -> dict:
+    """`merchant` da edição: omitido não mexe; "" desvincula; um nome vincula (ADR 0038)."""
+    if a.merchant is None:
+        return {}
+    if not a.merchant.strip():
+        return {"merchant_id": None}
+    return resolve.merchant_for_write(call.session, ws, a.merchant)
+
+
 def _update_single(call: ToolCall, tx: Transaction, a: UpdateIn, membership) -> Transaction:
     me = call.identity.user_id
     ws = tx.workspace_id
@@ -467,6 +481,7 @@ def _update_single(call: ToolCall, tx: Transaction, a: UpdateIn, membership) -> 
         dados["statement_shift"] = a.statement_shift
     if a.tags is not None:
         dados["tag_ids"] = resolve.resolve_tags(call.session, ws, a.tags) or []
+    dados.update(_estabelecimento(call, ws, a))
     cartao = resolve.resolve_card(call.session, me, card_id=a.card_id, card=a.card)
     if cartao is not None:
         dados["credit_card_id"] = cartao.id
@@ -755,6 +770,7 @@ def _update_purchase(call: ToolCall, tx: Transaction, a: UpdateIn, membership) -
         items=itens or None,
         tag_ids=tags,
         installments_count=a.installments or inteira["installments_of"],
+        **_estabelecimento(call, ws, a),
     )
     return tx_cmd.update_installment_group(call.session, ws, tx.id, entrada, membership)
 

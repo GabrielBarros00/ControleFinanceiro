@@ -38,9 +38,11 @@ from app.schemas.category import CategoryCreate, CategoryUpdate
 from app.schemas.common import DESCRIPTION_MAX, NAME_MAX, TITLE_MAX
 from app.schemas.estimate import MonthlyEstimateCreate
 from app.schemas.income import RecurringIncomeCreate, RecurringIncomeUpdate
+from app.schemas.merchant import MerchantCreate, MerchantMerge, MerchantUpdate
 from app.schemas.recurring import RecurringCreate, RecurringSplitEntry, RecurringUpdate
 from app.schemas.tag import TagCreate, TagUpdate
 from app.services.commands import income as inc_cmd
+from app.services.commands import merchants as merchant_cmd
 from app.services.commands import planning as plan_cmd
 from app.services.commands import recurring as rec_cmd
 from app.services.oauth import scopes as escopos
@@ -683,18 +685,45 @@ def budgets_set(call: ToolCall) -> ToolOutput:
 
 # --- categories_create -------------------------------------------------------------------
 
+_APELIDOS = Field(None, max_length=50, description="Só merchant: grafias do extrato (\"IFD*MC DONALDS\").")
+_CATEGORIA_PADRAO = Field(None, max_length=120, description="Só merchant: categoria dos lançamentos novos sem categoria.")
+
+
 class CategoryCreateIn(ToolInput):
-    kind: Literal["category", "tag"] = Field("category", description="category (padrão) ou tag.")
+    kind: Literal["category", "tag", "merchant"] = Field(
+        "category", description="category (padrão), tag ou merchant (estabelecimento).",
+    )
     space: Optional[str] = Field(None, max_length=120)
     space_id: Optional[int] = None
     name: str = Field(min_length=1, max_length=NAME_MAX)
     color: Optional[str] = Field(None, pattern=r"^#[0-9A-Fa-f]{6}$", description="Cor em hex, ex.: #22C55E.")
+    aliases: Optional[List[str]] = _APELIDOS
+    default_category: Optional[str] = _CATEGORIA_PADRAO
 
     @model_validator(mode="after")
     def _par(self):
         if self.space is not None and self.space_id is not None:
             raise ValueError("informe space ou space_id, não os dois")
+        _so_estabelecimento(self)
         return self
+
+
+def _so_estabelecimento(a) -> None:
+    """Apelido, categoria padrão e mescla são do estabelecimento; cor não é."""
+    proprios = [c for c in ("aliases", "default_category", "merge_into") if getattr(a, c, None) is not None]
+    if a.kind != "merchant" and proprios:
+        raise ValueError(f"{', '.join(proprios)} só com kind=merchant")
+    if a.kind == "merchant" and a.color is not None:
+        raise ValueError("estabelecimento não tem cor")
+
+
+def _categoria_do_estabelecimento(call: ToolCall, ws_id: int, nome: Optional[str]) -> dict:
+    """`default_category` em id: omitido não mexe; "" tira a categoria padrão."""
+    if nome is None:
+        return {}
+    if not nome.strip():
+        return {"default_category_id": None}
+    return {"default_category_id": resolve.resolve_category(call.session, ws_id, category_id=None, category=nome).id}
 
 
 class CategoryOut(BaseModel):
@@ -706,12 +735,13 @@ class CategoryOut(BaseModel):
 
 @tool(
     name="categories_create",
-    title="Criar categoria ou tag",
+    title="Criar categoria, tag ou estabelecimento",
     description=(
-        "Cria uma categoria (ou, com `kind=tag`, uma tag) num espaço. Se já existir uma com o mesmo "
-        "nome (ignorando acento e maiúsculas), devolve ALREADY_EXISTS com o id dela — use a existente.\n"
-        "Use quando: o usuário pedir uma categoria/tag que não existe (confira antes com categories_list).\n"
-        "Não use quando: ela já existir, mesmo escrita diferente; para renomear/excluir (categories_update)."
+        "Cria uma categoria, uma tag (`kind=tag`) ou um estabelecimento (`kind=merchant`, com apelidos: "
+        "o lançamento cujo título é um apelido se vincula sozinho) num espaço. Mesmo nome (ignorando "
+        "acento e maiúsculas) devolve ALREADY_EXISTS com o id — use o existente.\n"
+        "Use quando: o usuário pedir um que não existe (confira antes com categories_list).\n"
+        "Não use quando: já existir, mesmo escrito diferente; para renomear/excluir (categories_update)."
     ),
     input_model=CategoryCreateIn,
     output_model=CategoryOut,
@@ -723,7 +753,7 @@ class CategoryOut(BaseModel):
     cost=3,
     invoking="Criando a categoria…",
     invoked="Categoria criada",
-    examples=({"name": "Pets", "space": "Casa"}, {"kind": "tag", "name": "Trabalho"}),
+    examples=({"name": "Pets", "space": "Casa"}, {"kind": "merchant", "name": "Uber", "aliases": ["UBER *TRIP"]}),
     ui=WIDGET,
     app_callable=True,
     meta={"openai/widgetDescription": "O componente mostra o resultado com as ações possíveis (desfazer, editar). Confirme em uma frase, sem repetir os números."},
@@ -733,6 +763,8 @@ def categories_create(call: ToolCall) -> ToolOutput:
     ref = resolve.require_space(call.session, call.identity.user_id, space_id=a.space_id, space=a.space)
     membership = membership_for_write(call, ref.id)
     alvo = resolve.norm(a.name)
+    if a.kind == "merchant":
+        return _create_merchant(call, a, ref, membership)
     if a.kind == "tag":
         for existente in resolve.space_tags(call.session, ref.id):
             if resolve.norm(existente.name) == alvo:
@@ -768,21 +800,46 @@ def categories_create(call: ToolCall) -> ToolOutput:
     )
 
 
+def _create_merchant(call: ToolCall, a: CategoryCreateIn, ref, membership) -> ToolOutput:
+    for existente in resolve.space_merchants(call.session, ref.id):
+        if resolve.norm(existente.name) == resolve.norm(a.name):
+            raise McpToolError(
+                ErrorCode.ALREADY_EXISTS,
+                f"O estabelecimento '{existente.name}' já existe em {ref.workspace.name}.",
+                details={"merchant_id": existente.id, "name": existente.name, "space_id": ref.id},
+            )
+    corpo = MerchantCreate(name=a.name, aliases=a.aliases or [], **_categoria_do_estabelecimento(call, ref.id, a.default_category))
+    m = merchant_cmd.create_merchant(call.session, ref.id, corpo, membership)
+    return ToolOutput(
+        structured=CategoryOut(id=m.id, name=m.name, space=Ref(id=ref.id, name=ref.workspace.name), kind="merchant"),
+        summary=f"Estabelecimento '{m.name}' criado em {ref.workspace.name}.",
+        entity_type="merchant",
+        entity_ids=[m.id],
+        space_id=ref.id,
+    )
+
+
 # --- categories_update ---------------------------------------------------------------------
 
 class CategoryUpdateIn(ToolInput):
-    kind: Literal["category", "tag"] = "category"
+    kind: Literal["category", "tag", "merchant"] = "category"
     space: Optional[str] = Field(None, max_length=120)
     space_id: Optional[int] = None
-    name: Optional[str] = Field(None, max_length=NAME_MAX, description="Nome ATUAL da categoria/tag.")
+    name: Optional[str] = Field(None, max_length=NAME_MAX, description="Nome ATUAL.")
     id: Optional[int] = Field(None, ge=1)
     new_name: Optional[str] = Field(None, min_length=1, max_length=NAME_MAX, description="Nome novo (renomear).")
     color: Optional[str] = Field(None, pattern=r"^#[0-9A-Fa-f]{6}$")
+    aliases: Optional[List[str]] = Field(None, max_length=50, description="Só merchant: substitui TODOS os apelidos.")
+    default_category: Optional[str] = Field(None, max_length=120, description="Só merchant: categoria padrão (\"\" tira).")
+    merge_into: Optional[str] = Field(
+        None, min_length=1, max_length=NAME_MAX,
+        description="Só merchant: nome do que FICA; este some e passa lançamentos e apelidos a ele.",
+    )
     delete: bool = Field(
         False,
         description=(
             "true = excluir. Categoria excluída some das listas (os lançamentos antigos a mantêm); "
-            "tag excluída sai de todos os lançamentos."
+            "tag e estabelecimento excluídos saem dos lançamentos."
         ),
     )
 
@@ -792,10 +849,14 @@ class CategoryUpdateIn(ToolInput):
             raise ValueError("informe name (o atual) OU id")
         if self.space is not None and self.space_id is not None:
             raise ValueError("informe space ou space_id, não os dois")
-        if self.delete and (self.new_name is not None or self.color is not None):
-            raise ValueError("delete não combina com new_name/color")
-        if not self.delete and self.new_name is None and self.color is None:
-            raise ValueError("nada para alterar: informe new_name, color ou delete=true")
+        _so_estabelecimento(self)
+        mudancas = [c for c in ("new_name", "color", "aliases", "default_category") if getattr(self, c) is not None]
+        if (self.delete or self.merge_into is not None) and mudancas:
+            raise ValueError(f"delete/merge_into não combinam com {', '.join(mudancas)}")
+        if self.delete and self.merge_into is not None:
+            raise ValueError("escolha delete ou merge_into")
+        if not self.delete and self.merge_into is None and not mudancas:
+            raise ValueError("nada para alterar: informe new_name, color, delete=true ou (merchant) aliases/default_category/merge_into")
         return self
 
 
@@ -810,11 +871,12 @@ class CategoryUpdateOut(BaseModel):
 
 @tool(
     name="categories_update",
-    title="Renomear ou excluir categoria/tag",
+    title="Editar categoria, tag ou estabelecimento",
     description=(
-        "Renomeia, muda a cor ou exclui uma categoria ou tag de um espaço (`kind`). Nome novo que já "
-        "exista volta erro.\n"
-        "Use quando: \"renomeie Restaurantes para Alimentação fora\", \"apague a tag viagem-2024\".\n"
+        "Renomeia, muda a cor ou exclui uma categoria, tag ou estabelecimento de um espaço (`kind`); no "
+        "estabelecimento, também apelidos, categoria padrão e mesclar dois. Nome novo que já exista volta erro.\n"
+        "Use quando: \"renomeie Restaurantes para Alimentação fora\", \"apague a tag viagem-2024\", "
+        "\"MC DONALDS e McDonald's são o mesmo\".\n"
         "Não use quando: quiser criar (categories_create) ou trocar a categoria de lançamentos "
         "(transactions_update / transactions_bulk_preview)."
     ),
@@ -838,6 +900,8 @@ def categories_update(call: ToolCall) -> ToolOutput:
     ref = resolve.require_space(call.session, call.identity.user_id, space_id=a.space_id, space=a.space)
     membership = membership_for_write(call, ref.id)
     espaco = Ref(id=ref.id, name=ref.workspace.name)
+    if a.kind == "merchant":
+        return _update_merchant(call, a, ref, espaco, membership)
     if a.kind == "tag":
         tags = resolve.space_tags(call.session, ref.id)
         if a.id is not None:
@@ -877,4 +941,43 @@ def categories_update(call: ToolCall) -> ToolOutput:
         structured=CategoryUpdateOut(kind="category", id=categoria.id, name=categoria.name, previous_name=anterior, space=espaco),
         summary=f"Categoria '{anterior}' atualizada para '{categoria.name}'.",
         entity_type="category", entity_ids=[categoria.id], space_id=ref.id,
+    )
+
+
+def _estabelecimento_do_espaco(call: ToolCall, ws_id: int, *, id: Optional[int], nome: Optional[str]):
+    lista = resolve.space_merchants(call.session, ws_id)
+    if id is not None:
+        alvo = next((m for m in lista if m.id == id), None)
+        if alvo is None:
+            raise McpToolError(ErrorCode.NOT_FOUND, "Estabelecimento não encontrado neste espaço.", details={"id": id})
+        return alvo
+    escolhido = resolve.pick("estabelecimento", nome, [resolve.Match(m.id, m.name) for m in lista], id_param="id")
+    return next(m for m in lista if m.id == escolhido.id)
+
+
+def _update_merchant(call: ToolCall, a: CategoryUpdateIn, ref, espaco: Ref, membership) -> ToolOutput:
+    alvo = _estabelecimento_do_espaco(call, ref.id, id=a.id, nome=a.name)
+    anterior = alvo.name
+    if a.delete:
+        merchant_cmd.delete_merchant(call.session, ref.id, alvo.id, membership)
+        return ToolOutput(
+            structured=CategoryUpdateOut(kind="merchant", id=alvo.id, name=anterior, previous_name=anterior, space=espaco, deleted=True),
+            summary=f"Estabelecimento '{anterior}' excluído de {ref.workspace.name} (e dos lançamentos).",
+            entity_type="merchant", entity_ids=[alvo.id], space_id=ref.id,
+        )
+    if a.merge_into is not None:
+        destino = _estabelecimento_do_espaco(call, ref.id, id=None, nome=a.merge_into)
+        fica = merchant_cmd.merge_merchant(call.session, ref.id, alvo.id, MerchantMerge(into_id=destino.id), membership)
+        return ToolOutput(
+            structured=CategoryUpdateOut(kind="merchant", id=fica.id, name=fica.name, previous_name=anterior, space=espaco),
+            summary=f"'{anterior}' mesclado em '{fica.name}': os lançamentos e os apelidos passaram para ele.",
+            entity_type="merchant", entity_ids=[fica.id, alvo.id], space_id=ref.id,
+        )
+    dados: dict = {k: v for k, v in (("name", a.new_name), ("aliases", a.aliases)) if v is not None}
+    dados.update(_categoria_do_estabelecimento(call, ref.id, a.default_category))
+    m = merchant_cmd.update_merchant(call.session, ref.id, alvo.id, MerchantUpdate(**dados), membership)
+    return ToolOutput(
+        structured=CategoryUpdateOut(kind="merchant", id=m.id, name=m.name, previous_name=anterior, space=espaco),
+        summary=f"Estabelecimento '{anterior}' atualizado" + (f" para '{m.name}'." if m.name != anterior else "."),
+        entity_type="merchant", entity_ids=[m.id], space_id=ref.id,
     )

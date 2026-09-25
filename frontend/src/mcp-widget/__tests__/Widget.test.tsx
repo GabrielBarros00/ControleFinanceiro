@@ -242,6 +242,28 @@ describe('Widget: lançamento', () => {
     expect(b.updateModelContext).not.toHaveBeenCalled();
   });
 
+  it('editor: estabelecimento com sugestões; apagar desvincula', async () => {
+    const depois = { ...TX, merchant: null, version: 'v2' };
+    const b = ponte({ transactions_update: () => ({ structuredContent: { transaction: depois, previous: { ...TX, merchant: { id: 3, name: 'Padaria' } }, changed: ['merchant'] } }) });
+    monta(b);
+    b.entregar({
+      structuredContent: { transaction: { ...TX, merchant: { id: 3, name: 'Padaria' } } },
+      _meta: { view: 'transaction', mode: 'read', can_edit: true, form: { ...FORM, merchants: [{ id: 3, name: 'Padaria' }, { id: 4, name: 'Mercado' }] } },
+    });
+    expect(screen.getByText(/Padaria/)).toBeInTheDocument();
+    await clica(screen.getByRole('button', { name: 'Editar' }));
+    const loja = screen.getByLabelText('Estabelecimento') as HTMLInputElement;
+    expect(loja.value).toBe('Padaria');
+    expect([...document.querySelectorAll(`#${loja.getAttribute('list')} option`)].map((o) => (o as HTMLOptionElement).value)).toEqual(['Padaria', 'Mercado']);
+    await act(async () => {
+      fireEvent.input(loja, { target: { value: '' } });
+    });
+    await clica(screen.getByRole('button', { name: 'Salvar' }));
+    expect(b.chamadas).toEqual([{ name: 'transactions_update', args: { transaction_id: 1, expected_version: 'v1', merchant: '' } }]);
+    expect(screen.getByText('Estabelecimento')).toBeInTheDocument();
+    expect(screen.getByText('Sem estabelecimento')).toBeInTheDocument();
+  });
+
   it('editor sem nada mudado não chama o servidor', async () => {
     const b = ponte();
     monta(b);

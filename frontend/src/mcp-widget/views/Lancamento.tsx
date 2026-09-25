@@ -22,7 +22,8 @@ import {
 const ROTULO_DO_CAMPO: Record<string, string> = {
   title: 'Título', description: 'Observação', date: 'Data', billing_month: 'Competência', amount: 'Valor',
   currency: 'Moeda', status: 'Situação', settled: 'Pago', payment_method: 'Forma de pagamento', card: 'Cartão',
-  statement: 'Fatura', category: 'Categoria', categories: 'Categorias', tags: 'Tags', payers: 'Quem pagou',
+  statement: 'Fatura', category: 'Categoria', categories: 'Categorias', tags: 'Tags', merchant: 'Estabelecimento',
+  payers: 'Quem pagou',
   split: 'Divisão', split_mode: 'Modo de divisão', items: 'Itens', adjustments: 'Ajustes',
 };
 
@@ -39,6 +40,7 @@ function valorDoCampo(campo: string, tx: Lancamento): string {
     case 'category': return tx.category?.name ?? 'Sem categoria';
     case 'categories': return (tx.categories ?? []).map((c) => c.name).join(', ') || '—';
     case 'tags': return (tx.tags ?? []).map((t) => `#${t}`).join(' ') || 'Sem tags';
+    case 'merchant': return tx.merchant?.name ?? 'Sem estabelecimento';
     case 'payers': case 'split':
       return ((campo === 'split' ? tx.split : tx.payers) ?? []).map((p) => `${p.person.name.split(' ')[0]} ${money(p.amount, tx.currency)}`).join(' · ') || '—';
     case 'split_mode': return tx.split_mode === 'item' ? 'Por item' : 'Pelo total';
@@ -205,6 +207,7 @@ function Editor({ tx, form, bridge, aoSalvar, aoCancelar }: {
   const [data, setData] = useState(tx.date);
   const [categoria, setCategoria] = useState(tx.category ? String(tx.category.id) : '');
   const [tags, setTags] = useState<string[]>(tx.tags ?? []);
+  const [loja, setLoja] = useState(tx.merchant?.name ?? '');
   const [cartao, setCartao] = useState(tx.card ? String(tx.card.id) : '');
   const [forma, setForma] = useState(tx.payment_method ?? '');
   const [pago, setPago] = useState(tx.settled);
@@ -229,6 +232,8 @@ function Editor({ tx, form, bridge, aoSalvar, aoCancelar }: {
     }
     const tagsAntes = [...(tx.tags ?? [])].sort().join('|');
     if ([...tags].sort().join('|') !== tagsAntes) args.tags = tags;
+    // "" desvincula; um nome acha pelo nome ou apelido (parecido volta como pergunta).
+    if (loja.trim() !== (tx.merchant?.name ?? '')) args.merchant = loja.trim();
     if (cartao !== (tx.card ? String(tx.card.id) : '')) {
       if (cartao) args.card_id = Number(cartao);
       else if (forma && forma !== 'credit_card') args.payment_method = forma;
@@ -266,6 +271,10 @@ function Editor({ tx, form, bridge, aoSalvar, aoCancelar }: {
         <Campo rotulo="Categoria">
           {(id) => <Escolha id={id} valor={categoria} aoMudar={setCategoria} vazio="Sem categoria"
             opcoes={form.categories.map((c) => ({ valor: String(c.id), rotulo: c.name }))} />}
+        </Campo>
+        <Campo rotulo="Estabelecimento">
+          {(id) => <Texto id={id} valor={loja} aoMudar={setLoja} max={120} placeholder="Onde foi a compra"
+            sugestoes={(form.merchants ?? []).map((m) => m.name)} />}
         </Campo>
         <Campo rotulo="Cartão">
           {(id) => <Escolha id={id} valor={cartao} aoMudar={setCartao} vazio="Fora do cartão"
@@ -423,7 +432,7 @@ export function LancamentoView({ dados, meta, bridge, embutido }: {
         icone={tx.card ? <IconCard size={18} /> : <IconReceipt size={18} />}
         tom={excluido ? 'perigo' : modo === 'created' ? 'ok' : 'destaque'}
         titulo={tx.title} riscado={cancelado || excluido}
-        subtitulo={[day(tx.date), tx.space?.name, tx.category?.name].filter(Boolean).join(' · ')}
+        subtitulo={[day(tx.date), tx.merchant?.name, tx.space?.name, tx.category?.name].filter(Boolean).join(' · ')}
         direita={
           <>
             <Money valor={tx.amount} moeda={tx.currency} class="text-[17px] font-semibold" />

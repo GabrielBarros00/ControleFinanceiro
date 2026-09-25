@@ -7,7 +7,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
-import { Calendar, Copy, Pencil, Trash2 } from 'lucide-react';
+import { Calendar, Copy, Pencil, Store, Trash2 } from 'lucide-react';
 import type { TransactionRead, TransactionStatus } from '@/types/transaction';
 import { MoneyText } from '@/components/money/MoneyText';
 import { fromApiTransaction } from './transaction-form/schema';
@@ -90,6 +90,11 @@ export function TransactionDetailDialog({
               <Calendar className="h-3.5 w-3.5" /> {dateLabel}
             </span>
             <span>· {paymentMethodLabel(transaction.payment_method, transaction.credit_card_id)}</span>
+            {transaction.merchant && (
+              <span className="inline-flex min-w-0 items-center gap-1">
+                · <Store className="h-3.5 w-3.5 shrink-0" /> <span className="truncate">{transaction.merchant.name}</span>
+              </span>
+            )}
             {categoryName && <span>· {categoryName}</span>}
           </DialogDescription>
         </DialogHeader>

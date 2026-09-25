@@ -566,6 +566,7 @@ class RecurringService:
             workspace_id=template.workspace_id,
             created_by_user_id=template.created_by_user_id,
             recurring_expense_id=template.id,
+            merchant_id=template.merchant_id,
             status=status,
             original_amount=template.base_amount if is_foreign else None,
             original_currency=template.currency if is_foreign else None,
@@ -942,6 +943,7 @@ class RecurringService:
             is_foreign = rate is not None
             tx.title = template.title
             tx.description = template.description
+            tx.merchant_id = template.merchant_id
             tx.total_amount = converted
             tx.currency = base_currency if is_foreign else template.currency
             tx.payment_method = template.payment_method

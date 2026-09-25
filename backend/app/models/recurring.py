@@ -74,6 +74,8 @@ class RecurringExpense(RecurringExpenseBase, table=True):
         sa_column=Column(Integer, nullable=False, server_default="0"),
     )
     category_id: Optional[int] = Field(default=None, foreign_key="category.id")
+    #: O estabelecimento das ocorrências (ADR 0038): cada uma nasce ligada a ele.
+    merchant_id: Optional[int] = Field(default=None, foreign_key="merchant.id")
     payer_user_id: Optional[int] = Field(default=None, foreign_key="user.id")
     # De qual conta a ocorrência sai (ADR 0034). O `split_snapshot` guarda só
     # user_id/método/valor, então sem esta coluna toda instância materializada

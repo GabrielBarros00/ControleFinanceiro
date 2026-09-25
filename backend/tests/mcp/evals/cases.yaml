@@ -433,8 +433,8 @@
   risk: read
   golden:
     - tool: reports_breakdown
-      args: {group_by: "title", month: "{mes}"}
-      expect: {ok: true, path: "group_by", equals: "title"}
+      args: {group_by: "merchant", month: "{mes}"}
+      expect: {ok: true, path: "group_by", equals: "merchant"}
 
 - id: quem-mudou-a-despesa
   prompt: "Quem mudou o valor da farmácia de ontem, e quanto era antes?"
@@ -487,3 +487,38 @@
              rows: [{date: "{ontem}", title: "PIX RECEBIDO JOAO", amount: "900.00", direction: "in"},
                     {date: "{ontem}", title: "PADARIA", amount: "12.50", direction: "out"}]}
       expect: {ok: true, path: "by_classification.income", equals: 1}
+
+- id: juntar-estabelecimentos
+  prompt: "O \"MC DONALDS\" do extrato e o \"McDonald's\" são o mesmo lugar. Junte os dois."
+  expected_tools: [categories_list, categories_update]
+  forbidden_tools: [transactions_bulk_preview, transactions_update]
+  max_calls: 4
+  risk: write
+  golden:
+    - tool: categories_create
+      args: {kind: "merchant", name: "McDonald's", space: "Casa"}
+      expect: {ok: true, path: "kind", equals: "merchant"}
+    - tool: categories_create
+      args: {kind: "merchant", name: "MC DONALDS", space: "Casa", aliases: ["IFD*MC DONALDS"]}
+      expect: {ok: true, path: "kind", equals: "merchant"}
+    - tool: categories_update
+      args: {kind: "merchant", space: "Casa", name: "MC DONALDS", merge_into: "McDonald's"}
+      expect: {ok: true, path: "name", equals: "McDonald's"}
+    - tool: categories_list
+      args: {space: "Casa"}
+      expect: {ok: true, path: "merchants.0.aliases", equals: ["ifd mc donalds", "mc donalds"]}
+
+- id: compra-com-estabelecimento-parecido
+  prompt: "Gastei 32 reais no Mc Donalds."
+  expected_tools: [transactions_create]
+  forbidden_tools: [transactions_update, transactions_bulk_preview]
+  max_calls: 3
+  risk: write
+  must_ask_user: true
+  golden:
+    - tool: categories_create
+      args: {kind: "merchant", name: "McDonald's", space: "Casa"}
+      expect: {ok: true, path: "kind", equals: "merchant"}
+    - tool: transactions_create
+      args: {idempotency_key: "{uuid}", title: "Lanche", amount: "32.00", space: "Casa", merchant: "Mc Donalds"}
+      expect: {error: "AMBIGUOUS"}

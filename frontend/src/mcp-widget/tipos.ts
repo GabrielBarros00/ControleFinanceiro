@@ -23,7 +23,7 @@ export interface Lancamento {
   id: number; space?: Ref | null; title: string; description?: string | null; date: string; billing_month?: string | null;
   amount: string; currency: string; status: string; settled: boolean; settled_on?: string | null;
   payment_method?: string | null; card?: Ref | null; statement?: { id: number; month: string } | null;
-  category?: Ref | null; categories?: Ref[]; tags?: string[];
+  category?: Ref | null; categories?: Ref[]; tags?: string[]; merchant?: Ref | null;
   installment?: { number: number; of: number; group_id?: string | null } | null;
   split_mode?: string; payers?: PessoaValor[]; split?: PessoaValor[]; my_share: string;
   items?: Item[]; adjustments?: Ajuste[]; purchase?: Compra | null;
@@ -33,13 +33,13 @@ export interface Lancamento {
 
 export interface Resumo {
   id: number; space?: Ref | null; date: string; title: string; amount: string; currency: string; my_share: string;
-  status: string; settled: boolean; payment_method?: string | null; card?: string | null; category?: string | null;
+  status: string; settled: boolean; payment_method?: string | null; card?: string | null; category?: string | null; merchant?: string | null;
   installment?: string | null; tags?: string[]; statement_amount?: string;
 }
 
 export interface Formulario {
   space_id: number;
-  categories: Ref[]; tags: Ref[]; cards: Ref[]; accounts: Array<Ref & { currency: string }>;
+  categories: Ref[]; tags: Ref[]; merchants?: Ref[]; cards: Ref[]; accounts: Array<Ref & { currency: string }>;
   people: Array<Ref & { me: boolean }>; payment_methods: string[];
 }
 

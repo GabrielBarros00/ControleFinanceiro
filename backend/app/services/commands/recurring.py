@@ -183,6 +183,10 @@ def create_recurring(
         actor_user_id=membership.user_id,
         statement_shift=recurring_in.statement_shift,
     )
+    if recurring_in.merchant_id is not None:
+        from app.services.commands.merchants import get_merchant_or_404
+
+        get_merchant_or_404(session, workspace_id, recurring_in.merchant_id)
     data = recurring_in.model_dump(exclude={"split_snapshot"})
     # Moeda ausente = a do workspace (nunca "BRL" fixo — ver resolve_currency)
     data["currency"] = resolve_currency(session, workspace_id, recurring_in.currency)
@@ -225,6 +229,10 @@ def update_recurring(
     _check_ownership(membership, db_recurring)
 
     update_data = recurring_in.model_dump(exclude_unset=True)
+    if update_data.get("merchant_id") is not None:
+        from app.services.commands.merchants import get_merchant_or_404
+
+        get_merchant_or_404(session, workspace_id, update_data["merchant_id"])
     snapshot_provided = "split_snapshot" in update_data
     update_data.pop("split_snapshot", None)
     # `end_after_occurrences` sai daqui e não vira atributo: ele não é coluna, e

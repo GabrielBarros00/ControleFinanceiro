@@ -59,6 +59,8 @@ export function NewTransactionDialog({ open, onOpenChange }: NewTransactionDialo
     installments: 1,
     category_id: '',
     tag_ids: [],
+    merchant_name: '',
+    merchant_initial: '',
     split_mode: 'transaction',
     split_method: 'equal',
     splits: user ? [{ user_id: String(user.id), value: 0 }] : [],

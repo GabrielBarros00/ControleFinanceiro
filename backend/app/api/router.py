@@ -9,7 +9,7 @@ from app.db.session import get_session
 from app.api.routes import (
     admin, ai_integrations, analytics, attachments, audit, auth, categories, debts, imports, mcp_uploads, me,
     me_accounts, me_balance, me_cards, me_financing, me_imports, me_income, me_push, me_search,
-    me_settlements, members, notifications, oauth, payables, recurring, settlements, tags,
+    me_settlements, members, merchants, notifications, oauth, payables, recurring, settlements, tags,
     transactions, workspaces,
 )
 from app.ws import routes as ws_routes
@@ -30,6 +30,7 @@ router.include_router(settlements.router)
 router.include_router(imports.router)
 router.include_router(categories.router)
 router.include_router(tags.router)
+router.include_router(merchants.router)
 router.include_router(attachments.router)
 router.include_router(audit.router)
 

@@ -58,6 +58,7 @@ class SearchFilters(ToolInput):
     max_amount: Optional[MoneyInOrZero] = None
     installment_group_id: Optional[str] = Field(None, max_length=64, description="Parcelas de uma mesma compra.")
     import_batch_id: Optional[int] = Field(None, ge=1, description="Só o que entrou por uma importação (imports_list).")
+    merchant: Optional[str] = Field(None, max_length=120, description="Estabelecimento (nome ou apelido).")
 
     @model_validator(mode="after")
     def _periodo(self):
@@ -92,6 +93,7 @@ def build_filters(call: ToolCall, f: SearchFilters):
     pessoa_id = resolve.person_any(call.session, espacos, me, person_id=f.person_id, person=f.person)
     categorias = resolve.categories_any(call.session, espacos, category_id=f.category_id, category=f.category)
     tags = resolve.tags_any(call.session, espacos, tag=f.tag)
+    estabelecimentos = resolve.merchants_any(call.session, espacos, merchant=f.merchant)
     filtros = transaction_query.TxFilters(
         date_from=f.date_from,
         date_to=f.date_to,
@@ -110,6 +112,7 @@ def build_filters(call: ToolCall, f: SearchFilters):
         installment_group_id=f.installment_group_id,
         uncategorized=f.uncategorized,
         import_batch_id=f.import_batch_id,
+        merchant_ids=estabelecimentos,
     )
     nomes = {}
     if pessoa_id is not None:

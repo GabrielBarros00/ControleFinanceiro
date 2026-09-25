@@ -118,12 +118,15 @@ const appRoutes = (wsId: number): Array<{ path: string; slug: string }> => [
   { path: `/w/${wsId}/transactions`, slug: 'lancamentos' },
   { path: `/w/${wsId}/payables`, slug: 'contas-a-pagar-espaco' },
   { path: `/w/${wsId}/reports`, slug: 'relatorios' },
+  // Estabelecimentos (ADR 0038): a aba dos Relatórios e a das Configurações.
+  { path: `/w/${wsId}/reports?tab=merchants`, slug: 'relatorios-estabelecimentos' },
   { path: `/w/${wsId}/recurring`, slug: 'recorrencia' },
   { path: `/w/${wsId}/debts`, slug: 'acertos' },
   { path: `/w/${wsId}/debts?tab=mes`, slug: 'acertos-mes' },
   { path: `/w/${wsId}/debts?tab=historico`, slug: 'acertos-historico' },
   { path: `/w/${wsId}/import`, slug: 'importar' },
   { path: `/w/${wsId}/settings`, slug: 'configuracoes-workspace' },
+  { path: `/w/${wsId}/settings?tab=merchants`, slug: 'estabelecimentos' },
   // --- Plataforma: quem opera o site ---
   { path: '/admin', slug: 'administracao' },
 ];
@@ -212,6 +215,21 @@ test('seed data and capture all screens', async ({ page, playwright }) => {
     ]) {
       const res = await api.post(u('/me/income/'), { data: renda });
       expect(res.ok(), `renda "${renda.title}": ${res.status()} ${await res.text()}`).toBeTruthy();
+    }
+
+    // Estabelecimentos ANTES das despesas (ADR 0038): o lote liga sozinho o
+    // lançamento cujo título é um apelido, e a tela de Relatórios › Estabelecimentos
+    // sai com gasto de verdade. O nome longo testa o truncamento.
+    for (const m of [
+      { name: 'Pão de Açúcar', aliases: ['Supermercado Pão de Açúcar', 'PAO DE ACUCAR 1234'] },
+      { name: 'Drogasil', aliases: ['Farmácia Drogasil', 'RAIA DROGASIL SA'] },
+      { name: 'Netflix', aliases: ['NETFLIX.COM'] },
+      { name: 'Spotify', aliases: [] },
+      { name: 'Uber', aliases: ['Uber para o trabalho', 'UBER *TRIP HELP.UBER.COM'] },
+      { name: 'Restaurante Japonês Kinoshita da Vila Nova Conceição', aliases: ['Restaurante Japonês'] },
+    ]) {
+      const res = await api.post(u(`/workspaces/${wsId}/merchants`), { data: m });
+      expect(res.ok(), `estabelecimento "${m.name}": ${res.status()} ${await res.text()}`).toBeTruthy();
     }
 
     // Despesas (bulk) — títulos e valores realistas, espalhados no mês
@@ -778,6 +796,15 @@ test('seed data and capture all screens', async ({ page, playwright }) => {
       await page.getByRole('dialog').waitFor({ state: 'visible' }).catch(() => {});
       await page.waitForTimeout(600);
       await shot(`nova-despesa-modal-${theme}`);
+      // O formulário DETALHADO: é nele que moram data, pagamento, estabelecimento
+      // (ADR 0038) e tags, e o modo simples acima não mostra nada disso.
+      const detalhar = page.getByRole('button', { name: /Detalhar/ });
+      if (await detalhar.count()) {
+        await detalhar.first().click();
+        await page.getByLabel('Estabelecimento').fill('Pão');
+        await page.waitForTimeout(400);
+        await shot(`nova-despesa-detalhada-${theme}`);
+      }
       await page.keyboard.press('Escape').catch(() => {});
     }
 

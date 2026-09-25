@@ -76,6 +76,8 @@ class TxFilters:
     ids: Optional[Sequence[int]] = None
     #: Os lançamentos criados por um lote de importação (desfazer importação).
     import_batch_id: Optional[int] = None
+    #: Os de um (ou mais, mesmo nome em espaços diferentes) estabelecimento (ADR 0038).
+    merchant_ids: Optional[Sequence[int]] = None
 
     def fingerprint(self, space_ids: Iterable[int], sort: str) -> str:
         dados = {k: (str(v) if v is not None else None) for k, v in self.__dict__.items()}
@@ -184,6 +186,8 @@ def build_statement(memberships: Sequence[WorkspaceMembership], f: TxFilters):
         consulta = consulta.where(Transaction.total_amount <= f.max_amount)
     if f.installment_group_id:
         consulta = consulta.where(Transaction.installment_group_id == f.installment_group_id)
+    if f.merchant_ids is not None:
+        consulta = consulta.where(Transaction.merchant_id.in_(list(f.merchant_ids) or [-1]))
     if f.import_batch_id is not None:
         consulta = consulta.where(Transaction.id.in_(
             select(ImportRow.transaction_id).where(
@@ -249,7 +253,7 @@ def search(
 #: Teto de lançamentos que um agrupamento lê de uma vez. Acima disto o filtro é
 #: largo demais para uma resposta de conversa: a tool pede um período menor.
 BREAKDOWN_MAX_ROWS = 20_000
-GROUP_KEYS = ("category", "tag", "person", "card", "account", "payment_method", "month", "space", "title")
+GROUP_KEYS = ("category", "tag", "person", "card", "account", "payment_method", "month", "space", "title", "merchant")
 
 
 class BreakdownTooLarge(ValueError):
@@ -308,7 +312,7 @@ def breakdown(
     linhas = session.exec(
         select(
             sub.c.id, sub.c.currency, sub.c.total_amount, sub.c.split_mode, sub.c.credit_card_id,
-            sub.c.payment_method, sub.c.billing_month, sub.c.workspace_id, sub.c.title,
+            sub.c.payment_method, sub.c.billing_month, sub.c.workspace_id, sub.c.title, sub.c.merchant_id,
         )
         # Ordem fixa: o nome exibido de um grupo por título é o do lançamento MAIS
         # ANTIGO. Sem ordem, SQLite e Postgres devolviam as linhas em ordens
@@ -436,6 +440,18 @@ def breakdown(
             chave = _normaliza_titulo(r.title)
             exibicao.setdefault(chave, re_sub_parcela(r.title))
             soma(None, exibicao[chave], r.currency, valor(tx_id), tx_id, contados)
+    elif group_by == "merchant":
+        # Só o vínculo gravado (ADR 0038): o que não tem estabelecimento soma num
+        # grupo só, e quem quiser aproximar pelo título usa `title`.
+        from app.models.merchant import Merchant
+
+        vinculados = {r.merchant_id for r in linhas if r.merchant_id}
+        nomes = dict(session.exec(select(Merchant.id, Merchant.name).where(Merchant.id.in_(vinculados))).all()) if vinculados else {}
+        for tx_id, r in txs.items():
+            if r.merchant_id in nomes:
+                soma(r.merchant_id, nomes[r.merchant_id], r.currency, valor(tx_id), tx_id, contados)
+            else:
+                soma(None, "Sem estabelecimento", r.currency, valor(tx_id), tx_id, contados)
     else:
         raise ValueError(f"agrupamento desconhecido: {group_by}")
 

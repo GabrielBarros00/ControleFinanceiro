@@ -39,9 +39,8 @@ IdempotencyKey = Annotated[
         max_length=100,
         pattern=r"^[A-Za-z0-9._:-]+$",
         description=(
-            "Identificador ÚNICO desta intenção do usuário (ex.: um UUID novo). Repita a MESMA "
-            "chave só ao reenviar exatamente a mesma chamada após erro de rede ou timeout — assim "
-            "nada é criado em dobro. Pedido novo = chave nova."
+            "UUID novo por pedido. Repita a MESMA chave só ao reenviar a mesma chamada após erro "
+            "de rede: nada é criado em dobro."
         ),
     ),
 ]

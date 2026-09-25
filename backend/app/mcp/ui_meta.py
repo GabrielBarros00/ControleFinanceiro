@@ -39,6 +39,7 @@ def form_for_space(call: ToolCall, workspace_id: int) -> dict[str, Any]:
         "space_id": workspace_id,
         "categories": [{"id": c.id, "name": c.name} for c in resolve.space_categories(call.session, workspace_id)],
         "tags": [{"id": t.id, "name": t.name} for t in resolve.space_tags(call.session, workspace_id)],
+        "merchants": [{"id": m.id, "name": m.name} for m in resolve.space_merchants(call.session, workspace_id)],
         "cards": [
             {"id": c.id, "name": c.name}
             for c in call.session.exec(

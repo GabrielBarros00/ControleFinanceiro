@@ -64,6 +64,10 @@ _DISPENSADAS = {
     # lançamentos do lote são dela; nem owner nem admin veem a de outro membro.
     "imports.list_imports": "filtro por quem importou, incondicional (mais estrito)",
     "imports.get_import": "filtro por quem importou, incondicional (mais estrito)",
+    # A soma é a do agrupamento do agente (ADR 0038): `transaction_query.breakdown`
+    # monta a consulta por `build_statement`, que aplica `transaction_scope` — a
+    # expansão de um nível deste teste não chega a outro módulo.
+    "merchants.merchant_spending": "transaction_query.build_statement aplica transaction_scope",
 }
 
 

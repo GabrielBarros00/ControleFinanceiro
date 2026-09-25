@@ -34,6 +34,7 @@ from app.mcp.schemas import (
 from app.models.attachment import Attachment
 from app.models.category import Category
 from app.models.credit_card import CardStatement, CreditCard
+from app.models.merchant import Merchant
 from app.models.tag import Tag, TransactionTagLink
 from app.models.transaction import (
     SplitMode,
@@ -78,6 +79,7 @@ class TxBundle:
     shares: dict[int, list[TransactionItemShare]] = field(default_factory=lambda: defaultdict(list))
     adjustments: dict[int, list[TransactionAdjustment]] = field(default_factory=lambda: defaultdict(list))
     files: dict[int, list] = field(default_factory=lambda: defaultdict(list))
+    merchants: dict[int, str] = field(default_factory=dict)
 
 
 def load_bundle(session: Session, txs: Iterable[Transaction]) -> TxBundle:
@@ -133,6 +135,9 @@ def load_bundle(session: Session, txs: Iterable[Transaction]) -> TxBundle:
     cat_ids = {i.category_id for its in pacote.items.values() for i in its if i.category_id}
     if cat_ids:
         pacote.categories = dict(session.exec(select(Category.id, Category.name).where(Category.id.in_(cat_ids))).all())
+    merchant_ids = {t.merchant_id for t in lista if t.merchant_id}
+    if merchant_ids:
+        pacote.merchants = dict(session.exec(select(Merchant.id, Merchant.name).where(Merchant.id.in_(merchant_ids))).all())
     card_ids = {t.credit_card_id for t in lista if t.credit_card_id}
     if card_ids:
         pacote.cards = dict(session.exec(select(CreditCard.id, CreditCard.name).where(CreditCard.id.in_(card_ids))).all())
@@ -257,6 +262,7 @@ def to_out(tx: Transaction, pacote: TxBundle, me_id: int, purchase: Optional[Pur
         category=categorias[0] if len(categorias) == 1 else None,
         categories=categorias if len(categorias) > 1 else [],
         tags=sorted(pacote.tags.get(tx.id, [])),
+        merchant=Ref(id=tx.merchant_id, name=pacote.merchants[tx.merchant_id]) if tx.merchant_id in pacote.merchants else None,
         installment=InstallmentInfo(
             number=tx.installment_no, of=tx.installments_of, group_id=tx.installment_group_id
         ) if tx.installment_no and tx.installments_of else None,
@@ -297,6 +303,7 @@ def to_brief(tx: Transaction, pacote: TxBundle, me_id: int) -> TransactionBrief:
         category=categorias[0].name if len(categorias) == 1 else ("(várias)" if categorias else None),
         installment=f"{tx.installment_no}/{tx.installments_of}" if tx.installment_no and tx.installments_of else None,
         tags=sorted(pacote.tags.get(tx.id, [])),
+        merchant=pacote.merchants.get(tx.merchant_id) if tx.merchant_id else None,
     )
 
 

@@ -20,6 +20,8 @@ const baseValues: TransactionFormValues = {
   installments: 1,
   category_id: '',
   tag_ids: [],
+  merchant_name: '',
+  merchant_initial: '',
   split_mode: 'transaction',
   split_method: 'equal',
   splits: [{ user_id: '1', value: 0 }],
@@ -366,5 +368,24 @@ describe('fromApiTransaction — round-trip', () => {
       { user_id: '1', value: 70 },
       { user_id: '2', value: 30 },
     ]);
+  });
+});
+
+describe('estabelecimento (ADR 0038): só vai quando mudou', () => {
+  const campos = (v: TransactionFormValues) => {
+    const p = toApiPayload(v) as Record<string, unknown>;
+    return { merchant_name: p.merchant_name, merchant_id: p.merchant_id, tem_id: 'merchant_id' in p };
+  };
+
+  it('criação: vazio não manda nada (o servidor liga pelo apelido do título); nome manda o nome', () => {
+    expect(campos(baseValues)).toEqual({ merchant_name: undefined, merchant_id: undefined, tem_id: false });
+    expect(campos({ ...baseValues, merchant_name: '  Padaria  ' }).merchant_name).toBe('Padaria');
+  });
+
+  it('edição: igual não manda; apagar desvincula com merchant_id nulo; trocar manda o nome novo', () => {
+    const editando = { ...baseValues, merchant_name: 'Padaria', merchant_initial: 'Padaria' };
+    expect(campos(editando)).toEqual({ merchant_name: undefined, merchant_id: undefined, tem_id: false });
+    expect(campos({ ...editando, merchant_name: '' })).toEqual({ merchant_name: undefined, merchant_id: null, tem_id: true });
+    expect(campos({ ...editando, merchant_name: 'Mercado' }).merchant_name).toBe('Mercado');
   });
 });

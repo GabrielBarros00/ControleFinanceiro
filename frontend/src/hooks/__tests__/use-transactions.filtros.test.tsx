@@ -65,6 +65,17 @@ describe('useTransactions — os filtros chegam à API', () => {
     expect(mockGet.mock.calls[1][1].params).toMatchObject({ uncategorized: true });
   });
 
+  it('o estabelecimento chega ao servidor e refaz a consulta', async () => {
+    const { rerender } = renderHook(
+      ({ merchant_id }: { merchant_id?: number }) => useTransactions({ page: 1, limit: 10, merchant_id }),
+      { wrapper, initialProps: {} as { merchant_id?: number } },
+    );
+    await waitFor(() => expect(mockGet).toHaveBeenCalledTimes(1));
+    rerender({ merchant_id: 4 });
+    await waitFor(() => expect(mockGet).toHaveBeenCalledTimes(2));
+    expect(mockGet.mock.calls[1][1].params).toMatchObject({ merchant_id: 4 });
+  });
+
   it('trocar o recorte refaz a consulta (o filtro está na queryKey)', async () => {
     const { rerender } = renderHook(
       ({ settled }: { settled?: boolean }) =>

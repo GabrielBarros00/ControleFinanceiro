@@ -137,6 +137,8 @@ def list_transactions(
     category_id: Optional[int] = None,
     payment_method: Optional[PaymentMethod] = None,
     tag_id: Optional[int] = None,
+    # Os de um estabelecimento (ADR 0038).
+    merchant_id: Optional[int] = None,
     # Liquidação (ADR 0029): `false` traz só o que ainda não saiu do caixa.
     # Ausente = tudo, que é a leitura padrão do extrato.
     settled: Optional[bool] = None,
@@ -217,6 +219,9 @@ def list_transactions(
             if settled
             else (Transaction.settled_at.is_(None)) & (Transaction.credit_card_id.is_(None))
         )
+
+    if merchant_id:
+        statement = statement.where(Transaction.merchant_id == merchant_id)
 
     # Filtering by tag
     if tag_id:
@@ -455,7 +460,12 @@ def bulk_create_transactions(
     session: Session = Depends(get_session),
     membership: WorkspaceMembership = Depends(require_role(WorkspaceRole.member))
 ):
+    from app.services.commands import merchants as merchant_cmd
+
     base_currency = workspace_base_currency(session, workspace_id)
+    # Estabelecimento pelo apelido do título (ADR 0038), como na importação: o
+    # mapa é lido uma vez para o lote inteiro.
+    chaves = merchant_cmd.mapa_de_chaves(session, workspace_id)
     created_count = 0
     skipped = []
     for index, tx_data in enumerate(transactions_in):
@@ -498,6 +508,8 @@ def bulk_create_transactions(
                 session, workspace_id, transaction_date=dt, explicit=True
             ),
         )
+        estabelecimento = merchant_cmd.do_titulo(session, workspace_id, title, chaves)
+        db_transaction.merchant_id = estabelecimento.id if estabelecimento else None
         session.add(db_transaction)
         session.flush() # Get ID
 
