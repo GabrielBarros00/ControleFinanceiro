@@ -137,6 +137,20 @@ registro por CIMD/DCR, 59 tools documentadas em `docs/mcp/TOOLS.md` (geradas do
 código), e as escritas das rotas REST passaram a morar em comandos
 compartilhados (`app/services/commands/`) — sem mudança de comportamento.
 
+### Categoria, tags e observação à vista no lançamento
+
+- **Categoria** (a que entra nos relatórios e nas metas) saiu de "Opções avançadas" e
+  fica ao lado das Tags ao detalhar o lançamento, cada uma dizendo o que é: categoria é
+  uma por despesa e alimenta as metas; tag é livre, várias por despesa, e não entra
+  nas metas.
+- **Observação**: o lançamento ganhou o campo, e o detalhe passou a mostrá-la. Ela já
+  existia (a IA a preenchia), mas nenhuma tela a exibia.
+- **Dividir por valor, porcentagem ou por item**: é o novo nome de "Opções avançadas",
+  logo abaixo da divisão em partes iguais. A divisão detalhada sempre esteve lá; o
+  nome é que não dizia.
+- **Configurações do espaço › Categorias e tags**: as tags ganharam lugar para renomear,
+  excluir e criar. Até aqui só existiam dentro do lançamento.
+
 ### O lançamento no cartão diz qual cartão
 
 Uma compra no cartão aparecia na lista e no detalhe só como "Cartão de crédito". Quem

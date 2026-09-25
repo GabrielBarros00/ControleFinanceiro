@@ -37,7 +37,11 @@ export function useTags() {
       const response = await apiClient.put(`/workspaces/${currentWorkspaceId}/tags/${id}`, data);
       return response.data as WorkspaceTag;
     },
-    onSuccess: invalidate,
+    // Renomear muda o que os lançamentos mostram, não só a lista de tags.
+    onSuccess: () => {
+      invalidate();
+      queryClient.invalidateQueries({ queryKey: ['transactions', currentWorkspaceId] });
+    },
   });
 
   const deleteMutation = useMutation({

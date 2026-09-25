@@ -4,6 +4,7 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import { Button } from '@/components/ui/button';
 import { DialogFooter } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
+import { Textarea } from '@/components/ui/textarea';
 import { MoneyInput } from '@/components/ui/MoneyInput';
 import { Label } from '@/components/ui/label';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
@@ -65,8 +66,9 @@ interface TransactionFormProps {
 }
 
 // Form compartilhado criar/editar despesa. Layout slim: o essencial fica sempre
-// visível; método %/fixo, divisão por item e categoria moram em "Opções
-// avançadas" (progressive disclosure).
+// visível; categoria, tags e observação aparecem ao "Detalhar", e o método
+// %/fixo e a divisão por item moram em "Dividir por valor, porcentagem ou por
+// item" (progressive disclosure).
 export function TransactionForm({ initialValues, onSubmit, submitLabel, resetOnSuccess = false, allowInstallments = false, onSuccess, extraFields, aoMudarSujo, permiteModoSimples = false, aoSalvarELancarOutro }: TransactionFormProps) {
   const { user } = useAuthStore();
   const { members } = useMembers();
@@ -309,7 +311,46 @@ export function TransactionForm({ initialValues, onSubmit, submitLabel, resetOnS
 
           {detalhado && <MerchantField />}
 
-          {detalhado && <TagMultiSelect />}
+          {/* Categoria e tags lado a lado, cada uma dizendo o que é: a categoria
+              morava em "Opções avançadas", dois cliques abaixo, e passava por
+              "a outra tag" — a que as metas usam e que ninguém achava. */}
+          {detalhado && (
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+              <div className="space-y-2">
+                <Label htmlFor="category_id" className="text-sm font-semibold text-foreground">Categoria</Label>
+                {splitMode === 'transaction' ? (
+                  <select id="category_id" className={selectClass} {...register('category_id')}>
+                    <option value="" className="bg-card">Sem categoria</option>
+                    {categories.map(c => (
+                      <option key={c.id} value={c.id} className="bg-card">{c.name}</option>
+                    ))}
+                  </select>
+                ) : (
+                  <p id="category_id" className="rounded-lg border border-dashed border-border px-3 py-2 text-xs text-muted-foreground">
+                    Na divisão por item, cada item tem a sua categoria.
+                  </p>
+                )}
+                <p className="text-xs text-muted-foreground">
+                  Uma por despesa: entra nos relatórios e nas metas.
+                </p>
+              </div>
+              <TagMultiSelect />
+            </div>
+          )}
+
+          {detalhado && (
+            <div className="space-y-2">
+              <Label htmlFor="description" className="text-sm font-semibold text-foreground">Observação</Label>
+              <Textarea
+                id="description"
+                rows={2}
+                placeholder="Detalhes, para quem foi, o que incluía… (opcional)"
+                {...register('description')}
+                className="bg-background border-border"
+              />
+              {errors.description && <p className="text-xs text-destructive font-medium">{errors.description.message as string}</p>}
+            </div>
+          )}
 
           {/* Divisão simples (padrão): rateio igual entre os selecionados */}
           {detalhado && !advanced && <SimpleSplitChips participants={participants} />}
@@ -337,7 +378,10 @@ export function TransactionForm({ initialValues, onSubmit, submitLabel, resetOnS
               className="flex items-center gap-2 text-sm font-semibold text-primary transition-colors hover:text-primary/80"
             >
               <SlidersHorizontal className="h-4 w-4" />
-              Opções avançadas
+              {/* O nome diz o que tem dentro: com a categoria fora, "Opções
+                  avançadas" era só a divisão — e ninguém procurava a divisão
+                  por valor ou por item debaixo de um nome genérico. */}
+              {advanced ? 'Voltar à divisão em partes iguais' : 'Dividir por valor, porcentagem ou por item'}
               <ChevronDown className={cn('h-4 w-4 transition-transform', advanced && 'rotate-180')} />
             </button>
           </div>
@@ -362,18 +406,6 @@ export function TransactionForm({ initialValues, onSubmit, submitLabel, resetOnS
                   </div>
                 </RadioGroup>
               </div>
-
-              {splitMode === 'transaction' && (
-                <div className="space-y-2">
-                  <Label htmlFor="category_id" className="text-sm font-semibold text-foreground">Categoria</Label>
-                  <select id="category_id" className={selectClass} {...register('category_id')}>
-                    <option value="" className="bg-card">Sem categoria</option>
-                    {categories.map(c => (
-                      <option key={c.id} value={c.id} className="bg-card">{c.name}</option>
-                    ))}
-                  </select>
-                </div>
-              )}
 
               {splitMode === 'transaction'
                 ? <SplitEditor participants={participants} />

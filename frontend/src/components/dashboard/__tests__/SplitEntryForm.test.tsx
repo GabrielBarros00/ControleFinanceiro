@@ -45,9 +45,9 @@ async function fillBaseFields(total = '90,00') {
   fireEvent.change(screen.getByLabelText('Valor Total'), { target: { value: total } });
 }
 
-// A divisão %/fixo e a divisão por item moram em "Opções avançadas"
+// A divisão %/fixo e a divisão por item moram em "Dividir por valor, porcentagem ou por item"
 function openAdvanced() {
-  fireEvent.click(screen.getByRole('button', { name: /Opções avançadas/i }));
+  fireEvent.click(screen.getByRole('button', { name: /Dividir por valor, porcentagem ou por item/i }));
 }
 
 async function addBobAsSecondParticipant() {

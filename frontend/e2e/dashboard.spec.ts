@@ -37,9 +37,9 @@ test.describe('Dashboard and Split Entry Form', () => {
     await dialog.getByLabel('Valor Total').fill('150,00');
 
     // Divisão e pagadores moram atrás de "Detalhar" (modo simples é título +
-    // valor + salvar), e o método %/fixo dentro de "Opções avançadas".
+    // valor + salvar), e o método %/fixo dentro de "Dividir por valor, porcentagem ou por item".
     await dialog.getByRole('button', { name: /^Detalhar$/ }).click();
-    await dialog.getByRole('button', { name: /Opções avançadas/ }).click();
+    await dialog.getByRole('button', { name: /Dividir por valor, porcentagem ou por item/ }).click();
     await dialog.getByText('Valor Fixo').click();
 
     // Adiciona participante: 1 linha inicial + 1 nova = 2 botões de remover

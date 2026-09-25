@@ -10,6 +10,7 @@ import type { TransactionRead } from '@/types/transaction';
 
 const baseValues: TransactionFormValues = {
   title: 'Mercado',
+  description: '',
   total_amount: 90,
   currency: 'BRL',
   transaction_date: todayLocalISO(),
@@ -387,5 +388,24 @@ describe('estabelecimento (ADR 0038): só vai quando mudou', () => {
     expect(campos(editando)).toEqual({ merchant_name: undefined, merchant_id: undefined, tem_id: false });
     expect(campos({ ...editando, merchant_name: '' })).toEqual({ merchant_name: undefined, merchant_id: null, tem_id: true });
     expect(campos({ ...editando, merchant_name: 'Mercado' }).merchant_name).toBe('Mercado');
+  });
+});
+
+describe('observação (description)', () => {
+  it('vai aparada; vazia vai null, para a edição conseguir apagar', () => {
+    expect(toApiPayload({ ...baseValues, description: '  Verduras  ' }).description).toBe('Verduras');
+    expect(toApiPayload({ ...baseValues, description: '   ' }).description).toBeNull();
+  });
+
+  it('a edição abre com a observação do lançamento', () => {
+    const tx: TransactionRead = {
+      id: 231, workspace_id: 1, title: 'Coca lata', currency: 'BRL', total_amount: '5.70',
+      transaction_date: '2026-09-24T15:00:00Z', billing_month: '2026-09', status: 'confirmed',
+      credit_card_id: 2, split_mode: 'transaction', payment_method: 'credit_card', created_at: '', updated_at: '',
+      tags: [], adjustments: [], items: [], payers: [{ id: 1, user_id: 1, amount: '5.70' }],
+      splits: [{ id: 1, user_id: 1, split_method: 'equal', input_value: '0', computed_amount: '5.70' }],
+    };
+    expect(fromApiTransaction({ ...tx, description: 'Coca lata comprada na Duff' }).description).toBe('Coca lata comprada na Duff');
+    expect(fromApiTransaction({ ...tx, description: null }).description).toBe('');
   });
 });

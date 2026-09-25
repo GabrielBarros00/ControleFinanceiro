@@ -12,7 +12,7 @@ interface SimpleSplitChipsProps {
  * Divisão simples (modo padrão): escolha quem participa → rateio IGUAL.
  *
  * Escreve em `splits` com method 'equal'. Controle fino (%/fixo/por item) mora
- * em "Opções avançadas".
+ * em "Dividir por valor, porcentagem ou por item".
  *
  * O DESENHO das pílulas mora em `components/money/ChipsDeDivisao` desde que a
  * recorrência passou a fazer a mesma pergunta — aqui fica só a ligação com o

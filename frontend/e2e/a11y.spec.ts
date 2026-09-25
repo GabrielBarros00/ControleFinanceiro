@@ -169,8 +169,8 @@ test.describe('Acessibilidade (axe · WCAG 2 A/AA)', () => {
     expect(resumir(formSimples.violations)).toBe('');
 
     await page.getByRole('dialog').getByRole('button', { name: /^Detalhar$/ }).click();
-    // Inclui as "Opções avançadas": é onde moram os campos de divisão
-    await page.getByRole('dialog').getByRole('button', { name: /Opções avançadas/ }).click();
+    // Inclui as "Dividir por valor, porcentagem ou por item": é onde moram os campos de divisão
+    await page.getByRole('dialog').getByRole('button', { name: /Dividir por valor, porcentagem ou por item/ }).click();
 
     const form = await analisar(page, '[role="dialog"]');
     expect(resumir(form.violations)).toBe('');

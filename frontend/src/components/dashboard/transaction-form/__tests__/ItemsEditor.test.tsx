@@ -56,8 +56,8 @@ describe('TransactionForm — divisão por item', () => {
   async function switchToItemMode() {
     fireEvent.change(screen.getByLabelText('Título / Descrição'), { target: { value: 'Churrasco' } });
     fireEvent.change(screen.getByLabelText('Valor Total'), { target: { value: '90,00' } });
-    // A divisão por item mora em "Opções avançadas"
-    fireEvent.click(screen.getByRole('button', { name: /Opções avançadas/i }));
+    // A divisão por item mora em "Dividir por valor, porcentagem ou por item"
+    fireEvent.click(screen.getByRole('button', { name: /Dividir por valor, porcentagem ou por item/i }));
     fireEvent.click(screen.getByRole('radio', { name: 'Por item' }));
     await waitFor(() => {
       expect(screen.getByTestId('item-row-0')).toBeInTheDocument();

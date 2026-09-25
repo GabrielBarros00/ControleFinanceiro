@@ -57,6 +57,7 @@ export function NewTransactionDialog({ open, onOpenChange }: NewTransactionDialo
     credit_card_id: '',
     statement_shift: 0,
     installments: 1,
+    description: '',
     category_id: '',
     tag_ids: [],
     merchant_name: '',
