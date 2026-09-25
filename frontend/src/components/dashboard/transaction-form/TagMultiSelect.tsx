@@ -162,6 +162,9 @@ export function TagMultiSelect() {
           </div>
         )}
       </div>
+      <p className="text-xs text-muted-foreground">
+        Várias por despesa, livres (viagem, presente). Não entram nas metas.
+      </p>
     </div>
   );
 }

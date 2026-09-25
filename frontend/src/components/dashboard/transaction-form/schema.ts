@@ -40,10 +40,14 @@ const itemSchema = z.object({
 // representável em JS sem perder precisão. 1e15 é seguro, folgadíssimo para
 // finanças pessoais, e garante que nada que passe daqui seja recusado lá.
 const TITLE_MAX = 200;
+const DESCRIPTION_MAX = 2000;
 const MAX_MONEY = 1e15;
 
 export const transactionFormSchema = z.object({
   title: z.string().min(2, 'O título deve ter pelo menos 2 caracteres').max(TITLE_MAX, `O título deve ter no máximo ${TITLE_MAX} caracteres`),
+  // Observação livre do lançamento (`description`). Sempre existiu no modelo, e a
+  // IA já a preenchia; faltava o campo na tela. Vazio = sem observação.
+  description: z.string().max(DESCRIPTION_MAX, `A observação deve ter no máximo ${DESCRIPTION_MAX} caracteres`),
   total_amount: z.number().min(0.01, 'O valor deve ser maior que zero').max(MAX_MONEY, 'Valor acima do limite permitido'),
   currency: z.string(),
   transaction_date: z.string().min(1, 'Informe a data'),
@@ -315,6 +319,8 @@ export function toApiPayload(v: TransactionFormValues) {
 
   const base = {
     title: v.title,
+    // Sempre explícita: na edição, apagar o texto tem de apagar a observação.
+    description: v.description.trim() || null,
     total_amount: v.total_amount,
     transaction_date: transactionDate,
     billing_month: v.transaction_date.slice(0, 7),
@@ -399,6 +405,7 @@ export function toApiPayload(v: TransactionFormValues) {
 export function fromApiTransaction(tx: TransactionRead): TransactionFormValues {
   const base = {
     title: tx.title,
+    description: tx.description ?? '',
     // Estrangeiro: edita o valor/moeda ORIGINAIS (o backend re-converte no save)
     total_amount: tx.original_currency && tx.original_amount ? parseFloat(tx.original_amount) : parseFloat(tx.total_amount),
     currency: tx.original_currency ?? tx.currency ?? 'BRL',

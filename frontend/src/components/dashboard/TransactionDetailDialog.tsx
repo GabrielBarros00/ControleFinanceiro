@@ -112,6 +112,14 @@ export function TransactionDetailDialog({
           ))}
         </div>
 
+        {/* A observação existia no lançamento (e a IA a preenchia), mas nenhuma
+            tela a mostrava. `pre-wrap`: quebra de linha digitada é conteúdo. */}
+        {transaction.description && (
+          <p className="whitespace-pre-wrap rounded-lg border border-border bg-accent/30 px-3 py-2 text-sm text-muted-foreground">
+            {transaction.description}
+          </p>
+        )}
+
         {transaction.original_currency && transaction.original_amount && (
           <div className="rounded-lg border border-border bg-accent/30 p-3 text-xs text-muted-foreground">
             <span className="font-semibold text-foreground">

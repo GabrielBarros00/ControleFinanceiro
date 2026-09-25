@@ -48,7 +48,7 @@ test.describe('Divisão por item e edição completa', () => {
     // — o formulário abre no modo simples (título, valor, salvar).
     await createDialog.getByRole('button', { name: /^Detalhar$/ }).click();
     await createDialog.getByLabel('Forma de pagamento').selectOption('pix');
-    await createDialog.getByRole('button', { name: /Opções avançadas/ }).click();
+    await createDialog.getByRole('button', { name: /Dividir por valor, porcentagem ou por item/ }).click();
     await createDialog.getByRole('radio', { name: 'Por item' }).click();
     await expect(createDialog.getByLabel('Título do item')).toBeVisible();
 
@@ -101,8 +101,8 @@ test.describe('Divisão por item e edição completa', () => {
     await row.getByRole('button', { name: 'Editar transação' }).click();
 
     const dialog = page.getByRole('dialog');
-    // A despesa criada é "igual" (simples) → abre as opções avançadas para trocar o método
-    await dialog.getByRole('button', { name: /Opções avançadas/ }).click();
+    // A despesa criada é "igual" (simples) → abre as opções de divisão para trocar o método
+    await dialog.getByRole('button', { name: /Dividir por valor, porcentagem ou por item/ }).click();
     await dialog.getByRole('radio', { name: 'Valor Fixo' }).click();
     await dialog.getByRole('textbox', { name: 'Valor fixo' }).fill('100,00');
     await expect(dialog.getByTestId('split-summary')).toContainText('Valores fecham');

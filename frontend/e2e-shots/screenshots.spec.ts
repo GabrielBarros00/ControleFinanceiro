@@ -127,6 +127,8 @@ const appRoutes = (wsId: number): Array<{ path: string; slug: string }> => [
   { path: `/w/${wsId}/import`, slug: 'importar' },
   { path: `/w/${wsId}/settings`, slug: 'configuracoes-workspace' },
   { path: `/w/${wsId}/settings?tab=merchants`, slug: 'estabelecimentos' },
+  // Categorias e tags: o que é cada uma e onde se gerencia a tag.
+  { path: `/w/${wsId}/settings?tab=categories`, slug: 'categorias-e-tags' },
   // --- Plataforma: quem opera o site ---
   { path: '/admin', slug: 'administracao' },
 ];
@@ -215,6 +217,12 @@ test('seed data and capture all screens', async ({ page, playwright }) => {
     ]) {
       const res = await api.post(u('/me/income/'), { data: renda });
       expect(res.ok(), `renda "${renda.title}": ${res.status()} ${await res.text()}`).toBeTruthy();
+    }
+
+    // Tags, para a aba "Categorias e tags" mostrar a lista (e não o estado vazio).
+    for (const nome of ['viagem', 'presente de aniversário', 'trabalho']) {
+      const res = await api.post(u(`/workspaces/${wsId}/tags`), { data: { name: nome } });
+      expect(res.ok(), `tag "${nome}": ${res.status()} ${await res.text()}`).toBeTruthy();
     }
 
     // Estabelecimentos ANTES das despesas (ADR 0038): o lote liga sozinho o

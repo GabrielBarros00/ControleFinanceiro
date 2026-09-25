@@ -401,7 +401,7 @@ test.describe('Layout mobile — nenhuma tela estoura a largura', () => {
     // criou o espaço, então é dona.
     await page.goto(`/w/${wsId}/settings`);
     await page.waitForLoadState('networkidle').catch(() => {});
-    await medirAbas(page, `/w/${wsId}/settings`, ['Categorias', 'Auditoria', 'Espaço e membros']);
+    await medirAbas(page, `/w/${wsId}/settings`, ['Categorias e tags', 'Estabelecimentos', 'Auditoria', 'Espaço e membros']);
 
     // Configurações PESSOAIS.
     await page.goto('/me/settings');
@@ -546,7 +546,7 @@ test.describe('Layout mobile — nenhuma tela estoura a largura', () => {
     await esperarAssentar(page);
     await semRolagemHorizontal(page, 'diálogo Nova despesa (simples)');
     await page.getByRole('dialog').getByRole('button', { name: /^Detalhar$/ }).click();
-    await page.getByRole('dialog').getByRole('button', { name: /Opções avançadas/ }).click();
+    await page.getByRole('dialog').getByRole('button', { name: /Dividir por valor, porcentagem ou por item/ }).click();
     await esperarAssentar(page);
     await semRolagemHorizontal(page, 'diálogo Nova despesa');
     // Fechar é uma AFIRMAÇÃO, não uma espera: o passo seguinte clica na barra

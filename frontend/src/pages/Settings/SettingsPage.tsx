@@ -36,6 +36,7 @@ import { useConfirm } from '@/components/ui/confirm';
 import { useTabParam } from '@/hooks/use-tab-param';
 import { AiIntegrationsTab } from '@/components/ai-integrations/AiIntegrationsTab';
 import { MerchantsTab } from '@/components/merchants/MerchantsTab';
+import { TagsCard } from '@/components/settings/TagsCard';
 import { CategoryGlyph } from '@/components/money/CategoryGlyph';
 import { parseApiDate } from '@/lib/date';
 import type { components } from '@/types/api.gen';
@@ -1012,7 +1013,8 @@ function CategoriesTab() {
         <CardHeader>
           <CardTitle>Categorias</CardTitle>
           <CardDescription>
-            Usadas para classificar despesas e alimentar o gráfico por categoria nos relatórios.
+            Uma por despesa. É por ela que os relatórios agrupam o gasto e que as metas
+            (orçamentos) são definidas.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
@@ -1083,6 +1085,7 @@ function CategoriesTab() {
           </div>
         </CardContent>
       </Card>
+      <TagsCard />
     </div>
   );
 }
@@ -1651,7 +1654,7 @@ export function SettingsPage() {
 
   const menuItems: MenuItem[] = [
     { id: 'members', label: 'Espaço e membros', icon: Users },
-    { id: 'categories', label: 'Categorias', icon: Tag },
+    { id: 'categories', label: 'Categorias e tags', icon: Tag },
     { id: 'merchants', label: 'Estabelecimentos', icon: Store },
     // Auditoria é sensível (AUD-001): só admin/owner
     ...(isAdmin ? [{ id: 'audit' as Tab, label: 'Auditoria', icon: History }] : []),

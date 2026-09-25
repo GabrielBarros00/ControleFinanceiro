@@ -49,6 +49,7 @@ function Formulario({ shift = 0 }: { shift?: number }) {
   const methods = useForm<TransactionFormValues>({
     defaultValues: {
       title: 'Restaurante',
+      description: '',
       total_amount: 120,
       currency: 'BRL',
       transaction_date: '2026-07-27',
