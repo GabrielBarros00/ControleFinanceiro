@@ -385,6 +385,40 @@ Desfazer), e as telas do app com detalhe, expansão e paginação. Isso revê a 
   um componente fica 30 s com o heap parado em ~1,2 MB e sem laço de
   redimensionamento.
 
+### 12. As novidades do app chegam pelas tools que já existem (2026-09-25)
+
+As quatro novidades do app entraram na mesma entrega no MCP, como pede o §4:
+
+- desfazer importação (ADR 0036);
+- extrato de conta (ADR 0037);
+- estabelecimento (ADR 0038);
+- assinatura (ADR 0039).
+
+O catálogo estava a 2,4 mil caracteres do teto do §10. A regra passou a ser **campo
+novo numa tool existente, não tool nova**. A única exceção é `imports_undo`, porque
+desfazer em duas etapas com token não cabe noutra tool.
+
+| Novidade | Onde entrou |
+|---|---|
+| Desfazer importação | `imports_list` (lotes e linhas) e `imports_undo` (prévia → token), pelo mesmo comando da tela |
+| Extrato de conta | `imports_preview`/`_commit` com `account`, `direction` e `classification` |
+| Estabelecimento | `kind=merchant` em `categories_*` (apelidos, categoria padrão, `merge_into`); `merchant` em `transactions_create`/`_update`/`_search` e na leitura; `group_by=merchant` |
+| Assinatura | `subscription`, `plan`, `trial_ends_on`, `notes` e `merchant` em `recurring_create`/`_update`; `subscriptions_only` e o custo por mês no `recurring_list` |
+
+- **Nome parecido é pergunta, não cadastro.** Pela tela, um nome novo de
+  estabelecimento cria outro, e a pessoa vê a lista. Pela IA, um nome que só lembra
+  um cadastrado ("Drogasill" com "Drogasil" existindo) volta `AMBIGUOUS` com os
+  candidatos. Um modelo que grafa diferente a cada conversa encheria o espaço de
+  duplicatas.
+- **Conta de dinheiro num lugar só.** O custo por mês de uma recorrência e a parte de
+  cada pessoa por ocorrência saíram da tool para o `RecurringService`, e a tela, a
+  API e o `recurring_list` somam com eles. A tela deixou de ter a cópia dela.
+- **Enxugar onde repete.** Para abrir espaço, as descrições de `idempotency_key` e
+  `expected_version`, repetidas em ~8 tools, ficaram mais curtas (-1,3 mil
+  caracteres). O catálogo terminou em 89,1 mil caracteres de 90 mil.
+- **Conferido com clientes reais:** Claude Code, Codex e Gemini CLI, em 25/09 (ver
+  [TESTING.md](../mcp/TESTING.md#agentes-de-terminal-de-verdade-manual)).
+
 ## Divergências do pedido original (e por quê)
 
 - **Nomes com sublinhado** (`transactions_create`), não ponto: Claude Desktop e

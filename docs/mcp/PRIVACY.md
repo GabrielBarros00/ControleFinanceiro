@@ -17,6 +17,11 @@ qualquer resposta. Arquivos acima de `MCP_ATTACHMENT_TO_MODEL_MAX_BYTES` nunca v
 quem mudou (nome), se foi via IA e os campos antes → depois. Sem IP, sem
 user-agent, sem a auditoria do resto do espaço.
 
+**Estabelecimentos:** são vocabulário do espaço, como as categorias. Todo membro vê
+o nome e os apelidos, e o agente também. Os apelidos vêm do extrato ("PIX ENVIADO
+MARIA S"), e um apelido com nome de pessoa fica visível a todo o espaço. O gasto e a
+contagem por estabelecimento só somam os lançamentos que a pessoa vê.
+
 No anexo pelo terminal, o arquivo vai do computador direto para o app pelo link de
 envio: ele não passa pela conversa nem pelo provedor do agente. O agente recebe de
 volta só o nome, o tipo e o tamanho.
