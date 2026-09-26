@@ -179,11 +179,39 @@ async def security_headers_middleware(request: Request, call_next):
 # - `/health`: é o healthcheck do container. Sem ele, ligar a manutenção faria o
 #   Docker considerar o backend doente e reiniciá-lo em laço — a manutenção
 #   derrubaria o serviço que ela deveria apenas pausar.
-# - `/auth/`: o admin precisa CONSEGUIR ENTRAR para desligar o modo. Sem isto, a
-#   única saída seria `docker compose exec` com SQL na mão, que é exatamente a
-#   situação que a tela de Admin existe para eliminar.
 # - `/admin/`: onde fica o botão de desligar.
-_LIBERADOS_NA_MANUTENCAO = ("/api/v1/health", "/api/v1/auth/", "/api/v1/admin/")
+_LIBERADOS_NA_MANUTENCAO = ("/api/v1/health", "/api/v1/admin/")
+
+# De `/auth/`, só o que serve para ENTRAR e SAIR: o admin precisa conseguir fazer
+# login para desligar o modo — sem isto, a única saída seria `docker compose exec`
+# com SQL na mão. Antes a isenção era o prefixo inteiro, e de carona passavam
+# escritas que não têm nada a ver com entrar: o onboarding (que cria renda e
+# cartão), o perfil, o avatar e a troca de senha continuavam gravando num banco
+# que o operador considerava parado. Agora elas seguem a regra geral (admin passa,
+# o resto recebe 503).
+#
+# O cadastro e o callback do Google ficam na lista porque quem decide ali é o
+# serviço (`assert_pode_cadastrar`): ele barra o cadastro na manutenção, exceto o
+# primeiro acesso do superadmin — sem essa exceção, um deploy que subisse com a
+# manutenção ligada trancaria o próprio dono do lado de fora.
+_AUTH_LIBERADO_NA_MANUTENCAO = frozenset({
+    ("GET", "/api/v1/auth/registration-policy"),
+    ("POST", "/api/v1/auth/register"),
+    ("POST", "/api/v1/auth/login"),
+    ("GET", "/api/v1/auth/me"),
+    ("POST", "/api/v1/auth/logout"),
+    ("POST", "/api/v1/auth/refresh"),
+    ("POST", "/api/v1/auth/forgot-password"),
+    ("POST", "/api/v1/auth/reset-password"),
+    ("GET", "/api/v1/auth/google/login"),
+    ("GET", "/api/v1/auth/google/callback"),
+})
+
+
+def _liberado_na_manutencao(metodo: str, caminho: str) -> bool:
+    if caminho.startswith(_LIBERADOS_NA_MANUTENCAO):
+        return True
+    return (metodo, caminho.rstrip("/")) in _AUTH_LIBERADO_NA_MANUTENCAO
 
 
 @app.middleware("http")
@@ -201,7 +229,7 @@ async def maintenance_middleware(request: Request, call_next):
     passando por aqui.
     """
     caminho = request.url.path
-    if caminho.startswith(_LIBERADOS_NA_MANUTENCAO):
+    if _liberado_na_manutencao(request.method, caminho):
         return await call_next(request)
 
     from app.db.session import session_scope

@@ -185,3 +185,60 @@ def test_o_primeiro_acesso_atravessa_a_manutencao(elenco, db_session, monkeypatc
     resp = _cadastra("dono@example.com")
     assert resp.status_code == 200
     assert resp.json()["platform_role"] == "superadmin"
+
+
+# --------------------------------------------------------------------------
+# De /auth/, só o que serve para ENTRAR fica no ar
+# --------------------------------------------------------------------------
+#
+# A isenção era o prefixo `/auth/` inteiro, e de carona passavam as escritas que
+# não têm nada a ver com entrar: o onboarding cria RENDA e CARTÃO, o perfil e o
+# avatar gravam dado da pessoa. Um cliente com o modal de onboarding aberto
+# continuava gravando num banco que o operador considerava parado (auditoria de
+# 2026-09-26, C9 — antes F9).
+
+def test_o_que_grava_em_auth_para_na_manutencao(elenco, db_session):
+    from sqlmodel import select
+
+    from app.models.credit_card import CreditCard
+    from app.models.income import Income
+
+    _liga(db_session)
+    h = _headers(elenco["comum"])
+
+    assert client.patch("/api/v1/auth/me", json={"name": "Outro nome"}, headers=h).status_code == 503
+    assert client.post("/api/v1/auth/onboarding", json={
+        "salary": "1.00", "credit_card_name": "Cartão", "credit_card_limit": "10.00",
+        "credit_card_closing_day": 5,
+    }, headers=h).status_code == 503
+    assert client.post("/api/v1/auth/change-password", json={
+        "current_password": "x", "new_password": "outra-senha-123",
+    }, headers=h).status_code == 503
+    assert client.delete("/api/v1/auth/me/avatar", headers=h).status_code == 503
+
+    db_session.expire_all()
+    assert db_session.get(User, elenco["comum"].id).name == "Comum"
+    assert db_session.exec(select(Income)).all() == []
+    assert db_session.exec(select(CreditCard)).all() == []
+
+
+def test_o_que_serve_para_entrar_continua_no_ar(elenco, db_session):
+    from app.core.security import get_password_hash
+
+    admin = elenco["admin"]
+    admin.password_hash = get_password_hash("senha-do-admin-123")
+    db_session.add(admin)
+    db_session.commit()
+    _liga(db_session)
+
+    assert client.get("/api/v1/auth/registration-policy").status_code == 200
+    resp = client.post("/api/v1/auth/login", json={"email": admin.email, "password": "senha-do-admin-123"})
+    assert resp.status_code == 200, resp.text
+    client.cookies.clear()
+
+
+def test_o_administrador_continua_editando_o_proprio_perfil(elenco, db_session):
+    """A regra geral vale para `/auth/` também: admin passa."""
+    _liga(db_session)
+    resp = client.patch("/api/v1/auth/me", json={"name": "Admin Novo"}, headers=_headers(elenco["admin"]))
+    assert resp.status_code == 200
