@@ -14,8 +14,10 @@ import pytest
 from sqlmodel import select
 
 from app.models.account_ledger import AccountTransfer
+from app.models.category import Category
 from app.models.income import Income
 from app.models.payment_account import PaymentAccount
+from app.models.transaction import Transaction
 from app.services.oauth import scopes as escopos
 from tests.mcp.conftest import call_tool, err, issue_token, ok
 from tests.mcp.scenario import monta
@@ -146,3 +148,21 @@ def test_previa_de_despesas_so_marca_o_que_ainda_existe(mcp_client, db_session, 
     assert ok(call_tool(mcp_client, c.token, "imports_preview", {"space": "Casa", "rows": [linha]}))["rows"][0]["already_imported"] is True
     ok(call_tool(mcp_client, c.token, "transactions_delete", {"transaction_id": lote["transaction_ids"][0]}))
     assert ok(call_tool(mcp_client, c.token, "imports_preview", {"space": "Casa", "rows": [linha]}))["rows"][0]["already_imported"] is False
+
+
+def test_a_categoria_da_despesa_chega_ao_lancamento(mcp_client, db_session, c):
+    """O agente diz "Mercado" e a despesa sai com a categoria Mercado.
+
+    A tool resolvia o nome e o comando descartava o id (`TransactionCreate` não tem
+    `category_id`): a resposta dizia "entraram 1 despesa" e o lançamento ficava sem
+    categoria. O teste irmão acima já mandava `category` — e nunca conferia.
+    """
+    ok(call_tool(mcp_client, c.token, "imports_commit", {
+        "idempotency_key": str(uuid4()), "account": "Itaú", "space": "Casa",
+        "rows": [dict(_linhas(c)[1], category="Mercado")],
+    }))
+
+    despesa = db_session.exec(select(Transaction).where(Transaction.title == "MERCADO")).one()
+    db_session.refresh(despesa)
+    categorias = {cat.id: cat.name for cat in db_session.exec(select(Category)).all()}
+    assert [categorias.get(i.category_id) for i in despesa.items] == ["Mercado"]

@@ -54,7 +54,12 @@ from app.models.workspace import Workspace, WorkspaceMembership, WorkspaceRole, 
 from app.schemas.balance import TransferCreate
 from app.schemas.imports import AccountCommitRequest, AccountCommitRow
 from app.schemas.income import IncomeCreate
-from app.schemas.transaction import TransactionCreate, TransactionPayerBase, TransactionSplitBase
+from app.schemas.transaction import (
+    TransactionCreate,
+    TransactionItemCreate,
+    TransactionPayerBase,
+    TransactionSplitBase,
+)
 from app.services import app_settings
 from app.services.csv_parser import CSVColumnMapping, CSVParserService
 from app.services.event_service import publish_event
@@ -199,7 +204,14 @@ def _despesa(ctx: _Contexto, row: AccountCommitRow, quando: datetime) -> dict:
         total_amount=row.total_amount,
         transaction_date=quando,
         currency=ctx.conta.currency,
-        category_id=row.category_id,
+        # A categoria de um lançamento simples mora no item-sombra, como na tela e
+        # em `transactions_create`. `TransactionCreate` não tem `category_id`: passado
+        # como argumento, o Pydantic o descartava em silêncio e a despesa ficava sem
+        # categoria (achado C1 da auditoria de 2026-09-26).
+        items=(
+            [TransactionItemCreate(title=row.title, amount=row.total_amount, category_id=row.category_id)]
+            if row.category_id is not None else None
+        ),
         payers=[TransactionPayerBase(user_id=ctx.user_id, amount=row.total_amount, account_id=ctx.conta.id)],
         splits=[TransactionSplitBase(user_id=ctx.user_id, split_method=SplitMethod.equal, input_value=Decimal("100"))],
         # Extrato é fato consumado (ADR 0029): o dinheiro já saiu da conta.
