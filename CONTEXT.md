@@ -55,6 +55,14 @@ Nomes que já causaram defeito por dizerem uma coisa e significarem outra.
     partes (`TransactionItemShare`), e a divisão da despesa é derivada delas.
   - **Ajustes** (`TransactionAdjustment`): desconto, frete, gorjeta, cashback… entram no
     total.
+- **Item da nota** (`TransactionItem`): uma linha da nota, com **quantidade**
+  (`quantity`, até 3 casas), **unidade** (`unit`: `un`, `kg`, `g`, `l`, `ml`, `m`) e
+  **preço unitário** (`unit_amount`, até 4 casas — o litro custa R$ 5,899). O **total
+  da linha** (`amount`) é o impresso na nota, em centavos, e é ele que soma; a linha
+  fecha com até **1 centavo** de diferença de `quantidade × unitário` (o
+  arredondamento da balança). Quantidade, unidade e unitário são obrigatórios ao
+  ADICIONAR item; o **item-sombra** da categoria e as linhas antigas não têm medida
+  (ADR 0040).
 - **Valor cheio × minha parte**: o `total_amount` é do lançamento inteiro; a minha
   parte é a soma das minhas divisões (`my_share`). Na tela, o número em destaque é
   sempre o da pessoa, e o valor cheio aparece nomeado ("de R$ X").

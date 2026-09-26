@@ -31,6 +31,7 @@ from app.domain.access_policy import (
     scope_transactions,
 )
 from app.domain.dates import add_months, month_key_local
+from app.domain.item_da_nota import unitario_depois_de_rateio
 from app.domain.money import Money
 from app.domain.query_policy import resolve_currency, workspace_base_currency
 from app.domain.settlement import resolve_settled_at
@@ -168,10 +169,11 @@ def _resync_item_amounts(session: Session, transaction_id: int, new_total: Decim
     """Rateia `new_total` entre os itens da transação, em centavos exatos.
 
     Usado pelo caminho de edição PARCIAL, que altera o total sem passar pela
-    recriação dos filhos. `quantity`/`unit_amount` são normalizados para
-    `1 × valor-da-linha`: a fatia rateada raramente é múltipla exata da
-    quantidade, e recalcular a linha a partir do unitário encolheria o item
-    (mesmo cuidado do `BaseCurrencyService._apply`).
+    recriação dos filhos. O total rateado é a fonte de verdade — recalcular a
+    linha a partir do unitário encolheria o item (mesmo cuidado do
+    `BaseCurrencyService._apply`). A MEDIDA fica (ADR 0040): quantidade e unidade
+    continuam, e o unitário é recalculado para o novo total — ou some, quando nem
+    com 4 casas ele fecharia. Antes a linha virava `1 × total` e "1,235 kg" sumia.
     """
     items = session.exec(
         select(TransactionItem)
@@ -188,8 +190,7 @@ def _resync_item_amounts(session: Session, transaction_id: int, new_total: Decim
     for i, item in enumerate(items):
         item.amount = Decimal(alocado[i]) / Decimal("100")
         if item.unit_amount is not None:
-            item.unit_amount = item.amount
-            item.quantity = Decimal("1")
+            item.unit_amount = unitario_depois_de_rateio(item.amount, item.quantity)
         session.add(item)
 
 
@@ -276,7 +277,10 @@ def _plan_installment_items(
     estrutura de participantes. Para shares fixas, fatia o valor de CADA share e
     deriva o total da linha da soma das fatias — assim as shares continuam
     fechando o valor do item em toda parcela. Retorna, por parcela, a lista de
-    itens já com quantity=1/unit=None (o valor da linha vira direto)."""
+    itens com a MEDIDA da compra (quantidade e unidade) e SEM preço unitário: o
+    unitário é da compra inteira, e na fatia ele faria a tela recalcular o total
+    da parcela a partir dele (ADR 0040). A conferência quantidade × unitário já
+    aconteceu na compra, antes do fatiamento."""
     per_installment: List[List[TransactionItemCreate]] = [[] for _ in range(count)]
     for position, item in enumerate(items):
         method = item.shares[0].split_method if item.shares else SplitMethod.equal
@@ -294,7 +298,6 @@ def _plan_installment_items(
                 amount_i = sum((s.input_value for s in shares_i), Decimal("0"))
                 per_installment[i].append(item.model_copy(update={
                     "amount": amount_i,
-                    "quantity": Decimal("1"),
                     "unit_amount": None,
                     "position": position,
                     "shares": shares_i,
@@ -306,7 +309,6 @@ def _plan_installment_items(
             for i in range(count):
                 per_installment[i].append(item.model_copy(update={
                     "amount": amount_slices[i],
-                    "quantity": Decimal("1"),
                     "unit_amount": None,
                     "position": position,
                     "shares": list(item.shares or []),
@@ -467,7 +469,6 @@ def _create_installments(
                 items = [template.model_copy(update={
                     "title": inst_title,
                     "amount": inst_amount,
-                    "quantity": Decimal("1"),
                     "unit_amount": None,
                 })]
 
@@ -762,7 +763,7 @@ def _aggregate_group_whole(
             it = ref.items[0]
             whole["items"] = [{
                 "id": it.id, "title": base_title, "amount": str(group_total),
-                "quantity": "1", "unit_amount": None, "position": 0,
+                "quantity": str(it.quantity), "unit": it.unit, "unit_amount": None, "position": 0,
                 "category_id": it.category_id, "shares": [],
             }]
         return whole
@@ -776,6 +777,8 @@ def _aggregate_group_whole(
             if agg is None:
                 agg = {
                     "id": it.id, "title": it.title, "category_id": it.category_id,
+                    # A medida é da compra e vem igual em toda fatia (ADR 0040).
+                    "quantity": it.quantity, "unit": it.unit,
                     "amount": Decimal("0"), "method": share_method,
                     "fixed": {}, "struct": [(sh.user_id, sh.split_method, sh.input_value) for sh in it.shares],
                 }
@@ -820,7 +823,7 @@ def _aggregate_group_whole(
             ]
         items.append({
             "id": agg["id"], "title": agg["title"], "amount": str(item_amount),
-            "quantity": "1", "unit_amount": None, "position": pos,
+            "quantity": str(agg["quantity"]), "unit": agg["unit"], "unit_amount": None, "position": pos,
             "category_id": agg["category_id"], "shares": shares,
         })
     whole["items"] = items
@@ -938,7 +941,6 @@ def _recompute_open_installments(
             items = [template.model_copy(update={
                 "title": sib.title,
                 "amount": inst_amount,
-                "quantity": Decimal("1"),
                 "unit_amount": None,
             })]
 
