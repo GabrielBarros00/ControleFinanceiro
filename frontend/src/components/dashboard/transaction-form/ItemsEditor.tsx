@@ -1,8 +1,8 @@
-import * as React from 'react';
 import { useFormContext, useFieldArray, Controller } from 'react-hook-form';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { MoneyInput } from '@/components/ui/MoneyInput';
+import { DecimalInput } from '@/components/ui/DecimalInput';
 import { Label } from '@/components/ui/label';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { Trash2, Plus } from 'lucide-react';
@@ -17,6 +17,7 @@ import type { TransactionFormValues } from './schema';
 // de `ui/input.tsx` descreve nascia justamente daqui.
 import { nativeSelectClass as selectClass } from '@/components/ui/native-select';
 import { normalizarAoSair } from './normalizar-numero';
+import { CASAS_UNITARIO, UNIDADES, UNIDADE_ROTULO, totalDaLinha } from '@/lib/item-da-nota';
 
 
 interface ItemsEditorProps {
@@ -24,8 +25,9 @@ interface ItemsEditorProps {
   defaultUserId: string;
 }
 
-// Divisão por item: cada item tem valor (qtd × unitário ou direto), categoria
-// e os próprios participantes/método — os splits da despesa são derivados
+// Divisão por item: cada item é uma linha da nota — quantidade, unidade, preço
+// unitário e total (ADR 0040) —, com categoria e os próprios participantes/método;
+// os splits da despesa são derivados
 export function ItemsEditor({ participants, defaultUserId }: ItemsEditorProps) {
   const { control, watch, formState: { errors } } = useFormContext<TransactionFormValues>();
   const { fields, append, remove } = useFieldArray({ control, name: 'items' });
@@ -47,8 +49,10 @@ export function ItemsEditor({ participants, defaultUserId }: ItemsEditorProps) {
   const appendItem = () => append({
     title: '',
     quantity: 1,
+    unit: 'un',
     unit_amount: null,
     amount: 0,
+    nova: true,
     category_id: '',
     share_method: 'equal',
     shares: defaultUserId ? [{ user_id: defaultUserId, value: 0 }] : [],
@@ -120,26 +124,28 @@ interface ItemRowProps {
 }
 
 function ItemRow({ index, participants, onRemove }: ItemRowProps) {
-  const { register, control, watch, setValue, formState: { errors } } = useFormContext<TransactionFormValues>();
+  const { register, control, watch, setValue, getValues, formState: { errors } } = useFormContext<TransactionFormValues>();
   const { categories } = useCategories();
-  const { currency, symbol, fmt } = useFormCurrency();
+  const { currency, symbol } = useFormCurrency();
   const { fields, append, remove } = useFieldArray({ control, name: `items.${index}.shares` as const });
 
-  const quantity = watch(`items.${index}.quantity` as const);
-  const unitAmount = watch(`items.${index}.unit_amount` as const);
   const shareMethod = watch(`items.${index}.share_method` as const);
   const shares = watch(`items.${index}.shares` as const);
   const amount = watch(`items.${index}.amount` as const);
+  const nova = watch(`items.${index}.nova` as const);
+  const unit = watch(`items.${index}.unit` as const);
 
-  const hasUnitPrice = unitAmount != null && unitAmount > 0;
-
-  // Com preço unitário, o total da linha é derivado (qtd × unitário)
-  React.useEffect(() => {
-    if (!hasUnitPrice) return;
-    const qty = Number.isFinite(quantity) ? quantity : 0;
-    const computed = Math.round(qty * Math.round((unitAmount ?? 0) * 100)) / 100;
-    setValue(`items.${index}.amount`, computed, { shouldValidate: true });
-  }, [hasUnitPrice, quantity, unitAmount, index, setValue]);
+  /*
+   * O total da linha acompanha quantidade × unitário — mas só quando a PESSOA
+   * mexe num dos dois, nunca ao abrir o formulário. Recalcular na montagem
+   * trocaria o R$ 49,27 que a balança imprimiu (1,235 kg × R$ 39,90, truncado)
+   * pelo R$ 49,28 da conta, e o total impresso é a verdade (ADR 0040). Pelo mesmo
+   * motivo o total continua editável: a nota pode diferir da conta em 1 centavo.
+   */
+  const recalcular = (quantidade: number | null, unitario: number | null) => {
+    if (quantidade == null || !(quantidade > 0) || unitario == null || !(unitario > 0)) return;
+    setValue(`items.${index}.amount`, totalDaLinha(quantidade, unitario), { shouldValidate: true });
+  };
 
   const itemErrors = errors.items?.[index];
   const sharesError = itemErrors?.shares?.root?.message
@@ -164,65 +170,97 @@ function ItemRow({ index, participants, onRemove }: ItemRowProps) {
       </div>
       {itemErrors?.title && <p className="text-[10px] text-destructive font-medium">{itemErrors.title.message as string}</p>}
 
-      {/* Quantidade × unitário (ou total direto) — cada campo rotulado.
-          Quebra em duas linhas abaixo de `sm`: três campos numa linha de 312px
-          deixavam ~56px de dígitos em cada MoneyInput. */}
-      <div className="flex flex-wrap items-start gap-3">
-        <div className="w-20 shrink-0 space-y-1">
+      {/* A linha da nota: quantidade, unidade, preço unitário e total — cada campo
+          rotulado. Duas colunas no celular (quatro campos numa linha de 312px
+          deixariam ~40px de dígitos em cada um), uma linha só a partir de `sm`.
+          `min-w-0` em cada célula: item de grid nasce com `min-width: auto` e
+          empurraria a linha para fora do diálogo. */}
+      <div className="grid grid-cols-2 items-start gap-3 sm:grid-cols-[5rem_5rem_minmax(0,1fr)_minmax(0,1fr)]">
+        <div className="min-w-0 space-y-1">
           <Label className="text-[11px] font-semibold text-muted-foreground">Qtd</Label>
-          <Input
-            type="number"
-            inputMode="decimal"
-            step="0.001"
-            min="0"
-            aria-label="Quantidade"
-            {...register(`items.${index}.quantity` as const, { valueAsNumber: true })}
-            onBlur={normalizarAoSair(setValue, `items.${index}.quantity`)}
-            className="bg-background border-border"
+          <Controller
+            name={`items.${index}.quantity` as const}
+            control={control}
+            render={({ field }) => (
+              <DecimalInput
+                aria-label="Quantidade"
+                casas={3}
+                value={field.value}
+                onChange={(v) => {
+                  field.onChange(v);
+                  recalcular(v, getValues(`items.${index}.unit_amount`));
+                }}
+                onBlur={field.onBlur}
+                className="bg-background border-border"
+              />
+            )}
           />
           {itemErrors?.quantity && <p className="text-[10px] text-destructive font-medium">{itemErrors.quantity.message as string}</p>}
         </div>
-        <div className="flex-1 space-y-1">
+        <div className="min-w-0 space-y-1">
+          <Label className="text-[11px] font-semibold text-muted-foreground">Unidade</Label>
+          <select
+            aria-label="Unidade"
+            className={selectClass}
+            {...register(`items.${index}.unit` as const, { setValueAs: (v: string) => (v === '' ? null : v) })}
+          >
+            {/* Linha antiga pode não ter unidade — e não precisa ganhar uma para
+                ser editada. Linha nova escolhe entre as seis. */}
+            {(!nova || unit == null) && <option value="" className="bg-card">—</option>}
+            {UNIDADES.map((u) => (
+              <option key={u} value={u} className="bg-card">{UNIDADE_ROTULO[u]}</option>
+            ))}
+          </select>
+          {itemErrors?.unit && <p className="text-[10px] text-destructive font-medium">{itemErrors.unit.message as string}</p>}
+        </div>
+        <div className="min-w-0 space-y-1">
           <Label className="text-[11px] font-semibold text-muted-foreground">
-            Valor unitário <span className="font-normal">(opcional)</span>
+            Valor unitário {!nova && <span className="font-normal">(opcional)</span>}
           </Label>
           <Controller
             name={`items.${index}.unit_amount` as const}
             control={control}
             render={({ field }) => (
-              <MoneyInput
+              <DecimalInput
                 aria-label="Valor unitário"
-                value={field.value ?? undefined}
-                onChange={(v) => field.onChange(v > 0 ? v : null)}
+                casas={CASAS_UNITARIO}
+                casasMinimas={2}
+                value={field.value}
+                onChange={(v) => {
+                  const unitario = v != null && v > 0 ? v : null;
+                  field.onChange(unitario);
+                  recalcular(getValues(`items.${index}.quantity`), unitario);
+                }}
+                onBlur={field.onBlur}
                 prefix={symbol}
                 className="bg-background border-border"
               />
             )}
           />
+          {itemErrors?.unit_amount && <p className="text-[10px] text-destructive font-medium">{itemErrors.unit_amount.message as string}</p>}
         </div>
-        <div className="flex-1 space-y-1">
+        <div className="min-w-0 space-y-1">
           <Label className="text-[11px] font-semibold text-muted-foreground">Total</Label>
-          {hasUnitPrice ? (
-            <div className="h-9 flex items-center px-3 rounded-md border border-border bg-muted text-sm font-bold" aria-label="Total do item">
-              {fmt(Number.isFinite(amount) ? amount : 0)}
-            </div>
-          ) : (
-            <Controller
-              name={`items.${index}.amount` as const}
-              control={control}
-              render={({ field }) => (
-                <MoneyInput
-                  aria-label="Total do item"
-                  value={field.value}
-                  onChange={field.onChange}
-                  prefix={symbol}
-                  className="bg-background border-border font-bold"
-                />
-              )}
-            />
-          )}
-          {itemErrors?.amount && <p className="text-[10px] text-destructive font-medium">{itemErrors.amount.message as string}</p>}
+          <Controller
+            name={`items.${index}.amount` as const}
+            control={control}
+            render={({ field }) => (
+              <MoneyInput
+                aria-label="Total do item"
+                value={field.value}
+                onChange={field.onChange}
+                prefix={symbol}
+                className="bg-background border-border font-bold"
+              />
+            )}
+          />
         </div>
+        {/* O erro do total ocupa a linha inteira: a mensagem da conferência diz
+            a conta ("1,235 kg × unitário dá R$ 49,28 — confira a nota") e não
+            cabe na coluna de um campo. */}
+        {itemErrors?.amount && (
+          <p className="col-span-full text-[11px] text-destructive font-medium">{itemErrors.amount.message as string}</p>
+        )}
       </div>
 
       {/* Categoria — linha própria, rotulada e com largura total */}

@@ -2,6 +2,7 @@ import * as z from 'zod';
 import { formatCurrency } from '@/lib/money';
 import type { PaymentMethod, TransactionRead } from '@/types/transaction';
 import { apiDateToInput, todayLocalISO } from '@/lib/date';
+import { UNIDADES, UNIDADE_ROTULO, linhaFecha, totalDaLinha, type Unidade } from '@/lib/item-da-nota';
 
 const formatPercent = (value: number) =>
   value.toLocaleString('pt-BR', { maximumFractionDigits: 2 });
@@ -24,9 +25,16 @@ const payerSchema = z.object({
 const itemSchema = z.object({
   title: z.string().min(1, 'Informe o título do item').max(200, 'Título do item muito longo'),
   quantity: z.number({ error: 'Informe a quantidade' }).gt(0, 'Quantidade inválida'),
-  // 0/null = sem preço unitário: o total da linha é digitado direto
+  // A medida da nota (ADR 0040): unidade e preço unitário com até 4 casas.
+  // `null` só em linha antiga, gravada antes de a medida existir.
+  unit: z.enum(UNIDADES).nullable(),
   unit_amount: z.number().nullable(),
   amount: z.number({ error: 'Informe o valor' }).min(0.01, 'Valor do item inválido'),
+  // Só do formulário, não vai à API: a linha nasceu AGORA, neste formulário.
+  // A medida é obrigatória ao adicionar item (decisão do dono, ADR 0040) — e só
+  // aí: editar um lançamento antigo não obriga a inventar a medida que ninguém
+  // informou.
+  nova: z.boolean(),
   category_id: z.string(),
   share_method: z.enum(['equal', 'percentage', 'fixed']),
   shares: z.array(shareSchema).min(1, 'Adicione pelo menos um participante'),
@@ -191,15 +199,31 @@ export const transactionFormSchema = z.object({
   }
 
   data.items.forEach((item, index) => {
-    if (item.unit_amount != null && item.unit_amount > 0) {
-      const expected = Math.round(item.quantity * cents(item.unit_amount));
-      if (expected !== cents(item.amount)) {
-        ctx.addIssue({
-          code: 'custom',
-          path: ['items', index, 'amount'],
-          message: `Valor da linha difere de quantidade × unitário (${money(expected / 100)})`,
-        });
-      }
+    const temUnitario = item.unit_amount != null && item.unit_amount > 0;
+    if (item.nova && !item.unit) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['items', index, 'unit'],
+        message: 'Escolha a unidade',
+      });
+    }
+    if (item.nova && !temUnitario) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['items', index, 'unit_amount'],
+        message: 'Informe o preço unitário da nota',
+      });
+    }
+    // O total impresso é a verdade e pode diferir em até 1 centavo do produto
+    // exato — a balança arredonda ou trunca (ADR 0040). A mesma regra do servidor.
+    if (temUnitario && Number.isFinite(item.quantity) && !linhaFecha(item.quantity, item.unit_amount!, item.amount)) {
+      const unidade = item.unit ? ` ${UNIDADE_ROTULO[item.unit]}` : '';
+      const quantidade = item.quantity.toLocaleString('pt-BR', { maximumFractionDigits: 3 });
+      ctx.addIssue({
+        code: 'custom',
+        path: ['items', index, 'amount'],
+        message: `${quantidade}${unidade} × unitário dá ${money(totalDaLinha(item.quantity, item.unit_amount!))} — confira a nota (a balança pode diferir em até 1 centavo)`,
+      });
     }
     validateShareGroup(
       ctx,
@@ -390,6 +414,7 @@ export function toApiPayload(v: TransactionFormValues) {
       title: item.title,
       amount: item.amount,
       quantity: item.quantity,
+      unit: item.unit,
       unit_amount: item.unit_amount && item.unit_amount > 0 ? item.unit_amount : null,
       position: index,
       category_id: item.category_id ? Number(item.category_id) : null,
@@ -460,7 +485,9 @@ export function fromApiTransaction(tx: TransactionRead): TransactionFormValues {
         title: item.title,
         amount: parseFloat(item.amount),
         quantity: item.quantity != null ? parseFloat(item.quantity) : 1,
+        unit: (UNIDADES as readonly string[]).includes(item.unit ?? '') ? (item.unit as Unidade) : null,
         unit_amount: item.unit_amount != null ? parseFloat(item.unit_amount) : null,
+        nova: false,
         category_id: item.category_id ? String(item.category_id) : '',
         share_method: item.shares?.[0]?.split_method ?? 'equal',
         shares: (item.shares ?? []).map((sh) => ({

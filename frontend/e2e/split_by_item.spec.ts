@@ -52,9 +52,12 @@ test.describe('Divisão por item e edição completa', () => {
     await createDialog.getByRole('radio', { name: 'Por item' }).click();
     await expect(createDialog.getByLabel('Título do item')).toBeVisible();
 
-    // Item 1: Carne, total direto de R$ 60
+    // Item 1: Carne, 1,5 kg × R$ 40,00 — a linha da nota com medida (ADR 0040)
     await createDialog.getByLabel('Título do item').fill('Carne');
-    await createDialog.getByLabel('Total do item').fill('60,00');
+    await createDialog.getByLabel('Unidade').selectOption('kg');
+    await createDialog.getByLabel('Quantidade').fill('1,5');
+    await createDialog.getByLabel('Valor unitário').fill('40,00');
+    await expect(createDialog.getByLabel('Total do item')).toHaveValue('60,00');
 
     // Item 2: Cerveja, 3 × R$ 10 (total da linha derivado)
     await createDialog.getByRole('button', { name: 'Item', exact: true }).click();
@@ -81,6 +84,10 @@ test.describe('Divisão por item e edição completa', () => {
     await expect(dialog.getByLabel('Título do item').first()).toHaveValue('Carne');
     await expect(dialog.getByLabel('Título do item').nth(1)).toHaveValue('Cerveja');
     await expect(dialog.getByLabel('Quantidade').nth(1)).toHaveValue('3');
+    // A medida volta como foi lançada: unidade, quantidade e unitário.
+    await expect(dialog.getByLabel('Unidade').first()).toHaveValue('kg');
+    await expect(dialog.getByLabel('Quantidade').first()).toHaveValue('1,5');
+    await expect(dialog.getByLabel('Valor unitário').first()).toHaveValue('40,00');
   });
 
   test('edita despesa trocando a divisão de igual para valor fixo', async ({ page }) => {

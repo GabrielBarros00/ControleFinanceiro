@@ -58,6 +58,8 @@ export interface TransactionItemRead {
   description?: string | null;
   amount: string;
   quantity: string;
+  /** Unidade da quantidade (ADR 0040): un, kg, g, l, ml, m. `null` em linha antiga. */
+  unit?: string | null;
   unit_amount?: string | null;
   position: number;
   category_id?: number | null;
