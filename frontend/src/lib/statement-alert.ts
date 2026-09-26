@@ -18,6 +18,12 @@ export interface StatementAlertInput {
   closing_date: string;
   /** total da fatura; 0 não gera aviso (fatura vazia é ruído) */
   amount: number;
+  /**
+   * Saldo em aberto (total − pago). É ele que "vence" e que está "em aberto" numa
+   * fatura fechada ou vencida com pagamento parcial. Ausente = `amount` — é o caso
+   * do selo do cartão, que já recebe o saldo do backend (`next_due.amount`).
+   */
+  remaining?: number;
   is_overdue?: boolean;
 }
 
@@ -53,6 +59,10 @@ export function statementAlert(
   currency?: string,
 ): StatementAlert | null {
   const valor = formatMoney(stmt.amount, { currency });
+  // O que ainda falta pagar. Anunciar o total depois de um pagamento parcial punha
+  // a faixa da fatura em desacordo com o rodapé ("Saldo restante") e com o selo do
+  // cartão, que é exatamente o que esta regra única existe para impedir.
+  const emAberto = formatMoney(stmt.remaining ?? stmt.amount, { currency });
 
   if (stmt.status === 'paid') {
     return {
@@ -75,7 +85,7 @@ export function statementAlert(
       tone: 'danger',
       short: 'Fatura vencida',
       title: 'Fatura vencida e não paga',
-      detail: `Venceu em ${dia(stmt.due_date)} (${atraso === 1 ? 'há 1 dia' : `há ${atraso} dias`}) com ${valor} em aberto.`,
+      detail: `Venceu em ${dia(stmt.due_date)} (${atraso === 1 ? 'há 1 dia' : `há ${atraso} dias`}) com ${emAberto} em aberto.`,
     };
   }
 
@@ -85,7 +95,7 @@ export function statementAlert(
       tone: proximo ? 'warning' : 'info',
       short: proximo ? `Vence ${emDias(paraVencer)}` : `Fechada · vence ${diaCurto(stmt.due_date)}`,
       title: 'Fatura fechada e ainda não paga',
-      detail: `${valor} vencendo ${emDias(paraVencer)} (${dia(stmt.due_date)}).`,
+      detail: `${emAberto} vencendo ${emDias(paraVencer)} (${dia(stmt.due_date)}).`,
     };
   }
 

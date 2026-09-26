@@ -98,4 +98,37 @@ describe('statementAlert', () => {
     expect(a.tone).toBe('warning');
     expect(a.short).toBe('Vence hoje');
   });
+
+  // Pagamento parcial: o que vence é o SALDO. A faixa da fatura anunciava o total
+  // ("R$ 240,00 vencendo") ao lado de "Saldo restante R$ 120,00", e o selo do
+  // cartão — que já recebia o saldo — dizia outra coisa (auditoria 2026-09-26, C4).
+  describe('com pagamento parcial', () => {
+    const parcial = (over: Partial<StatementAlertInput> = {}) =>
+      fatura({ amount: 240, remaining: 120, ...over });
+
+    it('fechada anuncia o saldo que vence, não o total', () => {
+      hoje('2026-09-04T15:00:00Z');
+      const a = statementAlert(parcial())!;
+      expect(a.detail).toContain('120,00');
+      expect(a.detail).not.toContain('240,00');
+    });
+
+    it('vencida diz o saldo em aberto', () => {
+      hoje('2026-09-10T15:00:00Z');
+      const a = statementAlert(parcial({ is_overdue: true }))!;
+      // `\s`: o Intl separa "R$" do número com espaço inseparável.
+      expect(a.detail).toMatch(/com R\$\s120,00 em aberto/);
+    });
+
+    it('paga continua dizendo o total quitado', () => {
+      hoje('2026-09-10T15:00:00Z');
+      const a = statementAlert(parcial({ status: 'paid', remaining: 0 }))!;
+      expect(a.detail).toContain('240,00');
+    });
+
+    it('sem saldo informado, vale o total (o selo do cartão já manda o saldo em `amount`)', () => {
+      hoje('2026-09-04T15:00:00Z');
+      expect(statementAlert(fatura({ amount: 120 }))!.detail).toContain('120,00');
+    });
+  });
 });

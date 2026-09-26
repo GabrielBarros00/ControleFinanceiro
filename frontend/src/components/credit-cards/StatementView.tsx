@@ -233,6 +233,9 @@ export function StatementView({ cardId }: { cardId: number | null }) {
           due_date: statement.due_date,
           closing_date: statement.closing_date,
           amount: parseFloat(statement.computed_total),
+          // O saldo, não o total: é o que vence depois de um pagamento parcial, e
+          // é o mesmo número do rodapé ("Saldo restante") e do selo do cartão.
+          remaining: parseFloat(statement.remaining_amount),
           is_overdue: statement.is_overdue,
         },
         cardCurrency,
