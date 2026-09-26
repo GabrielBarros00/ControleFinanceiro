@@ -137,6 +137,16 @@ registro por CIMD/DCR, 59 tools documentadas em `docs/mcp/TOOLS.md` (geradas do
 código), e as escritas das rotas REST passaram a morar em comandos
 compartilhados (`app/services/commands/`) — sem mudança de comportamento.
 
+### A fatura e as Rendas mostram o número certo
+
+- **O aviso da fatura fala do que falta pagar.** Depois de pagar parte da fatura, o
+  aviso dizia "R$ 240,00 vencendo em 2 dias" enquanto o rodapé mostrava "Saldo
+  restante R$ 120,00". Agora o aviso, o rodapé e o selo do cartão dizem o mesmo
+  saldo; numa fatura vencida, "em aberto" é o que realmente está em aberto.
+- **O total do mês em Rendas não conta mais a renda cancelada.** O total ao lado do
+  título somava também as rendas canceladas e discordava do "Hoje". Agora ele segue a
+  mesma regra: recebidas e previstas entram, canceladas não.
+
 ### O que você pede fica gravado como você pediu
 
 - **A categoria da despesa importada pelo extrato da conta passou a ser gravada.**
