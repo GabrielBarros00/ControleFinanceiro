@@ -199,7 +199,7 @@ def _itens(pacote: TxBundle, tx: Transaction, me_id: int) -> list[ItemOut]:
     por_item = _valor(tx.split_mode) == SplitMode.item.value
     detalhado = (
         len(itens) > 1 or por_item or bool(pacote.adjustments.get(tx.id))
-        or any(Decimal(i.quantity) != 1 or i.unit_amount is not None or i.description for i in itens)
+        or any(Decimal(i.quantity) != 1 or i.unit or i.unit_amount is not None or i.description for i in itens)
     )
     if not detalhado:
         return []
@@ -210,6 +210,7 @@ def _itens(pacote: TxBundle, tx: Transaction, me_id: int) -> list[ItemOut]:
             title=i.title,
             description=i.description,
             quantity=_quantidade(i.quantity),
+            unit=i.unit,
             unit_amount=i.unit_amount,
             amount=i.amount,
             category=Ref(id=i.category_id, name=pacote.categories.get(i.category_id, "?")) if i.category_id else None,
@@ -359,7 +360,10 @@ def purchase_of(session: Session, tx: Transaction, me_id: int) -> Optional[Purch
             itens.append(ItemOut(
                 title=i.title,
                 description=i.description,
-                quantity="1",
+                # A medida é da compra e vem igual em toda fatia (ADR 0040); o
+                # unitário não é guardado na fatia.
+                quantity=_quantidade(i.quantity),
+                unit=i.unit,
                 amount=agg["amount"],
                 category=Ref(id=i.category_id, name=pacote.categories.get(i.category_id, "?")) if i.category_id else None,
                 shares=partes if por_item else [],

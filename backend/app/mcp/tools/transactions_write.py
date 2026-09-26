@@ -18,7 +18,7 @@ from app.domain.dates import civil_instant, today_local
 from app.mcp import resolve, versioning
 from app.mcp.dates import CivilDate
 from app.mcp.errors import ErrorCode, McpToolError
-from app.mcp.items import AdjustmentIn, ItemIn, items_people, items_total, plan_items
+from app.mcp.items import AdjustmentIn, ItemIn, existing_lines, items_people, items_total, plan_items
 from app.mcp.money import MoneyIn, fmt_brl
 from app.mcp.ui import WIDGET_URI as WIDGET
 from app.mcp.registry import ToolCall, ToolInput, ToolOutput, tool
@@ -241,9 +241,8 @@ def _replay_create(call: ToolCall, ref: dict) -> ToolOutput:
         {"title": "TV", "amount": "3000.00", "card": "Nubank", "installments": 10, "idempotency_key": "b3f1c2d4-0002"},
         {"title": "Jantar", "amount": "120.00", "split_with": ["João"], "payment_method": "pix", "idempotency_key": "b3f1c2d4-0003"},
         {"title": "Mercado", "card": "Nubank", "idempotency_key": "b3f1c2d4-0004", "items": [
-            {"title": "Arroz", "amount": "30.00", "owner": "eu"},
-            {"title": "Shampoo", "amount": "20.00", "owner": "Maria"},
-            {"title": "Refrigerante", "quantity": "2", "unit_amount": "25.00", "split_with": ["Maria"]},
+            {"title": "Picanha", "quantity": "1.235", "unit": "kg", "unit_amount": "89.90", "amount": "111.03", "owner": "eu"},
+            {"title": "Refrigerante", "quantity": "2", "unit": "un", "unit_amount": "25.00", "split_with": ["Maria"]},
         ]},
     ),
     ui=WIDGET,
@@ -659,6 +658,7 @@ def _update_with_items(
     plano = plan_items(
         call.session, ws, me, items=a.items, adjustments=a.adjustments, division=divisao,
         total=novo_total, default_category_id=categoria_id, installments=None,
+        existing=existing_lines(_itens_atuais(call, tx)),
     )
     if plano.split_mode == SplitMode.transaction and any(s.split_method == SplitMethod.fixed for s in divisao.splits) \
             and novo_total != tx.total_amount and not a.mentions_division():
@@ -748,6 +748,7 @@ def _update_purchase(call: ToolCall, tx: Transaction, a: UpdateIn, membership) -
         plano = plan_items(
             call.session, ws, me, items=a.items, adjustments=a.adjustments, division=divisao, total=total,
             default_category_id=categoria_padrao, installments=a.installments or inteira["installments_of"],
+            existing=existing_lines(inteira["items"]),
         )
         itens, modo, partes = plano.items, plano.split_mode, []
 

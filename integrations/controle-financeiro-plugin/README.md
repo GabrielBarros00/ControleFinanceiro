@@ -10,7 +10,8 @@ controle-financeiro-plugin/
 ├── skills/          fluxos de várias etapas que as descrições das tools não cobrem
 │   ├── revisar-fatura/SKILL.md
 │   ├── fechamento-do-mes/SKILL.md
-│   └── conciliar-extrato/SKILL.md
+│   ├── conciliar-extrato/SKILL.md
+│   └── registrar-nota/SKILL.md
 └── assets/          logo e ícone (os do PWA)
 ```
 
@@ -26,9 +27,15 @@ controle-financeiro-plugin/
    `/.well-known/openai-apps-challenge`.
 4. Seguir o checklist de `docs/mcp/OPENAI_APP.md`.
 
-## Por que só três skills
+## Por que só quatro skills
 
 Skill é para o que precisa de várias chamadas em ordem e de julgamento no meio.
 Registrar uma compra — mesmo parcelada e dividida — é uma chamada só
 (`transactions_create`), e as descrições das tools já dizem como; uma skill ali
 seria uma segunda fonte de instrução para divergir da primeira.
+
+A exceção é a **nota com itens** (`registrar-nota`, ADR 0040): o trabalho é ler cada
+linha como está impressa (quantidade, unidade, unitário, total) e, quando o servidor
+recusa uma linha, decidir entre reler e perguntar — julgamento no meio. A regra em
+si continua em um lugar só (a instrução nº 4 do servidor e o schema da tool); a
+skill descreve o fluxo, sem repetir números que possam divergir.

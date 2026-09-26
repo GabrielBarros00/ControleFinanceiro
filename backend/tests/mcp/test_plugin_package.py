@@ -34,7 +34,7 @@ def test_manifestos_validos_e_assets_existem():
 def test_skills_citam_so_tools_que_existem():
     get_server()
     skills = sorted((PACOTE / "skills").glob("*/SKILL.md"))
-    assert len(skills) == 3
+    assert len(skills) == 4  # registrar-nota (ADR 0040): ver o README do pacote
     padrao_tool = re.compile(r"`([a-z]+_[a-z_]+)`")
     for arquivo in skills:
         texto = arquivo.read_text(encoding="utf-8").replace("\r\n", "\n")  # checkout com autocrlf

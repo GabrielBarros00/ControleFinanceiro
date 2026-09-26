@@ -11,6 +11,30 @@ export function money(valor: string | number | null | undefined, moeda = 'BRL'):
   }
 }
 
+/**
+ * Preço unitário: 2 a 4 casas ("R$ 39,90", "R$ 5,899"). O litro de combustível tem
+ * 3 casas, e o `money` de 2 casas o mostraria como R$ 5,90 (ADR 0040).
+ */
+export function unitPrice(valor: string | null | undefined, moeda = 'BRL'): string {
+  if (valor === null || valor === undefined || valor === '') return '—';
+  const numero = Number(valor);
+  if (!Number.isFinite(numero)) return String(valor);
+  const casas = Math.min(4, Math.max(2, (String(valor).split('.')[1] ?? '').replace(/0+$/, '').length));
+  try {
+    return new Intl.NumberFormat('pt-BR', {
+      style: 'currency', currency: moeda, minimumFractionDigits: casas, maximumFractionDigits: casas,
+    }).format(numero);
+  } catch {
+    return `${moeda} ${numero.toFixed(casas)}`;
+  }
+}
+
+/** Quantidade com a unidade: "1,235 kg", "2 un". */
+export function measure(quantidade: string, unidade?: string | null): string {
+  const numero = quantidade.replace(/(\.\d*?)0+$/, '$1').replace(/\.$/, '').replace('.', ',');
+  return unidade ? `${numero} ${unidade}` : numero;
+}
+
 /** Dia civil `YYYY-MM-DD` → `22/09/2026`, sem passar por `Date` (nada de fuso). */
 export function day(valor?: string | null): string {
   if (!valor) return '—';

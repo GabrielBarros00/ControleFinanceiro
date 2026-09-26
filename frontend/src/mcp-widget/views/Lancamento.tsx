@@ -10,7 +10,7 @@
  */
 import { useState } from 'preact/hooks';
 import type { Bridge } from '../bridge';
-import { day, FORMA, money, monthLong, plural, SITUACAO } from '../format';
+import { day, FORMA, measure, money, monthLong, plural, SITUACAO, unitPrice } from '../format';
 import type { Arquivo, Desfazer, Formulario, Item, Lancamento, Meta, PessoaValor, Resumo } from '../tipos';
 import { erroDe, useAcao } from '../ui/acao';
 import { Aviso, Avatar, Badge, Button, Header, Linha, Money, Section, Vazio } from '../ui/base';
@@ -95,7 +95,11 @@ function Itens({ itens, moeda }: { itens: Item[]; moeda: string }) {
         <li key={`${i.title}-${n}`} class="py-1.5">
           <div class="flex items-baseline gap-2 text-[13px]">
             <span class="min-w-0 flex-1 truncate">{i.title}</span>
-            {i.quantity !== '1' && <span class="num text-[12px] text-muted-fg">{i.quantity} × {i.unit_amount ? money(i.unit_amount, moeda) : '—'}</span>}
+            {(i.quantity !== '1' || (i.unit && i.unit !== 'un')) && (
+              <span class="num text-[12px] text-muted-fg">
+                {measure(i.quantity, i.unit)}{i.unit_amount ? ` × ${unitPrice(i.unit_amount, moeda)}` : ''}
+              </span>
+            )}
             <Money valor={i.amount} moeda={moeda} class="font-medium" />
           </div>
           <div class="mt-0.5 flex flex-wrap items-center gap-1.5">

@@ -30,7 +30,8 @@ from sqlmodel import Session
 
 from app.mcp import resolve
 from app.mcp.errors import ErrorCode, McpToolError
-from app.mcp.money import MoneyIn, MoneyInOrZero, QuantityIn, fmt_brl
+from app.domain.item_da_nota import UNIDADES, Unidade, problema_da_linha, total_da_linha
+from app.mcp.money import MoneyIn, MoneyInOrZero, QuantityIn, UnitPriceIn, fmt_brl
 from app.mcp.registry import ToolInput
 from app.mcp.writes import Division, ShareIn
 from app.models.transaction import AdjustmentType, SplitMethod, SplitMode
@@ -51,9 +52,12 @@ class ItemIn(ToolInput):
     """Uma linha da nota."""
 
     title: str = Field(min_length=1, max_length=TITLE_MAX)
-    amount: Optional[MoneyInOrZero] = Field(None, description="Total da linha (ou quantity × unit_amount).")
-    quantity: Optional[QuantityIn] = Field(None, description="Com unit_amount. Em compra parcelada o app guarda só o total do item.")
-    unit_amount: Optional[MoneyInOrZero] = None
+    quantity: Optional[QuantityIn] = Field(None, description="Quantidade como na nota, até 3 casas (\"2\", \"1.235\").")
+    unit: Optional[Unidade] = Field(None, description="Unidade da quantidade: un, kg, g, l, ml ou m.")
+    unit_amount: Optional[UnitPriceIn] = Field(None, description="Preço unitário como na nota, até 4 casas (\"39.90\", \"5.899\").")
+    amount: Optional[MoneyInOrZero] = Field(
+        None, description="Total da linha COMO IMPRESSO na nota. Omitido: quantity × unit_amount, arredondado.",
+    )
     description: Optional[str] = Field(None, max_length=DESCRIPTION_MAX)
     category: Optional[str] = Field(None, max_length=120, description="Omitida: a do lançamento.")
     category_id: Optional[int] = None
@@ -82,18 +86,25 @@ class ItemIn(ToolInput):
     def has_division(self) -> bool:
         return any(v is not None for v in (self.owner, self.owner_id, self.split_with, self.split))
 
+    def has_measure(self) -> bool:
+        """A linha diz quantidade, unidade e preço unitário (ADR 0040)."""
+        return None not in (self.quantity, self.unit, self.unit_amount)
+
     def line_amount(self) -> Decimal:
-        if self.amount is not None:
-            return self.amount
-        bruto = self.quantity * self.unit_amount
-        if bruto != bruto.quantize(_CENTAVO):
-            # Nunca arredondar o que a pessoa gastou: quem decide o centavo é a nota.
-            raise McpToolError(
-                ErrorCode.VALIDATION_ERROR,
-                f"Item \"{self.title}\": {self.quantity} × {self.unit_amount} não fecha em centavos. "
-                "Informe o total da linha em `amount`, como está na nota.",
-            )
-        return bruto.quantize(_CENTAVO)
+        """O total da linha: o impresso, conferido; ou o derivado, arredondado.
+
+        A regra é a de `app.domain.item_da_nota`: o total da nota é a verdade e
+        fecha com até 1 centavo de `quantity × unit_amount` (balanças arredondam
+        de jeitos diferentes). Sem `amount`, deriva arredondando — e, se a nota
+        tiver truncado, é a soma contra o total da nota que acusa a diferença.
+        """
+        if self.amount is None:
+            return total_da_linha(self.quantity, self.unit_amount)
+        if self.quantity is not None and self.unit_amount is not None:
+            problema = problema_da_linha(self.title, self.quantity, self.unit_amount, self.amount, self.unit)
+            if problema:
+                raise McpToolError(ErrorCode.VALIDATION_ERROR, problema)
+        return self.amount
 
     def people_named(self) -> tuple[list[str], list[int]]:
         nomes = list(self.split_with or [])
@@ -128,6 +139,21 @@ class AdjustmentIn(ToolInput):
         if self.type in _REDUZEM or (self.type not in _AUMENTAM and self.reduces):
             return -self.amount
         return self.amount
+
+
+def _chave(titulo: str) -> str:
+    return " ".join((titulo or "").lower().split())
+
+
+def existing_lines(itens) -> frozenset[tuple[str, Decimal]]:
+    """As linhas que um lançamento já tem, no formato de `plan_items(existing=)`.
+
+    Aceita objetos (`TransactionItem`) ou dicionários (a compra inteira remontada).
+    """
+    def campo(item, nome):
+        return item[nome] if isinstance(item, dict) else getattr(item, nome)
+
+    return frozenset((_chave(campo(i, "title")), Decimal(str(campo(i, "amount")))) for i in itens)
 
 
 def items_total(items: List[ItemIn], adjustments: Optional[List[AdjustmentIn]]) -> Decimal:
@@ -219,10 +245,27 @@ def plan_items(
     total: Decimal,
     default_category_id: Optional[int],
     installments: Optional[int],
+    existing: frozenset[tuple[str, Decimal]] = frozenset(),
 ) -> ItemsPlan:
-    """Traduz itens e ajustes para a entrada do comando do app (sem gravar nada)."""
+    """Traduz itens e ajustes para a entrada do comando do app (sem gravar nada).
+
+    **Item novo tem medida** (ADR 0040, decisão do dono): quantidade, unidade e
+    preço unitário, como na nota. `existing` são as linhas que o lançamento já
+    tinha — `(título normalizado, total)` —, e só elas podem voltar sem medida
+    numa edição: a linha antiga não tinha unidade, e exigir uma seria obrigar o
+    agente a inventá-la.
+    """
     if not items:
         raise McpToolError(ErrorCode.VALIDATION_ERROR, "Informe ao menos um item.")
+    sem_medida = [i.title for i in items if not i.has_measure() and (_chave(i.title), i.line_amount()) not in existing]
+    if sem_medida:
+        raise McpToolError(
+            ErrorCode.VALIDATION_ERROR,
+            f"Item novo precisa de quantity, unit ({', '.join(UNIDADES)}) e unit_amount, como estão na nota: "
+            + ", ".join(f"\"{t}\"" for t in sem_medida[:5])
+            + ". Peso vai em kg ou g com a quantidade da balança (\"1.235\"); o que se conta vai em un.",
+            details={"items_without_measure": sem_medida},
+        )
     if adjustments and installments:
         raise McpToolError(
             ErrorCode.BUSINESS_RULE_VIOLATION,
@@ -258,6 +301,7 @@ def plan_items(
             description=item.description,
             amount=item.line_amount(),
             quantity=item.quantity or Decimal("1"),
+            unit=item.unit,
             unit_amount=item.unit_amount,
             position=posicao,
             category_id=categoria.id if categoria else default_category_id,
