@@ -115,6 +115,12 @@ def casa_fixture(db_session, override_get_session):
     }
 
 
+def _cabecalho(cookies):
+    """O cookie de sessão como CABEÇALHO, como o resto da suíte faz: `cookies=`
+    por requisição está depreciado no `TestClient` do Starlette."""
+    return {"Cookie": "; ".join(f"{nome}={valor}" for nome, valor in cookies.items())}
+
+
 def _varre(cookies, ws_id, tx_id):
     """Chama toda rota GET preenchível e devolve (chamadas, achados por URL)."""
     substituicoes = {
@@ -133,7 +139,7 @@ def _varre(cookies, ws_id, tx_id):
             url = url.replace("{" + nome + "}", valor)
         if "{" in url:
             continue
-        resp = cliente.get(url, cookies=cookies)
+        resp = cliente.get(url, headers=_cabecalho(cookies))
         chamadas += 1
         if resp.status_code >= 400:
             continue
