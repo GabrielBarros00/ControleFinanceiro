@@ -17,6 +17,7 @@ Os três limites que este arquivo tranca, e cada um por um motivo diferente:
    existir para mim". Criar lançamento retroativo reescreveria extrato e
    resultado de meses fechados, que é o que o ADR 0023 proíbe.
 """
+import calendar
 from datetime import timedelta
 
 import pytest
@@ -251,9 +252,22 @@ def test_paid_at_guarda_o_vencimento_e_nao_hoje(cena):
         )
 
 
+def _dias_ate_o_fim_do_mes() -> int:
+    """Quantos dias faltam para o último dia do mês corrente (0 no próprio dia)."""
+    return calendar.monthrange(HOJE.year, HOJE.month)[1] - HOJE.day
+
+
 def test_a_projecao_se_acalma_depois_da_quitacao(cena):
-    """O fecho do ciclo: quitar o passado tira o aviso de atraso da primeira tela."""
-    fin = _financiamento(cena, vencimentos=[-40, -25, -10, +5])
+    """O fecho do ciclo: quitar o passado tira o aviso de atraso da primeira tela.
+
+    A parcela futura vence no ÚLTIMO dia do mês corrente, e não em `HOJE + 5`:
+    `payable_total` é o que vence de hoje até o fim do mês, então `+5` caía no
+    mês seguinte do dia 26 em diante e o teste ficava vermelho cinco dias por
+    mês sem nada errado no produto. No último dia do mês ela vence hoje — e o
+    corte da quitação é estrito, então continua em aberto (ver
+    `test_a_parcela_que_vence_hoje_continua_em_aberto`).
+    """
+    fin = _financiamento(cena, vencimentos=[-40, -25, -10, _dias_ate_o_fim_do_mes()])
 
     antes = client.get("/api/v1/me/balance", headers=cena["headers"]).json()
     assert float(antes["overdue_total"]) > 0
