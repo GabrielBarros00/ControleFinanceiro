@@ -171,6 +171,25 @@ class CreditCardService:
             )
 
     @staticmethod
+    def _trava_se_aberta(db: Session, statement: CardStatement) -> bool:
+        """Trava a fatura até o fim da transação, se ela ainda estiver aberta.
+
+        É o par do `UPDATE` condicional de `close_statement`: a compra que escolheu
+        esta fatura segura a linha até commitar, e um fechamento concorrente
+        espera — e, ao calcular o total congelado, já enxerga a compra. `False`
+        quer dizer que a fatura fechou (ou foi paga) entre a leitura e a trava; no
+        Postgres (READ COMMITTED) o UPDATE reavalia o WHERE contra a versão
+        commitada, e é isso que torna o resultado confiável. Via Core de
+        propósito, como `db/locks.py`: não gera `AuditLog`.
+        """
+        return bool(db.execute(
+            update(CardStatement)
+            .where(CardStatement.id == statement.id)
+            .where(CardStatement.status == StatementStatus.open)
+            .values(updated_at=datetime.now(UTC))
+        ).rowcount)
+
+    @staticmethod
     def get_or_create_statement_tracked(
         db: Session,
         card: CreditCard,
@@ -196,13 +215,23 @@ class CreditCardService:
         deslocamento inalcançável ali derrubaria um GET com 409 em vez de apenas
         deixar a ocorrência cair no alvo natural (ver `_statement_for`).
         """
-        if strict_shift:
-            CreditCardService.assert_shift_reachable(db, card, transaction_date, shift)
-        year, month, statement = CreditCardService.resolve_statement_target(
-            db, card, transaction_date, shift=shift
-        )
-        if statement is not None:
-            return statement, False
+        for _tentativa in range(3):
+            if strict_shift:
+                CreditCardService.assert_shift_reachable(db, card, transaction_date, shift)
+            year, month, statement = CreditCardService.resolve_statement_target(
+                db, card, transaction_date, shift=shift
+            )
+            if statement is None:
+                break
+            if CreditCardService._trava_se_aberta(db, statement):
+                return statement, False
+            # Fechou entre a leitura e a trava: sem expirar, o mapa de
+            # identidade devolveria o mesmo objeto ainda "aberto" na próxima volta.
+            db.expire(statement)
+        else:
+            raise StatementStateError(
+                "A fatura mudou de estado durante o lançamento. Tente de novo."
+            )
 
         closing_dt, due_dt = _statement_dates(card, year, month)
         statement = CardStatement(
@@ -685,8 +714,32 @@ class CreditCardService:
 
     @staticmethod
     def close_statement(db: Session, statement: CardStatement) -> CardStatement:
+        """Fecha a fatura e congela o total.
+
+        **A trava vem ANTES do cálculo do total**, pela mesma razão do
+        `pay_statement`: uma compra que já escolheu esta fatura (e a travou em
+        `_trava_se_aberta`) ainda não commitou. Sem a trava, o fechamento
+        calculava o total sem ela e commitava primeiro; a compra entrava depois
+        numa fatura fechada, fora do total congelado — a tela listava R$ 877 e
+        cobrava R$ 100, e nenhum contador acusava (auditorias de 2026-08-29 e
+        2026-09-26). Com a trava, o fechamento espera a compra commitar e o total
+        a inclui.
+        """
         if statement.status != StatementStatus.open:
             raise StatementStateError("Só é possível fechar uma fatura aberta")
+        travou = db.execute(
+            update(CardStatement)
+            .where(CardStatement.id == statement.id)
+            .where(CardStatement.status == StatementStatus.open)
+            .values(updated_at=datetime.now(UTC))
+        ).rowcount
+        if not travou:
+            raise StatementStateError(
+                "A fatura mudou de estado durante o fechamento. Recarregue e tente de novo."
+            )
+        # O UPDATE direto não passa pela sessão: sem expirar, o objeto seguiria
+        # com o que foi lido antes da trava.
+        db.expire(statement)
         statement.status = StatementStatus.closed
         statement.closed_at = datetime.now(UTC)
         # Congela o valor faturado: edições posteriores nas transações não mudam
