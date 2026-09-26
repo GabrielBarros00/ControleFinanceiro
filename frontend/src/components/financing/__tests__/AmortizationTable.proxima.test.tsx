@@ -1,5 +1,7 @@
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { http, HttpResponse } from 'msw';
 import { render, screen } from '@/test/utils';
+import { server } from '@/test/setup';
 import { AmortizationTable } from '../AmortizationTable';
 
 /**
@@ -66,6 +68,13 @@ vi.mock('@/hooks/use-financing', () => ({
 vi.mock('@/components/ui/confirm', () => ({ useConfirm: () => vi.fn() }));
 
 describe('Financiamentos — quadro "Próxima parcela"', () => {
+  beforeEach(() => {
+    // A tela lê a moeda de relatório da pessoa (`useReportCurrency`).
+    server.use(
+      http.get('http://localhost:8000/api/v1/me/overview', () => HttpResponse.json({ currency: 'BRL' })),
+    );
+  });
+
   it('não anuncia como próxima uma parcela que já venceu', () => {
     render(<AmortizationTable />);
 
