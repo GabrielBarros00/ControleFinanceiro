@@ -137,6 +137,15 @@ registro por CIMD/DCR, 59 tools documentadas em `docs/mcp/TOOLS.md` (geradas do
 código), e as escritas das rotas REST passaram a morar em comandos
 compartilhados (`app/services/commands/`) — sem mudança de comportamento.
 
+### Abrir o app ficou ainda mais leve
+
+- **Menos 40 KiB para abrir qualquer tela**: os avisos que aparecem no canto passaram
+  a ser animados pelo próprio navegador, sem uma biblioteca só para isso.
+- **As telas pessoais deixaram de fazer a consulta mais pesada do app só para saber
+  a sua moeda.** Ela vem junto com a sua sessão.
+- **O login e a lista de espaços carregam juntos**, e a primeira tela começa a buscar
+  os dados dela mais cedo.
+
 ### Mensagens que dizem o que fazer, e menos cantos frágeis
 
 - **Quando o app recusa um lançamento por uma regra, ele diz qual.** "Parcelamento

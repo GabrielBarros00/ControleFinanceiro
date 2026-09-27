@@ -22,6 +22,7 @@ def test_user_model_serialization():
         "is_active": True,
         "needs_onboarding": False,
         "platform_role": "user",
+        "report_currency": "BRL",
         "created_at": datetime.now(UTC)
     }
     

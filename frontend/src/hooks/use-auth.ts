@@ -52,20 +52,31 @@ async function buscarSessao(
   /** Esta é a carga que libera a página? Só ela registra o seq (`lib/seq-do-bootstrap.ts`). */
   registrarSeq: boolean,
 ) {
-  let user;
-  try {
-    const response = await apiClient.get('/auth/me');
-    user = response.data;
-  } catch (err) {
+  /*
+   * As duas JUNTAS, e não uma depois da outra (auditoria 2026-09-26, P5): a
+   * primeira tela esperava duas idas e voltas antes de começar a buscar os dados
+   * dela — com rede lenta, ~3 s em "Carregando sua sessão…".
+   *
+   * Não quebra o que a Onda 5 construiu em cima desta função: o seq do
+   * `/workspaces/` continua lido ANTES de qualquer consulta da página, porque a
+   * `ProtectedRoute` só desenha quando esta função inteira termina. E sessão
+   * expirada não dispara duas renovações: o interceptor de 401 é single-flight.
+   */
+  const [sessao, espacos] = await Promise.allSettled([
+    apiClient.get('/auth/me'),
+    apiClient.get('/workspaces/'),
+  ]);
+  if (sessao.status === 'rejected') {
     clearStore();
-    throw err;
+    throw sessao.reason;
   }
+  const user = sessao.value.data;
   setUser(user);
 
   // Falha ao listar workspaces não derruba a sessão (só a seleção fica como está)
   try {
-    const wsResponse = await apiClient.get('/workspaces/');
-    const workspaces: { id: number; owner_user_id?: number | null; event_seq?: number }[] = wsResponse.data;
+    if (espacos.status === 'rejected') throw espacos.reason;
+    const workspaces: { id: number; owner_user_id?: number | null; event_seq?: number }[] = espacos.value.data;
     if (registrarSeq) registrarSeqDoBootstrap(workspaces);
     // A mesma lista que `useWorkspaces` buscaria de novo logo em seguida: com o
     // cache semeado, a barra lateral e o seletor já a têm.

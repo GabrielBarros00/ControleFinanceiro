@@ -24,6 +24,8 @@ export interface AuthUser {
    * ausente para quem não tem foto. A URL é montada em `lib/avatar.ts`.
    */
   avatar_version?: string | null;
+  /** Moeda dos números PESSOAIS (ADR 0019/0021); vem no `/auth/me`. */
+  report_currency?: string;
 }
 
 interface AuthState {
