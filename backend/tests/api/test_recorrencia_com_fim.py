@@ -225,3 +225,51 @@ def test_serie_longa_demais_nao_inventa_um_total(cena):
     """
     modelo = _modelo(start_date=date(2026, 1, 5), end_date=date(2099, 1, 5))
     assert RecurringService.count_occurrences(modelo) is None
+
+
+def test_renda_recorrente_por_n_ocorrencias_vira_end_date(cena):
+    """O editor de recorrência é o mesmo da despesa e oferece "Depois de N
+    ocorrências" também para a renda. O schema da renda não tinha o campo: a tela
+    mandava `end_after_occurrences`, o Pydantic o descartava calado, e a renda "por
+    12 meses" nunca terminava (auditoria 2026-09-26, A1 — achado ao ligar o
+    `extra="forbid"`)."""
+    r = client.post(
+        "/api/v1/me/recurring-income",
+        json={
+            "title": "Bolsa de 12 meses", "base_amount": "2000.00", "frequency": "monthly",
+            "day_of_month": 5, "start_date": "2026-08-05", "end_after_occurrences": 12,
+        },
+        headers=cena["headers"],
+    )
+    assert r.status_code == 200, r.text
+    # 12 ocorrências mensais a partir de 5/8/2026: a última é 5/7/2027.
+    assert r.json()["end_date"] == "2027-07-05"
+
+    # Na EDIÇÃO, a conta usa a frequência nova da mesma requisição.
+    rid = r.json()["id"]
+    r = client.put(
+        f"/api/v1/me/recurring-income/{rid}",
+        json={"frequency": "yearly", "month_of_year": 8, "end_after_occurrences": 3},
+        headers=cena["headers"],
+    )
+    assert r.status_code == 200, r.text
+    assert r.json()["end_date"] == "2028-08-05"
+
+
+def test_estender_a_serie_por_n_ocorrencias_ignora_o_fim_antigo(cena):
+    """Na DESPESA também: a série "até 12/2026" editada para "24 ocorrências"
+    passava do fim antigo, que cortava a contagem — 400 em vez de estender."""
+    r = client.post(
+        f"/api/v1/workspaces/{cena['ws_id']}/recurring",
+        json={"title": "Curso", "base_amount": "300.00", "frequency": "monthly", "day_of_month": 10,
+              "start_date": "2026-01-10", "end_date": "2026-12-10"},
+        headers=cena["headers"],
+    )
+    assert r.status_code == 200, r.text
+    r = client.put(
+        f"/api/v1/workspaces/{cena['ws_id']}/recurring/{r.json()['id']}",
+        json={"end_after_occurrences": 24},
+        headers=cena["headers"],
+    )
+    assert r.status_code == 200, r.text
+    assert r.json()["end_date"] == "2027-12-10"

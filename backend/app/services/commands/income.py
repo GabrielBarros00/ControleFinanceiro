@@ -28,6 +28,7 @@ from app.schemas.income import (
 )
 from app.services.currency_service import ExchangeRateUnavailable
 from app.services.exchange_rate_store import ExchangeRateStore
+from app.services.commands.recurring import _resolve_end_date
 from app.services.recurring_service import (
     MATERIALIZE_SCOPES,
     RecurringIncomeService,
@@ -286,6 +287,8 @@ def create_recurring_income(
     data = recurring_in.model_dump()
     data["currency"] = resolve_personal_currency(session, user_id, recurring_in.currency)
     _valida_conta(session, user_id, data.get("account_id"), data["currency"])
+    # "Depois de N ocorrências" → `end_date`, pela mesma conta da despesa recorrente.
+    _resolve_end_date(data, recurring_in)
     db_rec = RecurringIncome(**data, user_id=user_id)
     session.add(db_rec)
     session.flush()
@@ -302,8 +305,16 @@ def update_recurring_income(
     check_materialize(materialize)
     db_rec = get_recurring_income_or_404(session, recurring_id, user_id)
 
-    for key, value in recurring_in.model_dump(exclude_unset=True).items():
+    dados = recurring_in.model_dump(exclude_unset=True)
+    quantas = dados.pop("end_after_occurrences", None)
+    for key, value in dados.items():
         setattr(db_rec, key, value)
+    if quantas is not None:
+        # Depois dos `setattr`, como na despesa: o fim de "N ocorrências" depende
+        # da frequência e do dia, que podem estar mudando nesta mesma requisição.
+        resolvido = {"end_after_occurrences": quantas}
+        _resolve_end_date(resolvido, db_rec)
+        db_rec.end_date = resolvido["end_date"]
     validate_frequency_fields(
         db_rec.frequency, db_rec.day_of_week, db_rec.month_of_year,
         db_rec.interval, db_rec.start_date, db_rec.end_date,

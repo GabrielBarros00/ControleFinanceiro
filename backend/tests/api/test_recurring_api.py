@@ -135,3 +135,26 @@ def test_update_recurring_not_found(db_session: Session, auth_header, test_works
 def test_delete_recurring_not_found(db_session: Session, auth_header, test_workspace, override_get_session):
     response = client.delete(f"/api/v1/workspaces/{test_workspace.id}/recurring/9999", headers=auth_header)
     assert response.status_code == 404
+
+
+def test_recorrencia_criada_pausada_nasce_pausada_e_nao_gera_lancamento(db_session: Session, auth_header, test_workspace, override_get_session):
+    """A chave "Despesa Ativa" do formulário vale na criação (auditoria 2026-09-26,
+    A1). O `RecurringCreate` não tinha o campo: a tela mandava `is_active: false`,
+    o schema descartava calado, e a recorrência nascia ativa e gerava o lançamento
+    do mês."""
+    from app.models.transaction import Transaction
+    from sqlmodel import select as _select
+
+    ws_id = test_workspace.id
+    headers = auth_header
+    r = client.post(
+        f"/api/v1/workspaces/{ws_id}/recurring?materialize=current",
+        json={"title": "Academia", "base_amount": "99.90", "day_of_month": 1, "is_active": False},
+        headers=headers,
+    )
+    assert r.status_code == 200, r.text
+    assert r.json()["is_active"] is False
+    lancamentos = db_session.exec(
+        _select(Transaction).where(Transaction.workspace_id == ws_id, Transaction.title == "Academia")
+    ).all()
+    assert lancamentos == []

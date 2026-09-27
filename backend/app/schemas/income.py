@@ -110,6 +110,11 @@ class RecurringIncomeCreate(BaseModel):
     # bolsa de dois anos e um aluguel recebido por prazo determinado têm fim, e
     # sem a coluna eles projetavam renda para sempre na previsão.
     end_date: Optional[date] = None
+    # "Depois de N ocorrências" (ADR 0030), como na despesa recorrente: o editor
+    # de recorrência é o mesmo e oferece a opção, mas o campo não existia aqui —
+    # era descartado calado, e a renda "por 12 meses" nunca terminava. Achado ao
+    # ligar o `extra="forbid"` (auditoria 2026-09-26, A1). Vira `end_date`.
+    end_after_occurrences: Optional[int] = Field(default=None, ge=1, le=600)
     day_of_month: int = Field(default=1, ge=1, le=31)
     day_of_week: Optional[int] = Field(default=None, ge=0, le=6)
     month_of_year: Optional[int] = Field(default=None, ge=1, le=12)
@@ -131,6 +136,11 @@ class RecurringIncomeUpdate(BaseModel):
     interval: Optional[int] = Field(default=None, ge=1)
     start_date: Optional[date] = None
     end_date: Optional[date] = None
+    # "Depois de N ocorrências" (ADR 0030), como na despesa recorrente: o editor
+    # de recorrência é o mesmo e oferece a opção, mas o campo não existia aqui —
+    # era descartado calado, e a renda "por 12 meses" nunca terminava. Achado ao
+    # ligar o `extra="forbid"` (auditoria 2026-09-26, A1). Vira `end_date`.
+    end_after_occurrences: Optional[int] = Field(default=None, ge=1, le=600)
     day_of_month: Optional[int] = Field(default=None, ge=1, le=31)
     day_of_week: Optional[int] = Field(default=None, ge=0, le=6)
     month_of_year: Optional[int] = Field(default=None, ge=1, le=12)

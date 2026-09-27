@@ -151,7 +151,18 @@ def _resolve_end_date(data: dict, template) -> None:
     quantas = data.pop("end_after_occurrences", None)
     if quantas is None:
         return
-    fim = RecurringService.end_date_after(template, quantas)
+    # A contagem ignora o fim ATUAL do template — é ele que está sendo trocado.
+    # Na edição, o `end_date` antigo cortava a varredura (`occurrences_in_month`
+    # o respeita): estender "até 07/2027" para "3 vezes por ano" achava uma
+    # ocorrência só e respondia 400 (auditoria 2026-09-26, achado com o A1).
+    anterior = getattr(template, "end_date", None)
+    if anterior is not None:
+        template.end_date = None
+    try:
+        fim = RecurringService.end_date_after(template, quantas)
+    finally:
+        if anterior is not None:
+            template.end_date = anterior
     if fim is None:
         raise HTTPException(
             status_code=400,
@@ -210,9 +221,11 @@ def create_recurring(
     )
     session.add(db_recurring)
     session.flush()
-    RecurringMaterializationService.apply_scope(
-        session, workspace_id, db_recurring, materialize, is_income=False
-    )
+    # Criada pausada não materializa nada: é o que "pausar a geração" promete.
+    if db_recurring.is_active:
+        RecurringMaterializationService.apply_scope(
+            session, workspace_id, db_recurring, materialize, is_income=False
+        )
     publish_event(session, workspace_id, "recurring.created", "recurring", db_recurring.id, membership.user_id)
     return db_recurring
 
