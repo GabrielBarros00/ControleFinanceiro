@@ -137,6 +137,22 @@ registro por CIMD/DCR, 59 tools documentadas em `docs/mcp/TOOLS.md` (geradas do
 código), e as escritas das rotas REST passaram a morar em comandos
 compartilhados (`app/services/commands/`) — sem mudança de comportamento.
 
+### O app responde mais rápido
+
+- **A lista de lançamentos ficou 13× mais rápida.** Com 100 lançamentos na tela, a
+  resposta caiu de ~570 ms para ~45 ms: o servidor fazia uma consulta ao banco por
+  lançamento para cada detalhe (quem pagou, divisão, itens, ajustes, tags,
+  estabelecimento) — 608 consultas; agora são 14, qualquer que seja o tamanho da
+  página.
+- **Entrar no app não trava mais quem já está usando.** Enquanto alguém fazia login,
+  cadastro, troca de senha ou renovação da sessão, todas as outras telas esperavam:
+  com sete logins ao mesmo tempo, qualquer requisição levava até ~0,65 s. Agora
+  ~0,05 s, e os próprios logins terminam na metade do tempo. O mesmo vale para
+  enviar foto de perfil e anexos.
+- **A lista de faturas do cartão não fica mais lenta com o tempo.** Cada fatura
+  ainda aberta somava as compras numa consulta própria; agora todas são somadas de
+  uma vez.
+
 ### Atualização do app sem tela branca
 
 - **Quem estava com o app aberto durante uma atualização não fica mais com a tela
