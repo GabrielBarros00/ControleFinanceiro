@@ -543,12 +543,15 @@ def main():
     # verificação seguinte. O teto é configurável no backend, então o laço vai
     # bem além do default (20/min) em vez de repetir o número.
     TENTATIVAS = 40
-    got_429 = False
-    for i in range(TENTATIVAS):
-        res = httpx.post(f"{API}/auth/login", json={"email": f"naoexiste{i}@x.com", "password": "errada1"}, timeout=15)
-        if res.status_code == 429:
-            got_429 = True
-            break
+
+    def esgota_o_balde(rodada: int) -> bool:
+        for i in range(TENTATIVAS):
+            res = httpx.post(f"{API}/auth/login", json={"email": f"naoexiste{rodada}-{i}@x.com", "password": "errada1"}, timeout=15)
+            if res.status_code == 429:
+                return True
+        return False
+
+    got_429 = esgota_o_balde(0)
     check(
         "rate limit ativo no login (429)", got_429,
         f"nenhum 429 em {TENTATIVAS} tentativas — RATE_LIMIT_AUTH_PER_MINUTE alto demais?",
@@ -560,16 +563,36 @@ def main():
     # PRESERVADA, um valor novo a cada tentativa dava um balde novo e a proteção
     # não existia. E-mail inédito de propósito: com um já usado, o 429 poderia
     # vir do balde por conta e o teste passaria pelo motivo errado.
-    res = httpx.post(
-        f"{API}/auth/login",
-        json={"email": "forjado@x.com", "password": "errada1"},
-        headers={"X-Forwarded-For": "203.0.113.7"},
-        timeout=15,
-    )
-    check(
-        "X-Forwarded-For forjado nao escapa do rate limit", res.status_code == 429,
-        f"status={res.status_code} — o backend aceitou o IP que o cliente inventou",
-    )
+    #
+    # O balde é de janela DESLIZANTE e também conta os logins do começo deste
+    # smoke: se o mais antigo expira entre o último 429 e a requisição forjada,
+    # ela passa sem que o cabeçalho tenha nada a ver — num stack recém-construído
+    # (mais lento) o smoke chegava aqui perto dos 60 s e a verificação reprovava
+    # sozinha. Por isso a requisição SEM cabeçalho vai logo depois, como
+    # controle: forjada passando e controle barrado = o backend confiou no IP
+    # inventado; os dois passando = a janela virou, esgota de novo e repete.
+    veredito, detalhe = False, "sem rodada conclusiva"
+    for rodada in (1, 2):
+        forjada = httpx.post(
+            f"{API}/auth/login",
+            json={"email": f"forjado{rodada}@x.com", "password": "errada1"},
+            headers={"X-Forwarded-For": "203.0.113.7"},
+            timeout=15,
+        ).status_code
+        if forjada == 429:
+            veredito = True
+            break
+        controle = httpx.post(
+            f"{API}/auth/login",
+            json={"email": f"controle{rodada}@x.com", "password": "errada1"},
+            timeout=15,
+        ).status_code
+        if controle == 429:
+            detalhe = f"forjada={forjada}, sem cabeçalho=429 — o backend aceitou o IP que o cliente inventou"
+            break
+        detalhe = f"forjada={forjada}, sem cabeçalho={controle} — a janela virou; esgotando de novo"
+        esgota_o_balde(rodada)
+    check("X-Forwarded-For forjado nao escapa do rate limit", veredito, detalhe)
 
     # --- Fronteira da área administrativa (ADR 0026) -----------------------
     #
