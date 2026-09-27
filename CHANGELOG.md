@@ -137,6 +137,12 @@ registro por CIMD/DCR, 59 tools documentadas em `docs/mcp/TOOLS.md` (geradas do
 código), e as escritas das rotas REST passaram a morar em comandos
 compartilhados (`app/services/commands/`) — sem mudança de comportamento.
 
+### No celular, o nome de cada lançamento aparece inteiro
+
+- **A lista de lançamentos deixou de cortar os títulos no celular.** Os botões de
+  editar e excluir saíram de cada linha e ficam no detalhe, que abre ao tocar na
+  linha. Numa tela de 360 px, o espaço do título quase triplicou.
+
 ### Abrir o app ficou ainda mais leve
 
 - **Menos 40 KiB para abrir qualquer tela**: os avisos que aparecem no canto passaram
