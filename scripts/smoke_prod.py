@@ -403,8 +403,10 @@ def main():
     res = alice.post(f"/workspaces/{ws_id}/invites", json={"email": email_b, "role": "member"})
     check("convite enviado (não entra direto)", res.status_code == 200 and res.json()["status"] == "invite_sent")
 
+    # 404, não 403: para quem não é membro, o espaço não existe — o mesmo que um id
+    # inventado responde, sem confirmar que o espaço está lá (auditoria 2026-09-26, S1).
     res = bruno.get(f"/workspaces/{ws_id}/members")
-    check("convidado ainda NÃO é membro (403)", res.status_code == 403)
+    check("convidado ainda NÃO é membro (404)", res.status_code == 404, f"status={res.status_code}")
 
     res = bruno.get("/notifications")
     convites = [n for n in res.json()["items"] if n["type"] == "workspace_invite" and n["invite_token"]]
@@ -604,7 +606,7 @@ def main():
 
     res = admin.get(f"/workspaces/{ws_id}/transactions/")
     check(
-        "superadmin não entra no workspace alheio", res.status_code in (403, 404),
+        "superadmin não entra no workspace alheio", res.status_code == 404,
         f"status={res.status_code} — a política consultou o papel de plataforma?",
     )
 
