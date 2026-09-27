@@ -100,7 +100,7 @@ def test_transaction_security_isolation(db_session: Session, setup_data, overrid
     db_session.refresh(tx_ws2)
     
     response = client.get(f"/api/v1/workspaces/{ws2.id}/transactions/{tx_ws2.id}", headers=setup_data["headers1"])
-    assert response.status_code == 403
+    assert response.status_code == 404
     
     response = client.get(f"/api/v1/workspaces/{ws1.id}/transactions/{tx_ws2.id}", headers=setup_data["headers1"])
     assert response.status_code == 404
@@ -176,15 +176,15 @@ def test_transactions_forbidden(db_session: Session, setup_data, override_get_se
         "payers": [{"user_id": u1.id, "amount": 10.0}],
         "splits": [{"user_id": u1.id, "split_method": "equal", "input_value": 0}]
     }
-    assert client.post(f"/api/v1/workspaces/{ws2.id}/transactions/", json=payload, headers=headers1).status_code == 403
-    assert client.get(f"/api/v1/workspaces/{ws2.id}/transactions/", headers=headers1).status_code == 403
-    assert client.post(f"/api/v1/workspaces/{ws2.id}/transactions/bulk", json=[], headers=headers1).status_code == 403
+    assert client.post(f"/api/v1/workspaces/{ws2.id}/transactions/", json=payload, headers=headers1).status_code == 404
+    assert client.get(f"/api/v1/workspaces/{ws2.id}/transactions/", headers=headers1).status_code == 404
+    assert client.post(f"/api/v1/workspaces/{ws2.id}/transactions/bulk", json=[], headers=headers1).status_code == 404
     
     tx_ws2 = Transaction(title="S", total_amount=Decimal("1.0"), transaction_date=datetime.datetime.now(), workspace_id=ws2.id, created_by_user_id=u2.id)
     db_session.add(tx_ws2)
     db_session.commit()
     db_session.refresh(tx_ws2)
-    assert client.get(f"/api/v1/workspaces/{ws2.id}/transactions/{tx_ws2.id}", headers=headers1).status_code == 403
+    assert client.get(f"/api/v1/workspaces/{ws2.id}/transactions/{tx_ws2.id}", headers=headers1).status_code == 404
 
 def test_create_transaction_explicit_billing_month(setup_data, override_get_session):
     ws1 = setup_data["ws1"]
@@ -235,12 +235,12 @@ def test_update_transaction_forbidden(db_session: Session, setup_data, override_
     db_session.commit()
     db_session.refresh(tx)
     response = client.put(f"/api/v1/workspaces/{ws1.id}/transactions/{tx.id}", json={"title":"Hacked"}, headers=setup_data["headers2"])
-    assert response.status_code == 403
+    assert response.status_code == 404
 
 def test_bulk_create_forbidden(setup_data, override_get_session):
     ws1 = setup_data["ws1"]
     response = client.post(f"/api/v1/workspaces/{ws1.id}/transactions/bulk", json=[{}], headers=setup_data["headers2"])
-    assert response.status_code == 403
+    assert response.status_code == 404
 
 def test_get_transaction_deleted(db_session: Session, setup_data, override_get_session):
     ws1 = setup_data["ws1"]

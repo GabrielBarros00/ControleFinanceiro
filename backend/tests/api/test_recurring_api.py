@@ -106,9 +106,9 @@ def test_recurring_forbidden(db_session: Session, test_workspace, override_get_s
     ws_id = test_workspace.id
     
     # GET list
-    assert client.get(f"/api/v1/workspaces/{ws_id}/recurring", headers=headers).status_code == 403
+    assert client.get(f"/api/v1/workspaces/{ws_id}/recurring", headers=headers).status_code == 404
     # POST
-    assert client.post(f"/api/v1/workspaces/{ws_id}/recurring", json={"title":"X","base_amount":1,"day_of_month":1}, headers=headers).status_code == 403
+    assert client.post(f"/api/v1/workspaces/{ws_id}/recurring", json={"title":"X","base_amount":1,"day_of_month":1}, headers=headers).status_code == 404
     
     # Create an expense in the workspace to test specific resource access
     r1 = RecurringExpense(title="R1", base_amount=10, day_of_month=5, workspace_id=ws_id)
@@ -117,11 +117,11 @@ def test_recurring_forbidden(db_session: Session, test_workspace, override_get_s
     db_session.refresh(r1)
     
     # GET one
-    assert client.get(f"/api/v1/workspaces/{ws_id}/recurring/{r1.id}", headers=headers).status_code == 403
+    assert client.get(f"/api/v1/workspaces/{ws_id}/recurring/{r1.id}", headers=headers).status_code == 404
     # PUT
-    assert client.put(f"/api/v1/workspaces/{ws_id}/recurring/{r1.id}", json={"title":"Y"}, headers=headers).status_code == 403
+    assert client.put(f"/api/v1/workspaces/{ws_id}/recurring/{r1.id}", json={"title":"Y"}, headers=headers).status_code == 404
     # DELETE
-    assert client.delete(f"/api/v1/workspaces/{ws_id}/recurring/{r1.id}", headers=headers).status_code == 403
+    assert client.delete(f"/api/v1/workspaces/{ws_id}/recurring/{r1.id}", headers=headers).status_code == 404
 
 def test_get_recurring_not_found(db_session: Session, auth_header, test_workspace, override_get_session):
     # Access valid workspace but invalid expense ID

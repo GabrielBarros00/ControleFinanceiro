@@ -203,4 +203,4 @@ def test_finish_onboarding_foreign_workspace_forbidden(db_session: Session, over
     client.cookies.set("access_token", token)
 
     response = client.post("/api/v1/auth/onboarding", json={"workspace_id": ws.id, "salary": 1})
-    assert response.status_code == 403
+    assert response.status_code == 404

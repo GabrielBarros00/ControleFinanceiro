@@ -12,7 +12,13 @@ def get_workspace_membership(
     session: Session = Depends(get_session),
     current_user: User = Depends(get_current_user),
 ) -> WorkspaceMembership:
-    """Resolve o membership do usuário no workspace da rota (404/403 se inválido)."""
+    """Resolve o membership do usuário no workspace da rota; 404 se não houver.
+
+    404 também para o espaço que EXISTE mas não é da pessoa, com a mesma frase do
+    inexistente. Com 403 as duas respostas se distinguiam, dava para descobrir
+    quais ids existem, e a exceção contradizia a regra do ADR 0018 — o que a
+    pessoa não pode ver responde 404 (auditoria 2026-09-26, S1).
+    """
     workspace = session.get(Workspace, workspace_id)
     if not workspace or workspace.deleted_at is not None:
         raise HTTPException(status_code=404, detail="Workspace não encontrado")
@@ -24,7 +30,7 @@ def get_workspace_membership(
         )
     ).first()
     if not membership:
-        raise HTTPException(status_code=403, detail="Você não é membro deste workspace")
+        raise HTTPException(status_code=404, detail="Workspace não encontrado")
     return membership
 
 

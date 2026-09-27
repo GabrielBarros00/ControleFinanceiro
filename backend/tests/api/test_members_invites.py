@@ -88,7 +88,7 @@ def test_member_ve_email_completo(team):
 def test_outsider_cannot_list_members(team):
     ws = team["ws"]
     res = client.get(f"/api/v1/workspaces/{ws.id}/members", headers=_headers(team["users"]["outsider"]))
-    assert res.status_code == 403
+    assert res.status_code == 404
 
 
 # --- Matriz papel × mutação básica ---

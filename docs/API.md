@@ -27,7 +27,7 @@ Sessão em **cookies HttpOnly** (`access_token` + `refresh_token`) — definidos
 
 Duas consequências que mudam o contrato das respostas:
 
-1. **Registro invisível responde `404`, não `403`** — um `403` confirmaria que ele existe naquele id.
+1. **Registro invisível responde `404`, não `403`** — um `403` confirmaria que ele existe naquele id. Vale também para o **espaço** de que você não é membro: `/workspaces/{id}/…` responde `404 "Workspace não encontrado"`, idêntico ao de um id que não existe. O `403` fica para quem **é** membro e não tem o papel exigido.
 2. **Campo da casa suprimido vem `null`, nunca `0`.** Afeta `total_expenses`, `total_income`, `net_savings`, `categories` (em `/analytics/summary` e `/analytics/reports`), as barras de `monthly_history`, e praticamente toda a `/analytics/forecast` — que é projeção de caixa da casa e, sem acesso completo, devolve apenas `my_budget`. Os campos `my_*` **nunca** são suprimidos: são dados do próprio usuário. Clientes devem tratar `null` como "sem acesso" e não coagir para zero.
 
 Em `/debts`, `/debts/monthly` e `/debts/by-month` o recorte acontece na **saída**: o ledger é calculado inteiro (o pareamento de dívidas precisa de todos os saldos para dar o valor certo) e depois filtrado nas linhas que envolvem você — com `totals` acompanhando o que ficou listado. Os pares em `/me/*` (`/me/debts`, `/me/debts/monthly`, `/me/debts/by-month`, `/me/settlements`) aplicam esse recorte **sempre**, mesmo para admin/owner: lá o escopo é a pessoa, não a casa (ADR 0027).
