@@ -137,6 +137,21 @@ registro por CIMD/DCR, 59 tools documentadas em `docs/mcp/TOOLS.md` (geradas do
 código), e as escritas das rotas REST passaram a morar em comandos
 compartilhados (`app/services/commands/`) — sem mudança de comportamento.
 
+### Os valores aparecem inteiros no tablet e no celular
+
+- **No tablet em pé (768 a 1023 px), a barra lateral deu lugar à navegação de
+  baixo**, a mesma do celular. Com ela, sobrava pouco mais de meia tela para o
+  conteúdo, e valores de relatórios, cartões, financiamentos e rendas saíam cortados
+  ou empurravam a página para o lado.
+- **No celular, o Extrato e a fatura do cartão mostram o valor.** A coluna do dinheiro
+  ficava fora da área visível (a tabela rolava dentro do card); agora a data e a origem
+  vão para baixo do título, e o valor fica à vista.
+- **Números grandes cabem no card.** Os totais encolhem pela largura do próprio card,
+  sem cortar nenhum dígito, e um lançamento de milhões não esconde mais o título dele na
+  lista.
+- **O selo "Fatura vencida" ficou legível no tema escuro**, e a barra de parcelas pagas
+  dos financiamentos passou a ser lida pelo leitor de tela, com o valor.
+
 ### As telas abrem com metade do trabalho
 
 - **Cada tela deixou de buscar tudo duas vezes.** Ao abrir o app, as informações
