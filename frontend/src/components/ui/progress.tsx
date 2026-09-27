@@ -7,8 +7,12 @@ const Progress = React.forwardRef<
   React.ElementRef<typeof ProgressPrimitive.Root>,
   React.ComponentPropsWithoutRef<typeof ProgressPrimitive.Root>
 >(({ className, value, ...props }, ref) => (
+  // `value` vai também para o Root: é dele que o Radix tira `aria-valuenow` e o
+  // `data-state`. Sem isto a barra desenhava o preenchimento certo e, para o
+  // leitor de tela, era sempre "indeterminada", sem valor nenhum.
   <ProgressPrimitive.Root
     ref={ref}
+    value={value}
     className={cn(
       "relative h-2 w-full overflow-hidden rounded-full bg-muted",
       className
