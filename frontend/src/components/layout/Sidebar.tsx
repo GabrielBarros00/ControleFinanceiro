@@ -88,7 +88,7 @@ export function Sidebar() {
   }, [ativo]);
 
   return (
-    <aside className="sticky top-0 hidden h-dvh w-[240px] shrink-0 flex-col border-r border-border bg-card md:flex">
+    <aside className="sticky top-0 hidden h-dvh w-[240px] shrink-0 flex-col border-r border-border bg-card lg:flex">
       <div className="px-4 py-5">
         {/* O nome por extenso não cabe em 240px a `text-lg`: 15px com
             `whitespace-nowrap` mantém a marca em uma linha só, sem estourar a

@@ -389,7 +389,7 @@ function FinancingDetail(
           currency={financing.currency ?? undefined}
           hint={
             <>
-              <Progress value={progress} className="mt-2 h-1" />
+              <Progress value={progress} aria-label="Parcelas pagas" className="mt-2 h-1" />
               <span className="mt-2 block">{paidCount} de {schedule.length} parcelas pagas</span>
             </>
           }

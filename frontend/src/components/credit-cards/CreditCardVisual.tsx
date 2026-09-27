@@ -6,8 +6,14 @@ import type { StatementAlert } from '@/lib/statement-alert';
 
 // Selo sobre o gradiente da marca: fundo translúcido claro para o texto ficar
 // legível sem brigar com o roxo do cartão.
+//
+// `danger` tem fundo BRANCO nos dois temas, então o texto é um vermelho escuro
+// fixo — o mesmo tom (L 0,47) que o tema claro usa para texto de despesa. Com
+// `text-destructive`, o tema escuro trocava para o vermelho claro dele (L 0,70),
+// pensado para fundo escuro: 2,88:1 sobre o branco, abaixo dos 4,5:1 do WCAG AA
+// (auditoria 2026-09-26, S2).
 const SELO_POR_TOM: Record<StatementAlert['tone'], string> = {
-  danger: 'bg-white text-destructive',
+  danger: 'bg-white text-[oklch(0.47_0.19_27)]',
   warning: 'bg-warning-subtle text-warning',
   info: 'bg-white/25 text-primary-foreground',
   success: 'bg-white/25 text-primary-foreground',

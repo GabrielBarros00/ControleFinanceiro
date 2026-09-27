@@ -775,7 +775,7 @@ function Configuracoes() {
           coberto por "Lançamentos". Acima de `md` a barra inferior não existe e
           o valor volta a ser 1rem. */}
       {sujo && (
-        <div className="sticky bottom-[calc(4.5rem+env(safe-area-inset-bottom))] z-30 flex items-center justify-between gap-4 rounded-xl border border-border bg-card p-3 shadow-lg md:bottom-4">
+        <div className="sticky bottom-[calc(4.5rem+env(safe-area-inset-bottom))] z-30 flex items-center justify-between gap-4 rounded-xl border border-border bg-card p-3 shadow-lg lg:bottom-4">
           <span className="text-sm text-muted-foreground">Há alterações não salvas.</span>
           <div className="flex gap-2">
             <Button variant="ghost" onClick={() => setRascunho({})}>Descartar</Button>
