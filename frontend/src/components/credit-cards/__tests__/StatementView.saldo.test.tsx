@@ -82,6 +82,21 @@ describe('StatementView — saldo da fatura', () => {
     expect(screen.getAllByText(/700,00/).length).toBeGreaterThan(0);
   });
 
+  it('a faixa anuncia o SALDO que vence, não o total da fatura', () => {
+    // Datas relativas a hoje: com as fixas de julho a fatura já está vencida e a
+    // faixa cai noutro ramo — o teste passaria sem olhar para a frase certa.
+    const dia = (delta: number) => {
+      const d = new Date();
+      d.setDate(d.getDate() + delta);
+      return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}T00:00:00`;
+    };
+    detalhe = { ...FATURA_PARCIAL, closing_date: dia(-3), due_date: dia(2) };
+    render(<StatementView cardId={1} />);
+    const faixa = screen.getByText(/vencendo/);
+    expect(faixa.textContent).toMatch(/700,00/);
+    expect(faixa.textContent).not.toMatch(/1\.000,00/);
+  });
+
   it('o botão fala em saldo quando já houve pagamento parcial', () => {
     render(<StatementView cardId={1} />);
     expect(screen.getByRole('button', { name: /Pagar saldo restante/ })).toBeInTheDocument();

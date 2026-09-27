@@ -254,7 +254,14 @@ export function IncomePage() {
     }
   };
 
-  const total = incomes.reduce((acc, i) => acc + parseFloat(i.amount), 0);
+  // A renda DO MÊS, com a regra do backend (`_renda_de_competencia`): recebida ou
+  // prevista entram, cancelada não — a pessoa já disse que ela não vem. Somar a
+  // lista inteira punha o subtítulo em desacordo com a Visão global. Em centavos
+  // inteiros, para a soma não acumular o erro do ponto flutuante.
+  const totalCentavos = incomes
+    .filter((i) => i.status !== 'cancelled' && !i.cancelled_at)
+    .reduce((acc, i) => acc + Math.round(parseFloat(i.amount) * 100), 0);
+  const total = totalCentavos / 100;
 
   if (isLoading) {
     return (
