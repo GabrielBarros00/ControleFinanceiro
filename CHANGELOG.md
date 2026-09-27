@@ -137,6 +137,17 @@ registro por CIMD/DCR, 59 tools documentadas em `docs/mcp/TOOLS.md` (geradas do
 código), e as escritas das rotas REST passaram a morar em comandos
 compartilhados (`app/services/commands/`) — sem mudança de comportamento.
 
+### As telas abrem com metade do trabalho
+
+- **Cada tela deixou de buscar tudo duas vezes.** Ao abrir o app, as informações
+  da tela eram buscadas e, meio segundo depois, buscadas de novo inteiras — era a
+  forma de não perder uma alteração feita por outra pessoa bem naquele instante.
+  Agora o app sabe dizer se houve alteração no meio: sem nada novo, não repete
+  nada (o Início caiu de 28 para 13 consultas); com alteração, atualiza como
+  antes, sem precisar recarregar.
+- **O app baixa 25% menos para abrir.** O código dos gráficos dos relatórios era
+  baixado em toda tela, inclusive no login; agora só quando você abre um relatório.
+
 ### O app responde mais rápido
 
 - **A lista de lançamentos ficou 13× mais rápida.** Com 100 lançamentos na tela, a

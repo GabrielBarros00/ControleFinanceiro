@@ -3,6 +3,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import { apiClient, baseURL } from '@/api/client';
 import { useAuthStore } from '@/stores';
 import { FULL_RESYNC, keysForEvent } from '@/lib/ws-events';
+import { seqDoBootstrap } from '@/lib/seq-do-bootstrap';
 import { useWorkspaceId } from './use-workspace-id';
 
 export { keysForEvent } from '@/lib/ws-events';
@@ -102,15 +103,19 @@ export function useWorkspaceEvents() {
 
           if (!syncedRef.current.has(wsId)) {
             // PRIMEIRA conexão com este workspace nesta sessão (carga da página
-            // ou troca pelo switcher). O cache foi preenchido por HTTP sem
-            // nenhuma correlação com o seq: qualquer mutação commitada entre o
-            // GET e a entrada na sala já está contada em `hello.seq` mas NÃO
-            // está nos dados — e não gera lacuna depois (o próximo evento vem
-            // em ordem), então ficaria invisível para sempre. Era exatamente o
-            // sintoma da troca de workspace: socket novo recebia o `hello` e o
-            // lançamento do outro membro só aparecia com F5. Resync aqui é o
-            // único jeito de correlacionar cache e seq.
-            requestFullResync();
+            // ou troca pelo switcher). O cache foi preenchido por HTTP: uma
+            // mutação commitada entre o GET e a entrada na sala já está contada
+            // em `hello.seq` mas NÃO nos dados — e não gera lacuna depois (o
+            // próximo evento vem em ordem), então ficaria invisível para
+            // sempre. Era o sintoma da troca de workspace: socket novo recebia
+            // o `hello` e o lançamento do outro membro só aparecia com F5.
+            //
+            // O seq lido no bootstrap, ANTES de a página buscar qualquer dado,
+            // correlaciona as duas coisas: igual ao `hello`, nada mudou no meio
+            // e o cache está em dia. Sem ele, ou com qualquer diferença, resync
+            // completo — que antes acontecia em TODA carga de página e dobrava
+            // as requisições (auditoria 2026-09-26, P2; `lib/seq-do-bootstrap.ts`).
+            if (seqDoBootstrap(wsId) !== helloSeq) requestFullResync();
             syncedRef.current.add(wsId);
           } else if (lastSeen !== undefined && helloSeq !== lastSeen) {
             // Reconexão: perdemos eventos enquanto desconectados → resync

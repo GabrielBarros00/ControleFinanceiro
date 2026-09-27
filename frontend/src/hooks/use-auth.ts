@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { apiClient } from '@/api/client';
 import { getApiErrorMessage } from '@/lib/api-error';
 import { useAuthStore, useUIStore, type AuthUser } from '@/stores';
+import { esquecerSeqsDoBootstrap, registrarSeqDoBootstrap } from '@/lib/seq-do-bootstrap';
 
 /**
  * Rotas que existem justamente para quem NÃO tem sessão.
@@ -47,6 +48,9 @@ async function buscarSessao(
   setUser: (user: AuthUser | null) => void,
   clearStore: () => void,
   setCurrentWorkspaceId: (id: number | null) => void,
+  semearEspacos: (espacos: unknown[]) => void,
+  /** Esta é a carga que libera a página? Só ela registra o seq (`lib/seq-do-bootstrap.ts`). */
+  registrarSeq: boolean,
 ) {
   let user;
   try {
@@ -61,7 +65,11 @@ async function buscarSessao(
   // Falha ao listar workspaces não derruba a sessão (só a seleção fica como está)
   try {
     const wsResponse = await apiClient.get('/workspaces/');
-    const workspaces: { id: number; owner_user_id?: number | null }[] = wsResponse.data;
+    const workspaces: { id: number; owner_user_id?: number | null; event_seq?: number }[] = wsResponse.data;
+    if (registrarSeq) registrarSeqDoBootstrap(workspaces);
+    // A mesma lista que `useWorkspaces` buscaria de novo logo em seguida: com o
+    // cache semeado, a barra lateral e o seletor já a têm.
+    semearEspacos(workspaces);
     // Respeita seleção persistida; só troca se inválida/ausente
     const persistedId = useUIStore.getState().currentWorkspaceId;
     const stillValid = workspaces.some((w) => w.id === persistedId);
@@ -85,7 +93,13 @@ export function useAuth() {
   const { setUser, logout: clearStore, setError } = useAuthStore();
   const { setCurrentWorkspaceId } = useUIStore();
 
-  const carregarSessao = () => buscarSessao(setUser, clearStore, setCurrentWorkspaceId);
+  // `undefined` = nenhuma sessão carregada ainda nesta aba (primeira carga, ou
+  // depois do logout, que limpa o cache): é a carga que libera a página.
+  const carregarSessao = () => buscarSessao(
+    setUser, clearStore, setCurrentWorkspaceId,
+    (espacos) => queryClient.setQueryData(['workspaces'], espacos),
+    queryClient.getQueryData(['auth-me']) === undefined,
+  );
 
   // Check current session
   const meQuery = useQuery({
@@ -171,6 +185,7 @@ export function useAuth() {
       // numa máquina compartilhada isso é a finança de uma pessoa na tela de
       // outra. O `currentWorkspaceId` persistido já era revalidado; o cache não.
       queryClient.clear();
+      esquecerSeqsDoBootstrap();
     }
   });
 

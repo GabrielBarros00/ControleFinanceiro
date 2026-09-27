@@ -52,6 +52,13 @@ class WorkspaceRead(WorkspaceBase):
     owner_user_id: Optional[int] = None
     owner_name: Optional[str] = None
     member_count: int = 1
+    #: Último evento publicado neste espaço (o mesmo `seq` do WebSocket). Lido
+    #: no bootstrap ANTES de a página buscar qualquer dado, é um limite inferior
+    #: do que a página viu: no primeiro `hello`, se o seq do servidor for o
+    #: mesmo, nada mudou no meio e o cliente não precisa refazer todas as
+    #: consultas (auditoria 2026-09-26, P2). Sem default de propósito: um 0
+    #: esquecido faria o cliente pular um resync que era necessário.
+    event_seq: int
 
 
 class MemberRead(BaseModel):

@@ -309,3 +309,51 @@ for (const campo of ['theme_color', 'background_color']) {
 }
 
 console.log('[build] manifesto, service worker e ícones do PWA emitidos');
+
+/*
+ * ---- Carga inicial: o que TODA tela baixa antes de desenhar ----
+ *
+ * O `index.html` referencia a entrada e pré-carrega (`modulepreload`) tudo o que
+ * ela importa. O chunk manual do `recharts` absorvia o `clsx`, a entrada o
+ * importava de lá, e o gráfico inteiro entrava em toda tela, inclusive no
+ * `/login`: 436 KiB gzip, contra 327 KiB sem ele (auditoria 2026-09-26, P3).
+ *
+ * A checagem é pelo CONTEÚDO, não pelo nome do arquivo: o nome do chunk muda
+ * com a configuração, e foi justamente um chunk com outro propósito que trouxe
+ * o gráfico para cá. `recharts-wrapper` é a classe que o recharts põe em todo
+ * gráfico — está no código dele e em nenhum outro.
+ */
+const indexHtml = fs.readFileSync(path.join(distDir, 'index.html'), 'utf8');
+const cargaInicial = [...new Set(
+  [...indexHtml.matchAll(/(?:src|href)="(\/assets\/[^"]+\.(?:js|css))"/g)].map((m) => m[1]),
+)];
+if (cargaInicial.length === 0) {
+  throw new Error('index.html sem nenhum asset em /assets/ — a verificação da carga inicial não mediria nada');
+}
+let gzipInicial = 0;
+for (const arquivo of cargaInicial) {
+  const conteudo = fs.readFileSync(path.join(distDir, arquivo));
+  gzipInicial += zlib.gzipSync(conteudo, { level: 9 }).length;
+  if (arquivo.endsWith('.js') && conteudo.includes('recharts-wrapper')) {
+    throw new Error(
+      `${arquivo} está na carga inicial e contém o recharts — o gráfico voltou a ser baixado `
+      + 'em toda tela. Procure o chunk manual que o capturou em vite.config.ts.',
+    );
+  }
+}
+/*
+ * Teto de tamanho, com folga sobre os 327 KiB de hoje. Não é meta: é o alarme
+ * para uma dependência pesada entrando na carga inicial sem ninguém decidir.
+ * Gzip nível 9 (o do nginx é mais leve): o número serve para comparar builds.
+ * Subiu de propósito? Suba o teto no mesmo commit, dizendo por quê.
+ */
+const TETO_GZIP_INICIAL = 350 * 1024;
+if (gzipInicial > TETO_GZIP_INICIAL) {
+  throw new Error(
+    `carga inicial com ${(gzipInicial / 1024).toFixed(1)} KiB gzip (teto: ${TETO_GZIP_INICIAL / 1024} KiB) `
+    + `em ${cargaInicial.length} arquivos — confira o que entrou na entrada ou no modulepreload.`,
+  );
+}
+console.log(
+  `[build] carga inicial: ${cargaInicial.length} arquivos, ${(gzipInicial / 1024).toFixed(1)} KiB gzip, sem recharts`,
+);
