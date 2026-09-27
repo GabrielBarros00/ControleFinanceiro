@@ -96,6 +96,15 @@ docker compose logs --tail=50 backend
 O `frontend` é o único container exposto ao host e tem healthcheck próprio: um
 nginx que subiu sem servir deixaria o stack "up" e o usuário sem app.
 
+**Logs e memória.** Todo serviço grava log rotativo (5 arquivos de 10 MB) e tem
+teto de memória: backend e banco 1 GiB, `cron` 512 MiB, nginx 128 MiB. Um
+container que bate no teto aparece como `OOMKilled` em
+`docker inspect -f '{{.State.OOMKilled}}' <container>` e é reiniciado pelo
+`restart: unless-stopped`. VPS com menos memória? Baixe os tetos num
+`docker-compose.override.yml`, não no arquivo do repositório. O expurgo de registros
+antigos roda em toda subida do `cron` e depois a cada 24 h
+(`docker compose logs cron | grep Expurgo`).
+
 **Quem estava com o app aberto.** A aba continua com o JS antigo até abrir uma tela
 que ainda não tinha visitado. O pedaço daquela tela, com o nome antigo, não existe
 mais: o nginx responde 404, e a página recarrega sozinha, uma vez, já na versão
