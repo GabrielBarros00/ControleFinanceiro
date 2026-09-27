@@ -1089,3 +1089,59 @@ def test_cota_mensal_de_convites_e_respeitada(base):
     assert len(emitidos) <= teto, (
         f"{len(emitidos)} convites emitidos para uma cota de {teto}"
     )
+
+
+# --- A3: estabelecimento novo criado por dois lançamentos ao mesmo tempo --------
+
+
+@precisa_de_mvcc
+def test_estabelecimento_novo_nao_quebra_lancamentos_simultaneos(base):
+    """Auditoria 2026-09-26, A3. Dois lançamentos com o MESMO `merchant_name` novo:
+    os dois procuravam, não achavam e criavam — e o segundo `INSERT` batia no
+    índice único `uq_merchant_workspace_name` e virava 500. O lançamento da
+    pessoa se perdia por causa de um estabelecimento que já existia.
+    """
+    from app.models.merchant import Merchant
+    from app.schemas.transaction import TransactionCreate
+    from app.services.commands import merchants as cmd_estab
+    from app.services.commands import transactions as tx_cmd
+
+    engine = base["engine"]
+    with Session(engine) as session:
+        session.add(WorkspaceMembership(workspace_id=base["ws_id"], user_id=base["user_id"],
+                                        role=WorkspaceRole.owner))
+        session.commit()
+
+    def membro(session: Session):
+        return session.exec(
+            select(WorkspaceMembership).where(WorkspaceMembership.workspace_id == base["ws_id"])
+        ).one()
+
+    def aquecer(session: Session):
+        # Todas leem "não existe" ANTES de qualquer uma criar.
+        assert cmd_estab.pelo_nome(session, base["ws_id"], "Padaria Nova") is None
+
+    def lancar(session: Session):
+        tx = tx_cmd.create_transaction(session, base["ws_id"], TransactionCreate(
+            title="Pão", total_amount=Decimal("12.00"), transaction_date=datetime.now(UTC),
+            merchant_name="Padaria Nova",
+            payers=[{"user_id": base["user_id"], "amount": "12.00"}],
+            splits=[{"user_id": base["user_id"], "split_method": "equal", "input_value": "0"}],
+        ), membro(session))
+        return tx.id
+
+    resultados = _em_paralelo(engine, lancar, aquecer=aquecer)
+
+    falhas = [r for r in resultados if isinstance(r, Exception)]
+    assert falhas == [], f"{len(falhas)} lançamento(s) perdido(s): {falhas[:1]!r}"
+    with Session(engine) as session:
+        estabelecimentos = session.exec(
+            select(Merchant).where(Merchant.workspace_id == base["ws_id"], Merchant.name == "Padaria Nova")
+        ).all()
+        assert len(estabelecimentos) == 1
+        vinculos = {
+            t.merchant_id for t in session.exec(
+                select(Transaction).where(Transaction.workspace_id == base["ws_id"])
+            ).all()
+        }
+    assert vinculos == {estabelecimentos[0].id}
