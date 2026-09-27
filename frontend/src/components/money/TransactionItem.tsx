@@ -6,7 +6,7 @@ import { MoneyText } from './MoneyText';
 import { CategoryGlyph, type CategoryLike } from './CategoryGlyph';
 import { paymentMethodLabel } from '@/lib/payment-methods';
 import { StatusPill, settlementPill, txStatusPill } from '@/components/ui/status-pill';
-import { formatCurrency } from '@/lib/money';
+import { formatCurrency, formatMoney } from '@/lib/money';
 import { cn } from '@/lib/utils';
 import { Avatar } from '@/components/ui/avatar';
 
@@ -44,6 +44,23 @@ interface TransactionItemProps {
   onMarcar?: (id: number) => void;
 }
 
+/*
+ * Valor longo encolhe na linha ESTREITA — nunca o título até sumir.
+ *
+ * No celular a linha tem ~300px, e ícone + os dois botões de 40px (editar e
+ * excluir ficam sempre à vista ali, de propósito) já levam metade. A 16px,
+ * "−R$ 1.234.567,89" ocupava ~150px e deixava 18px para o título — nenhuma letra
+ * legível (auditoria 2026-09-26, C8; medido pelo `e2e/larguras.spec.ts` com
+ * valores de 7 dígitos). A regra é a do `StatTile`: encolher o número, que
+ * continua inteiro, pela largura da PRÓPRIA linha (container query); a partir
+ * de 24rem tudo volta ao tamanho normal.
+ */
+function classeDoValor(texto: string): string | undefined {
+  if (texto.length > 13) return 'text-xs @min-[24rem]:text-base';
+  if (texto.length > 11) return 'text-sm @min-[24rem]:text-base';
+  return undefined;
+}
+
 export function TransactionItem({
   tx,
   category,
@@ -72,6 +89,10 @@ export function TransactionItem({
 
   const amount = parseFloat(tx.total_amount);
   const kind = amount < 0 ? 'income' : 'expense';
+  // O mesmo texto que o `MoneyText` desenha (o sinal conta no comprimento).
+  const textoDoValor = kind === 'expense'
+    ? formatMoney(-Math.abs(amount), { currency: tx.currency })
+    : formatMoney(Math.abs(amount), { sign: true, currency: tx.currency });
   const splits = tx.splits ?? [];
   const isSplit = splits.length > 1;
 
@@ -126,7 +147,7 @@ export function TransactionItem({
       // então não há mais role="row" para localizar a linha
       data-testid="ledger-row"
       className={cn(
-        'group relative flex items-center gap-3 rounded-lg px-2 py-2.5 transition-colors hover:bg-muted',
+        '@container group relative flex items-center gap-3 rounded-lg px-2 py-2.5 transition-colors hover:bg-muted',
         onSelect && 'cursor-pointer focus-within:bg-muted',
       )}
     >
@@ -210,7 +231,12 @@ export function TransactionItem({
         </div>
       )}
 
-      <MoneyText value={amount} kind={kind} currency={tx.currency} className="shrink-0 font-semibold" />
+      <MoneyText
+        value={amount}
+        kind={kind}
+        currency={tx.currency}
+        className={cn('shrink-0 font-semibold', classeDoValor(textoDoValor))}
+      />
 
       {(onEdit || onDelete) && (
         // `relative z-10`: a área de clique estendida do título cobre a linha

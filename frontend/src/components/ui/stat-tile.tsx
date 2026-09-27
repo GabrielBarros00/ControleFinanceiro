@@ -20,21 +20,27 @@ interface StatTileProps {
 }
 
 /*
- * Tamanho do número no CELULAR, pelo comprimento do texto formatado.
+ * Tamanho do número pelo comprimento do texto formatado E pela largura do CARD.
  *
- * As grades de métrica passaram a ter DUAS colunas abaixo de `sm` — com uma só,
- * quatro números ocupavam a tela inteira e ninguém chegava ao conteúdo sem
- * rolar. Em duas colunas sobram ~147px por célula, e "+R$ 1.661.142,35" a 20px
- * não cabe: com `break-words` ele quebrava NO MEIO DO NÚMERO ("1.661.142,3" /
- * "5"), que é pior do que não caber. Encolher é a única saída que preserva o
- * valor inteiro e legível — truncar dinheiro nunca é opção.
+ * As grades de métrica têm DUAS colunas abaixo de `sm` — com uma só, quatro
+ * números ocupavam a tela inteira e ninguém chegava ao conteúdo sem rolar. Em
+ * duas colunas sobram ~147px por célula, e "+R$ 1.661.142,35" a 20px não cabe:
+ * com `break-words` ele quebrava NO MEIO DO NÚMERO ("1.661.142,3" / "5"), que é
+ * pior do que não caber. Encolher é a única saída que preserva o valor inteiro e
+ * legível — truncar dinheiro nunca é opção.
  *
- * No desktop nada disso vale: lá é `sm:text-2xl` fixo e há espaço de sobra.
+ * A regra olha a largura do card (container query), não a da tela: a versão
+ * anterior fixava `sm:text-2xl` a partir de 640px supondo "espaço de sobra no
+ * desktop", e numa grade de quatro colunas ao lado da barra lateral o card tem
+ * ~170px — "−R$ 1.617.821,75" a 24px passava da borda e a página ganhava rolagem
+ * horizontal (auditoria 2026-09-26, C8). Os limiares são a largura do CONTEÚDO do
+ * card (sem o padding) em que cada tamanho cabe, com folga; no celular os três
+ * casos continuam no tamanho menor, como antes.
  */
 function classeDeTamanho(texto: string): string {
-  if (texto.length > 15) return 'text-sm';
-  if (texto.length > 12) return 'text-base';
-  return 'text-xl';
+  if (texto.length > 15) return 'text-sm @min-[9.5rem]:text-base @min-[12rem]:text-xl @min-[14.5rem]:text-2xl';
+  if (texto.length > 12) return 'text-base @min-[10.5rem]:text-xl @min-[13rem]:text-2xl';
+  return 'text-xl @min-[10.5rem]:text-2xl';
 }
 
 export function StatTile({ label, value, kind = 'neutral', hint, icon: Icon, currency, className }: StatTileProps) {
@@ -50,7 +56,7 @@ export function StatTile({ label, value, kind = 'neutral', hint, icon: Icon, cur
         : formatMoney(magnitude, { currency });
 
   return (
-    <div className={cn('min-w-0 rounded-xl border border-border bg-card p-3 sm:p-4', className)}>
+    <div className={cn('@container min-w-0 rounded-xl border border-border bg-card p-3 sm:p-4', className)}>
       <div className="flex items-start justify-between gap-1">
         <p className="min-w-0 text-xs text-muted-foreground sm:text-sm">{label}</p>
         {Icon && <Icon className="h-4 w-4 shrink-0 text-muted-foreground/70" />}
@@ -60,9 +66,11 @@ export function StatTile({ label, value, kind = 'neutral', hint, icon: Icon, cur
         kind={kind}
         size="lg"
         currency={currency}
-        className={cn('mt-1 block whitespace-nowrap sm:text-2xl', classeDeTamanho(texto))}
+        className={cn('mt-1 block whitespace-nowrap', classeDeTamanho(texto))}
       />
-      {hint && <p className="mt-1 text-[11px] text-muted-foreground sm:text-xs">{hint}</p>}
+      {/* `div`, não `p`: o `hint` é um ReactNode e pode trazer bloco — Financiamentos
+          passa uma barra de progresso, e `<div>` dentro de `<p>` é HTML inválido. */}
+      {hint && <div className="mt-1 text-[11px] text-muted-foreground sm:text-xs">{hint}</div>}
     </div>
   );
 }
