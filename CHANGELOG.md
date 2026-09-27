@@ -137,6 +137,20 @@ registro por CIMD/DCR, 59 tools documentadas em `docs/mcp/TOOLS.md` (geradas do
 código), e as escritas das rotas REST passaram a morar em comandos
 compartilhados (`app/services/commands/`) — sem mudança de comportamento.
 
+### Corrigir um lançamento pela IA segue a mesma regra do app
+
+- **Mudar só o valor, a data ou a forma de pagamento refaz as contas no servidor**,
+  do jeito que a tela faz: numa compra em dólar, o valor novo é em dólar e é
+  convertido de novo; a data nova usa a cotação do dia; e a divisão entre as pessoas
+  acompanha na mesma proporção. Antes a IA montava a edição por conta própria, e em
+  alguns casos pedia a divisão de novo sem precisar.
+- **Quando o valor novo não tem um jeito só de ser repartido** (várias pessoas
+  pagaram, a divisão é por valores fixos, a nota tem vários itens), o app pergunta em
+  vez de adivinhar.
+- **Levar a compra para o cartão tira a conta do pagador**, e tirá-la do cartão deixa
+  de travar a edição seguinte.
+- Detalhes em [ADR 0041](docs/adr/0041-edicao-parcial-completada-pelo-comando.md).
+
 ### O que você preenche não se perde mais pelo caminho
 
 - **Recorrência criada pausada nasce pausada.** A chave "Despesa Ativa" do formulário
