@@ -128,13 +128,16 @@ def _serialize_statement(
     payments: Optional[list[StatementPayment]] = None,
     card: Optional[CreditCard] = None,
     excluidos: Optional[int] = None,
+    total: Optional[Decimal] = None,
 ) -> dict:
     """`payments=None` busca sozinho; quem serializa uma LISTA passa o grupo já
-    carregado para não disparar uma consulta por fatura. `excluidos` segue a
-    mesma regra — ver `CreditCardService.excluded_counts`."""
+    carregado para não disparar uma consulta por fatura. `excluidos` e `total`
+    seguem a mesma regra — ver `CreditCardService.excluded_counts` e
+    `effective_totals`."""
     if payments is None:
         payments = _payments_by_statement(session, [stmt.id]).get(stmt.id, [])
-    total = CreditCardService.effective_total(session, stmt)
+    if total is None:
+        total = CreditCardService.effective_total(session, stmt)
     pago = sum((p.amount for p in payments), Decimal("0.00"))
     saldo = total - pago
     card = card or session.get(CreditCard, stmt.card_id)
@@ -334,6 +337,10 @@ def list_statements(
     # Em lote pela mesma razão dos pagamentos: por fatura eram duas contagens
     # dentro do laço, ~120 consultas num cartão com 60 meses de histórico.
     excluidos = CreditCardService.excluded_counts(session, ids, card)
+    # E o total: numa fatura ABERTA ele é um SUM, e o fechamento é manual — uma
+    # fatura antiga pode ficar aberta para sempre. Um GROUP BY para todas
+    # (auditoria 2026-09-26, P4).
+    totais = CreditCardService.effective_totals(session, card, list(statements))
     # is_current marca o ciclo aberto de hoje. A tela não pode deduzir isso de
     # "a mais recente": uma compra lançada com data futura cria uma fatura à
     # frente, e ela não é a fatura atual.
@@ -342,7 +349,7 @@ def list_statements(
             # `card=card` fecha mais um SELECT por fatura: todas são deste cartão,
             # que a rota já carregou para autorizar.
             **_serialize_statement(
-                session, s, pagamentos.get(s.id, []), card, excluidos.get(s.id, 0)
+                session, s, pagamentos.get(s.id, []), card, excluidos.get(s.id, 0), totais[s.id]
             ),
             "is_current": s.month == current_month,
         }
