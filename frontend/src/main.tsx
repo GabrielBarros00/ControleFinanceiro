@@ -7,7 +7,9 @@ import { createRoot } from 'react-dom/client'
 import '@fontsource-variable/geist'
 import './index.css'
 import App from './App.tsx'
+import { ErrorBoundary } from './components/layout/ErrorBoundary'
 import { iniciarCapturaDeInstalacao } from './lib/install'
+import { instalarRecargaPorChunk } from './lib/recarga-por-chunk'
 
 /*
  * ANTES do `createRoot`, e é o ponto todo.
@@ -25,9 +27,17 @@ import { iniciarCapturaDeInstalacao } from './lib/install'
  */
 iniciarCapturaDeInstalacao()
 
+// Antes do primeiro `import()` das rotas: a aba aberta durante um deploy pede o
+// chunk antigo, e a falha vira uma recarga (única) em vez de tela branca.
+instalarRecargaPorChunk()
+
+// A tela de erro de último recurso: pega o que escapar das rotas (provedores,
+// o próprio roteador). A das rotas, em `App.tsx`, é a que costuma aparecer.
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
-    <App />
+    <ErrorBoundary>
+      <App />
+    </ErrorBoundary>
   </StrictMode>,
 )
 
