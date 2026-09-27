@@ -372,6 +372,6 @@ trocar de branch, rode `make migrate`.
 ```bash
 cd backend && python -m pytest              # suíte completa (SQLite em memória)
 cd frontend && npm test                     # unit (vitest)
-cd frontend && npx playwright test          # E2E (sobe backend+frontend sozinho)
+cd frontend && npm run test:e2e             # E2E (sobe backend+frontend sozinho; ver CONTRIBUTING)
 python scripts/smoke_prod.py                # jornada completa contra o stack do compose
 ```
