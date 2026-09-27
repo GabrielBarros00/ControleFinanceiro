@@ -36,6 +36,8 @@ const wrapper = ({ children }: { children: React.ReactNode }) => {
 function capturarPatch() {
   const corpo: { valor: Record<string, unknown> | null } = { valor: null };
   server.use(
+    // O hook também carrega a lista de membros; ela não entra na asserção.
+    http.get(`http://localhost:8000/api/v1/workspaces/${WS}/members`, () => HttpResponse.json([])),
     http.patch(`http://localhost:8000/api/v1/workspaces/${WS}/members/:userId`, async ({ request }) => {
       corpo.valor = (await request.json()) as Record<string, unknown>;
       return HttpResponse.json({ user_id: 2, role: 'member', financial_access: 'involved_only' });

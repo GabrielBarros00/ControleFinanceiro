@@ -27,6 +27,11 @@ function renderizar(t: TransactionRead) {
   server.use(
     http.get('http://localhost:8000/api/v1/me/credit-cards/', () => HttpResponse.json([{ id: 2, name: 'C6 Bank' }])),
     http.get('http://localhost:8000/api/v1/workspaces/1/categories', () => HttpResponse.json([])),
+    // Os nomes de quem pagou e de quem tem parte vêm da lista de membros.
+    http.get('http://localhost:8000/api/v1/workspaces/1/members', () => HttpResponse.json([
+      { user_id: 1, role: 'owner', user_name: 'Alice', user_email: 'alice@t.com', joined_at: '2026-01-01' },
+    ])),
+    http.get('http://localhost:8000/api/v1/workspaces/1/invites', () => HttpResponse.json([])),
   );
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   render(

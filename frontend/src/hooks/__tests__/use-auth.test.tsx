@@ -50,6 +50,11 @@ describe('useAuth', () => {
     server.use(
       http.get('http://localhost:8000/api/v1/auth/me', () => {
         return new HttpResponse(null, { status: 401 });
+      }),
+      // O 401 do /auth/me faz o interceptor tentar renovar a sessão; sem cookie
+      // de refresh, o servidor também responde 401 — é o que encerra a sessão.
+      http.post('http://localhost:8000/api/v1/auth/refresh', () => {
+        return new HttpResponse(null, { status: 401 });
       })
     );
 

@@ -130,6 +130,15 @@ def ator_fixture(db_session, override_get_session):
     }
 
 
+def _cabecalho(cookies: Dict[str, str]) -> Dict[str, str]:
+    """O cookie de sessão como CABEÇALHO, como o resto da suíte faz.
+
+    `cookies=` por requisição está depreciado no `TestClient` do Starlette (eram
+    ~600 avisos por execução só neste arquivo) e vai deixar de existir.
+    """
+    return {"Cookie": "; ".join(f"{nome}={valor}" for nome, valor in cookies.items())}
+
+
 def test_nenhuma_rota_de_escrita_responde_500(ator):
     spec = app.openapi()
     substituicoes = {
@@ -164,7 +173,7 @@ def test_nenhuma_rota_de_escrita_responde_500(ator):
 
         for metodo in sorted(metodos):
             for corpo in variantes:
-                resp = cliente.request(metodo, url, json=corpo, cookies=ator["cookies"])
+                resp = cliente.request(metodo, url, json=corpo, headers=_cabecalho(ator["cookies"]))
                 chamadas += 1
                 # EM PRODUÇÃO cada requisição abre a PRÓPRIA sessão; aqui a suíte
                 # compartilha uma só (`override_get_session`). Sem este rollback,
@@ -203,14 +212,14 @@ def test_id_acima_de_64_bits_responde_422_e_nao_500(ator):
     ]
     ruins = []
     for metodo, url in alvos:
-        resp = cliente.request(metodo, url, cookies=cookies)
+        resp = cliente.request(metodo, url, headers=_cabecalho(cookies))
         ator["sessao"].rollback()
         if resp.status_code >= 500:
             ruins.append(f"{metodo} {url} -> {resp.status_code}")
 
     corpo = {"title": "ok", "base_amount": 10, "interval": 1, "category_id": ID_GRANDE}
     resp = cliente.post(
-        f"/api/v1/workspaces/{ws_id}/recurring", json=corpo, cookies=cookies
+        f"/api/v1/workspaces/{ws_id}/recurring", json=corpo, headers=_cabecalho(cookies)
     )
     ator["sessao"].rollback()
     if resp.status_code >= 500:
