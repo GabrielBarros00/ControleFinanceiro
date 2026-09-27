@@ -148,6 +148,93 @@ def test_mesmo_refresh_simultaneo_gera_um_par(mundo):
         assert len(vivos) <= 1
 
 
+def _espera_quem_trava(engine, quantos: int, prazo: float = 10.0) -> None:
+    """Espera até `quantos` conexões estarem paradas esperando TRAVA no Postgres.
+
+    Sem `sleep` às cegas: o teste só avança quando a transação que ele quer
+    parada de fato está parada na trava.
+    """
+    fim = time.monotonic() + prazo
+    while time.monotonic() < fim:
+        with engine.connect() as c:
+            n = c.exec_driver_sql(
+                "SELECT count(*) FROM pg_stat_activity "
+                "WHERE datname = current_database() AND wait_event_type = 'Lock'"
+            ).scalar()
+        if n >= quantos:
+            return
+        time.sleep(0.05)
+    raise AssertionError(f"esperava {quantos} conexão(ões) presa(s) em trava")
+
+
+@precisa_de_mvcc
+def test_refresh_reusado_nao_trava_em_deadlock_com_quem_revoga(mundo, monkeypatch):
+    """A ordem exata do deadlock que o CI pegou (PR #122 e push da onda 7):
+
+    1. W gira o refresh e segura as travas até o commit;
+    2. X, com o mesmo refresh, espera W no `UPDATE` do token e, quando W commita,
+       o Postgres o deixa com a trava da linha do token mesmo sem atualizá-la
+       (READ COMMITTED rechecando o WHERE); X vai revogar a concessão;
+    3. Y chega depois, vê o token já girado e revoga direto: trava a concessão e
+       quer os tokens — e o token está com X;
+    4. X quer a concessão, que está com Y. Deadlock: um dos dois vira 500.
+
+    Todo caminho tem de travar a CONCESSÃO antes de qualquer token.
+    """
+    original = tokens.revoke_grant
+    x_parou, x_segue = threading.Event(), threading.Event()
+    thread_x: dict = {}
+
+    def revoga_pausando_x(session, grant, reason):
+        if threading.current_thread() is thread_x.get("t"):
+            x_parou.set()
+            x_segue.wait(timeout=15)
+        return original(session, grant, reason)
+
+    monkeypatch.setattr(tokens, "revoke_grant", revoga_pausando_x)
+
+    def renova(s):
+        cliente = s.get(OAuthClient, mundo["cliente_id"])
+        return tokens.refresh(s, client=cliente, refresh_token=mundo["refresh"], scope=None,
+                              resource=settings.mcp_resource_url)
+
+    resultados: dict = {}
+
+    def roda(nome):
+        with Session(mundo["engine"]) as s:
+            try:
+                resultados[nome] = renova(s)
+                s.commit()
+            except OAuthError as exc:
+                s.commit()  # a revogação por reuso precisa valer
+                resultados[nome] = exc
+            except Exception as exc:  # o deadlock chega aqui
+                s.rollback()
+                resultados[nome] = exc
+
+    with Session(mundo["engine"]) as w:
+        assert isinstance(renova(w), tokens.TokenPair)
+        x = threading.Thread(target=roda, args=("x",))
+        thread_x["t"] = x
+        x.start()
+        _espera_quem_trava(mundo["engine"], 1)  # X parado atrás de W
+        w.commit()
+    assert x_parou.wait(timeout=15), "X não chegou à revogação"
+    y = threading.Thread(target=roda, args=("y",))
+    y.start()
+    _espera_quem_trava(mundo["engine"], 1)  # Y parado (atrás de X, ou no token de X)
+    x_segue.set()
+    x.join(timeout=20)
+    y.join(timeout=20)
+
+    assert set(resultados) == {"x", "y"}, f"alguém não terminou: {resultados!r}"
+    inesperados = {k: v for k, v in resultados.items() if not isinstance(v, OAuthError)}
+    assert not inesperados, f"reuso do refresh virou erro de banco, não recusa: {inesperados!r}"
+    with Session(mundo["engine"]) as s:
+        vivos = s.exec(select(OAuthToken).where(OAuthToken.revoked_at.is_(None))).all()
+        assert vivos == [], "o reuso tem de derrubar a conexão inteira"
+
+
 @precisa_de_mvcc
 def test_mesmo_codigo_simultaneo_vira_um_token(mundo):
     verificador = crypto.new_secret("v")

@@ -150,6 +150,9 @@ compartilhados (`app/services/commands/`) — sem mudança de comportamento.
 - **Levar a compra para o cartão tira a conta do pagador**, e tirá-la do cartão deixa
   de travar a edição seguinte.
 - Detalhes em [ADR 0041](docs/adr/0041-edicao-parcial-completada-pelo-comando.md).
+- **Renovar a conexão de um agente duas vezes ao mesmo tempo não dá mais erro
+  interno.** O reuso da renovação derruba a conexão, como deve, mas podia travar o
+  banco e responder erro 500 em vez de pedir para reconectar.
 
 ### O que você preenche não se perde mais pelo caminho
 

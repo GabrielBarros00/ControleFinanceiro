@@ -199,9 +199,23 @@ def refresh(
     ).first()
     if linha is None:
         raise OAuthError("invalid_grant", "refresh_token inválido")
-    concessao = session.get(OAuthGrant, linha.grant_id)
+    # A CONCESSÃO é travada antes de qualquer token, e a renovação inteira passa
+    # por ela. Travando o token primeiro, dois reusos simultâneos davam deadlock
+    # no Postgres: quem esperou o `UPDATE` do token fica com a trava da linha
+    # mesmo sem atualizá-la (READ COMMITTED recheca o WHERE), e quem chegou depois
+    # revogava travando a concessão e depois os tokens — ordens opostas, e um
+    # deles saía com 500 em vez de `invalid_grant` (visto no CI; ver
+    # `test_refresh_reusado_nao_trava_em_deadlock_com_quem_revoga`).
+    concessao = session.exec(
+        select(OAuthGrant)
+        .where(OAuthGrant.id == linha.grant_id)
+        .with_for_update()
+        .execution_options(populate_existing=True)
+    ).first()
     if concessao is None or concessao.client_pk != client.id:
         raise OAuthError("invalid_grant", "refresh_token inválido")
+    # Quem esperou a trava pode estar com o token de antes do commit do outro.
+    session.refresh(linha)
     if concessao.revoked_at is not None or linha.revoked_at is not None:
         raise OAuthError("invalid_grant", "conexão revogada — reconecte o aplicativo")
     if linha.rotated_at is not None:
