@@ -94,6 +94,40 @@ async function contaComDados(browser: Browser, largura: number, altura: number) 
     data: { name: 'Conta Corrente Itaú Personnalité — Agência 0912', type: 'checking' },
   }));
 
+  /*
+   * Dinheiro de GENTE GRANDE (auditoria 2026-09-26, Q2). Com os R$ 220,00 de
+   * acima tudo cabia, e o portão ficou verde enquanto "R$ 45.168" e
+   * "−R$ 1.617.821,75" eram cortados a 768 e 1024px. E liquidado: o Extrato é o
+   * caixa, e sem nada pago ele ficava vazio a 360px — a tabela cuja coluna de
+   * valor saía da tela não tinha uma linha para medir.
+   */
+  await ok('lançamento de 7 dígitos', await api.post(`${API}/workspaces/${ws.id}/transactions/`, {
+    data: {
+      title: 'Reforma da casa inteira',
+      total_amount: '1234567.89',
+      transaction_date: new Date().toISOString(),
+      payment_method: 'pix',
+      settled: true,
+      payers: [{ user_id: eu.id, amount: '1234567.89' }],
+      splits: [{ user_id: eu.id, split_method: 'equal', input_value: '0' }],
+    },
+  }));
+  const cartao = await api.post(`${API}/me/credit-cards`, {
+    data: { name: 'Cartão Platinum Internacional', limit: '50000.00', closing_day: 3, due_day: 10 },
+  });
+  await ok('cartão', cartao);
+  await ok('compra de 6 dígitos no cartão', await api.post(`${API}/workspaces/${ws.id}/transactions/`, {
+    data: {
+      title: 'Passagens da viagem de férias da família',
+      total_amount: '98765.43',
+      transaction_date: new Date().toISOString(),
+      payment_method: 'credit_card',
+      credit_card_id: (await cartao.json()).id,
+      payers: [{ user_id: eu.id, amount: '98765.43', payment_method: 'credit_card' }],
+      splits: [{ user_id: eu.id, split_method: 'equal', input_value: '0' }],
+    },
+  }));
+
   return { context, wsId: ws.id as number };
 }
 
@@ -189,6 +223,61 @@ async function semTextoEsmagado(page: Page, onde: string) {
   ).toEqual([]);
 }
 
+/**
+ * O dinheiro está À VISTA? (auditoria 2026-09-26, C8/Q2)
+ *
+ * `semTextoEsmagado` só olha quem promete reticências. O defeito que a auditoria
+ * mediu era outro e passava por ele: a tabela do Extrato e a da fatura rolavam
+ * DENTRO do card no celular, e a coluna de valor ficava fora da área visível —
+ * data, movimento e origem à vista, o dinheiro não. Nada estourava a página, e
+ * nenhum texto era "truncado". Três perguntas, sobre toda folha de texto com
+ * valor em dinheiro dentro do `<main>`:
+ *
+ * 1. está cortada no próprio elemento (`overflow: hidden` com texto maior)?
+ * 2. passa da área visível do primeiro ancestral que recorta (`overflow` que
+ *    não é `visible` — o contêiner com rolagem da tabela, o card)?
+ * 3. e a página, rola na horizontal?
+ */
+async function dinheiroAVista(page: Page, onde: string) {
+  const problemas = await page.evaluate(() => {
+    const achados: string[] = [];
+    const W = document.documentElement.clientWidth;
+    const rolagem = document.documentElement.scrollWidth - W;
+    if (rolagem > 1) achados.push(`a página rola ${rolagem}px na horizontal`);
+    const dinheiro = /R\$\s?[\d.]+,\d{2}/;
+    for (const el of Array.from(document.querySelectorAll<HTMLElement>('main *'))) {
+      if (el.children.length > 0) continue;
+      const texto = (el.textContent ?? '').trim();
+      if (texto.length > 40 || !dinheiro.test(texto)) continue;
+      const r = el.getBoundingClientRect();
+      if (r.width === 0 && r.height === 0) continue;
+      const cs = getComputedStyle(el);
+      if (cs.visibility === 'hidden') continue;
+      if (el.scrollWidth > el.clientWidth + 1 && cs.overflowX !== 'visible') {
+        achados.push(`"${texto}" cortado no próprio elemento (${el.clientWidth}px de ${el.scrollWidth}px)`);
+      }
+      for (let pai = el.parentElement; pai && pai !== document.body; pai = pai.parentElement) {
+        if (getComputedStyle(pai).overflowX === 'visible') continue;
+        const area = pai.getBoundingClientRect();
+        if (r.right > area.right + 1 || r.left < area.left - 1) {
+          const classe = typeof pai.className === 'string' ? pai.className.slice(0, 50) : '';
+          achados.push(
+            `"${texto}" fora da área visível de <${pai.tagName.toLowerCase()} class="${classe}"> `
+            + `(texto ${Math.round(r.left)}–${Math.round(r.right)}px, área ${Math.round(area.left)}–${Math.round(area.right)}px)`,
+          );
+        }
+        break;
+      }
+    }
+    return [...new Set(achados)].slice(0, 8);
+  });
+
+  expect(
+    problemas,
+    `${onde}: dinheiro que a pessoa não consegue ler:\n  ` + problemas.join('\n  '),
+  ).toEqual([]);
+}
+
 for (const { largura, altura, nome } of LARGURAS) {
   test(`textos não são espremidos a ${largura}px (${nome})`, async ({ browser }) => {
     test.setTimeout(120_000);
@@ -202,6 +291,7 @@ for (const { largura, altura, nome } of LARGURAS) {
       '/me/cards',
       '/me/commitments',
       '/me/ledger',
+      '/me/reports',
       '/me/settings',
       `/w/${wsId}`,
       `/w/${wsId}/transactions`,
@@ -214,6 +304,7 @@ for (const { largura, altura, nome } of LARGURAS) {
       await esperarAssentar(page);
       await telaRenderizou(page, `${rota} a ${largura}px`);
       await semTextoEsmagado(page, `${rota} a ${largura}px`);
+      await dinheiroAVista(page, `${rota} a ${largura}px`);
     }
 
     await context.close();
