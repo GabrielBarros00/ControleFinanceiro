@@ -56,3 +56,21 @@ describe('TransactionItem — gate de RBAC (RBAC-FE-001)', () => {
     expect(screen.getByLabelText('Excluir transação')).toBeDisabled();
   });
 });
+
+describe('TransactionItem — ações no celular (auditoria 2026-09-26, A5)', () => {
+  // O jsdom não aplica CSS: o que se confere é a regra das classes. O efeito foi
+  // medido no navegador a 360px — título médio de 59 para 153px.
+  const grupoDeAcoes = () => screen.getByLabelText('Excluir transação').parentElement!;
+
+  it('com detalhe ao tocar (onSelect), os botões saem da linha abaixo de sm', () => {
+    render(<TransactionItem tx={tx} canWrite onSelect={() => {}} onEdit={() => {}} onDelete={() => {}} />);
+    expect(grupoDeAcoes().className).toMatch(/(^|\s)hidden(\s|$)/);
+    expect(grupoDeAcoes().className).toContain('sm:flex');
+  });
+
+  it('sem detalhe (modo "Selecionar vários"), os botões continuam no celular', () => {
+    render(<TransactionItem tx={tx} canWrite onEdit={() => {}} onDelete={() => {}} />);
+    expect(grupoDeAcoes().className).not.toMatch(/(^|\s)hidden(\s|$)/);
+    expect(grupoDeAcoes().className).toMatch(/(^|\s)flex(\s|$)/);
+  });
+});
