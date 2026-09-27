@@ -29,7 +29,11 @@
 // Suba a versão para invalidar tudo o que ficou em cache de uma vez. É o único
 // botão de emergência de um SW: sem ele, um cache ruim sobrevive no aparelho da
 // pessoa e não há como alcançá-lo do servidor.
-const VERSAO = 'cf4-v2';
+//
+// v3 (2026-09-26): a v2 guardava o `index.html` que o nginx devolvia, com 200, no
+// lugar de um chunk que tinha sumido no deploy — e servia esse HTML como se
+// fosse o JS até a próxima troca de versão (auditoria 2026-09-26, C6).
+const VERSAO = 'cf4-v3';
 const CACHE_CASCA = `${VERSAO}-casca`;
 const CACHE_ASSETS = `${VERSAO}-assets`;
 
@@ -146,6 +150,11 @@ self.addEventListener('notificationclick', (evento) => {
   );
 });
 
+/** Resposta com corpo HTML — nunca é um asset de `/assets/`. */
+function ehHtml(resposta) {
+  return (resposta.headers.get('content-type') || '').includes('text/html');
+}
+
 self.addEventListener('fetch', (evento) => {
   const { request } = evento;
 
@@ -174,19 +183,23 @@ self.addEventListener('fetch', (evento) => {
   // ---- Assets com hash no nome: imutáveis, cache-first ----
   if (url.pathname.startsWith('/assets/')) {
     evento.respondWith(
-      caches.match(request).then(
-        (emCache) =>
-          emCache ||
-          fetch(request).then((resposta) => {
-            // Só guarda o que deu certo: cachear um 404 ou um 500 congelaria o
-            // erro no aparelho até a próxima troca de VERSAO.
-            if (resposta.ok) {
-              const copia = resposta.clone();
-              caches.open(CACHE_ASSETS).then((cache) => cache.put(request, copia));
-            }
-            return resposta;
-          }),
-      ),
+      caches.match(request).then((emCache) => {
+        if (emCache && !ehHtml(emCache)) return emCache;
+        return fetch(request).then((resposta) => {
+          // Só guarda o que deu certo: cachear um 404 ou um 500 congelaria o
+          // erro no aparelho até a próxima troca de VERSAO.
+          //
+          // E "deu certo" não basta: HTML em `/assets/` é o `index.html` de um
+          // fallback de SPA respondendo por um chunk que não existe. Com 200,
+          // ele passava no `resposta.ok`, ia para o cache e era servido como o
+          // JS daquela tela — cache-first, então sem nunca rebuscar.
+          if (resposta.ok && !ehHtml(resposta)) {
+            const copia = resposta.clone();
+            caches.open(CACHE_ASSETS).then((cache) => cache.put(request, copia));
+          }
+          return resposta;
+        });
+      }),
     );
     return;
   }
