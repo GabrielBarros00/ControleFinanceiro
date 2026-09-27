@@ -57,7 +57,7 @@ def _get_transaction_or_404(
 
 
 @router.post("/transactions/{transaction_id}/attachments", response_model=AttachmentRead)
-async def upload_attachment(
+def upload_attachment(
     workspace_id: int,
     transaction_id: int,
     file: UploadFile = File(...),
@@ -65,7 +65,7 @@ async def upload_attachment(
     membership: WorkspaceMembership = Depends(require_role(WorkspaceRole.member)),
 ):
     _get_transaction_or_404(session, workspace_id, transaction_id, membership)
-    attachment = await cmd_anexos.add_attachment(
+    attachment = cmd_anexos.add_attachment(
         session, workspace_id, transaction_id, file, uploaded_by_user_id=membership.user_id
     )
     session.commit()

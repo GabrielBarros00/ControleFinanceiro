@@ -44,7 +44,7 @@ class AnexoEnviado(BaseModel):
 
 
 @router.post("/uploads", response_model=AnexoEnviado)
-async def enviar_anexo_pelo_link(
+def enviar_anexo_pelo_link(
     request: Request,
     file: UploadFile = File(...),
     authorization: str | None = Header(None),
@@ -73,7 +73,7 @@ async def enviar_anexo_pelo_link(
     set_current_user_id(envio.user.id)
     set_request_origin(f"mcp:{envio.grant.client_name}"[:80])
     try:
-        anexo = await cmd_anexos.add_attachment(
+        anexo = cmd_anexos.add_attachment(
             session, envio.workspace_id, envio.transaction_id, file, uploaded_by_user_id=envio.user.id
         )
         # Uso único por UPDATE condicional (`corridas-so-aparecem-no-postgres`):

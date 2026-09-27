@@ -192,8 +192,16 @@ async def register(request: Request, session: Session = Depends(get_session)):
         return _oauth_error(OAuthError("invalid_client_metadata", "o corpo deve ser JSON"))
     from starlette.concurrency import run_in_threadpool
 
+    # A sessão é usada SÓ aqui dentro, no pool de threads — inclusive o
+    # `rollback`, que também vai ao banco. A rota é `async` porque o corpo do
+    # RFC 7591 é JSON livre (`request.json()`), e o event loop é o servidor
+    # inteiro: nada de banco nele (auditoria 2026-09-26, C7).
     def _registra():
-        cliente, segredo = clients.register_dcr(session, metadados)
+        try:
+            cliente, segredo = clients.register_dcr(session, metadados)
+        except OAuthError:
+            session.rollback()
+            raise
         session.commit()
         session.refresh(cliente)
         return clients.registration_response(cliente, segredo)
@@ -201,7 +209,6 @@ async def register(request: Request, session: Session = Depends(get_session)):
     try:
         corpo = await run_in_threadpool(_registra)
     except OAuthError as exc:
-        session.rollback()
         return _oauth_error(exc)
     logger.info("oauth_cliente_registrado", nome=corpo.get("client_name"))
     return JSONResponse(status_code=201, content=corpo, headers=_SEM_CACHE)
