@@ -315,3 +315,49 @@ def test_a_materializacao_roda_antes_do_aviso_de_vencimento():
     assert materializa < avisa, (
         "o cron avisa sobre vencimento ANTES de materializar as ocorrências"
     )
+
+
+def test_o_expurgo_roda_na_subida_e_depois_a_cada_24_horas(tmp_path):
+    """O laço do `cron` executado de verdade, com `python` e `sleep` falsos.
+
+    Auditoria 2026-09-26, O6: o contador começava em 0 e o expurgo só rodava
+    depois de 24 horas SEGUIDAS de container no ar. Com deploy mais de uma vez
+    por dia, ele podia nunca rodar — e as tabelas que ele poda (auditoria,
+    eventos, sessões, lotes de importação) crescem sem parar. Um teste de texto
+    não pegaria a ordem das linhas dentro do laço; este roda o laço.
+    """
+    import shutil
+    import subprocess
+
+    sh = shutil.which("sh")
+    if sh is None:
+        pytest.skip("sem `sh` nesta máquina")
+    texto = COMPOSE.read_text(encoding="utf-8")
+    achado = re.search(r"sh -c '(horas=.*?done)'", texto, re.S)
+    assert achado, "o laço do cron não foi encontrado no compose"
+    # `$$` é o escape do compose para `$`.
+    laco = achado.group(1).replace("$$", "$")
+    registro = tmp_path / "chamadas.log"
+    falsos = (
+        'python() { echo "$1" >> "$REGISTRO"; }\n'
+        # Cada `sleep` é uma hora; encerra na 50ª.
+        'sleep() { voltas=$((voltas + 1)); [ "$voltas" -ge 50 ] && exit 0; return 0; }\n'
+        "voltas=0\n"
+    )
+    subprocess.run(
+        [sh, "-c", falsos + laco],
+        env={"REGISTRO": str(registro), "PATH": ""},
+        check=True, timeout=30,
+    )
+
+    hora = -1
+    horas_do_expurgo = []
+    for linha in registro.read_text().split():
+        if linha == "scripts/backfill_rates.py":
+            hora += 1
+        elif linha == "scripts/purge_old_records.py":
+            horas_do_expurgo.append(hora)
+    assert hora == 49, f"o laço deu {hora + 1} voltas, não 50 — os falsos não pegaram?"
+    assert horas_do_expurgo == [0, 24, 48], (
+        f"expurgo nas horas {horas_do_expurgo}: tem de rodar na subida (hora 0) e a cada 24"
+    )

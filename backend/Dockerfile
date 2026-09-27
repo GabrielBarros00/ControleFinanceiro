@@ -21,16 +21,21 @@ WORKDIR /app
 COPY requirements.txt ./
 RUN pip install --no-cache-dir -r requirements.txt
 
-COPY . .
-
 # O diretório de anexos (ADR 0007) precisa existir NA IMAGEM e pertencer ao
 # appuser. Um volume nomeado montado num caminho que não existe na imagem é
 # criado pelo Docker como root:root — e o processo, que roda como appuser, levava
 # "permission denied" no primeiro upload de cada workspace. Criando aqui, o
 # volume novo herda dono e modo deste diretório.
+#
+# O usuário nasce ANTES do código, que já chega com dono pelo `COPY --chown`. O
+# `chown -R /app` depois do `COPY . .` levava 111 s no build e duplicava a camada
+# da aplicação inteira só para trocar o dono dos arquivos (auditoria
+# 2026-09-26, O4).
 RUN useradd --create-home appuser \
  && mkdir -p /data/attachments \
- && chown -R appuser /app /data
+ && chown appuser /app /data /data/attachments
+
+COPY --chown=appuser:appuser . .
 USER appuser
 
 EXPOSE 8000
@@ -46,4 +51,8 @@ EXPOSE 8000
 # para fixar um endereço); quem publica o backend de outro jeito ajusta pela
 # variável, sem rebuild. O nginx já sobrescreve o cabeçalho — isto é a segunda
 # tranca, não a primeira.
-CMD ["sh", "-c", "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8000 --proxy-headers --forwarded-allow-ips \"${FORWARDED_ALLOW_IPS:-127.0.0.1,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16}\" --workers 1"]
+#
+# `--no-access-log`: toda requisição já sai UMA vez no log JSON do app
+# (`request_logging_middleware`, com request_id e duração); o access log do
+# uvicorn a repetia em texto — o dobro das linhas, e sem rotação (O1).
+CMD ["sh", "-c", "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8000 --proxy-headers --forwarded-allow-ips \"${FORWARDED_ALLOW_IPS:-127.0.0.1,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16}\" --workers 1 --no-access-log"]

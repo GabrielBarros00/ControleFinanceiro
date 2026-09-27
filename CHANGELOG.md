@@ -137,6 +137,18 @@ registro por CIMD/DCR, 59 tools documentadas em `docs/mcp/TOOLS.md` (geradas do
 código), e as escritas das rotas REST passaram a morar em comandos
 compartilhados (`app/services/commands/`) — sem mudança de comportamento.
 
+### Servidor mais previsível
+
+- **Os logs não enchem mais o disco.** Cada serviço guarda até 50 MB de log, em
+  arquivos que giram, e cada requisição passou a ocupar uma linha em vez de duas.
+- **Um serviço não derruba mais os outros por falta de memória**: cada um tem um teto,
+  com folga sobre o uso real.
+- **A limpeza de registros antigos roda de verdade.** Ela esperava 24 horas seguidas
+  de servidor no ar; com atualizações frequentes, podia nunca acontecer. Agora roda a
+  cada subida e depois uma vez por dia.
+- **A imagem do servidor é montada mais rápido** e não carrega mais arquivos de
+  desenvolvimento.
+
 ### Os valores aparecem inteiros no tablet e no celular
 
 - **No tablet em pé (768 a 1023 px), a barra lateral deu lugar à navegação de
