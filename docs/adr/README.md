@@ -46,6 +46,7 @@ Cada ADR registra **uma decisão** relevante do projeto: o contexto, a decisão 
 | [0038](0038-estabelecimento.md) | Estabelecimento é vocabulário do espaço, com apelidos do extrato; o lançamento novo se liga sozinho só por apelido igual ao título, e parecido vira pergunta | Lançamentos / relatórios |
 | [0039](0039-assinaturas.md) | Assinatura é uma recorrência marcada (plano, teste grátis, benefícios, provedor = estabelecimento); o custo por mês é calculado no servidor | Recorrência |
 | [0040](0040-item-da-nota-com-medida.md) | O item da nota tem medida: unidade (un, kg, g, l, ml, m), preço unitário com 4 casas e conferência com tolerância de 1 centavo; obrigatório só ao adicionar item | Lançamento |
+| [0041](0041-edicao-parcial-completada-pelo-comando.md) | A edição parcial que mexe no dinheiro é completada pelo comando com a divisão gravada: valor na moeda da compra, reconversão na mesma proporção, total novo só onde há um jeito de repartir | Lançamento / moeda |
 
 ## Escrevendo um novo ADR
 

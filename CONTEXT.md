@@ -185,9 +185,11 @@ Os números da camada pessoal (`OverviewService`), somando todos os espaços da 
   - IOF só em compra com cartão, de crédito ou de débito (`iof_rate`).
   - O original fica em `original_amount`, `original_currency`, `exchange_rate` e
     `rate_source`.
-  - Na edição, o valor é lido na moeda original. Mudar valor, data, moeda ou cartão
-    reconverte, pela edição completa. O caminho parcial da API (`PUT` sem `payers`) não
-    converte nada, e é por isso que o SPA e o MCP não o usam para isso.
+  - Na edição, valor e moeda são os **da compra** (a original, se foi convertida).
+    Mudar valor, moeda, data ou forma de pagamento reconverte, também pela **edição
+    parcial** (`PUT` sem `payers`): o comando completa a edição com a divisão gravada
+    e a reescala na mesma proporção (ADR 0041). Total novo só se reparte sozinho com
+    um pagador e divisão por igual ou percentual; senão a API pede a divisão.
 - Nada soma moedas diferentes: o que não converte fica de fora, com contagem (ADR 0006).
 
 ## Contas, renda, financiamento, metas, importação

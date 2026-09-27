@@ -31,7 +31,6 @@ from app.domain.access_policy import (
     scope_transactions,
 )
 from app.domain.dates import add_months, month_key_local
-from app.domain.item_da_nota import unitario_depois_de_rateio
 from app.domain.money import Money
 from app.domain.query_policy import resolve_currency, workspace_base_currency
 from app.domain.settlement import resolve_settled_at
@@ -42,7 +41,9 @@ from app.models.transaction import (
     SplitMethod,
     SplitMode,
     Transaction,
+    TransactionAdjustment,
     TransactionItem,
+    TransactionItemShare,
     TransactionPayer,
     TransactionSplit,
     TransactionStatus,
@@ -50,9 +51,11 @@ from app.models.transaction import (
 from app.models.workspace import WorkspaceMembership
 from app.schemas.transaction import (
     BulkCategorizeRequest,
+    TransactionAdjustmentCreate,
     TransactionCreate,
     TransactionItemCreate,
     TransactionItemShareBase,
+    TransactionPayerBase,
     TransactionSplitBase,
     TransactionUpdate,
     normalize_payment_method,
@@ -71,6 +74,7 @@ from app.services.event_service import publish_event
 from app.services.transaction_service import (
     _allocate_proportional,
     _cents,
+    _validate_payer_accounts,
     convert_division_to_base,
     delete_transaction_children,
     persist_transaction_children,
@@ -165,39 +169,242 @@ def _ensure_financing_link_intact(db_transaction: Transaction, update_keys: set)
         )
 
 
-def _resync_item_amounts(session: Session, transaction_id: int, new_total: Decimal) -> None:
-    """Rateia `new_total` entre os itens da transação, em centavos exatos.
-
-    Usado pelo caminho de edição PARCIAL, que altera o total sem passar pela
-    recriação dos filhos. O total rateado é a fonte de verdade — recalcular a
-    linha a partir do unitário encolheria o item (mesmo cuidado do
-    `BaseCurrencyService._apply`). A MEDIDA fica (ADR 0040): quantidade e unidade
-    continuam, e o unitário é recalculado para o novo total — ou some, quando nem
-    com 4 casas ele fecharia. Antes a linha virava `1 × total` e "1,235 kg" sumia.
-    """
-    items = session.exec(
-        select(TransactionItem)
-        .where(TransactionItem.transaction_id == transaction_id)
-        .order_by(TransactionItem.position, TransactionItem.id)
-    ).all()
-    if not items:
-        return
-
-    pesos = {i: _cents(item.amount) for i, item in enumerate(items)}
-    if sum(pesos.values()) <= 0:
-        pesos = {i: 1 for i in range(len(items))}
-    alocado = _allocate_proportional(_cents(new_total), pesos)
-    for i, item in enumerate(items):
-        item.amount = Decimal(alocado[i]) / Decimal("100")
-        if item.unit_amount is not None:
-            item.unit_amount = unitario_depois_de_rateio(item.amount, item.quantity)
-        session.add(item)
-
-
 #: A regra mora em `services/base_conversion.py` desde que o pagamento de parcela
 #: de financiamento passou a precisar dela — rota não importa rota. O alias
 #: mantém os chamadores deste módulo como estavam.
 _compute_base_conversion = compute_base_conversion
+
+_PROVENIENCIA = ("original_amount", "original_currency", "exchange_rate", "iof_rate", "rate_source")
+
+
+def _moeda_da_compra(tx: Transaction) -> str:
+    """A moeda em que a compra foi feita: a original, se ela foi convertida (ADR 0015)."""
+    return tx.original_currency or tx.currency
+
+
+def _total_da_compra(tx: Transaction) -> Decimal:
+    """O total na moeda da compra. É nela que a edição lê o valor, como a tela mostra."""
+    if tx.original_currency and tx.original_amount is not None:
+        return tx.original_amount
+    return tx.total_amount
+
+
+def _aplica_conversao(
+    session: Session,
+    workspace_id: int,
+    update_data: dict,
+    *,
+    moeda: str,
+    total: Decimal,
+    quando,
+    forma,
+) -> Optional[dict]:
+    """Converte o total da compra para a moeda-base e grava o par em `update_data`.
+
+    Devolve a conversão (`None` quando a compra já está na base). Sem conversão,
+    a proveniência estrangeira é limpa: o registro não pode afirmar um câmbio que
+    já não bate com o valor.
+    """
+    conv = _compute_base_conversion(
+        session, workspace_id,
+        currency=moeda, total_amount=total, transaction_date=quando, payment_method=forma,
+    )
+    if conv is None:
+        update_data["total_amount"] = total
+        update_data["currency"] = moeda
+        for k in _PROVENIENCIA:
+            update_data[k] = None
+    else:
+        update_data["total_amount"] = conv["base_total"]
+        update_data["currency"] = conv["base_currency"]
+        update_data.update(conv["meta"])
+    return conv
+
+
+def _mexe_no_dinheiro(tx: Transaction, update_data: dict) -> bool:
+    """A edição parcial muda o que alguém pagou ou deve?
+
+    Muda quando mexe no total, na moeda ou na origem do pagamento (forma, cartão,
+    conta) — e, numa compra convertida, também na data, porque a cotação é a do
+    dia da compra.
+    """
+    return (
+        ("total_amount" in update_data and update_data["total_amount"] != _total_da_compra(tx))
+        or ("currency" in update_data and update_data["currency"] != _moeda_da_compra(tx))
+        or update_data.get("payment_method", tx.payment_method) != tx.payment_method
+        or update_data.get("credit_card_id", tx.credit_card_id) != tx.credit_card_id
+        or "account_id" in update_data
+        or (tx.original_currency is not None and "transaction_date" in update_data)
+    )
+
+
+def _definicao_gravada(session: Session, tx: Transaction) -> dict:
+    """A divisão como está gravada, no formato de entrada da edição completa.
+
+    Os valores estão na moeda-base, e as referências (pessoas, contas,
+    categorias) são as da linha — `referencias_gravadas` no cálculo.
+    """
+    def _de(modelo, *ordem):
+        return session.exec(
+            select(modelo).where(modelo.transaction_id == tx.id).order_by(*ordem)
+        ).all()
+
+    itens = _de(TransactionItem, TransactionItem.position, TransactionItem.id)
+    partes_dos_itens: Dict[int, List[TransactionItemShareBase]] = {}
+    if itens:
+        for s in session.exec(
+            select(TransactionItemShare)
+            .where(TransactionItemShare.item_id.in_([i.id for i in itens]))
+            .order_by(TransactionItemShare.id)
+        ).all():
+            partes_dos_itens.setdefault(s.item_id, []).append(TransactionItemShareBase(
+                user_id=s.user_id, split_method=s.split_method, input_value=s.input_value,
+            ))
+    return {
+        "payers": [
+            TransactionPayerBase(
+                user_id=p.user_id, amount=p.amount, payment_method=p.payment_method, account_id=p.account_id,
+            )
+            for p in _de(TransactionPayer, TransactionPayer.id)
+        ],
+        # Na divisão por item, os splits gravados são DERIVADOS dos itens.
+        "splits": [] if tx.split_mode == SplitMode.item else [
+            TransactionSplitBase(user_id=s.user_id, split_method=s.split_method, input_value=s.input_value)
+            for s in _de(TransactionSplit, TransactionSplit.id)
+        ],
+        "items": [
+            TransactionItemCreate(
+                title=i.title, description=i.description, amount=i.amount, quantity=i.quantity,
+                unit=i.unit, unit_amount=i.unit_amount, position=i.position, category_id=i.category_id,
+                shares=partes_dos_itens.get(i.id) or None,
+            )
+            for i in itens
+        ] or None,
+        "adjustments": [
+            TransactionAdjustmentCreate(type=a.type, description=a.description, amount=a.amount)
+            for a in _de(TransactionAdjustment, TransactionAdjustment.id)
+        ] or None,
+    }
+
+
+class ReescalaAmbigua(HTTPException):
+    """Total novo que o comando não reparte sozinho (`_recusa_reescala_ambigua`).
+
+    Para o REST é um 400 como outro qualquer. O MCP lê o `motivo` para dizer ao
+    agente qual parâmetro da tool completa a edição: a regra continua aqui, e lá
+    fica só a tradução para o vocabulário da tool.
+    """
+
+    def __init__(self, motivo: str, detalhe: str):
+        super().__init__(status_code=400, detail=detalhe)
+        self.motivo = motivo
+
+
+def _recusa_reescala_ambigua(tx: Transaction, definicao: dict) -> None:
+    """Total novo só se reparte sozinho quando há UM jeito de reparti-lo.
+
+    Um pagador e a divisão por igual ou por percentual: o novo total segue a
+    mesma regra. Com vários pagadores, valores fixos, itens detalhados ou
+    ajustes, o comando teria de adivinhar quem pagou a diferença ou em que item
+    ela está — e é a pessoa quem sabe.
+    """
+    if tx.split_mode == SplitMode.item:
+        motivo, detalhe = "por_item", "Despesa dividida por itens: altere o valor editando os itens (edição completa)"
+    elif definicao["adjustments"]:
+        motivo, detalhe = "ajustes", "Despesa com ajustes de total: use a edição completa (itens + ajustes)"
+    elif len(definicao["items"] or []) > 1:
+        motivo, detalhe = "itens", "Despesa com itens detalhados: altere o valor editando os itens (edição completa)"
+    elif len(definicao["payers"]) > 1:
+        motivo, detalhe = "pagadores", (
+            "Despesa paga por mais de uma pessoa: para mudar o valor, informe quanto "
+            "cada uma pagou (edição completa)"
+        )
+    elif len(definicao["splits"]) > 1 and definicao["splits"][0].split_method == SplitMethod.fixed:
+        motivo, detalhe = "valores_fixos", "Divisão por valores fixos: para mudar o valor, refaça a divisão (edição completa)"
+    else:
+        return
+    raise ReescalaAmbigua(motivo, detalhe)
+
+
+def _redefine_pela_edicao_parcial(
+    session: Session,
+    workspace_id: int,
+    tx: Transaction,
+    update_data: dict,
+    membership: WorkspaceMembership,
+) -> Transaction:
+    """Edição parcial que mexe no dinheiro: o comando completa a definição.
+
+    Até a auditoria de 2026-09-26 (A2) este caminho gravava `currency` sem
+    converter, lia `total_amount` na moeda-base e apagava o original, e mantinha
+    a cotação e o IOF antigos ao mudar a data ou o cartão. Por isso a tela e o
+    MCP o evitavam, cada um com a sua montagem da edição completa. Agora a
+    edição parcial É a completa: a divisão gravada, com o que a requisição muda,
+    passa pela mesma conversão e pelo mesmo cálculo.
+
+    A divisão é reescalada na proporção do que está gravado. Na reconversão
+    (mesma compra, cotação ou IOF novos) isso é exato em qualquer estrutura; no
+    total novo, só onde há um jeito de repartir (`_recusa_reescala_ambigua`).
+    """
+    definicao = _definicao_gravada(session, tx)
+    pagadores = definicao["payers"]
+    total = update_data.get("total_amount", _total_da_compra(tx))
+    if total != _total_da_compra(tx):
+        _recusa_reescala_ambigua(tx, definicao)
+
+    cartao = update_data.get("credit_card_id", tx.credit_card_id)
+    forma = update_data.get("payment_method", tx.payment_method)
+    if len(pagadores) == 1 and (forma, cartao) != (tx.payment_method, tx.credit_card_id):
+        # Um pagador só: a origem dele É a do lançamento. Sem isto ele guardava
+        # `credit_card` depois de a compra sair do cartão (400 na edição seguinte),
+        # ou a conta de um Pix numa compra que passou para o cartão.
+        pagadores[0] = pagadores[0].model_copy(update={
+            "payment_method": None,
+            "account_id": None if cartao else pagadores[0].account_id,
+        })
+
+    _aplica_conversao(
+        session, workspace_id, update_data,
+        moeda=update_data.get("currency", _moeda_da_compra(tx)), total=total,
+        quando=update_data.get("transaction_date", tx.transaction_date), forma=forma,
+    )
+
+    if "account_id" in update_data:
+        conta = update_data.pop("account_id")
+        if len(pagadores) != 1:
+            raise HTTPException(
+                status_code=400,
+                detail="Despesa paga por mais de uma pessoa: a conta de cada uma vai na divisão (edição completa)",
+            )
+        pagador = pagadores[0].model_copy(update={"account_id": conta})
+        if conta is not None:
+            if cartao is not None:
+                raise HTTPException(
+                    status_code=400,
+                    detail="Pagamento no cartão de crédito não sai de uma conta — remova a conta do pagador",
+                )
+            try:
+                _validate_payer_accounts(
+                    session, workspace_id, [pagador], membership.user_id, update_data["currency"],
+                )
+            except ValueError as exc:
+                raise HTTPException(status_code=400, detail=str(exc))
+        pagadores[0] = pagador
+
+    base = update_data["total_amount"]
+    div = convert_division_to_base(
+        factor=base / tx.total_amount,
+        base_total=base,
+        payers=pagadores,
+        splits=definicao["splits"],
+        items=definicao["items"],
+        adjustments=definicao["adjustments"],
+    )
+    return _grava_definicao(
+        session, workspace_id, tx, update_data, membership,
+        split_mode=tx.split_mode, total=base, payers=div["payers"], splits=div["splits"],
+        items=div["items"], adjustments=div["adjustments"], referencias_gravadas=True,
+    )
 
 
 def _statement_leg(session: Session, card, transaction_in) -> dict:
@@ -531,47 +738,69 @@ def _full_edit(
         )
 
     effective_mode = transaction_in.split_mode if transaction_in.split_mode is not None else db_transaction.split_mode
-    effective_total = transaction_in.total_amount if transaction_in.total_amount is not None else db_transaction.total_amount
+    # Sem `currency`, vale a moeda DA COMPRA (a original, numa compra convertida)
+    # e, sem `total_amount`, o total nela: o mesmo par que o formulário mostra.
+    # O padrão era a moeda-base gravada, e um PUT completo sem moeda numa compra
+    # de US$ 50 lia os pagadores em reais e apagava o original (auditoria
+    # 2026-09-26, A2).
+    total = transaction_in.total_amount if transaction_in.total_amount is not None else _total_da_compra(db_transaction)
+    payers = transaction_in.payers
     splits = transaction_in.splits if transaction_in.splits is not None else []
     items = transaction_in.items
     # Conjunto completo: sem o campo, os ajustes anteriores são descartados
     adjustments = transaction_in.adjustments
 
-    # Moeda estrangeira: converte o total/pagador para BRL e congela o original.
-    # Editar em BRL (ou trocar de volta) limpa o original congelado.
-    conv = _compute_base_conversion(
-        session, workspace_id,
-        currency=update_data.get("currency", db_transaction.currency),
-        total_amount=effective_total,
-        transaction_date=update_data.get("transaction_date", db_transaction.transaction_date),
-        payment_method=update_data.get("payment_method", db_transaction.payment_method),
+    # Moeda estrangeira: converte o total e a divisão para a base e congela o
+    # original. Editar na base (ou trocar de volta) limpa o original congelado.
+    conv = _aplica_conversao(
+        session, workspace_id, update_data,
+        moeda=update_data.get("currency") or _moeda_da_compra(db_transaction),
+        total=total,
+        quando=update_data.get("transaction_date", db_transaction.transaction_date),
+        forma=update_data.get("payment_method", db_transaction.payment_method),
     )
     if conv is not None:
         div = convert_division_to_base(
             factor=conv["factor"],
             base_total=conv["base_total"],
-            payers=transaction_in.payers,
+            payers=payers,
             splits=splits,
             items=items,
             adjustments=adjustments,
         )
-        effective_total = conv["base_total"]
-        splits = div["splits"]
-        items = div["items"]
-        adjustments = div["adjustments"]
-        transaction_in = transaction_in.model_copy(update={"payers": div["payers"]})
-        # total_amount vem em update_data (setattr) — precisa virar BRL também
-        update_data["total_amount"] = conv["base_total"]
-        update_data["currency"] = conv["base_currency"]
-        update_data.update(conv["meta"])
-    else:
-        for k in ("original_amount", "original_currency", "exchange_rate", "iof_rate", "rate_source"):
-            update_data[k] = None
+        payers, splits, items, adjustments = div["payers"], div["splits"], div["items"], div["adjustments"]
 
+    return _grava_definicao(
+        session, workspace_id, db_transaction, update_data, membership,
+        split_mode=effective_mode, total=update_data["total_amount"], payers=payers, splits=splits,
+        items=items, adjustments=adjustments,
+    )
+
+
+def _grava_definicao(
+    session: Session,
+    workspace_id: int,
+    db_transaction: Transaction,
+    update_data: dict,
+    membership: WorkspaceMembership,
+    *,
+    split_mode: SplitMode,
+    total: Decimal,
+    payers: List[TransactionPayerBase],
+    splits: List[TransactionSplitBase],
+    items: Optional[List[TransactionItemCreate]],
+    adjustments: Optional[List[TransactionAdjustmentCreate]],
+    referencias_gravadas: bool = False,
+) -> Transaction:
+    """Grava a definição COMPLETA, já na moeda-base, trocando os filhos de uma vez.
+
+    É o fim comum das duas edições: a completa (o cliente mandou a divisão) e a
+    parcial que mexe no dinheiro (o comando a remontou do que está gravado).
+    """
     try:
-        validate_split_structure(effective_mode, splits, items)
+        validate_split_structure(split_mode, splits, items)
         validate_payer_origins(
-            transaction_in.payers,
+            payers,
             update_data.get("credit_card_id", db_transaction.credit_card_id),
         )
     except ValueError as exc:
@@ -583,7 +812,7 @@ def _full_edit(
         if key in ("payers", "splits", "items", "adjustments", "category_id"):
             continue
         setattr(db_transaction, key, value)
-    db_transaction.split_mode = effective_mode
+    db_transaction.split_mode = split_mode
     _resync_statement_leg(session, db_transaction, membership)
     session.add(db_transaction)
     session.flush()
@@ -593,13 +822,14 @@ def _full_edit(
             session,
             workspace_id,
             db_transaction,
-            total_amount=effective_total,
-            split_mode=effective_mode,
-            payers=transaction_in.payers,
+            total_amount=total,
+            split_mode=split_mode,
+            payers=payers,
             splits=splits,
             items=items,
             adjustments=adjustments,
             actor_user_id=membership.user_id,
+            referencias_gravadas=referencias_gravadas,
         )
     except ValueError as exc:
         session.rollback()
@@ -1116,6 +1346,11 @@ def update_transaction(
     )
 
     update_data = transaction_in.model_dump(exclude_unset=True)
+    # `null` explícito numa coluna obrigatória é "não mexe", como o ausente: o
+    # `setattr` genérico gravaria None e o banco recusaria no commit (erro 500).
+    for campo in ("title", "total_amount", "currency", "transaction_date", "status"):
+        if campo in update_data and update_data[campo] is None:
+            update_data.pop(campo)
 
     _ensure_not_cancelled(db_transaction)
     _ensure_not_paid(db_transaction, set(update_data.keys()))
@@ -1253,69 +1488,43 @@ def update_transaction(
     if FULL_EDIT_KEYS & update_data.keys():
         return _full_edit(session, workspace_id, db_transaction, transaction_in, update_data, membership)
 
-    # ------- Caminho parcial (compatível com clientes antigos) -------
+    # ------- Edição parcial: só o que veio muda -------
 
-    # Alterar o valor total precisa manter payers/splits consistentes —
-    # senão o cálculo de dívidas diverge do total. No caso simples
-    # (1 pagador, ≤1 divisão) escala junto; com múltiplos, exige recriar.
-    if "total_amount" in update_data and update_data["total_amount"] != db_transaction.total_amount:
-        if db_transaction.split_mode == SplitMode.item:
-            raise HTTPException(
-                status_code=400,
-                detail="Despesa dividida por itens: altere o valor editando os itens (edição completa)"
-            )
-        if db_transaction.adjustments:
-            raise HTTPException(
-                status_code=400,
-                detail="Despesa com ajustes de total: use a edição completa (itens + ajustes)"
-            )
-        new_total = update_data["total_amount"]
-        payers = session.exec(
-            select(TransactionPayer).where(TransactionPayer.transaction_id == db_transaction.id)
-        ).all()
-        splits = session.exec(
-            select(TransactionSplit).where(TransactionSplit.transaction_id == db_transaction.id)
-        ).all()
-        if len(payers) > 1 or len(splits) > 1:
-            raise HTTPException(
-                status_code=400,
-                detail="Transação dividida entre várias pessoas: use a edição completa da divisão"
-            )
-        for payer in payers:
-            payer.amount = new_total
-            session.add(payer)
-        for split in splits:
-            split.computed_amount = new_total
-            if split.split_method == SplitMethod.fixed:
-                split.input_value = new_total
-            session.add(split)
-        # Os ITENS acompanham o novo total. Sem isto, o item que carrega a
-        # categoria ficava com o valor ANTIGO — e a distribuição por categoria
-        # (ReportService.get_summary soma TransactionItem.amount) mostrava a fatia
-        # congelada no valor velho, com o resíduo `total − categorizado` virando
-        # uma fatia "Sem categoria" que não existe. O gráfico fechava com o total
-        # e mentia na composição, que é justamente o que o usuário lê ali.
-        # Rateio em centavos exatos (ADR 0001) para `soma(itens) == total` valer
-        # também quando há mais de um item.
-        _resync_item_amounts(session, db_transaction.id, new_total)
-        # Total alterado no caminho parcial (semântica BRL): a proveniência
-        # estrangeira congelada (original_*) não corresponde mais ao novo total —
-        # limpa p/ o registro não afirmar um câmbio que já não bate. Edição de
-        # moeda estrangeira usa a edição completa (_full_edit), que re-converte.
-        if db_transaction.original_currency:
-            for k in ("original_amount", "original_currency", "exchange_rate", "iof_rate", "rate_source"):
-                update_data[k] = None
+    # Categoria: validada ANTES de qualquer escrita e aplicada DEPOIS, porque a
+    # edição que mexe no dinheiro recria os itens.
+    mexe_na_categoria = "category_id" in update_data
+    category_id = update_data.pop("category_id", None)
+    if category_id is not None:
+        from app.models.category import Category
+        category = session.get(Category, category_id)
+        if not category or category.workspace_id != workspace_id or category.deleted_at:
+            raise HTTPException(status_code=400, detail="Categoria inválida para este workspace")
+
+    if _mexe_no_dinheiro(db_transaction, update_data):
+        # Valor, moeda, origem do pagamento ou, numa compra convertida, a data: a
+        # divisão gravada é refeita com a mesma conversão e o mesmo cálculo da
+        # edição completa (auditoria 2026-09-26, A2). É o que mantém pagadores,
+        # divisão e itens fechando o total, e a categoria com a fatia certa.
+        _redefine_pela_edicao_parcial(session, workspace_id, db_transaction, update_data, membership)
+    else:
+        # Aqui valor e moeda, se vieram, são os que a compra já tem — na moeda da
+        # compra. Gravá-los como colunas poria "USD 50" numa linha que guarda
+        # R$ 250 na moeda-base; um formulário que reenvia tudo manda os dois.
+        update_data.pop("total_amount", None)
+        update_data.pop("currency", None)
+        for key, value in update_data.items():
+            setattr(db_transaction, key, value)
+        _resync_statement_leg(session, db_transaction, membership)
+        session.add(db_transaction)
+        publish_event(session, workspace_id, "transaction.updated", "transaction", db_transaction.id, membership.user_id)
 
     # Categoria: upsert do item único (modelo simplificado de 1 categoria/transação)
-    if "category_id" in update_data:
-        category_id = update_data.pop("category_id")
-        if category_id is not None:
-            from app.models.category import Category
-            category = session.get(Category, category_id)
-            if not category or category.workspace_id != workspace_id or category.deleted_at:
-                raise HTTPException(status_code=400, detail="Categoria inválida para este workspace")
+    if mexe_na_categoria:
+        session.flush()
         existing_item = session.exec(
-            select(TransactionItem).where(TransactionItem.transaction_id == db_transaction.id)
+            select(TransactionItem)
+            .where(TransactionItem.transaction_id == db_transaction.id)
+            .order_by(TransactionItem.position, TransactionItem.id)
         ).first()
         if existing_item:
             existing_item.category_id = category_id
@@ -1323,17 +1532,10 @@ def update_transaction(
         elif category_id is not None:
             session.add(TransactionItem(
                 transaction_id=db_transaction.id,
-                title=update_data.get("title", db_transaction.title),
-                amount=update_data.get("total_amount", db_transaction.total_amount),
+                title=db_transaction.title,
+                amount=db_transaction.total_amount,
                 category_id=category_id,
             ))
-
-    for key, value in update_data.items():
-        setattr(db_transaction, key, value)
-
-    _resync_statement_leg(session, db_transaction, membership)
-    session.add(db_transaction)
-    publish_event(session, workspace_id, "transaction.updated", "transaction", db_transaction.id, membership.user_id)
     return db_transaction
 
 

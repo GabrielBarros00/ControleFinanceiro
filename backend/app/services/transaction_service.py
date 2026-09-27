@@ -256,12 +256,21 @@ def compute_transaction_breakdown(
     adjustments: Optional[List[TransactionAdjustmentCreate]] = None,
     actor_user_id: Optional[int] = None,
     currency: Optional[str] = None,
+    referencias_gravadas: bool = False,
 ) -> Dict[str, Any]:
     """Valida invariantes e calcula a divisão SEM persistir nada.
 
     Fonte única de verdade do cálculo: o persist grava exatamente este
     resultado e o endpoint de preview o devolve ao cliente. Levanta
     ValueError com mensagem PT-BR em qualquer inconsistência.
+
+    `referencias_gravadas=True` é a edição parcial que mexe no dinheiro
+    (auditoria 2026-09-26, A2): quem pagou, quem divide, a conta e a categoria de
+    cada item vêm da linha GRAVADA, e só os valores mudam. Revalidá-las faria a
+    correção de um valor falhar por um fato posterior (a pessoa saiu do espaço, a
+    conta foi desativada, a categoria foi excluída), coisa que a edição parcial
+    nunca barrou. As somas continuam conferidas; o que a requisição traz de novo
+    (categoria, conta) o comando valida antes de chegar aqui.
     """
     adjustments = adjustments or []
 
@@ -289,16 +298,18 @@ def compute_transaction_breakdown(
             raise ValueError(
                 f"Soma dos itens ({items_total}) difere do total ({total_amount})"
             )
-        _validate_categories(session, workspace_id, items)
+        if not referencias_gravadas:
+            _validate_categories(session, workspace_id, items)
 
-    # 3) Todos os envolvidos são membros do workspace
-    involved = {p.user_id for p in payers} | {s.user_id for s in splits}
-    for item in items or []:
-        involved |= {sh.user_id for sh in item.shares or []}
-    _ensure_members(session, workspace_id, involved)
+    if not referencias_gravadas:
+        # 3) Todos os envolvidos são membros do workspace
+        involved = {p.user_id for p in payers} | {s.user_id for s in splits}
+        for item in items or []:
+            involved |= {sh.user_id for sh in item.shares or []}
+        _ensure_members(session, workspace_id, involved)
 
-    # 3b) Origem do dinheiro por pagador (ADR 0004) + moeda da conta (ADR 0034)
-    _validate_payer_accounts(session, workspace_id, payers, actor_user_id, currency)
+        # 3b) Origem do dinheiro por pagador (ADR 0004) + moeda da conta (ADR 0034)
+        _validate_payer_accounts(session, workspace_id, payers, actor_user_id, currency)
 
     result: Dict[str, Any] = {
         "payers": [p.model_dump() for p in payers],
@@ -421,9 +432,11 @@ def persist_transaction_children(
     items: Optional[List[TransactionItemCreate]],
     adjustments: Optional[List[TransactionAdjustmentCreate]] = None,
     actor_user_id: Optional[int] = None,
+    referencias_gravadas: bool = False,
 ) -> None:
     """Grava payers/splits/items(+shares)/ajustes calculados pelo
     compute_transaction_breakdown (mesma fonte de verdade do preview).
+    `referencias_gravadas` segue para ele (edição parcial; ver lá).
 
     Pressupõe db_transaction já com id (flush prévio) e a estrutura já
     validada (validate_split_structure). O chamador converte ValueError em
@@ -446,6 +459,7 @@ def persist_transaction_children(
         adjustments=adjustments,
         actor_user_id=actor_user_id,
         currency=db_transaction.currency,
+        referencias_gravadas=referencias_gravadas,
     )
 
     for p in breakdown["payers"]:

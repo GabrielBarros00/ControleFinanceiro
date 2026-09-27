@@ -7643,6 +7643,8 @@ export interface components {
             merchant_id?: number | null;
             /** Merchant Name */
             merchant_name?: string | null;
+            /** Account Id */
+            account_id?: number | null;
             split_mode?: components["schemas"]["SplitMode"] | null;
             /** Payers */
             payers?: components["schemas"]["TransactionPayerBase-Input"][] | null;
