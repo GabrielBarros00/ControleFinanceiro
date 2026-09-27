@@ -312,10 +312,14 @@ export function StatementView({ cardId }: { cardId: number | null }) {
               </div>
             )}
 
+            {/* No celular a data sai da coluna e vai para baixo do
+                estabelecimento: com três colunas, a de VALOR ficava fora da área
+                visível e a fatura mostrava tudo menos o dinheiro (auditoria
+                2026-09-26, C8). */}
             <Table>
               <TableHeader>
                 <TableRow className="border-border hover:bg-transparent">
-                  <TableHead className="text-muted-foreground">Data</TableHead>
+                  <TableHead className="hidden text-muted-foreground sm:table-cell">Data</TableHead>
                   <TableHead className="text-muted-foreground">Estabelecimento</TableHead>
                   <TableHead className="text-muted-foreground text-right">Valor</TableHead>
                 </TableRow>
@@ -334,12 +338,15 @@ export function StatementView({ cardId }: { cardId: number | null }) {
                     title="Ver detalhes do lançamento"
                     className="cursor-pointer border-border hover:bg-accent/30 transition-colors"
                   >
-                    <TableCell className="font-medium">
+                    <TableCell className="hidden font-medium sm:table-cell">
                       {parseApiDate(tx.transaction_date).toLocaleDateString('pt-BR')}
                     </TableCell>
                     <TableCell>
                       <div className="flex flex-col">
                         <span>{tx.title}</span>
+                        <span className="text-xs text-muted-foreground sm:hidden">
+                          {parseApiDate(tx.transaction_date).toLocaleDateString('pt-BR')}
+                        </span>
                         {tx.original_currency && tx.original_amount && (
                           <span className="text-xs text-muted-foreground">
                             {formatCurrency(parseFloat(tx.original_amount), tx.original_currency)}
@@ -358,7 +365,7 @@ export function StatementView({ cardId }: { cardId: number | null }) {
                         )}
                       </div>
                     </TableCell>
-                    <TableCell className="text-right">
+                    <TableCell className="whitespace-nowrap text-right">
                       {/* `statement_amount`/`statement_currency`: o valor DE
                           FATURA (ADR 0024). Antes esta célula desenhava
                           `total_amount` — a perna contábil, na moeda-base do

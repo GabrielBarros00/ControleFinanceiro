@@ -57,6 +57,11 @@ const ROTULO_ORIGEM: Record<string, string> = Object.fromEntries(
  */
 const POR_PAGINA = 100;
 
+/** Dia do movimento como "27/09" (é dia de calendário: `parseApiDay`, sem fuso). */
+function diaCurto(dia: string): string {
+  return parseApiDay(dia).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' });
+}
+
 /** Página da URL, ou a primeira quando o valor não serve como índice. */
 function paginaValida(bruto: string | null): number {
   const n = Math.floor(Number(bruto ?? '0'));
@@ -337,24 +342,29 @@ export function GlobalLedgerPage() {
               />
             )
           ) : (
+            /*
+             * No celular, Data e Origem saem das colunas e viram uma linha sob o
+             * título. Com as quatro colunas, a tabela de 360px rolava dentro do
+             * card e a pessoa via data, movimento e origem — mas não o DINHEIRO,
+             * que ficava fora da área visível (auditoria 2026-09-26, C8). Em cada
+             * largura há uma cópia só à vista (a outra é `display: none`, fora
+             * também da árvore de acessibilidade).
+             */
             <div className="overflow-x-auto">
               <Table>
                 <TableHeader>
                   <TableRow className="border-border">
-                    <TableHead className="text-xs font-semibold">Data</TableHead>
+                    <TableHead className="hidden text-xs font-semibold sm:table-cell">Data</TableHead>
                     <TableHead className="text-xs font-semibold">Movimento</TableHead>
-                    <TableHead className="text-xs font-semibold">Origem</TableHead>
+                    <TableHead className="hidden text-xs font-semibold sm:table-cell">Origem</TableHead>
                     <TableHead className="text-right text-xs font-semibold">Valor</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
                   {ledger?.entries.map((e: LedgerEntry) => (
                     <TableRow key={`${e.source}-${e.reference_id}`} className="border-border">
-                      <TableCell className="whitespace-nowrap text-sm text-muted-foreground">
-                        {parseApiDay(e.occurred_on).toLocaleDateString('pt-BR', {
-                          day: '2-digit',
-                          month: '2-digit',
-                        })}
+                      <TableCell className="hidden whitespace-nowrap text-sm text-muted-foreground sm:table-cell">
+                        {diaCurto(e.occurred_on)}
                       </TableCell>
                       <TableCell className="text-sm">
                         <span className="font-medium">{e.title ?? '—'}</span>
@@ -366,13 +376,16 @@ export function GlobalLedgerPage() {
                             · {e.counterparty_name}
                           </span>
                         )}
+                        <span className="mt-0.5 block text-xs text-muted-foreground sm:hidden">
+                          {diaCurto(e.occurred_on)} · {ROTULO_ORIGEM[e.source] ?? e.source}
+                        </span>
                       </TableCell>
-                      <TableCell>
+                      <TableCell className="hidden sm:table-cell">
                         <Badge variant="outline" className="border-border text-xs text-muted-foreground">
                           {ROTULO_ORIGEM[e.source] ?? e.source}
                         </Badge>
                       </TableCell>
-                      <TableCell className="text-right">
+                      <TableCell className="whitespace-nowrap text-right">
                         {e.converted_amount == null ? (
                           // Sem cotação para a data efetiva: a linha aparece
                           // marcada em vez de sumir ou virar zero (ADR 0006).
