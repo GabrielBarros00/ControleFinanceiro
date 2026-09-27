@@ -17,6 +17,7 @@ from app.domain.dates import civil_instant, month_key, today_local
 from app.main import app
 from app.models.account_ledger import AccountTransfer
 from app.models.attachment import Attachment
+from app.models.category import Category
 from app.models.credit_card import CardStatement, CreditCard, StatementPayment, StatementStatus
 from app.models.income import Income
 from app.models.transaction import Transaction
@@ -257,3 +258,41 @@ def test_a_transferencia_vista_pelo_extrato_da_outra_conta_nao_duplica(cena):
     assert (r["imported"], r["duplicate"]) == (0, 1)
     assert len(cena["db"].exec(select(AccountTransfer).where(AccountTransfer.deleted_at.is_(None))).all()) == 1
 
+
+
+def test_a_despesa_importada_leva_a_categoria_escolhida(cena):
+    """A categoria da linha tem de chegar ao lançamento.
+
+    Ela era validada ("categoria não encontrada no espaço") e depois descartada:
+    o comando a passava como `TransactionCreate(category_id=...)`, campo que não
+    existe — a categoria de um lançamento simples mora no item-sombra — e o
+    Pydantic ignora campo extra em silêncio. A importação respondia "imported: 1"
+    e a despesa ficava "Sem categoria". Pelo MCP, o agente ainda confirmava.
+    """
+    db = cena["db"]
+    mercado = Category(workspace_id=cena["casa"], name="Mercado")
+    db.add(mercado)
+    db.commit()
+    db.refresh(mercado)
+    linha = {"line": 2, "title": "MERCADO EXTRA", "total_amount": "89.90", "transaction_date": _dia(2),
+             "direction": "out", "classification": "expense", "space_id": cena["casa"],
+             "category_id": mercado.id, "external_id": "C1"}
+
+    resultado = _grava(cena, [linha])
+
+    assert resultado["imported"] == 1, resultado
+    despesa = db.exec(select(Transaction).where(Transaction.title == "MERCADO EXTRA")).one()
+    db.refresh(despesa)
+    assert [(i.amount, i.category_id) for i in despesa.items] == [(Decimal("89.90"), mercado.id)], (
+        "a categoria escolhida na linha do extrato não chegou ao lançamento"
+    )
+
+
+def test_a_despesa_importada_sem_categoria_segue_sem_item(cena):
+    """O controle do teste acima: sem categoria, nada muda — nenhum item inventado."""
+    db = cena["db"]
+    _grava(cena, [_linhas(cena)[1]])
+
+    despesa = db.exec(select(Transaction).where(Transaction.title == "MERCADO EXTRA")).one()
+    db.refresh(despesa)
+    assert despesa.items == []

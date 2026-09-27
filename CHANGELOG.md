@@ -137,6 +137,23 @@ registro por CIMD/DCR, 59 tools documentadas em `docs/mcp/TOOLS.md` (geradas do
 código), e as escritas das rotas REST passaram a morar em comandos
 compartilhados (`app/services/commands/`) — sem mudança de comportamento.
 
+### O que você pede fica gravado como você pediu
+
+- **A categoria da despesa importada pelo extrato da conta passou a ser gravada.**
+  Ao importar o extrato pela IA ("o mercado é Mercado"), a categoria era conferida e
+  depois descartada: a importação dizia que tinha dado certo e a despesa ficava "Sem
+  categoria". Um teste novo percorre o código inteiro atrás de qualquer outro campo
+  descartado do mesmo jeito — não havia mais nenhum.
+- **Fechar a fatura enquanto uma compra é lançada não tira mais a compra do total.**
+  Se o fechamento acontecesse no instante em que alguém salvava uma compra no mesmo
+  cartão, a compra ia para a fatura fechada sem entrar no total cobrado — a fatura
+  listava a compra e não a cobrava. Agora o fechamento espera a compra terminar e a
+  inclui; e se a fatura fechar antes, a compra vai para a próxima, como sempre foi a
+  regra.
+- **O modo manutenção pausa de verdade.** Com o site em manutenção, ainda dava para
+  concluir o cadastro inicial (que cria renda e cartão) e editar o perfil. Agora, fora
+  a área administrativa, só continua no ar o que serve para entrar e sair.
+
 ### Editar um lançamento e pôr o estabelecimento não dá mais erro interno
 
 Salvar a edição de um lançamento que já existia com um estabelecimento novo (junto ou

@@ -416,6 +416,174 @@ def test_pagamento_de_fatura_nao_ultrapassa_o_saldo(fatura_fechada):
     assert statement.paid_at is None
 
 
+# --- C3 (auditoria 2026-09-26): fechar a fatura × lançar compra --------------
+
+
+@pytest.fixture
+def fatura_aberta(base):
+    """Fatura ABERTA com uma compra de R$ 100, e o dono membro do workspace."""
+    from app.domain.dates import civil_instant, today_local
+
+    engine = base["engine"]
+    hoje = today_local()
+    with Session(engine) as session:
+        session.add(WorkspaceMembership(
+            workspace_id=base["ws_id"], user_id=base["user_id"], role=WorkspaceRole.owner,
+        ))
+        card = CreditCard(
+            name="Nubank", limit=Decimal("50000.00"), closing_day=10, due_day=20,
+            currency="BRL", owner_user_id=base["user_id"],
+        )
+        session.add(card)
+        session.commit()
+        session.refresh(card)
+        card_id = card.id
+    quando = civil_instant(hoje)
+    with Session(engine) as session:
+        compra = _compra_no_cartao(session, base, card_id, quando, "100.00", "Antiga")
+        session.commit()
+        statement_id = compra.statement_id
+    return {**base, "card_id": card_id, "statement_id": statement_id, "quando": quando}
+
+
+def _compra_no_cartao(session: Session, base, card_id: int, quando, valor: str, titulo: str):
+    from app.schemas.transaction import TransactionCreate
+    from app.services.commands import transactions as tx_cmd
+
+    membership = session.exec(
+        select(WorkspaceMembership).where(
+            WorkspaceMembership.workspace_id == base["ws_id"],
+            WorkspaceMembership.user_id == base["user_id"],
+        )
+    ).one()
+    return tx_cmd.create_transaction(session, base["ws_id"], TransactionCreate(
+        title=titulo, total_amount=Decimal(valor), transaction_date=quando, credit_card_id=card_id,
+        payers=[{"user_id": base["user_id"], "amount": valor, "payment_method": "credit_card"}],
+        splits=[{"user_id": base["user_id"], "split_method": "equal", "input_value": "0"}],
+    ), membership)
+
+
+@precisa_de_mvcc
+def test_fechar_a_fatura_durante_uma_compra_nao_deixa_a_compra_fora_do_total(fatura_aberta, monkeypatch):
+    """A compra resolve a fatura aberta e só commita depois; se o fechamento entra
+    nesse intervalo, a compra ficava gravada numa fatura FECHADA cujo total
+    congelado não a incluía — a tela listava R$ 877 e cobrava R$ 100, e
+    `excluded_from_total_count` respondia 0 (F1 de 2026-08-29, C3 de 2026-09-26).
+
+    A janela natural é a duração da criação (~60 ms); aqui ela é alargada DENTRO
+    do roteamento, que é o intervalo que existe de verdade. O `pay_statement` já
+    se protegia disto com um UPDATE condicional; o fechamento é a outra metade da
+    mesma máquina de estados.
+    """
+    import app.services.commands.transactions as tx_cmd
+
+    engine = fatura_aberta["engine"]
+    statement_id = fatura_aberta["statement_id"]
+    roteou = threading.Event()
+    original = tx_cmd._rotear_fatura
+
+    def roteamento_lento(*args, **kwargs):
+        fatura = original(*args, **kwargs)
+        roteou.set()
+        threading.Event().wait(0.8)
+        return fatura
+
+    monkeypatch.setattr(tx_cmd, "_rotear_fatura", roteamento_lento)
+    erros: list = []
+
+    def comprar():
+        with Session(engine) as session:
+            try:
+                _compra_no_cartao(session, fatura_aberta, fatura_aberta["card_id"],
+                                  fatura_aberta["quando"], "777.00", "Corrida")
+                session.commit()
+            except Exception as exc:  # noqa: BLE001
+                session.rollback()
+                erros.append(("compra", exc))
+
+    def fechar():
+        roteou.wait(timeout=10)
+        with Session(engine) as session:
+            try:
+                CreditCardService.close_statement(session, session.get(CardStatement, statement_id))
+                session.commit()
+            except Exception as exc:  # noqa: BLE001
+                session.rollback()
+                erros.append(("fechamento", exc))
+
+    fios = [threading.Thread(target=comprar), threading.Thread(target=fechar)]
+    for fio in fios:
+        fio.start()
+    for fio in fios:
+        fio.join(timeout=30)
+
+    assert not erros, f"nenhuma das duas operações deveria falhar: {erros}"
+    with Session(engine) as session:
+        fatura = session.get(CardStatement, statement_id)
+        compras = session.exec(
+            select(Transaction).where(
+                Transaction.statement_id == statement_id, Transaction.deleted_at.is_(None),
+            )
+        ).all()
+    soma = sum((t.statement_amount for t in compras), Decimal("0.00"))
+    assert fatura.status == StatementStatus.closed
+    assert fatura.total_amount == soma, (
+        f"fatura fechada congelou R$ {fatura.total_amount} mas lista {len(compras)} "
+        f"compras somando R$ {soma} — a diferença não é cobrada por fatura nenhuma"
+    )
+
+
+@precisa_de_mvcc
+def test_compra_que_perde_a_corrida_para_o_fechamento_rola_para_a_proxima_fatura(fatura_aberta, monkeypatch):
+    """O outro lado: o fechamento commita DEPOIS de a compra ler a fatura aberta e
+    ANTES de ela a travar. A trava falha (a fatura já não está aberta) e a compra
+    tem de resolver de novo — caindo na próxima fatura aberta, como a regra de
+    imutabilidade do ADR 0011 manda —, nunca na fechada."""
+    engine = fatura_aberta["engine"]
+    statement_id = fatura_aberta["statement_id"]
+    leu = threading.Event()
+    fechou = threading.Event()
+    original = CreditCardService._trava_se_aberta
+    primeira = {"vez": True}
+
+    def trava_depois_do_fechamento(db, statement):
+        if primeira["vez"]:
+            primeira["vez"] = False
+            leu.set()
+            fechou.wait(timeout=10)
+        return original(db, statement)
+
+    monkeypatch.setattr(CreditCardService, "_trava_se_aberta", staticmethod(trava_depois_do_fechamento))
+    resultado: dict = {}
+
+    def comprar():
+        with Session(engine) as session:
+            compra = _compra_no_cartao(session, fatura_aberta, fatura_aberta["card_id"],
+                                       fatura_aberta["quando"], "777.00", "Corrida")
+            session.commit()
+            resultado["statement_id"] = compra.statement_id
+
+    def fechar():
+        leu.wait(timeout=10)
+        with Session(engine) as session:
+            CreditCardService.close_statement(session, session.get(CardStatement, statement_id))
+            session.commit()
+        fechou.set()
+
+    fios = [threading.Thread(target=comprar), threading.Thread(target=fechar)]
+    for fio in fios:
+        fio.start()
+    for fio in fios:
+        fio.join(timeout=30)
+
+    with Session(engine) as session:
+        fechada = session.get(CardStatement, statement_id)
+        destino = session.get(CardStatement, resultado["statement_id"])
+    assert fechada.status == StatementStatus.closed and fechada.total_amount == Decimal("100.00")
+    assert destino.id != statement_id, "a compra entrou na fatura que já estava fechada"
+    assert destino.status == StatementStatus.open and destino.month > fechada.month
+
+
 # --- Onda 8 / F2: despesa duplicada por parcela de financiamento -------------
 
 
