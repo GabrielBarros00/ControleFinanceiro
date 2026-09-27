@@ -36,7 +36,6 @@ from app.models.transaction import (
     SplitMode,
     Transaction,
     TransactionItem,
-    TransactionSplit,
     TransactionStatus,
 )
 from app.schemas.common import DESCRIPTION_MAX, TITLE_MAX
@@ -412,45 +411,51 @@ def _itens_atuais(call: ToolCall, tx: Transaction) -> List[TransactionItem]:
 
 
 def _recusa_divisao_complexa(call: ToolCall, tx: Transaction) -> None:
+    """Divisão nova pedida numa despesa com itens: a divisão mora nos itens."""
     if tx.split_mode == SplitMode.item:
         raise McpToolError(
             ErrorCode.BUSINESS_RULE_VIOLATION,
-            "Esta despesa é dividida por itens e esta mudança refaz a divisão (valor, divisão, moeda; "
-            "numa compra em moeda estrangeira, também data e forma de pagamento): mande junto a lista "
-            "completa em `items` (com a divisão de cada item) e `adjustments`.",
+            "Esta despesa é dividida por itens: para mudar quem pagou ou a divisão, mande junto a "
+            "lista completa em `items` (com a divisão de cada item) e `adjustments`.",
             details={"app_url": one(call.session, tx, call.identity.user_id).app_url},
         )
     if tx.adjustments or len(_itens_atuais(call, tx)) > 1:
         raise McpToolError(
             ErrorCode.BUSINESS_RULE_VIOLATION,
-            "Esta despesa tem itens ou ajustes detalhados e esta mudança refaz a divisão (valor, divisão, "
-            "moeda; numa compra em moeda estrangeira, também data e forma de pagamento): mande junto a "
-            "lista completa em `items` (e `adjustments`), para os itens continuarem fechando o total.",
+            "Esta despesa tem itens ou ajustes detalhados: para mudar quem pagou ou a divisão, mande "
+            "junto a lista completa em `items` (e `adjustments`), para os itens continuarem fechando o total.",
             details={"app_url": one(call.session, tx, call.identity.user_id).app_url},
         )
 
 
-def _divisao_existente(call: ToolCall, tx: Transaction, total: Decimal, *, mantem_fixos: bool):
-    """Mantém quem pagou e a divisão, trocando só o total (valor muda, estrutura fica)."""
-    pacote = load_bundle(call.session, [tx])
-    pagadores = pacote.payers.get(tx.id, [])
-    if len(pagadores) != 1:
-        raise McpToolError(
-            ErrorCode.VALIDATION_ERROR,
-            "Esta despesa tem vários pagadores: informe também `paid_by` e a divisão.",
-        )
-    p = pagadores[0]
-    splits = []
-    for s in pacote.splits.get(tx.id, []):
-        if s.split_method == SplitMethod.fixed and not mantem_fixos:
-            raise McpToolError(
-                ErrorCode.VALIDATION_ERROR,
-                "A divisão atual é por valores fixos e não fecha com esta mudança: informe a nova "
-                "divisão em `split` na mesma chamada.",
-            )
-        splits.append(TransactionSplitBase(user_id=s.user_id, split_method=s.split_method, input_value=s.input_value))
-    pagador = TransactionPayerBase(user_id=p.user_id, amount=total, payment_method=p.payment_method, account_id=p.account_id)
-    return [pagador], splits
+#: Quando o comando não reparte um total novo sozinho (`ReescalaAmbigua`), a
+#: REGRA é dele; aqui fica só o parâmetro da tool que completa a edição.
+_COMO_COMPLETAR = {
+    "por_item": (
+        ErrorCode.BUSINESS_RULE_VIOLATION,
+        "Esta despesa é dividida por itens: para mudar o valor, mande junto a lista completa em "
+        "`items` (com a divisão de cada item) e `adjustments`.",
+    ),
+    "ajustes": (
+        ErrorCode.BUSINESS_RULE_VIOLATION,
+        "Esta despesa tem ajustes (frete, desconto, taxa): para mudar o valor, mande junto a lista "
+        "completa em `items` e `adjustments`.",
+    ),
+    "itens": (
+        ErrorCode.BUSINESS_RULE_VIOLATION,
+        "Esta despesa tem itens detalhados: para mudar o valor, mande junto a lista completa em "
+        "`items`, para os itens continuarem fechando o total.",
+    ),
+    "pagadores": (
+        ErrorCode.VALIDATION_ERROR,
+        "Esta despesa tem vários pagadores: para mudar o valor, informe também `paid_by` e a divisão.",
+    ),
+    "valores_fixos": (
+        ErrorCode.VALIDATION_ERROR,
+        "A divisão atual é por valores fixos e não fecha com o total novo: informe a nova divisão "
+        "em `split` na mesma chamada.",
+    ),
+}
 
 
 def _estabelecimento(call: ToolCall, ws: int, a: UpdateIn) -> dict:
@@ -489,46 +494,19 @@ def _update_single(call: ToolCall, tx: Transaction, a: UpdateIn, membership) -> 
         dados["payment_method"] = PaymentMethod(a.payment_method)
         if a.payment_method != "credit_card":
             dados["credit_card_id"] = None
-    # Moeda igual à da compra (a original, se já foi convertida) não muda nada.
-    moeda_da_compra = tx.original_currency or tx.currency
-    nova_moeda = a.currency.upper() if a.currency is not None else None
-    if nova_moeda == moeda_da_compra:
-        nova_moeda = None
+    # Valor e moeda são os DA COMPRA, como na criação e no app: num lançamento
+    # convertido de US$ 50 (R$ 250), `amount: 60` são US$ 60, e trocar só a
+    # moeda mantém o número. Quem converte e refaz a divisão é o comando.
+    if a.currency is not None:
+        dados["currency"] = a.currency.upper()
+    if a.amount is not None:
+        dados["total_amount"] = a.amount
 
     categoria_id = None
     mexe_categoria = a.remove_category or a.category is not None or a.category_id is not None
     if not a.remove_category and (a.category is not None or a.category_id is not None):
         categoria_id = resolve.resolve_category(call.session, ws, category_id=a.category_id, category=a.category).id
 
-    # Valor na moeda DA COMPRA, como na criação: num lançamento convertido de
-    # US$ 50 (R$ 250), `amount: 60` são US$ 60 — e trocar só a moeda mantém o
-    # número ("aquilo foi 50 dólares, não 50 reais").
-    estrangeira = tx.original_currency is not None
-    total_da_compra = tx.original_amount if estrangeira else tx.total_amount
-    novo_total = a.amount if a.amount is not None else total_da_compra
-    precisa_divisao = a.mentions_division()
-    if a.amount is not None and a.amount != total_da_compra and not precisa_divisao:
-        # O caminho parcial do app só reescala 1 pagador × 1 parte; com mais
-        # gente a divisão é refeita pela edição completa, mesma estrutura.
-        n_partes = call.session.exec(
-            select(func.count()).select_from(TransactionSplit).where(TransactionSplit.transaction_id == tx.id)
-        ).one()
-        precisa_divisao = n_partes > 1
-    # O caminho parcial do comando não converte nada (o SPA sempre manda a
-    # edição completa numa compra em moeda estrangeira): gravaria `currency` sem
-    # converter, trataria `amount` como moeda-base apagando o original, e
-    # manteria a cotação e o IOF antigos ao mudar a data ou o cartão. Tudo isso
-    # vai pela edição completa, que reconverte (PTAX na data; IOF no cartão) —
-    # o mesmo que acontece quando a pessoa edita a compra no app.
-    muda_pagamento = cartao is not None or a.payment_method is not None
-    if nova_moeda is not None or (
-        estrangeira and (a.amount is not None or a.date is not None or muda_pagamento)
-    ):
-        precisa_divisao = True
-    if a.amount is not None:
-        dados["total_amount"] = a.amount
-
-    muda_conta = a.account is not None or a.account_id is not None
     if a.items is not None:
         if tx.installment_group_id:
             raise McpToolError(
@@ -536,50 +514,37 @@ def _update_single(call: ToolCall, tx: Transaction, a: UpdateIn, membership) -> 
                 "Os itens de uma compra parcelada são da compra inteira: use scope=purchase.",
             )
         return _update_with_items(call, tx, a, membership, dados, categoria_id if mexe_categoria else None,
-                                  mexe_categoria, nova_moeda, moeda_da_compra, estrangeira)
-    if precisa_divisao or muda_conta:
+                                  mexe_categoria)
+    if a.mentions_division():
+        # Divisão NOVA pedida (quem pagou, com quem divide): é a edição completa.
         _recusa_divisao_complexa(call, tx)
-        if nova_moeda is not None or estrangeira:
-            dados["currency"] = nova_moeda or moeda_da_compra
-            dados["total_amount"] = novo_total
-        if a.mentions_division():
-            divisao = build_division(call.session, ws, me, a, novo_total)
-            pagadores, partes = divisao.payers, divisao.splits
-        else:
-            # Divisão por valores fixos só sobrevive se o total e a moeda não mudam.
-            mantem_fixos = not estrangeira and nova_moeda is None and novo_total == tx.total_amount
-            pagadores, partes = _divisao_existente(call, tx, novo_total, mantem_fixos=mantem_fixos)
-            if muda_pagamento:
-                # A forma de pagamento do pagador acompanha a nova (sem método,
-                # ele herda a do lançamento); conta não existe no cartão.
-                pagadores[0] = pagadores[0].model_copy(update={
-                    "payment_method": None,
-                    "account_id": None if dados.get("credit_card_id") else pagadores[0].account_id,
-                })
-            if muda_conta:
-                if pagadores[0].user_id != me:
-                    raise McpToolError(
-                        ErrorCode.VALIDATION_ERROR,
-                        "A conta só pode ser informada quando foi você quem pagou — a conta de outra pessoa é dela.",
-                    )
-                conta = resolve.resolve_account(call.session, me, account_id=a.account_id, account=a.account)
-                pagadores[0] = pagadores[0].model_copy(update={"account_id": conta.id})
+        total = a.amount if a.amount is not None else tx_cmd._total_da_compra(tx)
+        divisao = build_division(call.session, ws, me, a, total)
         itens_atuais = _itens_atuais(call, tx)
         cat_final = categoria_id if mexe_categoria else (itens_atuais[0].category_id if itens_atuais else None)
         dados["split_mode"] = SplitMode.transaction
-        dados["payers"] = pagadores
-        dados["splits"] = partes
-        dados["items"] = (
-            [TransactionItemCreate(title=dados.get("title", tx.title), amount=novo_total, category_id=cat_final)]
-            if cat_final is not None else None
-        )
-        if dados["items"] is None:
-            dados.pop("items")
-    elif mexe_categoria:
-        dados["category_id"] = categoria_id
+        dados["payers"] = divisao.payers
+        dados["splits"] = divisao.splits
+        if cat_final is not None:
+            dados["items"] = [TransactionItemCreate(title=dados.get("title", tx.title), amount=total, category_id=cat_final)]
+    else:
+        # Valor, moeda, data, forma de pagamento e conta vão como edição PARCIAL:
+        # o comando refaz a divisão gravada com a mesma regra do app (auditoria
+        # 2026-09-26, A2). A tool montava a edição completa por conta própria.
+        if a.account is not None or a.account_id is not None:
+            dados["account_id"] = resolve.resolve_account(
+                call.session, me, account_id=a.account_id, account=a.account,
+            ).id
+        if mexe_categoria:
+            dados["category_id"] = categoria_id
 
-    entrada = TransactionUpdate(**dados)
-    return tx_cmd.update_transaction(call.session, ws, tx.id, entrada, membership)
+    try:
+        return tx_cmd.update_transaction(call.session, ws, tx.id, TransactionUpdate(**dados), membership)
+    except tx_cmd.ReescalaAmbigua as exc:
+        codigo, texto = _COMO_COMPLETAR[exc.motivo]
+        raise McpToolError(
+            codigo, texto, details={"app_url": one(call.session, tx, call.identity.user_id).app_url},
+        ) from exc
 
 
 def _divisao_herdavel_por_item(splits) -> List[TransactionSplitBase]:
@@ -622,14 +587,15 @@ def _divisao_atual(call: ToolCall, tx: Transaction, total: Decimal) -> Division:
 def _update_with_items(
     call: ToolCall, tx: Transaction, a: UpdateIn, membership, dados: dict,
     categoria_id: Optional[int], mexe_categoria: bool,
-    nova_moeda: Optional[str], moeda_da_compra: str, estrangeira: bool,
 ) -> Transaction:
-    """Troca a nota inteira: itens, ajustes e a divisão que deles decorre (edição completa do app)."""
+    """Troca a nota inteira: itens, ajustes e a divisão que deles decorre (edição completa do app).
+
+    Os valores estão na moeda da compra; sem `currency`, é a do lançamento (a
+    original, se ele foi convertido), e o comando reconverte.
+    """
     me = call.identity.user_id
     ws = tx.workspace_id
     novo_total = a.amount if a.amount is not None else items_total(a.items, a.adjustments)
-    if nova_moeda is not None or estrangeira:
-        dados["currency"] = nova_moeda or moeda_da_compra
     if a.mentions_division():
         divisao = build_division(
             call.session, ws, me, a, novo_total,
