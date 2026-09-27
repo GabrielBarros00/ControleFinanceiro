@@ -1,4 +1,5 @@
 from fastapi import APIRouter, Body, Depends, HTTPException, Query
+from sqlalchemy.orm import selectinload
 from sqlmodel import Session, select, func
 from typing import List, Optional
 from decimal import Decimal
@@ -252,8 +253,26 @@ def list_transactions(
         )
     ).one()
 
-    # Final statement with ordering and pagination
-    statement = statement.order_by(Transaction.transaction_date.desc()).offset(offset).limit(limit)
+    # Final statement with ordering and pagination.
+    #
+    # `selectinload` em tudo o que o `TransactionRead` serializa: sem ele, cada
+    # linha da página disparava uma consulta por relacionamento na hora de virar
+    # JSON — 608 consultas para 100 linhas, contra 69 para 10 (auditoria
+    # 2026-09-26, P1). Com ele, um SELECT ... IN (...) por relacionamento, e a
+    # conta não cresce com a página (`tests/api/test_listagem_consultas_fixas.py`).
+    statement = (
+        statement.order_by(Transaction.transaction_date.desc())
+        .offset(offset)
+        .limit(limit)
+        .options(
+            selectinload(Transaction.payers),
+            selectinload(Transaction.splits),
+            selectinload(Transaction.items).selectinload(TransactionItem.shares),
+            selectinload(Transaction.adjustments),
+            selectinload(Transaction.tags),
+            selectinload(Transaction.merchant),
+        )
+    )
     transactions = session.exec(statement).all()
 
     return {
