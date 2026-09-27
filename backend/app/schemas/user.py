@@ -31,4 +31,9 @@ class UserResponse(BaseModel):
     # `Cache-Control: immutable`: sem um valor que mude junto com o conteúdo, a
     # imagem trocada continuaria aparecendo a antiga até o cache expirar.
     avatar_version: Optional[str] = None
+    # Moeda em que os números PESSOAIS são expressos (ADR 0019/0021). Sai aqui,
+    # na sessão que o bootstrap já busca, porque toda tela pessoal formata
+    # dinheiro com ela — e antes a tela a lia do `/me/overview` INTEIRO (64
+    # consultas, ~95 ms) só para ler um campo (auditoria 2026-09-26, P6).
+    report_currency: str
     created_at: datetime

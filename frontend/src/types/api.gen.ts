@@ -7732,6 +7732,8 @@ export interface components {
             platform_role: components["schemas"]["PlatformRole"];
             /** Avatar Version */
             avatar_version?: string | null;
+            /** Report Currency */
+            report_currency: string;
             /**
              * Created At
              * Format: date-time
