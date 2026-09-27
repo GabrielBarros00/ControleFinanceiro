@@ -70,6 +70,7 @@ def _build_read(
         owner_user_id=owner[0] if owner else None,
         owner_name=owner[1] if owner else None,
         member_count=member_count,
+        event_seq=workspace.event_seq,
     )
 
 

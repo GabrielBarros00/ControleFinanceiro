@@ -7876,6 +7876,8 @@ export interface components {
              * @default 1
              */
             member_count: number;
+            /** Event Seq */
+            event_seq: number;
         };
         /**
          * WorkspaceRole

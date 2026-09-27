@@ -4,6 +4,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { useWorkspaceEvents, keysForEvent, wsUrl } from '../use-workspace-events';
 import { useAuthStore, useUIStore } from '@/stores';
+import { esquecerSeqsDoBootstrap, registrarSeqDoBootstrap } from '@/lib/seq-do-bootstrap';
 
 class FakeWebSocket {
   static instances: FakeWebSocket[] = [];
@@ -51,6 +52,7 @@ describe('useWorkspaceEvents', () => {
     vi.useRealTimers();
     vi.unstubAllGlobals();
     useAuthStore.getState().logout();
+    esquecerSeqsDoBootstrap();
   });
 
   it('conecta na URL do workspace atual', () => {
@@ -104,6 +106,62 @@ describe('useWorkspaceEvents', () => {
 
     expect(invalidateSpy.mock.calls.some((c) => c[0] === undefined)).toBe(true);
     hook.unmount();
+  });
+
+  describe('primeiro hello com o seq do bootstrap (P2)', () => {
+    /* O `GET /workspaces/` do bootstrap roda antes de a página buscar qualquer
+     * dado, então o seq dele é um limite inferior do que o cache viu. Igual ao
+     * `hello`: nada mudou no meio, e refazer todas as consultas era só dobrar a
+     * carga da página (medido: 14 requisições, e as mesmas 14 de novo). */
+    const resyncCompleto = (spy: ReturnType<typeof vi.spyOn>) =>
+      spy.mock.calls.some((c: unknown[]) => c[0] === undefined);
+
+    function primeiroHello(seqDoBootstrap: number | null, seqDoHello: number) {
+      if (seqDoBootstrap !== null) registrarSeqDoBootstrap([{ id: 5, event_seq: seqDoBootstrap }]);
+      const { invalidateSpy, hook } = setup();
+      act(() => {
+        FakeWebSocket.instances[0].emit({ type: 'hello', seq: seqDoHello, workspace_id: 5 });
+        vi.advanceTimersByTime(300);
+      });
+      const houveResync = resyncCompleto(invalidateSpy);
+      hook.unmount();
+      return houveResync;
+    }
+
+    it('igual ao do bootstrap: o cache está em dia, NÃO ressincroniza', () => {
+      expect(primeiroHello(9, 9)).toBe(false);
+    });
+
+    it('à frente do bootstrap: houve mutação no meio, ressincroniza', () => {
+      expect(primeiroHello(9, 10)).toBe(true);
+    });
+
+    it('atrás do bootstrap: o servidor voltou atrás (restauração), ressincroniza', () => {
+      expect(primeiroHello(9, 4)).toBe(true);
+    });
+
+    it('sem seq do bootstrap: ressincroniza, como sempre foi', () => {
+      expect(primeiroHello(null, 9)).toBe(true);
+    });
+
+    it('o marco segue valendo: o evento seguinte em ordem não ressincroniza, a lacuna sim', () => {
+      registrarSeqDoBootstrap([{ id: 5, event_seq: 9 }]);
+      const { invalidateSpy, hook } = setup();
+      const socket = FakeWebSocket.instances[0];
+      act(() => {
+        socket.emit({ type: 'hello', seq: 9, workspace_id: 5 });
+        socket.emit({ type: 'transaction.created', seq: 10, workspace_id: 5 });
+        vi.advanceTimersByTime(300);
+      });
+      expect(resyncCompleto(invalidateSpy)).toBe(false);
+
+      act(() => {
+        socket.emit({ type: 'transaction.created', seq: 12, workspace_id: 5 });
+        vi.advanceTimersByTime(300);
+      });
+      expect(resyncCompleto(invalidateSpy)).toBe(true);
+      hook.unmount();
+    });
   });
 
   it('reconexão sem novidade (mesmo seq) NÃO ressincroniza de novo', () => {

@@ -7,6 +7,7 @@ import { server } from '@/test/setup';
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { useAuthStore } from '@/stores';
 import { registerQueryClient } from '@/api/client';
+import { esquecerSeqsDoBootstrap, seqDoBootstrap } from '@/lib/seq-do-bootstrap';
 
 const createTestQueryClient = () => new QueryClient({
   defaultOptions: {
@@ -272,6 +273,46 @@ describe('useAuth', () => {
         })
       );
       expect(useAuthStore.getState().isAuthenticated).toBe(true);
+    });
+  });
+
+  describe('o seq do bootstrap (P2)', () => {
+    afterEach(() => esquecerSeqsDoBootstrap());
+
+    const espacos = (seq: number) => http.get('http://localhost:8000/api/v1/workspaces/', () =>
+      HttpResponse.json([{ id: 5, name: 'Casa', event_seq: seq, owner_user_id: 1 }]));
+
+    it('a carga que libera a página registra o seq e semeia a lista de espaços', async () => {
+      server.use(espacos(9));
+      const { result } = renderHook(() => useAuth(), { wrapper });
+      await waitFor(() => expect(result.current.isAuthenticated).toBe(true));
+
+      expect(seqDoBootstrap(5)).toBe(9);
+      // `useWorkspaces` não precisa buscar a mesma lista de novo.
+      expect(queryClient.getQueryData(['workspaces'])).toEqual([
+        { id: 5, name: 'Casa', event_seq: 9, owner_user_id: 1 },
+      ]);
+    });
+
+    it('um refetch da sessão NÃO troca o seq: ele não é limite inferior do que já foi buscado', async () => {
+      server.use(espacos(9));
+      const { result } = renderHook(() => useAuth(), { wrapper });
+      await waitFor(() => expect(result.current.isAuthenticated).toBe(true));
+
+      server.use(espacos(15));
+      await queryClient.refetchQueries({ queryKey: ['auth-me'] });
+
+      expect(seqDoBootstrap(5)).toBe(9);
+      // A lista em cache, esta sim, fica com a resposta mais nova.
+      expect(queryClient.getQueryData<{ event_seq: number }[]>(['workspaces'])?.[0].event_seq).toBe(15);
+    });
+
+    it('o logout esquece o seq', async () => {
+      server.use(espacos(9), http.post('http://localhost:8000/api/v1/auth/logout', () => HttpResponse.json({})));
+      const { result } = renderHook(() => useAuth(), { wrapper });
+      await waitFor(() => expect(result.current.isAuthenticated).toBe(true));
+      await result.current.logout();
+      expect(seqDoBootstrap(5)).toBeUndefined();
     });
   });
 });
