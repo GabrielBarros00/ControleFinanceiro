@@ -45,7 +45,7 @@ Aplicação full-stack para controlar gastos, **dividir despesas entre pessoas**
 | **Relatórios — tema escuro** | **Acertos — quem deve para quem** |
 | [![Relatórios](docs/images/relatorios-dark.png)](docs/images/relatorios-dark.png) | [![Acertos](docs/images/acertos-light.png)](docs/images/acertos-light.png) |
 
-**[Catálogo completo →](docs/SCREENSHOTS.md)** — 121 capturas: toda rota do
+**[Catálogo completo →](docs/SCREENSHOTS.md)** — capturas de toda rota do
 aplicativo em desktop e celular, nos dois temas, mais os modais e a área
 administrativa.
 
@@ -97,7 +97,7 @@ A referência de cada variável está em **[SETUP.md](SETUP.md)**.
 | **[CONTEXT.md](CONTEXT.md)** | Glossário do domínio: o que cada termo da tela significa, como se chama no código e em qual ADR está, com as armadilhas de nome |
 | **[docs/API.md](docs/API.md)** | Referência da API: convenções, autenticação, envelope de erro, endpoints por recurso, WebSocket |
 | **[docs/mcp/](docs/mcp/README.md)** | Integração com agentes de IA: tools, OAuth, guias por cliente, segurança, testes e operação |
-| **[docs/adr/](docs/adr/README.md)** | Architecture Decision Records — as 35 decisões-chave e o porquê de cada uma |
+| **[docs/adr/](docs/adr/README.md)** | Architecture Decision Records — as decisões-chave e o porquê de cada uma |
 | **[CONTRIBUTING.md](CONTRIBUTING.md)** | Ambiente de dev, testes, lint, migrações Alembic, geração de tipos, convenções, e o que conferir no MCP quando uma funcionalidade muda |
 | **[AGENTS.md](AGENTS.md)** | Instruções para agentes de IA que trabalham no código (Codex, Claude Code, Gemini, Cursor); `CLAUDE.md` e `GEMINI.md` só o importam |
 | **[SECURITY.md](SECURITY.md)** | Como reportar vulnerabilidades e o modelo de segurança |

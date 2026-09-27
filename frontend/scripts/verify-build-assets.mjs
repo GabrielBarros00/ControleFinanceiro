@@ -357,3 +357,18 @@ if (gzipInicial > TETO_GZIP_INICIAL) {
 console.log(
   `[build] carga inicial: ${cargaInicial.length} arquivos, ${(gzipInicial / 1024).toFixed(1)} KiB gzip, sem recharts`,
 );
+
+/*
+ * O runtime do Rolldown é o ÚLTIMO `modulepreload` (ver o comentário em
+ * `vite.config.ts`): pré-carregado logo depois da entrada, o Chromium com o
+ * service worker ativo descartava o preload e baixava o arquivo de novo.
+ */
+const preloads = [...indexHtml.matchAll(/<link rel="modulepreload"[^>]*href="([^"]+)"/g)].map((m) => m[1]);
+const posicaoDoRuntime = preloads.findIndex((href) => href.includes('rolldown-runtime'));
+if (posicaoDoRuntime !== -1 && posicaoDoRuntime !== preloads.length - 1) {
+  throw new Error(
+    `rolldown-runtime é o modulepreload nº ${posicaoDoRuntime + 1} de ${preloads.length}; tem de ser o último `
+    + '(o Chromium descarta o preload com o service worker ativo) — confira build.modulePreload em vite.config.ts',
+  );
+}
+console.log(`[build] runtime do Rolldown é o último de ${preloads.length} modulepreloads`);

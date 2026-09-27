@@ -388,9 +388,11 @@ def _resolve_onboarding_workspace(db: Session, user: User, requested_id: Optiona
     if requested_id is not None:
         alvo = next((m for m in memberships if m.workspace_id == requested_id), None)
         if not alvo:
+            # 404 como em `get_workspace_membership`: espaço alheio e espaço
+            # inexistente respondem igual (ADR 0018; auditoria 2026-09-26, S1).
             raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="Você não é membro deste workspace"
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Workspace não encontrado"
             )
         if role_level(alvo.role) < role_level(WorkspaceRole.owner):
             raise HTTPException(

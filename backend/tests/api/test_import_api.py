@@ -81,7 +81,7 @@ def test_parse_csv_forbidden(db_session: Session, test_workspace, override_get_s
         data=data,
         headers=headers2
     )
-    assert response.status_code == 403
+    assert response.status_code == 404
 
 def test_parse_csv_forbidden_cross_workspace(db_session: Session, setup_data, override_get_session):
     # setup_data has u2 who is NOT in ws1
@@ -102,4 +102,4 @@ def test_parse_csv_forbidden_cross_workspace(db_session: Session, setup_data, ov
         data=data,
         headers=headers2
     )
-    assert response.status_code == 403
+    assert response.status_code == 404

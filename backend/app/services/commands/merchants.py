@@ -16,6 +16,7 @@ from fastapi import HTTPException
 from sqlalchemy import update
 from sqlmodel import Session, select
 
+from app.db.locks import trava_workspace
 from app.models.category import Category
 from app.models.merchant import Merchant, normaliza_estabelecimento
 from app.models.recurring import RecurringExpense
@@ -183,6 +184,17 @@ def resolve_merchant(
     if merchant_id is not None:
         return get_merchant_or_404(session, workspace_id, merchant_id)
     if merchant_name is not None and merchant_name.strip():
+        achado = pelo_nome(session, workspace_id, merchant_name) or do_titulo(session, workspace_id, merchant_name)
+        if achado is not None:
+            return achado
+        # Não achou: trava o espaço e procura DE NOVO antes de criar. Dois
+        # lançamentos simultâneos com o mesmo estabelecimento novo liam os dois
+        # "não existe", criavam os dois, e o segundo INSERT batia no índice único
+        # `uq_merchant_workspace_name` — 500, e o lançamento da pessoa perdido
+        # (auditoria 2026-09-26, A3; medido: 7 de 8 perdidos no Postgres). Com a
+        # trava, o segundo espera o commit do primeiro e, ao reler, o encontra.
+        # O caminho comum (estabelecimento que já existe) não trava nada.
+        trava_workspace(session, workspace_id)
         achado = pelo_nome(session, workspace_id, merchant_name) or do_titulo(session, workspace_id, merchant_name)
         if achado is not None:
             return achado

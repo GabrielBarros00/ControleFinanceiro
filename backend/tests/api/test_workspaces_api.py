@@ -125,10 +125,10 @@ def test_get_workspace_access_control(db_session: Session, test_users, auth_head
     assert response.status_code == 200
     assert response.json()["name"] == "WS-SECURE"
 
-    # User 2 CANNOT access WS1 (403 Forbidden)
+    # User 2 CANNOT access WS1 (404: espaço alheio responde como inexistente, ADR 0018)
     response = client.get(f"/api/v1/workspaces/{ws1.id}", headers=auth_headers["u2"])
-    assert response.status_code == 403
-    assert response.json()["error"]["message"] == "Você não é membro deste workspace"
+    assert response.status_code == 404
+    assert response.json()["error"]["message"] == "Workspace não encontrado"
 
 def test_get_workspace_deleted_but_member(db_session: Session, test_users, auth_headers, override_get_session):
     from datetime import datetime, UTC
@@ -253,3 +253,20 @@ def test_workspace_sem_membership_owner_nao_inventa_dono(db_session: Session, te
     corpo = client.get(f"/api/v1/workspaces/{ws.id}", headers=auth_headers["u1"]).json()
     assert corpo["owner_user_id"] is None
     assert corpo["owner_name"] is None
+
+
+def test_espaco_alheio_e_inexistente_respondem_igual(setup_data, override_get_session):
+    """ADR 0018: o que a pessoa não pode ver responde 404 — e IGUAL ao que não
+    existe. Com 403 para o alheio, a diferença revelava quais ids existem
+    (auditoria 2026-09-26, S1)."""
+    from fastapi.testclient import TestClient
+    from app.main import app
+
+    client = TestClient(app)
+    alheio = setup_data["ws2"].id
+    headers = setup_data["headers1"]
+    for sufixo in ("", "/members", "/transactions/", "/categories"):
+        a = client.get(f"/api/v1/workspaces/{alheio}{sufixo}", headers=headers)
+        b = client.get(f"/api/v1/workspaces/999999{sufixo}", headers=headers)
+        assert a.status_code == b.status_code == 404, sufixo
+        assert a.json() == b.json(), sufixo

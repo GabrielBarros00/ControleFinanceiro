@@ -89,12 +89,37 @@ class ConnectionManager:
             except Exception:
                 logger.exception("Erro ao transmitir evento WS")
 
+    #: Prazo de UM envio. Um evento é um JSON pequeno; um socket que não o aceita
+    #: em 5 s é um cliente que parou de ler (rede móvel caída sem FIN, aba
+    #: congelada), não um cliente lento.
+    ENVIO_TIMEOUT_S = 5.0
+
     async def broadcast(self, workspace_id: int, message: dict) -> None:
-        for websocket in list(self.rooms.get(workspace_id, ())):
+        """Entrega o evento a todos os sockets da sala, EM PARALELO e com prazo.
+
+        Antes era um laço com `await` em cada envio, sem prazo, numa tarefa única
+        que atende TODOS os espaços: um cliente que não lê travava a entrega de
+        todo mundo, em todas as casas (auditoria 2026-09-26, A4). Agora cada envio
+        tem prazo e corre ao lado dos outros; quem estoura é fechado — o cliente
+        reconecta sozinho e o `hello` à frente dispara o resync, então nada se
+        perde para ele.
+        """
+        sockets = list(self.rooms.get(workspace_id, ()))
+        if sockets:
+            await asyncio.gather(*(self._envia(workspace_id, ws, message) for ws in sockets))
+
+    async def _envia(self, workspace_id: int, websocket: WebSocket, message: dict) -> None:
+        try:
+            await asyncio.wait_for(websocket.send_json(message), timeout=self.ENVIO_TIMEOUT_S)
+        except Exception:
+            self.disconnect(workspace_id, websocket)
+            # 1013 = "tente de novo mais tarde": não é 4401/4403, então o cliente
+            # reconecta. O fechamento também tem prazo — o socket travado pode
+            # não aceitar nem o quadro de close.
             try:
-                await websocket.send_json(message)
+                await asyncio.wait_for(websocket.close(code=1013), timeout=1.0)
             except Exception:
-                self.disconnect(workspace_id, websocket)
+                pass
 
     async def _enforce_access(self, event: dict) -> None:
         """Revoga conexões que perderam acesso: membro removido (o próprio

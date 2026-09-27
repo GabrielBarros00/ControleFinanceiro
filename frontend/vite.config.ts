@@ -25,6 +25,25 @@ export default defineConfig({
     },
   },
   build: {
+    /*
+     * O runtime do Rolldown vai por ÚLTIMO na lista de `modulepreload`.
+     *
+     * Com o service worker ativo, o Chromium descartava o preload dele — "A
+     * preload for 'rolldown-runtime-….js' is found, but is not used because it is
+     * a cross-world service worker resource mismatch" — e buscava o arquivo de
+     * novo. Medido no build de produção, navegando numa aba com o SW no
+     * controle: 17 avisos em 24 navegações com ele em primeiro, 0 em 24 com ele
+     * por último, sem nenhum outro preload passar a reclamar. É o arquivo que a
+     * entrada importa primeiro; pré-carregado logo antes dela, a busca do
+     * preload e a do módulo corriam juntas (auditoria 2026-09-26, ruído de
+     * console). `scripts/verify-build-assets.mjs` confere a ordem.
+     */
+    modulePreload: {
+      resolveDependencies: (_arquivo, deps) => [
+        ...deps.filter((d) => !d.includes('rolldown-runtime')),
+        ...deps.filter((d) => d.includes('rolldown-runtime')),
+      ],
+    },
     rollupOptions: {
       output: {
         // Separa os vendors pesados do código da app: melhora cache (mudam pouco)

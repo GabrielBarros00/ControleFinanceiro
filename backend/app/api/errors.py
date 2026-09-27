@@ -13,17 +13,40 @@ logger = structlog.get_logger("app.http")
 # Aceita as duas versões para não quebrar o handler de validação.
 HTTP_422 = getattr(status, "HTTP_422_UNPROCESSABLE_CONTENT", None) or status.HTTP_422_UNPROCESSABLE_ENTITY
 
+_PREFIXO_DA_REGRA = "Value error, "
+
+
+def _frase_da_regra(errors) -> str | None:
+    """A primeira regra de NEGÓCIO recusada, na frase dela.
+
+    As regras do domínio são `ValueError` escritos em português nos validadores
+    ("Parcelamento exige pagamento no cartão", a conferência da linha da nota) e
+    chegam aqui com `type == "value_error"`. A mensagem do envelope é o ÚNICO
+    campo que a tela lê (`src/lib/api-error.ts`): com o texto genérico de antes, a
+    pessoa via "Ocorreu um erro de validação" e não tinha o que corrigir
+    (auditoria 2026-09-26, C11). As mensagens do próprio Pydantic ("Field
+    required", em inglês) continuam de fora — para elas vale o texto genérico.
+    """
+    for error in errors:
+        if error.get("type") == "value_error":
+            frase = str(error.get("msg", "")).removeprefix(_PREFIXO_DA_REGRA).strip()
+            if frase:
+                return frase
+    return None
+
+
 async def validation_exception_handler(request: Request, exc: RequestValidationError):
     """Tratamento de erros de validação do Pydantic (422)."""
+    erros = exc.errors()
     details = {}
-    for error in exc.errors():
+    for error in erros:
         field = " -> ".join([str(loc) for m, loc in enumerate(error["loc"]) if loc != "body"])
-        details[field] = error["msg"]
-    
+        details[field] = str(error["msg"]).removeprefix(_PREFIXO_DA_REGRA)
+
     error_res = ErrorResponse(
         error=ErrorDetail(
             code="VALIDATION_ERROR",
-            message="Ocorreu um erro de validação nos dados enviados.",
+            message=_frase_da_regra(erros) or "Ocorreu um erro de validação nos dados enviados.",
             details=details
         )
     )

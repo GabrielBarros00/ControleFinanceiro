@@ -177,9 +177,9 @@ def test_analytics_forbidden(db_session: Session, analytics_setup, override_get_
     # GET tests
     for ep in endpoints:
         response = client.get(ep, headers=headers)
-        assert response.status_code == 403
+        assert response.status_code == 404
 
     # POST test for estimates
     payload = {"month": "2026-05", "category": "Food", "amount": 500.0}
     response = client.post(f"/api/v1/workspaces/{ws_id}/analytics/estimates", json=payload, headers=headers)
-    assert response.status_code == 403
+    assert response.status_code == 404
