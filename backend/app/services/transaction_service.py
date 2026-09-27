@@ -4,6 +4,7 @@ from typing import Any, Dict, List, Optional
 from sqlmodel import Session, select
 
 from app.domain.account_policy import assert_conta_na_moeda
+from app.domain.item_da_nota import unitario_depois_de_rateio
 from app.domain.money import Money, MoneyError
 from app.models.category import Category
 from app.models.payment_account import PaymentAccount
@@ -226,10 +227,12 @@ def convert_division_to_base(
             if shares and shares[0].split_method == SplitMethod.fixed:
                 svals = _reallocate(shares, lambda sh: sh.input_value, _cents(it_brl))
                 shares = [sh.model_copy(update={"input_value": svals[j]}) for j, sh in enumerate(shares)]
+            # A medida fica; só o unitário acompanha o total convertido (ADR 0040).
             new_items.append(it.model_copy(update={
                 "amount": it_brl,
-                "quantity": Decimal("1"),
-                "unit_amount": None,
+                "unit_amount": (
+                    unitario_depois_de_rateio(it_brl, it.quantity) if it.unit_amount is not None else None
+                ),
                 "shares": shares,
             }))
 

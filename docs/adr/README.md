@@ -45,6 +45,7 @@ Cada ADR registra **uma decisão** relevante do projeto: o contexto, a decisão 
 | [0037](0037-importacao-de-extrato-de-conta.md) | Extrato de conta: o sinal é preservado e cada linha vira o que é (despesa, renda, transferência ou pagamento de fatura), pelo comando da tela; desfazer estorna só o pagamento que o extrato criou | Importação / contas |
 | [0038](0038-estabelecimento.md) | Estabelecimento é vocabulário do espaço, com apelidos do extrato; o lançamento novo se liga sozinho só por apelido igual ao título, e parecido vira pergunta | Lançamentos / relatórios |
 | [0039](0039-assinaturas.md) | Assinatura é uma recorrência marcada (plano, teste grátis, benefícios, provedor = estabelecimento); o custo por mês é calculado no servidor | Recorrência |
+| [0040](0040-item-da-nota-com-medida.md) | O item da nota tem medida: unidade (un, kg, g, l, ml, m), preço unitário com 4 casas e conferência com tolerância de 1 centavo; obrigatório só ao adicionar item | Lançamento |
 
 ## Escrevendo um novo ADR
 

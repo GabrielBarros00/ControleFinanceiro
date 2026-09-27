@@ -4,6 +4,9 @@ import { http, HttpResponse } from 'msw';
 import { server } from '@/test/setup';
 import { describe, it, expect, beforeEach } from 'vitest';
 import { NewTransactionDialog } from '../../NewTransactionDialog';
+import { TransactionForm } from '../TransactionForm';
+import { fromApiTransaction } from '../schema';
+import type { TransactionRead } from '@/types/transaction';
 import { useAuthStore, useUIStore } from '@/stores';
 import { ConfirmProvider } from '@/components/ui/confirm';
 
@@ -84,9 +87,85 @@ describe('TransactionForm — divisão por item', () => {
     fireEvent.change(screen.getByLabelText('Valor unitário'), { target: { value: '10,00' } });
 
     await waitFor(() => {
-      const lineTotal = screen.getByLabelText('Total do item');
-      expect(lineTotal.textContent).toContain('30,00');
+      const lineTotal = screen.getByLabelText('Total do item') as HTMLInputElement;
+      expect(lineTotal.value).toBe('30,00');
     });
+  });
+
+  it('a linha da nota aceita peso e preço com 3 casas, e a conta não é de ponto flutuante', async () => {
+    renderForm();
+    await screen.findAllByText('Alice');
+    await switchToItemMode();
+
+    // 2,050 kg × R$ 19,90 = 40,795 → R$ 40,80. A conta antiga, em float, dava
+    // 4079,4999… centavos e mostrava R$ 40,79, que o servidor recusava.
+    fireEvent.change(screen.getByLabelText('Unidade'), { target: { value: 'kg' } });
+    fireEvent.change(screen.getByLabelText('Quantidade'), { target: { value: '2,050' } });
+    fireEvent.change(screen.getByLabelText('Valor unitário'), { target: { value: '19,90' } });
+    await waitFor(() => {
+      expect((screen.getByLabelText('Total do item') as HTMLInputElement).value).toBe('40,80');
+    });
+
+    // O litro com 3 casas: o MoneyInput leria "5899" como R$ 58,99.
+    fireEvent.change(screen.getByLabelText('Quantidade'), { target: { value: '40,123' } });
+    fireEvent.change(screen.getByLabelText('Valor unitário'), { target: { value: '5,899' } });
+    await waitFor(() => {
+      expect((screen.getByLabelText('Total do item') as HTMLInputElement).value).toBe('236,69');
+    });
+
+    // Quinta casa no preço, quarta na quantidade: a tecla é ignorada.
+    const unitario = screen.getByLabelText('Valor unitário') as HTMLInputElement;
+    fireEvent.change(unitario, { target: { value: '5,89901' } });
+    expect(unitario.value).toBe('5,899');
+    const quantidade = screen.getByLabelText('Quantidade') as HTMLInputElement;
+    fireEvent.change(quantidade, { target: { value: '40,1234' } });
+    expect(quantidade.value).toBe('40,123');
+  });
+
+  it('item novo sem preço unitário não salva e diz o que falta', async () => {
+    let createCalled = false;
+    server.use(
+      http.post(`${WS}/transactions/`, () => {
+        createCalled = true;
+        return HttpResponse.json({ id: 1 });
+      })
+    );
+    renderForm();
+    await screen.findAllByText('Alice');
+    await switchToItemMode();
+
+    fireEvent.change(screen.getByLabelText('Título do item'), { target: { value: 'Carne' } });
+    fireEvent.change(screen.getByLabelText('Total do item'), { target: { value: '90,00' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Salvar despesa' }));
+
+    await screen.findByText('Informe o preço unitário da nota');
+    expect(createCalled).toBe(false);
+  });
+
+  it('o total da nota pode diferir da conta em 1 centavo, e mais que isso é recusado', async () => {
+    renderForm();
+    await screen.findAllByText('Alice');
+    await switchToItemMode();
+    fireEvent.change(screen.getByLabelText('Valor Total'), { target: { value: '49,27' } });
+
+    fireEvent.change(screen.getByLabelText('Título do item'), { target: { value: 'Picanha' } });
+    fireEvent.change(screen.getByLabelText('Unidade'), { target: { value: 'kg' } });
+    fireEvent.change(screen.getByLabelText('Quantidade'), { target: { value: '1,235' } });
+    fireEvent.change(screen.getByLabelText('Valor unitário'), { target: { value: '39,90' } });
+    await waitFor(() => {
+      expect((screen.getByLabelText('Total do item') as HTMLInputElement).value).toBe('49,28');
+    });
+
+    // A balança truncou: a nota diz R$ 49,27. A pessoa corrige o total e vale.
+    fireEvent.change(screen.getByLabelText('Total do item'), { target: { value: '49,27' } });
+    await waitFor(() => {
+      expect(screen.getByTestId('items-summary').textContent).toContain('Itens fecham');
+    });
+    expect(screen.queryByText(/confira a nota/)).toBeNull();
+
+    // R$ 49,40 é leitura errada.
+    fireEvent.change(screen.getByLabelText('Total do item'), { target: { value: '49,40' } });
+    expect(await screen.findByText(/1,235 kg × unitário dá R\$\s49,28 — confira a nota/)).toBeInTheDocument();
   });
 
   it('bloqueia submit quando itens não fecham o total e mostra o que falta', async () => {
@@ -122,9 +201,11 @@ describe('TransactionForm — divisão por item', () => {
     await screen.findAllByText('Alice');
     await switchToItemMode();
 
-    // Item 1: Carne 60, dividido igual entre Alice e Bob
+    // Item 1: Carne, 1,5 kg × R$ 40,00 = 60, dividida igual entre Alice e Bob
     fireEvent.change(screen.getByLabelText('Título do item'), { target: { value: 'Carne' } });
-    fireEvent.change(screen.getByLabelText('Total do item'), { target: { value: '60,00' } });
+    fireEvent.change(screen.getByLabelText('Unidade'), { target: { value: 'kg' } });
+    fireEvent.change(screen.getByLabelText('Quantidade'), { target: { value: '1,5' } });
+    fireEvent.change(screen.getByLabelText('Valor unitário'), { target: { value: '40,00' } });
     fireEvent.click(screen.getAllByRole('button', { name: '+ Participante' })[0]);
     await waitFor(() => {
       expect(screen.getAllByLabelText('Participante do item 1')).toHaveLength(2);
@@ -148,16 +229,87 @@ describe('TransactionForm — divisão por item', () => {
     expect(payload!.splits).toEqual([]);
     expect(payload!.items).toEqual([
       {
-        title: 'Carne', amount: 60, quantity: 1, unit_amount: null, position: 0, category_id: null,
+        title: 'Carne', amount: 60, quantity: 1.5, unit: 'kg', unit_amount: 40, position: 0, category_id: null,
         shares: [
           { user_id: 1, split_method: 'equal', input_value: 0 },
           { user_id: 2, split_method: 'equal', input_value: 0 },
         ],
       },
       {
-        title: 'Cerveja', amount: 30, quantity: 3, unit_amount: 10, position: 1, category_id: null,
+        title: 'Cerveja', amount: 30, quantity: 3, unit: 'un', unit_amount: 10, position: 1, category_id: null,
         shares: [{ user_id: 2, split_method: 'equal', input_value: 0 }],
       },
     ]);
+  });
+});
+
+describe('TransactionForm — editar uma nota já lançada', () => {
+  beforeEach(() => {
+    useAuthStore.getState().setUser({ id: 1, name: 'Alice', email: 'alice@t.com' });
+    useUIStore.getState().setCurrentWorkspaceId(1);
+    server.use(
+      http.get(`${WS}/members`, () => HttpResponse.json(members)),
+      http.get(`${WS}/invites`, () => HttpResponse.json([])),
+      http.get(`${WS}/categories`, () => HttpResponse.json([])),
+      http.get(`${WS}/credit-cards/`, () => HttpResponse.json([])),
+      http.get(`${WS}/tags`, () => HttpResponse.json([])),
+    );
+  });
+
+  type ItemLido = NonNullable<TransactionRead['items']>[number];
+  const nota = (item: Partial<ItemLido> = {}): TransactionRead => ({
+    id: 9, workspace_id: 1, title: 'Açougue', total_amount: '49.27', currency: 'BRL',
+    transaction_date: '2026-09-20T15:00:00Z', billing_month: '2026-09', status: 'confirmed',
+    split_mode: 'item', payment_method: 'pix', credit_card_id: null, created_by: 1,
+    created_at: '', updated_at: '', tags: [], adjustments: [],
+    payers: [{ id: 1, user_id: 1, amount: '49.27' }],
+    splits: [],
+    items: [{
+      id: 1, title: 'Picanha', amount: '49.27', quantity: '1.235', unit: 'kg', unit_amount: '39.9000',
+      position: 0, category_id: null,
+      shares: [{ id: 1, user_id: 1, split_method: 'equal', input_value: '0.00', computed_amount: '49.27' }],
+      ...item,
+    }],
+  } as TransactionRead);
+
+  function renderEdicao(tx: TransactionRead, onSubmit: (p: unknown) => Promise<void>) {
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={queryClient}>
+        <ConfirmProvider>
+          <TransactionForm initialValues={fromApiTransaction(tx)} onSubmit={onSubmit} submitLabel="Salvar Alterações" />
+        </ConfirmProvider>
+      </QueryClientProvider>
+    );
+  }
+
+  it('abrir não recalcula o total que a balança imprimiu', async () => {
+    // 1,235 × 39,90 = 49,2765. A nota truncada diz R$ 49,27; recalcular na
+    // montagem trocaria a verdade pela conta, e salvar gravaria R$ 49,28.
+    let enviado: { items: Record<string, unknown>[] } | null = null;
+    renderEdicao(nota(), async (p) => { enviado = p as typeof enviado; });
+
+    expect(((await screen.findByLabelText('Total do item')) as HTMLInputElement).value).toBe('49,27');
+    expect((screen.getByLabelText('Quantidade') as HTMLInputElement).value).toBe('1,235');
+    expect((screen.getByLabelText('Valor unitário') as HTMLInputElement).value).toBe('39,90');
+    expect((screen.getByLabelText('Unidade') as HTMLSelectElement).value).toBe('kg');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Salvar Alterações' }));
+    await waitFor(() => expect(enviado).not.toBeNull());
+    expect(enviado!.items[0]).toMatchObject({ amount: 49.27, quantity: 1.235, unit: 'kg', unit_amount: 39.9 });
+  });
+
+  it('linha antiga sem medida salva sem pedir uma', async () => {
+    let enviado: { items: Record<string, unknown>[] } | null = null;
+    renderEdicao(
+      nota({ quantity: '1.000', unit: null, unit_amount: null }),
+      async (p) => { enviado = p as typeof enviado; },
+    );
+
+    expect(((await screen.findByLabelText('Unidade')) as HTMLSelectElement).value).toBe('');
+    expect(screen.getByText('(opcional)')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Salvar Alterações' }));
+    await waitFor(() => expect(enviado).not.toBeNull());
+    expect(enviado!.items[0]).toMatchObject({ unit: null, unit_amount: null });
   });
 });

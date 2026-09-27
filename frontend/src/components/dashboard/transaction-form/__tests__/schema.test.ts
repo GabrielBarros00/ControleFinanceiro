@@ -31,11 +31,15 @@ const baseValues: TransactionFormValues = {
   settled: true,
 };
 
+// Linha ANTIGA por padrão (`nova: false`, sem unidade): a medida só é exigida da
+// linha que nasce no formulário, e os casos dela têm testes próprios abaixo.
 const item = (over: Partial<TransactionFormValues['items'][number]> = {}) => ({
   title: 'Carne',
   quantity: 1,
+  unit: null as TransactionFormValues['items'][number]['unit'],
   unit_amount: null,
   amount: 60,
+  nova: false,
   category_id: '',
   share_method: 'equal' as const,
   shares: [{ user_id: '1', value: 0 }],
@@ -188,6 +192,46 @@ describe('transactionFormSchema — modo item', () => {
     expect(good.success).toBe(true);
   });
 
+  // ---- A linha da nota (ADR 0040) ----
+  const nova = (over: Partial<TransactionFormValues['items'][number]> = {}) =>
+    item({ nova: true, unit: 'kg', ...over });
+  const issues = (items: ReturnType<typeof item>[]) => {
+    const r = transactionFormSchema.safeParse({ ...itemBase, total_amount: items.reduce((a, i) => a + i.amount, 0), items });
+    return r.success ? [] : r.error.issues.map((i) => ({ path: i.path.join('.'), message: i.message }));
+  };
+
+  it('linha nova exige a unidade e o preço unitário', () => {
+    expect(issues([nova({ unit: null, unit_amount: null, amount: 60 })])).toEqual([
+      { path: 'items.0.unit', message: 'Escolha a unidade' },
+      { path: 'items.0.unit_amount', message: 'Informe o preço unitário da nota' },
+    ]);
+  });
+
+  it('linha antiga, sem medida, continua editável (decisão do dono)', () => {
+    expect(issues([item({ unit: null, unit_amount: null, amount: 60 })])).toEqual([]);
+  });
+
+  it('o total impresso vale com até 1 centavo de diferença da conta', () => {
+    // 1,235 kg × R$ 39,90 = 49,2765: a balança que arredonda imprime 49,28, a
+    // que trunca imprime 49,27 — as duas notas são verdadeiras.
+    expect(issues([nova({ quantity: 1.235, unit_amount: 39.9, amount: 49.28 })])).toEqual([]);
+    expect(issues([nova({ quantity: 1.235, unit_amount: 39.9, amount: 49.27 })])).toEqual([]);
+    // O litro com 3 casas.
+    expect(issues([nova({ quantity: 40.123, unit: 'l', unit_amount: 5.899, amount: 236.69 })])).toEqual([]);
+  });
+
+  it('a conta não usa ponto flutuante: 2,050 × R$ 19,90 fecha R$ 40,80', () => {
+    // A versão anterior calculava 2.05 * 1990 = 4079,4999… → R$ 40,79 e
+    // recusava a nota verdadeira de R$ 40,80.
+    expect(issues([nova({ quantity: 2.05, unit_amount: 19.9, amount: 40.8 })])).toEqual([]);
+  });
+
+  it('diferença maior que 1 centavo é leitura errada, e a mensagem diz a conta', () => {
+    const [problema] = issues([nova({ quantity: 1.235, unit_amount: 39.9, amount: 49.4 })]);
+    expect(problema.path).toBe('items.0.amount');
+    expect(problema.message).toMatch(/^1,235 kg × unitário dá R\$\s49,28 — confira a nota/);
+  });
+
   it('rejeita modo item sem itens', () => {
     const result = transactionFormSchema.safeParse({ ...itemBase, items: [] });
     expect(result.success).toBe(false);
@@ -219,14 +263,28 @@ describe('toApiPayload', () => {
     expect(payload.splits).toEqual([]);
     expect(payload.items).toEqual([
       {
-        title: 'Cerveja', amount: 30, quantity: 3, unit_amount: 10, position: 0, category_id: null,
+        title: 'Cerveja', amount: 30, quantity: 3, unit: null, unit_amount: 10, position: 0, category_id: null,
         shares: [{ user_id: 2, split_method: 'equal', input_value: 0 }],
       },
       {
-        title: 'Carne', amount: 60, quantity: 1, unit_amount: null, position: 1, category_id: null,
+        title: 'Carne', amount: 60, quantity: 1, unit: null, unit_amount: null, position: 1, category_id: null,
         shares: [{ user_id: 1, split_method: 'fixed', input_value: 60 }],
       },
     ]);
+  });
+
+  it('modo item: a unidade vai à API e a marca de linha nova não', () => {
+    const payload = toApiPayload({
+      ...baseValues,
+      split_mode: 'item',
+      splits: [],
+      items: [item({ nova: true, unit: 'kg', quantity: 1.235, unit_amount: 39.9, amount: 49.27 })],
+    });
+    expect(payload.items[0]).toEqual({
+      title: 'Carne', amount: 49.27, quantity: 1.235, unit: 'kg', unit_amount: 39.9,
+      position: 0, category_id: null,
+      shares: [{ user_id: 1, split_method: 'equal', input_value: 0 }],
+    });
   });
 
   it('cartão selecionado sem método explícito infere credit_card', () => {
@@ -318,6 +376,19 @@ describe('fromApiTransaction — round-trip', () => {
     expect(values.items[1].quantity).toBe(3);
     expect(values.items[1].unit_amount).toBe(10);
     expect(values.items[0].share_method).toBe('equal');
+    // Linhas que vêm do servidor são antigas: a medida não é exigida delas.
+    expect(values.items.map((i) => i.nova)).toEqual([false, false]);
+  });
+
+  it('reconstrói a unidade e o unitário com 4 casas', () => {
+    const values = fromApiTransaction({
+      ...apiTx,
+      items: [{ ...apiTx.items![0], quantity: '40.123', unit: 'l', unit_amount: '5.8990', amount: '236.69' }],
+    });
+    expect(values.items[0]).toMatchObject({ quantity: 40.123, unit: 'l', unit_amount: 5.899, amount: 236.69 });
+    // Unidade fora do vocabulário não vira valor inválido no <select>.
+    const estranha = fromApiTransaction({ ...apiTx, items: [{ ...apiTx.items![0], unit: 'cx' }] });
+    expect(estranha.items[0].unit).toBeNull();
   });
 
   it('o round-trip preserva um deslocamento já aplicado', () => {

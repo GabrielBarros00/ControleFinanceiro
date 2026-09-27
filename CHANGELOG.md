@@ -137,6 +137,26 @@ registro por CIMD/DCR, 59 tools documentadas em `docs/mcp/TOOLS.md` (geradas do
 código), e as escritas das rotas REST passaram a morar em comandos
 compartilhados (`app/services/commands/`) — sem mudança de comportamento.
 
+### O item da nota tem quantidade, unidade e preço unitário
+
+- **Cada item da nota diz quanto, de quê e a quanto.** "1,235 kg de picanha a
+  R$ 39,90" fica gravado assim, e não só "R$ 49,28". A unidade é uma de seis: un,
+  kg, g, L, mL e m ([ADR 0040](docs/adr/0040-item-da-nota-com-medida.md)).
+- **A IA lança a nota item por item, com a medida.** Antes ela mandava só o total de
+  cada linha; agora, ao adicionar item, ela informa quantidade, unidade e preço
+  unitário, e o app confere a conta antes de gravar.
+- **O preço do litro cabe inteiro.** O preço unitário aceita até 4 casas: R$ 5,899 o
+  litro de gasolina deixou de virar R$ 5,90.
+- **A nota da balança vale como foi impressa.** A conta pode diferir do total impresso
+  em até 1 centavo, porque cada balança arredonda de um jeito (1,235 kg × R$ 39,90 sai
+  R$ 49,28 numa e R$ 49,27 noutra). Diferença maior que isso é recusada, e a mensagem
+  mostra a conta para você conferir a nota.
+- **Na tela, a conta não erra mais o centavo.** 2,050 kg × R$ 19,90 aparecia como
+  R$ 40,79, e o servidor recusava; agora dá R$ 40,80. E abrir um lançamento para editar
+  não troca mais o total impresso pelo da conta.
+- **A medida é pedida só ao adicionar item.** Lançamento sem itens continua sendo só o
+  valor, e editar um lançamento antigo não obriga a inventar a medida que ele não tinha.
+
 ### A fatura e as Rendas mostram o número certo
 
 - **O aviso da fatura fala do que falta pagar.** Depois de pagar parte da fatura, o

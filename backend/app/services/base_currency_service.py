@@ -45,6 +45,7 @@ from app.services.currency_service import ExchangeRateUnavailable
 from app.services.exchange_rate_store import ExchangeRateStore
 from app.services.transaction_service import _allocate_proportional, _cents
 from app.domain.dates import local_day, today_local
+from app.domain.item_da_nota import unitario_depois_de_rateio
 
 
 class MissingRates(Exception):
@@ -403,16 +404,15 @@ class BaseCurrencyService:
             # Itens somam (total − ajustes): a mesma reconciliação do create
             _reallocate(items, lambda i: i.amount, _set_item_amount, total_cents - adj_cents)
             for item in items:
-                # quantity × unitário deixa de fechar após a conversão (a fatia
-                # convertida raramente é múltipla exata da quantidade), então a
-                # linha é normalizada para 1 × valor-da-linha. O `amount` que
-                # `_reallocate` acabou de gravar é a fonte de verdade e NÃO pode
-                # ser recalculado a partir do unitário: dividi-lo pela quantidade
-                # encolhia o item (3 × 10 virava o preço de UM), quebrando
-                # `soma(itens) + ajustes == total` e o rateio das shares abaixo.
+                # O `amount` que `_reallocate` acabou de gravar é a fonte de
+                # verdade e NÃO pode ser recalculado a partir do unitário:
+                # dividi-lo pela quantidade encolhia o item (3 × 10 virava o
+                # preço de UM), quebrando `soma(itens) + ajustes == total` e o
+                # rateio das shares abaixo. O que se recalcula é o UNITÁRIO; a
+                # quantidade e a unidade ficam (ADR 0040) — antes a linha virava
+                # `1 × total` e "1,235 kg" sumia na troca de moeda.
                 if item.unit_amount is not None and item.quantity:
-                    item.unit_amount = item.amount
-                    item.quantity = Decimal("1")
+                    item.unit_amount = unitario_depois_de_rateio(item.amount, item.quantity)
                 db.add(item)
 
                 shares = db.exec(

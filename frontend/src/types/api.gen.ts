@@ -3978,6 +3978,8 @@ export interface components {
              * @default 1
              */
             quantity: string;
+            /** Unit */
+            unit?: ("un" | "kg" | "g" | "l" | "ml" | "m") | null;
             /** Unit Amount */
             unit_amount?: string | null;
             /**
@@ -7324,6 +7326,8 @@ export interface components {
              * @default 1
              */
             quantity: number | string;
+            /** Unit */
+            unit?: ("un" | "kg" | "g" | "l" | "ml" | "m") | null;
             /** Unit Amount */
             unit_amount?: number | string | null;
             /**
@@ -7349,6 +7353,8 @@ export interface components {
              * @default 1
              */
             quantity: string;
+            /** Unit */
+            unit?: ("un" | "kg" | "g" | "l" | "ml" | "m") | null;
             /** Unit Amount */
             unit_amount?: string | null;
             /**

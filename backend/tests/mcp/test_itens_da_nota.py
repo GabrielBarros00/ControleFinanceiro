@@ -25,8 +25,28 @@ def c(db_session, mcp_client):
     return monta(db_session, mcp_client)
 
 
+def _com_medida(itens):
+    """Item novo tem medida (ADR 0040). Estes testes são sobre divisão, desconto e
+    parcelamento, não sobre a medida: quem não diz a sua vira `1 un × total`.
+    Os testes da medida em si mandam os itens crus (`call_tool`)."""
+    completos = []
+    for item in itens or []:
+        item = dict(item)
+        if "quantity" not in item:
+            item.update(quantity="1", unit_amount=item["amount"])
+        item.setdefault("unit", "un")
+        completos.append(item)
+    return completos
+
+
+def _chama(mcp_client, c, tool: str, args: dict):
+    if "items" in args:
+        args = {**args, "items": _com_medida(args["items"])}
+    return call_tool(mcp_client, c.token, tool, args)
+
+
 def _cria(mcp_client, c, **args) -> dict:
-    return ok(call_tool(mcp_client, c.token, "transactions_create", {"idempotency_key": str(uuid4()), **args}))
+    return ok(_chama(mcp_client, c, "transactions_create", {"idempotency_key": str(uuid4()), **args}))
 
 
 def _pessoas(lista) -> dict:
@@ -81,7 +101,7 @@ def test_itens_com_desconto_e_total_omitido(mcp_client, c):
 
 
 def test_itens_que_nao_fecham_o_total_explicam_a_diferenca(mcp_client, c):
-    erro = err(call_tool(mcp_client, c.token, "transactions_create", {
+    erro = err(_chama(mcp_client, c, "transactions_create", {
         "idempotency_key": str(uuid4()), "title": "Mercado", "amount": "100.00",
         "items": [{"title": "Arroz", "amount": "60.00"}, {"title": "Feijão", "amount": "30.00"}],
     }))
@@ -89,16 +109,81 @@ def test_itens_que_nao_fecham_o_total_explicam_a_diferenca(mcp_client, c):
     assert erro["details"] == {"items_total": "90.00", "adjustments_total": "0.00", "amount": "100.00"}
 
 
-def test_quantidade_que_nao_fecha_em_centavos_pede_o_total_da_linha(mcp_client, c):
+# --- A medida do item (ADR 0040) ---------------------------------------------
+
+
+def test_item_novo_sem_medida_e_recusado_dizendo_o_que_falta(mcp_client, c):
+    """Decisão do dono: ao ADICIONAR item, quantidade, unidade e preço unitário."""
     erro = err(call_tool(mcp_client, c.token, "transactions_create", {
-        "idempotency_key": str(uuid4()), "title": "Feira",
-        "items": [{"title": "Tomate", "quantity": "1.333", "unit_amount": "10.01"}],
+        "idempotency_key": str(uuid4()), "title": "Mercado",
+        "items": [{"title": "Arroz", "amount": "30.00"}],
     }))
-    assert erro["code"] == "VALIDATION_ERROR" and "não fecha em centavos" in erro["message"]
+    assert erro["code"] == "VALIDATION_ERROR"
+    assert "quantity, unit" in erro["message"] and "\"Arroz\"" in erro["message"]
+    assert erro["details"]["items_without_measure"] == ["Arroz"]
+
+
+def test_nota_de_balanca_e_combustivel_entram_com_a_medida(mcp_client, db_session, c):
+    """Os casos que empurravam o agente a mandar só o total: a balança que trunca
+    (1,235 kg × R$ 39,90 = R$ 49,27) e o litro com 3 casas (R$ 5,899)."""
+    tx = ok(call_tool(mcp_client, c.token, "transactions_create", {
+        "idempotency_key": str(uuid4()), "title": "Posto e açougue",
+        "items": [
+            {"title": "Carne", "quantity": "1.235", "unit": "kg", "unit_amount": "39.90", "amount": "49.27"},
+            {"title": "Gasolina", "quantity": "40.123", "unit": "l", "unit_amount": "5.899", "amount": "236.69"},
+        ],
+    }))["transaction"]
+    assert tx["amount"] == "285.96"
+    assert [(i["title"], i["quantity"], i["unit"], i["unit_amount"], i["amount"]) for i in tx["items"]] == [
+        ("Carne", "1.235", "kg", "39.90", "49.27"),
+        ("Gasolina", "40.123", "l", "5.899", "236.69"),
+    ]
+
+
+def test_total_omitido_e_derivado_arredondando(mcp_client, c):
+    """Sem o total da linha, `quantity × unit_amount` arredondado ao centavo."""
+    tx = ok(call_tool(mcp_client, c.token, "transactions_create", {
+        "idempotency_key": str(uuid4()), "title": "Feira",
+        "items": [{"title": "Tomate", "quantity": "1.333", "unit": "kg", "unit_amount": "10.01"}],
+    }))["transaction"]
+    assert tx["items"][0]["amount"] == "13.34"
+
+
+def test_leitura_errada_da_linha_e_recusada_dizendo_o_que_conferir(mcp_client, c):
+    erro = err(call_tool(mcp_client, c.token, "transactions_create", {
+        "idempotency_key": str(uuid4()), "title": "Açougue",
+        "items": [{"title": "Carne", "quantity": "1.235", "unit": "kg", "unit_amount": "39.90", "amount": "49.40"}],
+    }))
+    assert erro["code"] == "VALIDATION_ERROR" and "Confira a nota" in erro["message"]
+
+
+def test_linha_antiga_sem_medida_volta_na_edicao_e_a_nova_precisa_dela(mcp_client, db_session, c):
+    """Editar não obriga a inventar a medida do que já existia; linha NOVA, sim."""
+    tx = _cria(mcp_client, c, title="Mercado", items=[{"title": "Arroz", "amount": "30.00"}])["transaction"]
+    # Simula a linha antiga, de antes da medida existir.
+    linha = db_session.exec(select(TransactionItem).where(TransactionItem.transaction_id == tx["id"])).one()
+    linha.unit, linha.unit_amount = None, None
+    db_session.add(linha)
+    db_session.commit()
+
+    erro = err(call_tool(mcp_client, c.token, "transactions_update", {
+        "transaction_id": tx["id"],
+        "items": [{"title": "Arroz", "amount": "30.00"}, {"title": "Feijão", "amount": "10.00"}],
+    }))
+    assert erro["details"]["items_without_measure"] == ["Feijão"]
+
+    feito = ok(call_tool(mcp_client, c.token, "transactions_update", {
+        "transaction_id": tx["id"],
+        "items": [
+            {"title": "Arroz", "amount": "30.00"},
+            {"title": "Feijão", "quantity": "1", "unit": "kg", "unit_amount": "10.00"},
+        ],
+    }))
+    assert {i["title"]: i["unit"] for i in feito["transaction"]["items"]} == {"Arroz": None, "Feijão": "kg"}
 
 
 def test_parcelado_com_ajuste_e_recusado_em_vez_de_perder_o_desconto(mcp_client, c):
-    erro = err(call_tool(mcp_client, c.token, "transactions_create", {
+    erro = err(_chama(mcp_client, c, "transactions_create", {
         "idempotency_key": str(uuid4()), "title": "Loja", "card": "Nubank", "installments": 3,
         "items": [{"title": "Fone", "amount": "300.00"}],
         "adjustments": [{"type": "discount", "amount": "30.00"}],
@@ -117,7 +202,7 @@ def test_parcelado_com_itens_sem_divisao_propria_nao_perde_itens(mcp_client, c):
 
 
 def test_item_sem_divisao_quando_outra_pessoa_pagou(mcp_client, c):
-    erro = err(call_tool(mcp_client, c.token, "transactions_create", {
+    erro = err(_chama(mcp_client, c, "transactions_create", {
         "idempotency_key": str(uuid4()), "title": "Mercado", "space": "Casa", "paid_by": "João",
         "items": [{"title": "Arroz", "amount": "30.00", "owner": "eu"}, {"title": "Pão", "amount": "10.00"}],
     }))
@@ -125,7 +210,7 @@ def test_item_sem_divisao_quando_outra_pessoa_pagou(mcp_client, c):
 
 
 def test_divisao_fixa_do_total_nao_se_distribui_por_item(mcp_client, c):
-    erro = err(call_tool(mcp_client, c.token, "transactions_create", {
+    erro = err(_chama(mcp_client, c, "transactions_create", {
         "idempotency_key": str(uuid4()), "title": "Mercado", "space": "Casa", "card": "Nubank", "installments": 2,
         "split": [{"person": "eu", "amount": "70.00"}, {"person": "João", "amount": "30.00"}],
         "items": [{"title": "Arroz", "amount": "60.00"}, {"title": "Pão", "amount": "40.00"}],
@@ -137,7 +222,7 @@ def test_editar_itens_troca_a_nota_inteira_e_mostra_o_antes(mcp_client, db_sessi
     tx = _cria(mcp_client, c, title="Mercado", space="Casa", split_with=["João"],
                items=[{"title": "Arroz", "amount": "30.00"}, {"title": "Pão", "amount": "10.00"}])["transaction"]
     assert tx["split_mode"] == "transaction" and _pessoas(tx["split"]) == {"Alice Souza": "20.00", "João Pereira": "20.00"}
-    feito = ok(call_tool(mcp_client, c.token, "transactions_update", {
+    feito = ok(_chama(mcp_client, c, "transactions_update", {
         "transaction_id": tx["id"],
         "items": [
             {"title": "Arroz", "amount": "30.00", "owner": "eu"},
@@ -158,11 +243,11 @@ def test_editar_itens_troca_a_nota_inteira_e_mostra_o_antes(mcp_client, db_sessi
 def test_itens_de_parcelado_se_editam_na_compra_inteira(mcp_client, c):
     tx = _cria(mcp_client, c, title="TV", card="Nubank", installments=2,
                items=[{"title": "TV", "amount": "2000.00"}, {"title": "Suporte", "amount": "200.00"}])["transaction"]
-    erro = err(call_tool(mcp_client, c.token, "transactions_update", {
+    erro = err(_chama(mcp_client, c, "transactions_update", {
         "transaction_id": tx["id"], "items": [{"title": "TV", "amount": "2200.00"}],
     }))
     assert erro["code"] == "VALIDATION_ERROR" and "scope=purchase" in erro["message"]
-    feito = ok(call_tool(mcp_client, c.token, "transactions_update", {
+    feito = ok(_chama(mcp_client, c, "transactions_update", {
         "transaction_id": tx["id"], "scope": "purchase",
         "items": [{"title": "TV", "amount": "1900.00"}, {"title": "Suporte", "amount": "150.00"}, {"title": "Cabo", "amount": "50.00"}],
     }))
@@ -175,9 +260,9 @@ def test_versao_detecta_edicao_concorrente(mcp_client, c):
     tx = _cria(mcp_client, c, title="Padaria", amount="12.00")["transaction"]
     lida = tx["version"]
     assert len(lida) == 16
-    ok(call_tool(mcp_client, c.token, "transactions_update", {"transaction_id": tx["id"], "title": "Padaria Pão Quente", "expected_version": lida}))
+    ok(_chama(mcp_client, c, "transactions_update", {"transaction_id": tx["id"], "title": "Padaria Pão Quente", "expected_version": lida}))
     # Outra edição com a versão VELHA não sobrescreve a mudança.
-    erro = err(call_tool(mcp_client, c.token, "transactions_update", {"transaction_id": tx["id"], "amount": "15.00", "expected_version": lida}))
+    erro = err(_chama(mcp_client, c, "transactions_update", {"transaction_id": tx["id"], "amount": "15.00", "expected_version": lida}))
     assert erro["code"] == "CONFLICT" and erro["details"]["expected_version"] == lida
     atual = erro["details"]["current_version"]
     assert atual != lida
@@ -193,7 +278,7 @@ def test_versao_muda_quando_so_as_tags_mudam(mcp_client, db_session, c):
     db_session.add(Tag(workspace_id=c.pessoal.id, name="viagem"))
     db_session.commit()
     tx = _cria(mcp_client, c, title="Hotel", amount="300.00")["transaction"]
-    depois = ok(call_tool(mcp_client, c.token, "transactions_update", {"transaction_id": tx["id"], "tags": ["viagem"]}))["transaction"]
+    depois = ok(_chama(mcp_client, c, "transactions_update", {"transaction_id": tx["id"], "tags": ["viagem"]}))["transaction"]
     assert depois["version"] != tx["version"]
     mesma = ok(call_tool(mcp_client, c.token, "transactions_get", {"transaction_id": tx["id"]}))["transaction"]
     assert mesma["version"] == depois["version"]

@@ -149,8 +149,10 @@ export function TransactionForm({ initialValues, onSubmit, submitLabel, resetOnS
       setValue('items', [{
         title: '',
         quantity: 1,
+        unit: 'un',
         unit_amount: null,
         amount: 0,
+        nova: true,
         category_id: '',
         share_method: 'equal',
         shares: defaultUserId ? [{ user_id: defaultUserId, value: 0 }] : [],

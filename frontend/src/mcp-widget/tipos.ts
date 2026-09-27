@@ -9,7 +9,7 @@ export interface Ref { id: number; name: string }
 export interface PessoaValor { person: Ref; amount: string; is_me?: boolean }
 
 export interface Item {
-  title: string; description?: string | null; quantity: string; unit_amount?: string | null; amount: string;
+  title: string; description?: string | null; quantity: string; unit?: string | null; unit_amount?: string | null; amount: string;
   category?: Ref | null; shares?: PessoaValor[]; my_share?: string | null;
 }
 export interface Ajuste { type: string; amount: string; description?: string | null }

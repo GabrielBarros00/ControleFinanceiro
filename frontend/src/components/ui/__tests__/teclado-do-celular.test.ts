@@ -236,6 +236,19 @@ describe('gate: o celular abre o teclado do campo', () => {
     );
   });
 
+  it('o campo decimal nasce com o teclado que tem vírgula', () => {
+    // O oposto do MoneyInput: aqui a pessoa DIGITA a vírgula ("5,899", "1,235"),
+    // então o teclado precisa tê-la. Com `numeric`, o iPhone abriria só dígitos
+    // e o preço do litro e o peso da balança ficariam impossíveis de digitar.
+    const fonte = readFileSync(join(RAIZ, 'components', 'ui', 'DecimalInput.tsx'), 'utf-8');
+    const [{ tag }] = tags(fonte, 'Input');
+    expect(
+      valorDe(tag, 'inputMode'),
+      'DecimalInput sem inputMode="decimal": o celular abre um teclado sem vírgula.',
+    ).toBe('decimal');
+    expect(valorDe(tag, 'type'), 'DecimalInput não pode ser type="number" (a vírgula depende do idioma).').toBeNull();
+  });
+
   it('todo campo de e-mail se declara como e-mail', () => {
     const faltando: string[] = [];
 

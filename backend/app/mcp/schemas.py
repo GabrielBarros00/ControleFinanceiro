@@ -16,7 +16,7 @@ from typing import List, Optional
 
 from pydantic import BaseModel, Field
 
-from app.mcp.money import MoneyOut
+from app.mcp.money import MoneyOut, UnitPriceOut
 
 
 class Ref(BaseModel):
@@ -54,8 +54,9 @@ class ItemOut(BaseModel):
     title: str
     description: Optional[str] = None
     quantity: str = Field(description="Quantidade em texto decimal (\"1\", \"1.250\").")
-    unit_amount: Optional[MoneyOut] = None
-    amount: MoneyOut = Field(description="Total da linha.")
+    unit: Optional[str] = Field(None, description="Unidade da quantidade: un, kg, g, l, ml ou m.")
+    unit_amount: Optional[UnitPriceOut] = Field(None, description="Preço unitário, até 4 casas.")
+    amount: MoneyOut = Field(description="Total da linha, como na nota.")
     category: Optional[Ref] = None
     shares: List[PersonAmount] = Field(
         default_factory=list, description="Divisão DESTE item (só quando a despesa é dividida por item).",

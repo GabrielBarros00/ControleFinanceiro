@@ -264,7 +264,14 @@ class TransactionItem(SQLModel, table=True):
     description: Optional[str] = None
     amount: Decimal = Field(decimal_places=2, max_digits=20)  # total da linha
     quantity: Decimal = Field(default=Decimal("1"), decimal_places=3, max_digits=12)
-    unit_amount: Optional[Decimal] = Field(default=None, decimal_places=2, max_digits=20)
+    # Unidade da quantidade (`app.domain.item_da_nota.UNIDADES`): "1,235" é kg,
+    # litro ou unidade? Anulável: o item-sombra da categoria e as linhas antigas
+    # não têm medida (ADR 0040).
+    unit: Optional[str] = Field(default=None, max_length=8)
+    # Preço unitário com 4 casas: combustível é vendido a R$ 5,899 o litro, e com 2
+    # casas o banco gravava 5,90 em silêncio. O total da linha (`amount`) continua
+    # em centavos — o unitário é referência, não lançamento (ADR 0040).
+    unit_amount: Optional[Decimal] = Field(default=None, decimal_places=4, max_digits=20)
     position: int = Field(default=0)
     category_id: Optional[int] = Field(default=None, foreign_key="category.id", index=True)
 

@@ -178,6 +178,25 @@ describe('Widget: lançamento', () => {
     expect(screen.getByText('0 de 2 pagas')).toBeInTheDocument();
   });
 
+  it('item com medida mostra quantidade, unidade e o unitário com as casas da nota', () => {
+    const b = ponte();
+    monta(b);
+    const itens = [
+      { title: 'Picanha', quantity: '1.235', unit: 'kg', unit_amount: '89.90', amount: '111.03' },
+      { title: 'Gasolina', quantity: '40.123', unit: 'l', unit_amount: '5.899', amount: '236.69' },
+      { title: 'Pão', quantity: '1', unit: 'un', unit_amount: '10.00', amount: '10.00' },
+    ];
+    b.entregar({
+      structuredContent: { transaction: { ...TX, amount: '357.72', items: itens } },
+      _meta: { view: 'transaction', mode: 'read' },
+    });
+    expect(screen.getByText(/1,235 kg × R\$\s?89,90/)).toBeInTheDocument();
+    // O litro com 3 casas não pode virar R$ 5,90 (ADR 0040).
+    expect(screen.getByText(/40,123 l × R\$\s?5,899/)).toBeInTheDocument();
+    // "1 un" é ruído: só o total aparece.
+    expect(screen.queryByText(/1 un ×/)).not.toBeInTheDocument();
+  });
+
   it('criado: Desfazer chama a exclusão que o servidor mandou no _meta', async () => {
     const b = ponte({ transactions_delete: () => ({ structuredContent: { deleted: [resumo(1, 'Jantar')] } }) });
     monta(b);

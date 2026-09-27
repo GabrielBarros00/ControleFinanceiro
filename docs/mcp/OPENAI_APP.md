@@ -116,7 +116,7 @@ Roteiro da interface (conferir a olho, claro e escuro, no celular e no computado
 
 `integrations/controle-financeiro-plugin/` (formato Agent Plugins, ChatGPT e
 Codex): `plugin.json`, `mcp.json`, `skills/` (revisar-fatura, fechamento-do-mes,
-conciliar-extrato) e `assets/`. Ver o README do pacote.
+conciliar-extrato, registrar-nota) e `assets/`. Ver o README do pacote.
 
 ## Checklist antes de submeter
 

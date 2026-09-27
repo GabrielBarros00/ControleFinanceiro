@@ -149,7 +149,10 @@ def test_editar_itens_da_nota_junto_com_o_estabelecimento(mcp_client, db_session
     tx = _cria(mcp_client, c, title="Feira", amount="50.00")
     r = ok(call_tool(mcp_client, c.token, "transactions_update", {
         "transaction_id": tx["id"], "merchant": "Hortifruti Central",
-        "items": [{"title": "Tomate", "amount": "20.00"}, {"title": "Alface", "amount": "30.00"}],
+        "items": [
+            {"title": "Tomate", "quantity": "2", "unit": "kg", "unit_amount": "10.00", "amount": "20.00"},
+            {"title": "Alface", "quantity": "3", "unit": "un", "unit_amount": "10.00", "amount": "30.00"},
+        ],
     }))
     assert r["transaction"]["merchant"]["name"] == "Hortifruti Central"
     assert [i["title"] for i in r["transaction"]["items"]] == ["Tomate", "Alface"]

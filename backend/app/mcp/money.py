@@ -142,6 +142,62 @@ QuantityIn = Annotated[
 ]
 
 
+_UNITARIO = re.compile(r"^\d{1,16}([.,]\d{1,4})?$")
+
+
+def _unitario(valor: Any) -> Decimal:
+    """Preço unitário de um item da nota: >= 0, até 4 casas (ADR 0040).
+
+    Não é o tipo de dinheiro (2 casas): o litro de combustível custa R$ 5,899, e
+    recusar a terceira casa era o que empurrava o agente a mandar só o total.
+    """
+    if isinstance(valor, bool):
+        raise ValueError("preço unitário inválido")
+    if isinstance(valor, float):
+        texto = repr(valor)
+    elif isinstance(valor, Decimal):
+        texto = format(valor, "f")
+    else:
+        texto = str(valor)
+    texto = texto.strip()
+    if not _UNITARIO.match(texto):
+        raise ValueError("preço unitário em string decimal com até 4 casas, ex.: \"39.90\" ou \"5.899\"")
+    numero = Decimal(texto.replace(",", "."))
+    if numero > MAX_MONEY:
+        raise ValueError("valor acima do máximo aceito")
+    return numero
+
+
+#: Preço unitário de item: >= 0, até 4 casas.
+UnitPriceIn = Annotated[
+    Decimal,
+    BeforeValidator(_unitario),
+    WithJsonSchema({
+        "type": "string",
+        "pattern": r"^\d{1,16}([.,]\d{1,4})?$",
+        "description": "Preço unitário como na nota, até 4 casas (ex.: \"39.90\", \"5.899\").",
+    }),
+]
+
+
+def unit_price_str(valor: Decimal | None) -> str | None:
+    """Unitário de saída: pelo menos 2 casas, até 4, sem zeros à direita além da 2ª."""
+    if valor is None:
+        return None
+    texto = format(Decimal(valor).quantize(Decimal("0.0001"), rounding=ROUND_HALF_UP), "f")
+    inteiro, _, casas = texto.partition(".")
+    casas = casas.rstrip("0")
+    return f"{inteiro}.{casas.ljust(2, '0')}"
+
+
+#: Saída do preço unitário: 2 a 4 casas ("39.90", "5.899").
+UnitPriceOut = Annotated[
+    Decimal,
+    PlainSerializer(lambda v: unit_price_str(v), return_type=str),
+    WithJsonSchema({"type": "string", "pattern": r"^\d+\.\d{2,4}$", "description": "Preço unitário, 2 a 4 casas."}),
+]
+
+
 def to_str(valor: Decimal | None) -> str | None:
     if valor is None:
         return None

@@ -196,12 +196,12 @@ def test_totais_nao_zeram_apos_a_troca(db_session: Session):
 
 
 def test_item_com_quantidade_mantem_o_valor_da_linha(db_session: Session):
-    """Item `3 × 10,00` não pode virar o preço de UM depois da conversão.
+    """Item `3 × 20,00` não pode virar o preço de UM depois da conversão.
 
-    A normalização para `1 × valor-da-linha` é correta (a fatia convertida
-    raramente é múltipla exata da quantidade), mas o valor da linha é a fonte de
-    verdade: recalculá-lo a partir de `amount / quantity` encolhia o item e
-    quebrava `soma(itens) == total` e o rateio das shares.
+    O valor da linha é a fonte de verdade: recalculá-lo a partir de
+    `amount / quantity` encolhia o item e quebrava `soma(itens) == total` e o
+    rateio das shares. O que acompanha a conversão é o UNITÁRIO; a quantidade
+    fica (ADR 0040) — antes a linha virava `1 × total` e a medida se perdia.
     """
     users, ws = _workspace(db_session, "bc9", n_users=2)
     tx = _tx(db_session, ws.id, "90.00", split_mode=SplitMode.item)
@@ -243,10 +243,11 @@ def test_item_com_quantidade_mantem_o_valor_da_linha(db_session: Session):
     # 60 e 30 viram 12 e 6 — e NÃO 4 e 6 (o bug dividia o primeiro por quantity)
     assert [i.amount for i in items] == [Decimal("12.00"), Decimal("6.00")]
     assert sum(i.amount for i in items) == tx.total_amount
-    # Linha normalizada: 1 × valor-da-linha
+    # A medida fica; o unitário acompanha o total convertido (12 / 3 = 4).
+    assert [(i.quantity, i.unit_amount) for i in items] == [
+        (Decimal("3"), Decimal("4")), (Decimal("1"), Decimal("6")),
+    ]
     for item in items:
-        assert item.quantity == Decimal("1")
-        assert item.unit_amount == item.amount
         shares = db_session.exec(
             select(TransactionItemShare).where(TransactionItemShare.item_id == item.id)
         ).all()

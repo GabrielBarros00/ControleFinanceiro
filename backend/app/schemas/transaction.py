@@ -1,6 +1,6 @@
 from typing import Optional, List
 from datetime import datetime
-from decimal import Decimal, ROUND_HALF_UP
+from decimal import Decimal
 from pydantic import BaseModel, Field, model_validator
 from app.models.transaction import (
     STATEMENT_SHIFT_MAX,
@@ -14,6 +14,7 @@ from app.models.transaction import (
 
 from app.schemas.common import DESCRIPTION_MAX, MAX_MONEY, OptionalCurrencyCode, TITLE_MAX  # noqa: F401
 from app.schemas.merchant import MerchantBrief
+from app.domain.item_da_nota import CASAS_UNITARIO, Unidade, problema_da_linha
 
 
 class TransactionPayerBase(BaseModel):
@@ -47,8 +48,12 @@ class TransactionItemBase(BaseModel):
     # passava pela borda e só era barrado indiretamente (e só no modo item, pelo
     # `Money`); no modo transaction ele fechava a conta e ia para o banco.
     amount: Decimal = Field(ge=0, le=MAX_MONEY)
-    quantity: Decimal = Field(default=Decimal("1"), gt=0)
-    unit_amount: Optional[Decimal] = Field(default=None, ge=0, le=MAX_MONEY)
+    quantity: Decimal = Field(default=Decimal("1"), gt=0, decimal_places=3)
+    # Medida da quantidade (ADR 0040). Anulável: o item-sombra da categoria e as
+    # linhas antigas não têm; a tela e o MCP a exigem ao ADICIONAR um item.
+    unit: Optional[Unidade] = None
+    # Até 4 casas: o litro de combustível custa R$ 5,899.
+    unit_amount: Optional[Decimal] = Field(default=None, ge=0, le=MAX_MONEY, decimal_places=CASAS_UNITARIO)
     position: int = 0
     category_id: Optional[int] = None
 
@@ -140,16 +145,19 @@ def _ensure_percent_range(entries, context: str) -> None:
 
 
 def _ensure_item_amounts(items: List["TransactionItemCreate"]) -> None:
+    """Cada linha fecha `quantidade × unitário` com o total dentro de 1 centavo.
+
+    A regra é a de `app.domain.item_da_nota` (ADR 0040): o total impresso na nota é
+    a verdade, e balanças e caixas arredondam de jeitos diferentes. A versão
+    anterior exigia o arredondamento EXATO para cima do meio (`ROUND_HALF_UP`) e
+    recusava a nota de uma balança que trunca (1,235 kg × R$ 39,90 = R$ 49,27) —
+    e a tela, que calculava em ponto flutuante, chegava a mandar um valor que ela
+    mesma não conseguia salvar (2,050 × R$ 19,90).
+    """
     for item in items:
-        if item.unit_amount is not None:
-            expected = (item.quantity * item.unit_amount).quantize(
-                Decimal("0.01"), rounding=ROUND_HALF_UP
-            )
-            if item.amount != expected:
-                raise ValueError(
-                    f"Item '{item.title}': valor da linha ({item.amount}) difere de "
-                    f"quantidade × valor unitário ({expected})"
-                )
+        problema = problema_da_linha(item.title, item.quantity, item.unit_amount, item.amount, item.unit)
+        if problema:
+            raise ValueError(problema)
 
 
 def validate_split_structure(
