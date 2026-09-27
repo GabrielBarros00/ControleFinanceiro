@@ -137,6 +137,21 @@ registro por CIMD/DCR, 59 tools documentadas em `docs/mcp/TOOLS.md` (geradas do
 código), e as escritas das rotas REST passaram a morar em comandos
 compartilhados (`app/services/commands/`) — sem mudança de comportamento.
 
+### Mensagens que dizem o que fazer, e menos cantos frágeis
+
+- **Quando o app recusa um lançamento por uma regra, ele diz qual.** "Parcelamento
+  exige pagamento no cartão de crédito" no lugar de "Ocorreu um erro de validação nos
+  dados enviados".
+- **Dois lançamentos ao mesmo tempo com um estabelecimento novo não se perdem mais.**
+  O segundo dava erro interno; agora os dois gravam, ligados ao mesmo estabelecimento.
+- **Um celular com rede ruim não atrasa mais as atualizações em tempo real de todo
+  mundo.** A conexão que não responde é desligada, e o aparelho se reconecta sozinho
+  sem perder nada.
+- **Espaço de outra pessoa responde como se não existisse**, igual a um endereço
+  inventado. Antes a diferença revelava quais espaços existem.
+- **O app não baixa mais um arquivo duas vezes ao abrir**, e o console do navegador
+  ficou sem avisos.
+
 ### Servidor mais previsível
 
 - **Os logs não enchem mais o disco.** Cada serviço guarda até 50 MB de log, em
