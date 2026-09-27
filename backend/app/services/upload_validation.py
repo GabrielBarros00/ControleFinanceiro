@@ -38,13 +38,19 @@ def content_matches_type(content_type: str, data: bytes) -> bool:
     return any(data.startswith(p) for p in MAGIC_PREFIXES.get(content_type, ()))
 
 
-async def read_limited(file: UploadFile, max_bytes: int) -> bytes:
+def read_limited(file: UploadFile, max_bytes: int) -> bytes:
     """Lê em chunks e interrompe assim que o limite estoura — sem carregar um
-    arquivo arbitrariamente grande na memória antes de validar."""
+    arquivo arbitrariamente grande na memória antes de validar.
+
+    Síncrona, pelo arquivo por baixo do `UploadFile` (`file.file`): quem chama são
+    rotas `def`, que já rodam no pool de threads. Como `async`, ela obrigava a
+    rota a ser `async def`, e o resto da rota — sessão do banco, cota, gravação —
+    rodava no event loop, que com um worker só é o servidor inteiro (auditoria
+    2026-09-26, C7)."""
     chunks = []
     size = 0
     while True:
-        chunk = await file.read(_READ_CHUNK)
+        chunk = file.file.read(_READ_CHUNK)
         if not chunk:
             break
         size += len(chunk)

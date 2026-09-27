@@ -140,3 +140,5 @@ ou aceita o que o app deixou de aceitar.
 - **Decisões**: mudanças arquiteturais relevantes viram um ADR em [docs/adr/](docs/adr/README.md).
 - **Vocabulário**: termo novo na tela ou no código entra no [CONTEXT.md](CONTEXT.md), o glossário do domínio. Renomeou um campo citado lá? `tests/test_context_md.py` reprova até o glossário acompanhar.
 - **WebSocket**: o backend roda com **1 worker** (gerenciador in-process); não altere isso sem introduzir um broker.
+- **Rotas `def`, não `async def`**: com um worker só, o event loop é o servidor inteiro, e a `Session` é síncrona. Rota que usa o banco é `def` (o FastAPI a roda no pool de threads). `async` só quando precisa de `await` de verdade, e aí o banco vai para `run_in_threadpool`. `tests/test_banco_fora_do_event_loop.py` reprova o resto (medido: 7 logins numa rota `async` seguravam todas as outras requisições por ~1 s).
+- **Listagem que devolve objetos do ORM**: `selectinload` em todo relacionamento que o schema de resposta serializa, senão cada linha vira uma consulta por relacionamento. Meça com um teste de contagem de consultas (ex.: `tests/api/test_listagem_consultas_fixas.py`).

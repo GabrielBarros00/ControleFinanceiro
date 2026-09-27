@@ -10,6 +10,7 @@ from fastapi import (
     APIRouter, Cookie, Depends, File, HTTPException, Query, Request, Response, UploadFile, status,
 )
 from fastapi.responses import RedirectResponse
+from starlette.concurrency import run_in_threadpool
 from sqlmodel import Session, select
 from app.core.config import settings
 from app.db.session import get_session
@@ -287,6 +288,17 @@ async def get_current_user(
     access_token: Optional[str] = Cookie(None),
     db: Session = Depends(get_session)
 ) -> User:
+    """O dono do cookie — dependência de TODA rota autenticada.
+
+    `async` de propósito, e é por causa da última linha: `set_current_user_id`
+    grava numa contextvar que a auditoria lê. Uma dependência `def` roda numa
+    thread com uma CÓPIA do contexto, e o que ela grava não volta para a rota — a
+    trilha perderia quem fez cada ação.
+
+    Por isso mesmo, a consulta ao banco vai para o pool de threads: aqui ela
+    rodaria no event loop, que com um worker só é o servidor inteiro, em toda
+    requisição autenticada (auditoria 2026-09-26, C7).
+    """
     if not access_token:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -306,7 +318,7 @@ async def get_current_user(
             detail="Token inválido ou expirado"
         )
     
-    user = db.get(User, user_id)
+    user = await run_in_threadpool(db.get, User, user_id)
     if not user:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -403,7 +415,7 @@ def _resolve_onboarding_workspace(db: Session, user: User, requested_id: Optiona
 
 
 @router.post("/onboarding", response_model=StatusRead)
-async def finish_onboarding(
+def finish_onboarding(
     data: OnboardingRequest,
     db: Session = Depends(get_session),
     current_user: User = Depends(get_current_user)
@@ -514,7 +526,7 @@ def registration_policy(db: Session = Depends(get_session)):
 
 
 @router.post("/register", response_model=UserResponse, dependencies=[Depends(rate_limit_auth)])
-async def register(
+def register(
     register_data: RegisterRequest,
     db: Session = Depends(get_session)
 ):
@@ -559,7 +571,7 @@ async def register(
     return user
 
 @router.post("/login", dependencies=[Depends(rate_limit_auth)], response_model=MessageRead)
-async def login(
+def login(
     response: Response,
     login_data: LoginRequest,
     db: Session = Depends(get_session)
@@ -607,7 +619,7 @@ async def login(
     return {"message": "Login realizado com sucesso"}
 
 @router.get("/me", response_model=UserResponse)
-async def get_me(current_user: User = Depends(get_current_user)):
+def get_me(current_user: User = Depends(get_current_user)):
     return current_user
 
 
@@ -616,7 +628,7 @@ class ProfileUpdate(BaseModel):
 
 
 @router.patch("/me", response_model=UserResponse)
-async def update_me(
+def update_me(
     data: ProfileUpdate,
     db: Session = Depends(get_session),
     current_user: User = Depends(get_current_user)
@@ -654,7 +666,7 @@ AVATAR_MAX_BYTES = 1024 * 1024
 AVATAR_CONTENT_TYPES = upload_validation.IMAGE_CONTENT_TYPES
 
 
-async def _ler_imagem_valida(file: UploadFile) -> tuple[bytes, str]:
+def _ler_imagem_valida(file: UploadFile) -> tuple[bytes, str]:
     """Bytes + content-type conferidos. Levanta 400 com a razão exata."""
     content_type = (file.content_type or "").split(";")[0].strip().lower()
     if content_type not in AVATAR_CONTENT_TYPES:
@@ -662,7 +674,7 @@ async def _ler_imagem_valida(file: UploadFile) -> tuple[bytes, str]:
             status_code=400,
             detail="A foto precisa ser JPEG, PNG ou WebP.",
         )
-    dados = await upload_validation.read_limited(file, AVATAR_MAX_BYTES)
+    dados = upload_validation.read_limited(file, AVATAR_MAX_BYTES)
     if not dados:
         raise HTTPException(status_code=400, detail="Arquivo vazio")
     # O tipo DECLARADO não basta: sem conferir a assinatura, um HTML com script
@@ -676,12 +688,12 @@ async def _ler_imagem_valida(file: UploadFile) -> tuple[bytes, str]:
 
 
 @router.put("/me/avatar", response_model=UserResponse)
-async def upload_avatar(
+def upload_avatar(
     file: UploadFile = File(...),
     db: Session = Depends(get_session),
     current_user: User = Depends(get_current_user),
 ):
-    dados, content_type = await _ler_imagem_valida(file)
+    dados, content_type = _ler_imagem_valida(file)
 
     try:
         chave, _sha = avatar_storage.salvar(dados)
@@ -722,7 +734,7 @@ async def upload_avatar(
 
 
 @router.delete("/me/avatar", response_model=UserResponse)
-async def delete_avatar(
+def delete_avatar(
     db: Session = Depends(get_session),
     current_user: User = Depends(get_current_user),
 ):
@@ -745,7 +757,7 @@ async def delete_avatar(
 
 
 @router.get("/users/{user_id}/avatar")
-async def get_avatar(
+def get_avatar(
     user_id: int,
     db: Session = Depends(get_session),
     current_user: User = Depends(get_current_user),
@@ -794,7 +806,7 @@ async def get_avatar(
 
 
 @router.post("/logout", response_model=MessageRead)
-async def logout(
+def logout(
     response: Response,
     db: Session = Depends(get_session),
     access_token: Optional[str] = Cookie(None),
@@ -817,7 +829,7 @@ async def logout(
 
 
 @router.post("/refresh", response_model=MessageRead)
-async def refresh_session(
+def refresh_session(
     response: Response,
     refresh_token: Optional[str] = Cookie(None),
     db: Session = Depends(get_session)
@@ -859,7 +871,7 @@ class ChangePasswordRequest(BaseModel):
 
 
 @router.post("/change-password", response_model=MessageRead)
-async def change_password(
+def change_password(
     response: Response,
     data: ChangePasswordRequest,
     db: Session = Depends(get_session),

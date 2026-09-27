@@ -73,7 +73,7 @@ def _tipo_permitido(content_type: str) -> str:
     return tipo
 
 
-async def add_attachment(
+def add_attachment(
     session: Session,
     workspace_id: int,
     transaction_id: int,
@@ -82,7 +82,7 @@ async def add_attachment(
 ) -> Attachment:
     """Valida, grava o conteúdo e cria a linha do anexo (flush, sem commit)."""
     content_type = _tipo_permitido(file.content_type)
-    data = await upload_validation.read_limited(file, app_settings.get(session, "upload_max_bytes"))
+    data = upload_validation.read_limited(file, app_settings.get(session, "upload_max_bytes"))
     return store_attachment(
         session, workspace_id, transaction_id,
         data=data, filename=file.filename, content_type=content_type,
