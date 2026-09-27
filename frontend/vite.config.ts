@@ -28,11 +28,19 @@ export default defineConfig({
     rollupOptions: {
       output: {
         // Separa os vendors pesados do código da app: melhora cache (mudam pouco)
-        // e evita o chunk único > 500 kB. recharts/framer já entram por lazy route.
-        // Forma de função (o bundler rolldown do Vite 8 não aceita o objeto).
+        // e evita o chunk único > 500 kB. Forma de função (o bundler rolldown do
+        // Vite 8 não aceita o objeto).
+        //
+        // SEM chunk manual para o `recharts`, de propósito. Ele só é importado
+        // por rotas lazy (relatórios), e sozinho o bundler já o deixa fora da
+        // carga inicial. O chunk manual que havia aqui ABSORVIA as dependências
+        // compartilhadas do recharts — o `clsx`, que o `cn()` de todo componente
+        // usa, foi parar dentro dele — e a entrada passava a importar o chunk
+        // inteiro: 109 KiB gzip a mais em toda tela, inclusive no `/login`
+        // (auditoria 2026-09-26, P3). `scripts/verify-build-assets.mjs` reprova
+        // o build se código do recharts voltar à carga inicial.
         manualChunks(id) {
           if (!id.includes('node_modules')) return undefined;
-          if (id.includes('recharts')) return 'recharts';
           if (id.includes('framer-motion')) return 'motion';
           if (id.includes('react-router') || id.includes('react-dom') || /[\\/]react[\\/]/.test(id)) {
             return 'react-vendor';
