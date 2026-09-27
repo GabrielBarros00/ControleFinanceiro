@@ -74,7 +74,8 @@ def test_leitura_errada_e_recusada_dizendo_o_que_conferir(cena):
     r = _nota(cena, [{"title": "Carne", "quantity": "1.235", "unit": "kg", "unit_amount": "39.90",
                       "amount": "49.40", "position": 0}])
     assert r.status_code == 422, r.text
-    assert any("Confira a nota" in m for m in r.json()["error"]["details"].values())
+    # Na MENSAGEM, que é o que a tela mostra (C11) — não só nos detalhes.
+    assert "Confira a nota" in r.json()["error"]["message"]
 
 
 def test_combustivel_guarda_o_preco_do_litro_com_tres_casas(cena):
