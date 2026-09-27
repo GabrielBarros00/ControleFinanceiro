@@ -195,3 +195,33 @@ def test_mcp_e_descoberta_oauth_chegam_ao_backend_sem_abrir_o_resto():
     bloco = bloco[: bloco.index("}")]
     assert "proxy_buffering off;" in bloco
     assert "add_header" not in bloco  # apagaria os headers de segurança herdados
+
+
+def test_asset_ausente_e_404_e_nao_o_index_da_spa():
+    """Auditoria 2026-09-26, C6: o chunk que sumiu no deploy voltava como o
+    `index.html`, com 200 — HTML no lugar do JS, guardado pelo service worker.
+    O e2e-prod (`deploy_sem_tela_branca.spec.ts`) mede no nginx de verdade; este
+    teste barra a regressão sem precisar do stack."""
+    config = NGINX.read_text(encoding="utf-8")
+
+    bloco = re.search(r"location /assets/ \{(?P<corpo>[^}]*)\}", config)
+    assert bloco, "sem `location /assets/`: asset ausente cai no fallback da SPA"
+    assert "try_files $uri =404;" in bloco.group("corpo")
+    # `add_header` no bloco apagaria os headers de segurança herdados do server.
+    assert "add_header" not in bloco.group("corpo")
+
+
+def test_imutavel_so_em_asset_servido_com_200():
+    """`immutable` num 404 faria o navegador guardar a falha por um ano — o
+    `add_header` do server usa `always`, então a regra mora no `map` pelo status."""
+    config = NGINX.read_text(encoding="utf-8")
+
+    assert 'map "$status:$uri" $cache_control_por_arquivo' in config
+    assert '"~^200:/assets/" "public, max-age=31536000, immutable";' in config
+    assert r'"~:/index\.html$" "no-cache";' in config
+    # Nenhuma outra linha ATIVA promete `immutable` (os comentários falam dele).
+    ativas = [
+        linha for linha in config.splitlines()
+        if "immutable" in linha and not linha.lstrip().startswith("#")
+    ]
+    assert ativas == ['    "~^200:/assets/" "public, max-age=31536000, immutable";']
