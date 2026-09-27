@@ -95,3 +95,14 @@ docker compose logs --tail=50 backend
 
 O `frontend` é o único container exposto ao host e tem healthcheck próprio: um
 nginx que subiu sem servir deixaria o stack "up" e o usuário sem app.
+
+**Quem estava com o app aberto.** A aba continua com o JS antigo até abrir uma tela
+que ainda não tinha visitado. O pedaço daquela tela, com o nome antigo, não existe
+mais: o nginx responde 404, e a página recarrega sozinha, uma vez, já na versão
+nova. Se o pedaço continuar faltando depois da recarga, a pessoa vê "O app foi
+atualizado" com o botão **Recarregar**, nunca uma tela branca. O `index.html` sai
+com `no-cache` e os arquivos de `/assets/` com `immutable` (só nas respostas 200),
+e o service worker não guarda HTML no lugar de um asset — um rollback volta a
+servir os pedaços da imagem anterior sem nada preso no aparelho. Mudou a regra de
+cache do `frontend/public/sw.js`? Suba a `VERSAO` dele: é o único jeito de limpar o
+cache que já está nos aparelhos.

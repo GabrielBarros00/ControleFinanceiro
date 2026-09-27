@@ -13,6 +13,7 @@ import { useTheme } from './hooks/use-theme';
 import { Toaster } from './components/ui/toaster';
 import { ConfirmProvider } from './components/ui/confirm';
 import { ErrorState } from './components/ui/error-state';
+import { ErrorBoundary } from './components/layout/ErrorBoundary';
 
 // Code-splitting por rota: o dashboard carrega no bundle inicial; o resto
 // (em especial o recharts dos relatórios) só quando a rota é visitada
@@ -214,6 +215,15 @@ function PaginaNaoEncontrada() {
   );
 }
 
+/**
+ * Tela de erro em volta das rotas, e não só na raiz: aqui dentro ela conhece o
+ * caminho, e mudar de caminho (o "voltar" do celular) a limpa sem recarregar.
+ */
+function LimiteDasRotas({ children }: { children: React.ReactNode }) {
+  const { pathname } = useLocation();
+  return <ErrorBoundary resetKey={pathname}>{children}</ErrorBoundary>;
+}
+
 function AppContent() {
   // Initialize auth and theme
   useAuth();
@@ -223,6 +233,7 @@ function AppContent() {
     <BrowserRouter>
       <div className="min-h-dvh bg-background text-foreground font-sans selection:bg-primary/30">
         <ConfirmProvider>
+        <LimiteDasRotas>
         <React.Suspense fallback={<RouteFallback />}>
         <Routes>
           {/* Public Routes */}
@@ -363,6 +374,7 @@ function AppContent() {
           <Route path="*" element={<PaginaNaoEncontrada />} />
         </Routes>
         </React.Suspense>
+        </LimiteDasRotas>
         </ConfirmProvider>
         <Toaster />
       </div>
