@@ -20,7 +20,7 @@ from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlmodel import Session
 
-from pydantic import BaseModel
+from pydantic import ConfigDict, BaseModel
 
 from app.api.routes.auth import get_current_user
 from app.db.session import get_session
@@ -154,6 +154,10 @@ def list_personal_settlements(
 
 class SettlementAccountRequest(BaseModel):
     """Em qual conta o acerto RECEBIDO caiu (ADR 0034)."""
+    # Campo desconhecido é RECUSADO (422), não ignorado: a importação de extrato
+    # mandava `category_id` que o schema não tinha, o Pydantic o jogava fora calado e
+    # a despesa ficava sem categoria (auditoria 2026-09-26, C1/A1).
+    model_config = ConfigDict(extra="forbid")
     #: `None` desfaz a atribuição — o movimento volta a ser "sem conta".
     account_id: Optional[int] = None
 

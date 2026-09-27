@@ -10,7 +10,7 @@ from datetime import datetime
 from decimal import Decimal
 from typing import Optional
 
-from pydantic import BaseModel
+from pydantic import ConfigDict, BaseModel
 
 
 class EarlySettlementRead(BaseModel):
@@ -37,6 +37,10 @@ class InstallmentPayRequest(BaseModel):
     parcela que vence em setembro e é paga em agosto zerava o caixa de agosto e
     fazia a saída aparecer em setembro — um mês em que o dinheiro não saiu.
     """
+    # Campo desconhecido é RECUSADO (422), não ignorado: a importação de extrato
+    # mandava `category_id` que o schema não tinha, o Pydantic o jogava fora calado e
+    # a despesa ficava sem categoria (auditoria 2026-09-26, C1/A1).
+    model_config = ConfigDict(extra="forbid")
     workspace_id: Optional[int] = None
     paid_at: Optional[datetime] = None
     #: De qual conta a parcela saiu (ADR 0034). Opcional, como no pagamento de

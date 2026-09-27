@@ -18,7 +18,7 @@ from decimal import Decimal
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel, Field
+from pydantic import ConfigDict, BaseModel, Field
 from sqlalchemy import func, update
 from sqlalchemy.exc import IntegrityError
 from sqlmodel import Session, select
@@ -87,6 +87,10 @@ def _colecao(metodo: str, caminho: str, **kwargs):
 
 
 class FinancingCreate(BaseModel):
+    # Campo desconhecido é RECUSADO (422), não ignorado: a importação de extrato
+    # mandava `category_id` que o schema não tinha, o Pydantic o jogava fora calado e
+    # a despesa ficava sem categoria (auditoria 2026-09-26, C1/A1).
+    model_config = ConfigDict(extra="forbid")
     title: str = Field(min_length=1, max_length=TITLE_MAX)
     description: Optional[str] = Field(default=None, max_length=DESCRIPTION_MAX)
     total_amount: Decimal = Field(gt=0, le=MAX_MONEY)
@@ -101,6 +105,10 @@ class FinancingCreate(BaseModel):
 class FinancingUpdate(BaseModel):
     """Edição do financiamento. Mexer em valor/taxa/prazo/método regenera o
     cronograma — por isso só é permitido enquanto nenhuma parcela foi paga."""
+    # Campo desconhecido é RECUSADO (422), não ignorado: a importação de extrato
+    # mandava `category_id` que o schema não tinha, o Pydantic o jogava fora calado e
+    # a despesa ficava sem categoria (auditoria 2026-09-26, C1/A1).
+    model_config = ConfigDict(extra="forbid")
     title: Optional[str] = Field(default=None, min_length=1, max_length=TITLE_MAX)
     description: Optional[str] = Field(default=None, max_length=DESCRIPTION_MAX)
     total_amount: Optional[Decimal] = Field(default=None, gt=0, le=MAX_MONEY)
@@ -111,6 +119,10 @@ class FinancingUpdate(BaseModel):
 
 
 class EarlySettlementRequest(BaseModel):
+    # Campo desconhecido é RECUSADO (422), não ignorado: a importação de extrato
+    # mandava `category_id` que o schema não tinha, o Pydantic o jogava fora calado e
+    # a despesa ficava sem categoria (auditoria 2026-09-26, C1/A1).
+    model_config = ConfigDict(extra="forbid")
     settlement_date: Optional[date] = None
 
 
@@ -273,6 +285,10 @@ def update_financing(
 
 class QuitarAnterioresRequest(BaseModel):
     """Marca como pagas as parcelas que venceram ANTES de uma data."""
+    # Campo desconhecido é RECUSADO (422), não ignorado: a importação de extrato
+    # mandava `category_id` que o schema não tinha, o Pydantic o jogava fora calado e
+    # a despesa ficava sem categoria (auditoria 2026-09-26, C1/A1).
+    model_config = ConfigDict(extra="forbid")
 
     #: Tudo que vence antes disto e segue em aberto passa a pago. Omitido = hoje.
     ate: Optional[date] = None

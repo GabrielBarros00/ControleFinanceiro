@@ -18,7 +18,7 @@ from urllib.parse import unquote
 import structlog
 from fastapi import APIRouter, Depends, Form, HTTPException, Query, Request
 from fastapi.responses import JSONResponse, RedirectResponse
-from pydantic import BaseModel, Field
+from pydantic import ConfigDict, BaseModel, Field
 from sqlmodel import Session
 
 from app.api.routes.auth import get_current_user
@@ -273,11 +273,19 @@ class ConsentRequestRead(BaseModel):
 
 
 class ConsentDecisionRequest(BaseModel):
+    # Campo desconhecido é RECUSADO (422), não ignorado: a importação de extrato
+    # mandava `category_id` que o schema não tinha, o Pydantic o jogava fora calado e
+    # a despesa ficava sem categoria (auditoria 2026-09-26, C1/A1).
+    model_config = ConfigDict(extra="forbid")
     request: str = Field(min_length=1, max_length=8192)
     scopes: List[str] = Field(default_factory=list, max_length=len(escopos.ALL_SCOPES))
 
 
 class ConsentDenyRequest(BaseModel):
+    # Campo desconhecido é RECUSADO (422), não ignorado: a importação de extrato
+    # mandava `category_id` que o schema não tinha, o Pydantic o jogava fora calado e
+    # a despesa ficava sem categoria (auditoria 2026-09-26, C1/A1).
+    model_config = ConfigDict(extra="forbid")
     request: str = Field(min_length=1, max_length=8192)
 
 

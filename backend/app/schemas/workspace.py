@@ -1,6 +1,6 @@
 from typing import List, Optional
 from datetime import datetime
-from pydantic import BaseModel, Field
+from pydantic import ConfigDict, BaseModel, Field
 
 from app.schemas.common import NormalizedEmail, OptionalCurrencyCode
 
@@ -17,6 +17,10 @@ class WorkspaceCreate(WorkspaceBase):
     # única forma de mudar era o PUT, que dispara a reconversão de TODO o
     # histórico (BaseCurrencyService) — uma operação pesada e sujeita a
     # `MissingRates` para um workspace ainda vazio.
+    # Campo desconhecido é RECUSADO (422), não ignorado: a importação de extrato
+    # mandava `category_id` que o schema não tinha, o Pydantic o jogava fora calado e
+    # a despesa ficava sem categoria (auditoria 2026-09-26, C1/A1).
+    model_config = ConfigDict(extra="forbid")
     base_currency: OptionalCurrencyCode = None
     # "Controlar o pagamento das contas" (ADR 0029). Perguntado na criação porque
     # a resposta muda com o combinado da casa e mudá-la depois não reescreve o que
@@ -25,6 +29,10 @@ class WorkspaceCreate(WorkspaceBase):
 
 
 class WorkspaceUpdate(BaseModel):
+    # Campo desconhecido é RECUSADO (422), não ignorado: a importação de extrato
+    # mandava `category_id` que o schema não tinha, o Pydantic o jogava fora calado e
+    # a despesa ficava sem categoria (auditoria 2026-09-26, C1/A1).
+    model_config = ConfigDict(extra="forbid")
     name: Optional[str] = Field(default=None, min_length=1, max_length=120)
     description: Optional[str] = Field(default=None, max_length=2000)
     # Moeda-base das agregações (ADR 0006). Existia no modelo e em toda consulta
@@ -74,6 +82,10 @@ class MemberRead(BaseModel):
 
 
 class MemberUpdate(BaseModel):
+    # Campo desconhecido é RECUSADO (422), não ignorado: a importação de extrato
+    # mandava `category_id` que o schema não tinha, o Pydantic o jogava fora calado e
+    # a despesa ficava sem categoria (auditoria 2026-09-26, C1/A1).
+    model_config = ConfigDict(extra="forbid")
     role: WorkspaceRole
     # Visibilidade financeira é separada do papel (ADR 0018). Ausente = não mexe,
     # para o PATCH de papel não redefinir o acesso sem querer.
@@ -81,6 +93,10 @@ class MemberUpdate(BaseModel):
 
 
 class InviteCreate(BaseModel):
+    # Campo desconhecido é RECUSADO (422), não ignorado: a importação de extrato
+    # mandava `category_id` que o schema não tinha, o Pydantic o jogava fora calado e
+    # a despesa ficava sem categoria (auditoria 2026-09-26, C1/A1).
+    model_config = ConfigDict(extra="forbid")
     email: NormalizedEmail
     role: WorkspaceRole = WorkspaceRole.member
     # Default FECHADO (ADR 0018): quem entra vê o que o envolve, e abrir para os
@@ -92,6 +108,10 @@ class InviteCreate(BaseModel):
 
 
 class InviteLinkCreate(BaseModel):
+    # Campo desconhecido é RECUSADO (422), não ignorado: a importação de extrato
+    # mandava `category_id` que o schema não tinha, o Pydantic o jogava fora calado e
+    # a despesa ficava sem categoria (auditoria 2026-09-26, C1/A1).
+    model_config = ConfigDict(extra="forbid")
     role: WorkspaceRole = WorkspaceRole.member
     financial_access: FinancialAccess = FinancialAccess.involved_only
     # Validação no SCHEMA (antes `expires_days` era conferido na rota e

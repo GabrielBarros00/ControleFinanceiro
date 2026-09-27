@@ -1,7 +1,7 @@
 from typing import Optional
 from datetime import date, datetime
 from decimal import Decimal
-from pydantic import BaseModel, Field, model_validator
+from pydantic import ConfigDict, BaseModel, Field, model_validator
 
 from app.domain.income_settlement import income_status
 from app.models.recurring import RecurrenceFrequency
@@ -20,6 +20,10 @@ class IncomeBase(BaseModel):
     category: Optional[str] = None
 
 class IncomeCreate(IncomeBase):
+    # Campo desconhecido é RECUSADO (422), não ignorado: a importação de extrato
+    # mandava `category_id` que o schema não tinha, o Pydantic o jogava fora calado e
+    # a despesa ficava sem categoria (auditoria 2026-09-26, C1/A1).
+    model_config = ConfigDict(extra="forbid")
     amount: Decimal = Field(gt=0, le=MAX_MONEY)
     # None = "não informada" → a rota resolve para `User.report_currency` (ADR 0021)
     currency: OptionalCurrencyCode = None
@@ -31,6 +35,10 @@ class IncomeCreate(IncomeBase):
     received: Optional[bool] = None
 
 class IncomeUpdate(BaseModel):
+    # Campo desconhecido é RECUSADO (422), não ignorado: a importação de extrato
+    # mandava `category_id` que o schema não tinha, o Pydantic o jogava fora calado e
+    # a despesa ficava sem categoria (auditoria 2026-09-26, C1/A1).
+    model_config = ConfigDict(extra="forbid")
     title: Optional[str] = Field(default=None, min_length=1, max_length=TITLE_MAX)
     description: Optional[str] = Field(default=None, max_length=DESCRIPTION_MAX)
     amount: Optional[Decimal] = Field(default=None, gt=0, le=MAX_MONEY)
@@ -42,6 +50,10 @@ class IncomeUpdate(BaseModel):
 
 class IncomeReceiveRequest(BaseModel):
     """Confirmação de recebimento: quando caiu e em qual conta (ADR 0034)."""
+    # Campo desconhecido é RECUSADO (422), não ignorado: a importação de extrato
+    # mandava `category_id` que o schema não tinha, o Pydantic o jogava fora calado e
+    # a despesa ficava sem categoria (auditoria 2026-09-26, C1/A1).
+    model_config = ConfigDict(extra="forbid")
     #: Dia CIVIL do recebimento. Ausente = hoje. Vira instante por `civil_instant`,
     #: nunca por `datetime.combine` — meia-noite local ancorada em UTC jogaria o
     #: recebimento do dia 1º para o caixa do mês anterior.
@@ -97,6 +109,10 @@ class IncomeRead(IncomeBase):
 
 
 class RecurringIncomeCreate(BaseModel):
+    # Campo desconhecido é RECUSADO (422), não ignorado: a importação de extrato
+    # mandava `category_id` que o schema não tinha, o Pydantic o jogava fora calado e
+    # a despesa ficava sem categoria (auditoria 2026-09-26, C1/A1).
+    model_config = ConfigDict(extra="forbid")
     title: str = Field(min_length=1, max_length=TITLE_MAX)
     description: Optional[str] = Field(default=None, max_length=DESCRIPTION_MAX)
     base_amount: Decimal = Field(gt=0, le=MAX_MONEY)
@@ -127,6 +143,10 @@ class RecurringIncomeCreate(BaseModel):
 
 
 class RecurringIncomeUpdate(BaseModel):
+    # Campo desconhecido é RECUSADO (422), não ignorado: a importação de extrato
+    # mandava `category_id` que o schema não tinha, o Pydantic o jogava fora calado e
+    # a despesa ficava sem categoria (auditoria 2026-09-26, C1/A1).
+    model_config = ConfigDict(extra="forbid")
     title: Optional[str] = Field(default=None, min_length=1, max_length=TITLE_MAX)
     description: Optional[str] = Field(default=None, max_length=DESCRIPTION_MAX)
     base_amount: Optional[Decimal] = Field(default=None, gt=0, le=MAX_MONEY)

@@ -2,10 +2,14 @@
 from decimal import Decimal
 from typing import List, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import ConfigDict, BaseModel, Field
 
 
 class MerchantCreate(BaseModel):
+    # Campo desconhecido é RECUSADO (422), não ignorado: a importação de extrato
+    # mandava `category_id` que o schema não tinha, o Pydantic o jogava fora calado e
+    # a despesa ficava sem categoria (auditoria 2026-09-26, C1/A1).
+    model_config = ConfigDict(extra="forbid")
     name: str = Field(min_length=1, max_length=120)
     #: Grafias do extrato ("IFD*MC DONALDS"); o servidor normaliza.
     aliases: List[str] = Field(default_factory=list, max_length=50)
@@ -13,6 +17,10 @@ class MerchantCreate(BaseModel):
 
 
 class MerchantUpdate(BaseModel):
+    # Campo desconhecido é RECUSADO (422), não ignorado: a importação de extrato
+    # mandava `category_id` que o schema não tinha, o Pydantic o jogava fora calado e
+    # a despesa ficava sem categoria (auditoria 2026-09-26, C1/A1).
+    model_config = ConfigDict(extra="forbid")
     name: Optional[str] = Field(default=None, min_length=1, max_length=120)
     #: Substitui a lista inteira.
     aliases: Optional[List[str]] = Field(default=None, max_length=50)
@@ -22,6 +30,10 @@ class MerchantUpdate(BaseModel):
 
 class MerchantMerge(BaseModel):
     #: O estabelecimento que fica; este some e passa lançamentos e apelidos a ele.
+    # Campo desconhecido é RECUSADO (422), não ignorado: a importação de extrato
+    # mandava `category_id` que o schema não tinha, o Pydantic o jogava fora calado e
+    # a despesa ficava sem categoria (auditoria 2026-09-26, C1/A1).
+    model_config = ConfigDict(extra="forbid")
     into_id: int
 
 

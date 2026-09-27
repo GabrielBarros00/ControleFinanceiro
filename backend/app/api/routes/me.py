@@ -13,7 +13,7 @@ from datetime import date
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from pydantic import BaseModel
+from pydantic import ConfigDict, BaseModel
 
 from app.api.routes.auth import get_current_user
 from app.db.session import get_session
@@ -61,6 +61,10 @@ def _moeda(valor: Optional[str]) -> Optional[str]:
 
 
 class ReportCurrencyUpdate(BaseModel):
+    # Campo desconhecido é RECUSADO (422), não ignorado: a importação de extrato
+    # mandava `category_id` que o schema não tinha, o Pydantic o jogava fora calado e
+    # a despesa ficava sem categoria (auditoria 2026-09-26, C1/A1).
+    model_config = ConfigDict(extra="forbid")
     report_currency: OptionalCurrencyCode = None
 
 

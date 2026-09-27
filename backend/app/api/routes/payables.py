@@ -13,7 +13,7 @@ from datetime import date
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from pydantic import BaseModel, Field
+from pydantic import ConfigDict, BaseModel, Field
 from sqlmodel import Session
 
 from app.api.deps import get_workspace_membership, require_role
@@ -40,6 +40,10 @@ class SettleRequest(BaseModel):
     que mês a saída aparece no caixa, e pagar no dia 2 uma conta confirmada no
     app no dia 5 tem de mover o caixa do dia 2.
     """
+    # Campo desconhecido é RECUSADO (422), não ignorado: a importação de extrato
+    # mandava `category_id` que o schema não tinha, o Pydantic o jogava fora calado e
+    # a despesa ficava sem categoria (auditoria 2026-09-26, C1/A1).
+    model_config = ConfigDict(extra="forbid")
     transaction_ids: List[int] = Field(min_length=1, max_length=200)
     settled: bool = True
     settled_on: Optional[date] = None

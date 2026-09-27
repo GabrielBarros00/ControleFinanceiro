@@ -24,7 +24,7 @@ from decimal import Decimal
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from pydantic import BaseModel, Field
+from pydantic import ConfigDict, BaseModel, Field
 from sqlmodel import Session, select
 
 from app.api.routes.auth import get_current_user
@@ -78,6 +78,10 @@ def _colecao(metodo: str, caminho: str, **kwargs):
 
 class CreditCardCreate(BaseModel):
     """Schema explícito de criação — evita mass assignment de id/deleted_at."""
+    # Campo desconhecido é RECUSADO (422), não ignorado: a importação de extrato
+    # mandava `category_id` que o schema não tinha, o Pydantic o jogava fora calado e
+    # a despesa ficava sem categoria (auditoria 2026-09-26, C1/A1).
+    model_config = ConfigDict(extra="forbid")
     name: str = Field(min_length=1, max_length=NAME_MAX)
     limit: Decimal = Field(gt=0, le=MAX_MONEY)
     closing_day: int = Field(ge=1, le=31)
@@ -87,6 +91,10 @@ class CreditCardCreate(BaseModel):
 
 
 class CreditCardUpdate(BaseModel):
+    # Campo desconhecido é RECUSADO (422), não ignorado: a importação de extrato
+    # mandava `category_id` que o schema não tinha, o Pydantic o jogava fora calado e
+    # a despesa ficava sem categoria (auditoria 2026-09-26, C1/A1).
+    model_config = ConfigDict(extra="forbid")
     name: Optional[str] = Field(default=None, min_length=1, max_length=NAME_MAX)
     limit: Optional[Decimal] = Field(default=None, gt=0, le=MAX_MONEY)
     closing_day: Optional[int] = Field(default=None, ge=1, le=31)
@@ -94,6 +102,10 @@ class CreditCardUpdate(BaseModel):
 
 
 class StatementPayRequest(BaseModel):
+    # Campo desconhecido é RECUSADO (422), não ignorado: a importação de extrato
+    # mandava `category_id` que o schema não tinha, o Pydantic o jogava fora calado e
+    # a despesa ficava sem categoria (auditoria 2026-09-26, C1/A1).
+    model_config = ConfigDict(extra="forbid")
     account_id: Optional[int] = None
     amount: Optional[Decimal] = Field(default=None, gt=0, le=MAX_MONEY)
     paid_at: Optional[datetime] = None

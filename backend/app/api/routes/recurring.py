@@ -17,7 +17,7 @@ from app.services.event_service import publish_event
 from app.services.recurring_service import (
     RecurringService,
 )
-from pydantic import BaseModel, Field
+from pydantic import ConfigDict, BaseModel, Field
 
 from app.schemas.common import CreatedCountRead, StatusRead
 from app.domain.dates import today_local
@@ -103,6 +103,10 @@ class RecurringPreviewRequest(BaseModel):
     PUT — a revisão tem de planejar a partir da edição que está na tela, não do
     que já está no banco.
     """
+    # Campo desconhecido é RECUSADO (422), não ignorado: a importação de extrato
+    # mandava `category_id` que o schema não tinha, o Pydantic o jogava fora calado e
+    # a despesa ficava sem categoria (auditoria 2026-09-26, C1/A1).
+    model_config = ConfigDict(extra="forbid")
     action: str = Field(default="update", pattern="^(update|deactivate|delete)$")
     changes: Optional[RecurringUpdate] = None
     #: "Aplicar a partir de" — 1º do mês corrente quando ausente.

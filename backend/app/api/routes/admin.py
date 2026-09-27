@@ -16,7 +16,7 @@ from typing import Any, Dict, List, Optional
 
 import structlog
 from fastapi import APIRouter, Body, Depends, HTTPException, Query, Request, status
-from pydantic import BaseModel, EmailStr, Field
+from pydantic import ConfigDict, BaseModel, EmailStr, Field
 from sqlalchemy import update
 from sqlmodel import Session, select
 
@@ -186,6 +186,10 @@ def list_users(
 
 
 class UserPatch(BaseModel):
+    # Campo desconhecido é RECUSADO (422), não ignorado: a importação de extrato
+    # mandava `category_id` que o schema não tinha, o Pydantic o jogava fora calado e
+    # a despesa ficava sem categoria (auditoria 2026-09-26, C1/A1).
+    model_config = ConfigDict(extra="forbid")
     is_active: Optional[bool] = None
     platform_role: Optional[PlatformRole] = None
 
@@ -457,6 +461,10 @@ def delete_user(
 # --------------------------------------------------------------------------
 
 class SettingsPut(BaseModel):
+    # Campo desconhecido é RECUSADO (422), não ignorado: a importação de extrato
+    # mandava `category_id` que o schema não tinha, o Pydantic o jogava fora calado e
+    # a despesa ficava sem categoria (auditoria 2026-09-26, C1/A1).
+    model_config = ConfigDict(extra="forbid")
     valores: Dict[str, Any]
 
 
@@ -533,6 +541,10 @@ def put_settings(
 
 
 class TestEmail(BaseModel):
+    # Campo desconhecido é RECUSADO (422), não ignorado: a importação de extrato
+    # mandava `category_id` que o schema não tinha, o Pydantic o jogava fora calado e
+    # a despesa ficava sem categoria (auditoria 2026-09-26, C1/A1).
+    model_config = ConfigDict(extra="forbid")
     para: EmailStr
 
 
@@ -624,6 +636,10 @@ def test_email(
 # --------------------------------------------------------------------------
 
 class InviteCreate(BaseModel):
+    # Campo desconhecido é RECUSADO (422), não ignorado: a importação de extrato
+    # mandava `category_id` que o schema não tinha, o Pydantic o jogava fora calado e
+    # a despesa ficava sem categoria (auditoria 2026-09-26, C1/A1).
+    model_config = ConfigDict(extra="forbid")
     email: Optional[EmailStr] = None
     max_uses: Optional[int] = Field(None, ge=1, le=1000)
 

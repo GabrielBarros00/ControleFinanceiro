@@ -62,8 +62,14 @@ def test_dono_e_sempre_quem_criou(setup_data, override_get_session):
 
     Antes `owner_user_id` vinha no corpo e a rota checava se essa pessoa era
     membro do workspace — um campo que só existia porque a conta morava lá.
+    Desde a auditoria de 2026-09-26 (A1) o campo desconhecido é RECUSADO, não
+    ignorado: tentar declarar o dono é um 422, e nada é criado.
     """
     resp = _create(setup_data["ws1"].id, setup_data["headers1"], owner_user_id=setup_data["u2"].id)
+    assert resp.status_code == 422
+    assert "owner_user_id" in resp.json()["error"]["details"]
+
+    resp = _create(setup_data["ws1"].id, setup_data["headers1"])
     assert resp.status_code == 200
     assert resp.json()["owner_user_id"] == setup_data["u1"].id
 

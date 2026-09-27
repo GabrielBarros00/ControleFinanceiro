@@ -1,7 +1,7 @@
 from typing import Literal, Optional
 from datetime import datetime
 from decimal import Decimal
-from pydantic import BaseModel, Field, computed_field
+from pydantic import ConfigDict, BaseModel, Field, computed_field
 
 from app.schemas.common import DESCRIPTION_MAX, MAX_MONEY, NAME_MAX
 
@@ -17,6 +17,10 @@ class MonthlyEstimateBase(BaseModel):
     category_id: Optional[int] = None
 
 class MonthlyEstimateCreate(MonthlyEstimateBase):
+    # Campo desconhecido é RECUSADO (422), não ignorado: a importação de extrato
+    # mandava `category_id` que o schema não tinha, o Pydantic o jogava fora calado e
+    # a despesa ficava sem categoria (auditoria 2026-09-26, C1/A1).
+    model_config = ConfigDict(extra="forbid")
     amount: Decimal = Field(ge=0, le=MAX_MONEY)
     month: str = Field(pattern=r"^\d{4}-(0[1-9]|1[0-2])$")
     # A rota traduz para `owner_user_id` (None = casa). O default mantém o
