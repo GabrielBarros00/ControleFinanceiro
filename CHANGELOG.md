@@ -137,6 +137,18 @@ registro por CIMD/DCR, 59 tools documentadas em `docs/mcp/TOOLS.md` (geradas do
 código), e as escritas das rotas REST passaram a morar em comandos
 compartilhados (`app/services/commands/`) — sem mudança de comportamento.
 
+### O que você preenche não se perde mais pelo caminho
+
+- **Recorrência criada pausada nasce pausada.** A chave "Despesa Ativa" do formulário
+  era ignorada na criação: a recorrência nascia ativa e já gerava o lançamento do mês.
+- **Renda recorrente "por N vezes" termina.** A opção aparecia na tela, mas era
+  descartada, e a renda se repetia para sempre.
+- **Dá para estender uma série que tinha fim.** Trocar "até dezembro" por "por 24
+  vezes" dava erro; agora recalcula o fim.
+- **O servidor passou a recusar campo que não conhece, dizendo qual é**, em vez de
+  jogá-lo fora em silêncio. Foi esse silêncio que fez o extrato importado perder a
+  categoria, e foi ligando essa checagem que os três defeitos acima apareceram.
+
 ### No celular, o nome de cada lançamento aparece inteiro
 
 - **A lista de lançamentos deixou de cortar os títulos no celular.** Os botões de
