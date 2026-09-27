@@ -543,7 +543,10 @@ def test_delete_recurring_with_instances_detaches_them(ws_team):
 
 # --- Cartões: mass assignment bloqueado ---
 
-def test_create_card_ignores_injected_fields(ws_team):
+def test_create_card_recusa_campos_injetados(ws_team):
+    """`id`, `deleted_at` e `workspace_id` no corpo não passam. Antes eram
+    ignorados em silêncio; desde a auditoria de 2026-09-26 (A1) o campo
+    desconhecido é RECUSADO — 422, e nenhum cartão é criado."""
     _ws, users = ws_team["ws"], ws_team["users"]
     res = client.post(
         "/api/v1/me/credit-cards/",
@@ -553,11 +556,19 @@ def test_create_card_ignores_injected_fields(ws_team):
         },
         headers=_headers(users["member"]),
     )
+    assert res.status_code == 422
+    assert {"id", "deleted_at", "workspace_id"} <= set(res.json()["error"]["details"])
+    cartoes = client.get("/api/v1/me/credit-cards/", headers=_headers(users["member"])).json()
+    assert all(c["name"] != "Injetado" for c in cartoes)
+
+    # O mesmo cartão, sem o que foi injetado: o dono vem do token.
+    res = client.post(
+        "/api/v1/me/credit-cards/",
+        json={"name": "Limpo", "limit": "1000", "closing_day": 5, "due_day": 15},
+        headers=_headers(users["member"]),
+    )
     assert res.status_code == 200
     body = res.json()
-    assert body["id"] != 99999
-    # `workspace_id` injetado é ignorado porque a coluna nem existe mais: cartão
-    # é pessoal (ADR 0021). O dono vem do token, nunca do corpo.
     assert "workspace_id" not in body
     assert body["owner_user_id"] == users["member"].id
     assert body["deleted_at"] is None

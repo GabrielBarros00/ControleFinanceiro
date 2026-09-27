@@ -66,7 +66,7 @@ from app.services.notification_service import notify
 from app.services import app_settings, avatar_storage, upload_validation
 from app.services.blob_storage import BlobStorageError
 from app.services.registration_service import assert_pode_cadastrar, consome_convite
-from pydantic import BaseModel, Field
+from pydantic import ConfigDict, BaseModel, Field
 
 from app.schemas.common import MessageRead, NormalizedEmail, NormalizedEmailStr, StatusRead, normalize_email
 
@@ -337,10 +337,18 @@ async def get_current_user(
     return user
 
 class LoginRequest(BaseModel):
+    # Campo desconhecido é RECUSADO (422), não ignorado: a importação de extrato
+    # mandava `category_id` que o schema não tinha, o Pydantic o jogava fora calado e
+    # a despesa ficava sem categoria (auditoria 2026-09-26, C1/A1).
+    model_config = ConfigDict(extra="forbid")
     email: NormalizedEmailStr
     password: str = Field(..., max_length=72)
 
 class RegisterRequest(BaseModel):
+    # Campo desconhecido é RECUSADO (422), não ignorado: a importação de extrato
+    # mandava `category_id` que o schema não tinha, o Pydantic o jogava fora calado e
+    # a despesa ficava sem categoria (auditoria 2026-09-26, C1/A1).
+    model_config = ConfigDict(extra="forbid")
     name: str = Field(..., min_length=1, max_length=100)
     email: NormalizedEmail
     password: str = Field(..., min_length=6, max_length=72)
@@ -352,6 +360,10 @@ class OnboardingRequest(BaseModel):
     # Opcional: o onboarding cria a RENDA e o CARTÃO da pessoa, então o destino
     # natural é o workspace pessoal dela. Sem o campo, a rota resolve sozinha —
     # ver _resolve_onboarding_workspace.
+    # Campo desconhecido é RECUSADO (422), não ignorado: a importação de extrato
+    # mandava `category_id` que o schema não tinha, o Pydantic o jogava fora calado e
+    # a despesa ficava sem categoria (auditoria 2026-09-26, C1/A1).
+    model_config = ConfigDict(extra="forbid")
     workspace_id: Optional[int] = None
     #: A CONTA e o SALDO DE ABERTURA — o único dado que o app não deduz de nada.
     #:
@@ -626,6 +638,10 @@ def get_me(current_user: User = Depends(get_current_user)):
 
 
 class ProfileUpdate(BaseModel):
+    # Campo desconhecido é RECUSADO (422), não ignorado: a importação de extrato
+    # mandava `category_id` que o schema não tinha, o Pydantic o jogava fora calado e
+    # a despesa ficava sem categoria (auditoria 2026-09-26, C1/A1).
+    model_config = ConfigDict(extra="forbid")
     name: Optional[str] = Field(None, min_length=1, max_length=100)
 
 
@@ -868,6 +884,10 @@ def refresh_session(
 
 
 class ChangePasswordRequest(BaseModel):
+    # Campo desconhecido é RECUSADO (422), não ignorado: a importação de extrato
+    # mandava `category_id` que o schema não tinha, o Pydantic o jogava fora calado e
+    # a despesa ficava sem categoria (auditoria 2026-09-26, C1/A1).
+    model_config = ConfigDict(extra="forbid")
     current_password: str = Field(..., max_length=72)
     new_password: str = Field(..., min_length=6, max_length=72)
 
@@ -909,10 +929,18 @@ def change_password(
 
 
 class ForgotPasswordRequest(BaseModel):
+    # Campo desconhecido é RECUSADO (422), não ignorado: a importação de extrato
+    # mandava `category_id` que o schema não tinha, o Pydantic o jogava fora calado e
+    # a despesa ficava sem categoria (auditoria 2026-09-26, C1/A1).
+    model_config = ConfigDict(extra="forbid")
     email: NormalizedEmail
 
 
 class ResetPasswordRequest(BaseModel):
+    # Campo desconhecido é RECUSADO (422), não ignorado: a importação de extrato
+    # mandava `category_id` que o schema não tinha, o Pydantic o jogava fora calado e
+    # a despesa ficava sem categoria (auditoria 2026-09-26, C1/A1).
+    model_config = ConfigDict(extra="forbid")
     token: str
     new_password: str = Field(..., min_length=6, max_length=72)
 

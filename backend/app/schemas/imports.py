@@ -14,7 +14,7 @@ from datetime import datetime
 from decimal import Decimal
 from typing import Dict, List, Literal, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import ConfigDict, BaseModel, Field
 
 from app.core.config import settings
 from app.models.import_batch import ImportRowStatus
@@ -76,6 +76,10 @@ class BulkImportResult(BaseModel):
 # Entrada do `/commit`. Morava em `api/routes/imports.py` até o ADR 0035 (o
 # comando é compartilhado com o MCP e um serviço não importa de rota).
 class CommitRow(BaseModel):
+    # Campo desconhecido é RECUSADO (422), não ignorado: a importação de extrato
+    # mandava `category_id` que o schema não tinha, o Pydantic o jogava fora calado e
+    # a despesa ficava sem categoria (auditoria 2026-09-26, C1/A1).
+    model_config = ConfigDict(extra="forbid")
     line: Optional[int] = None
     title: str = "Imported Transaction"
     total_amount: Decimal
@@ -84,6 +88,10 @@ class CommitRow(BaseModel):
 
 
 class CommitRequest(BaseModel):
+    # Campo desconhecido é RECUSADO (422), não ignorado: a importação de extrato
+    # mandava `category_id` que o schema não tinha, o Pydantic o jogava fora calado e
+    # a despesa ficava sem categoria (auditoria 2026-09-26, C1/A1).
+    model_config = ConfigDict(extra="forbid")
     filename: Optional[str] = None
     # DOIS tetos, e a diferença entre eles importa.
     #
@@ -137,6 +145,10 @@ class ImportBatchDetail(ImportBatchRead):
 
 class UndoImportRequest(BaseModel):
     #: Com anexo, o desfazer apaga os recibos para sempre: só com esta confirmação.
+    # Campo desconhecido é RECUSADO (422), não ignorado: a importação de extrato
+    # mandava `category_id` que o schema não tinha, o Pydantic o jogava fora calado e
+    # a despesa ficava sem categoria (auditoria 2026-09-26, C1/A1).
+    model_config = ConfigDict(extra="forbid")
     confirm_attachments: bool = False
 
 
@@ -178,6 +190,10 @@ class AccountParseResult(BaseModel):
 
 class AccountCommitRow(BaseModel):
     """A decisão da pessoa sobre uma linha do extrato."""
+    # Campo desconhecido é RECUSADO (422), não ignorado: a importação de extrato
+    # mandava `category_id` que o schema não tinha, o Pydantic o jogava fora calado e
+    # a despesa ficava sem categoria (auditoria 2026-09-26, C1/A1).
+    model_config = ConfigDict(extra="forbid")
     line: Optional[int] = None
     title: str = Field(min_length=1, max_length=200)
     total_amount: Decimal = Field(gt=0)
@@ -199,6 +215,10 @@ class AccountCommitRow(BaseModel):
 
 
 class AccountCommitRequest(BaseModel):
+    # Campo desconhecido é RECUSADO (422), não ignorado: a importação de extrato
+    # mandava `category_id` que o schema não tinha, o Pydantic o jogava fora calado e
+    # a despesa ficava sem categoria (auditoria 2026-09-26, C1/A1).
+    model_config = ConfigDict(extra="forbid")
     account_id: int
     filename: Optional[str] = None
     rows: List[AccountCommitRow] = Field(max_length=settings.IMPORT_MAX_ROWS)

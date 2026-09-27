@@ -6,7 +6,7 @@ Rotas PESSOAIS: o recorte é o próprio usuário, então o gate é só
 from typing import Optional
 
 from fastapi import APIRouter, Depends, Header, Response, status
-from pydantic import BaseModel, Field
+from pydantic import ConfigDict, BaseModel, Field
 from sqlmodel import Session
 
 from app.api.routes.auth import get_current_user
@@ -25,6 +25,10 @@ class PushConfigRead(BaseModel):
 
 
 class PushKeys(BaseModel):
+    # Campo desconhecido é RECUSADO (422), não ignorado: a importação de extrato
+    # mandava `category_id` que o schema não tinha, o Pydantic o jogava fora calado e
+    # a despesa ficava sem categoria (auditoria 2026-09-26, C1/A1).
+    model_config = ConfigDict(extra="forbid")
     p256dh: str = Field(max_length=255)
     auth: str = Field(max_length=255)
 
@@ -32,11 +36,19 @@ class PushKeys(BaseModel):
 class PushSubscribe(BaseModel):
     # Espelha o `PushSubscription.toJSON()` do navegador, para o cliente poder
     # mandá-lo sem remontar nada.
+    # Campo desconhecido é RECUSADO (422), não ignorado: a importação de extrato
+    # mandava `category_id` que o schema não tinha, o Pydantic o jogava fora calado e
+    # a despesa ficava sem categoria (auditoria 2026-09-26, C1/A1).
+    model_config = ConfigDict(extra="forbid")
     endpoint: str = Field(max_length=2000)
     keys: PushKeys
 
 
 class PushUnsubscribe(BaseModel):
+    # Campo desconhecido é RECUSADO (422), não ignorado: a importação de extrato
+    # mandava `category_id` que o schema não tinha, o Pydantic o jogava fora calado e
+    # a despesa ficava sem categoria (auditoria 2026-09-26, C1/A1).
+    model_config = ConfigDict(extra="forbid")
     endpoint: str = Field(max_length=2000)
 
 
@@ -50,6 +62,10 @@ class NotificationPrefsUpdate(BaseModel):
     # `ge=1`: zero dias antes seria "vence em 0 dias", que o marco "no dia" já
     # cobre melhor. O teto é o mesmo que a varredura usa para montar a janela.
     # Isto rege só o PRIMEIRO aviso; véspera, dia e atraso saem sempre.
+    # Campo desconhecido é RECUSADO (422), não ignorado: a importação de extrato
+    # mandava `category_id` que o schema não tinha, o Pydantic o jogava fora calado e
+    # a despesa ficava sem categoria (auditoria 2026-09-26, C1/A1).
+    model_config = ConfigDict(extra="forbid")
     days_before: Optional[int] = Field(default=None, ge=1, le=MAX_DIAS_ANTES)
     by_email: Optional[bool] = None
     show_amount: Optional[bool] = None

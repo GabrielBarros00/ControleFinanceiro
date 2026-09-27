@@ -1,7 +1,7 @@
 from typing import Optional, List
 from datetime import datetime
 from decimal import Decimal
-from pydantic import BaseModel, Field, model_validator
+from pydantic import ConfigDict, BaseModel, Field, model_validator
 from app.models.transaction import (
     STATEMENT_SHIFT_MAX,
     STATEMENT_SHIFT_MIN,
@@ -18,6 +18,10 @@ from app.domain.item_da_nota import CASAS_UNITARIO, Unidade, problema_da_linha
 
 
 class TransactionPayerBase(BaseModel):
+    # Campo desconhecido é RECUSADO (422), não ignorado: a importação de extrato
+    # mandava `category_id` que o schema não tinha, o Pydantic o jogava fora calado e
+    # a despesa ficava sem categoria (auditoria 2026-09-26, C1/A1).
+    model_config = ConfigDict(extra="forbid")
     user_id: int
     amount: Decimal = Field(ge=0, le=MAX_MONEY)
     # Origem por pagador (ADR 0004): cada um pode usar método/conta próprios;
@@ -26,16 +30,27 @@ class TransactionPayerBase(BaseModel):
     account_id: Optional[int] = None
 
 class TransactionSplitBase(BaseModel):
+    # Campo desconhecido é RECUSADO (422), não ignorado: a importação de extrato
+    # mandava `category_id` que o schema não tinha, o Pydantic o jogava fora calado e
+    # a despesa ficava sem categoria (auditoria 2026-09-26, C1/A1).
+    model_config = ConfigDict(extra="forbid")
     user_id: int
     split_method: SplitMethod
     input_value: Decimal = Field(ge=0, le=MAX_MONEY)
 
 class TransactionItemShareBase(BaseModel):
+    # Campo desconhecido é RECUSADO (422), não ignorado: a importação de extrato
+    # mandava `category_id` que o schema não tinha, o Pydantic o jogava fora calado e
+    # a despesa ficava sem categoria (auditoria 2026-09-26, C1/A1).
+    model_config = ConfigDict(extra="forbid")
     user_id: int
     split_method: SplitMethod
     input_value: Decimal = Field(default=Decimal("0"), ge=0)
 
 class TransactionItemShareRead(TransactionItemShareBase):
+    # Herda de um schema de ENTRADA (que recusa campo desconhecido), mas é resposta:
+    # aqui um campo a mais é ignorado, como sempre foi (auditoria 2026-09-26, A1).
+    model_config = ConfigDict(extra="ignore")
     id: int
     computed_amount: Decimal
 
@@ -58,6 +73,10 @@ class TransactionItemBase(BaseModel):
     category_id: Optional[int] = None
 
 class TransactionItemCreate(TransactionItemBase):
+    # Campo desconhecido é RECUSADO (422), não ignorado: a importação de extrato
+    # mandava `category_id` que o schema não tinha, o Pydantic o jogava fora calado e
+    # a despesa ficava sem categoria (auditoria 2026-09-26, C1/A1).
+    model_config = ConfigDict(extra="forbid")
     shares: Optional[List[TransactionItemShareBase]] = None
 
 class TransactionItemRead(TransactionItemBase):
@@ -77,6 +96,10 @@ class TransactionAdjustmentBase(BaseModel):
 
 
 class TransactionAdjustmentCreate(TransactionAdjustmentBase):
+    # Campo desconhecido é RECUSADO (422), não ignorado: a importação de extrato
+    # mandava `category_id` que o schema não tinha, o Pydantic o jogava fora calado e
+    # a despesa ficava sem categoria (auditoria 2026-09-26, C1/A1).
+    model_config = ConfigDict(extra="forbid")
     @model_validator(mode="after")
     def _validate_sign(self):
         if self.amount == 0:
@@ -267,6 +290,10 @@ def validate_payer_origins(
 
 class TransactionCreate(TransactionBase):
     # Entrada validada: valor sempre positivo (leituras herdam a Base sem gt)
+    # Campo desconhecido é RECUSADO (422), não ignorado: a importação de extrato
+    # mandava `category_id` que o schema não tinha, o Pydantic o jogava fora calado e
+    # a despesa ficava sem categoria (auditoria 2026-09-26, C1/A1).
+    model_config = ConfigDict(extra="forbid")
     total_amount: Decimal = Field(gt=0, le=MAX_MONEY)
     # None = "não informada" → a rota resolve para a moeda-base do workspace
     # (`resolve_currency`). Um default "BRL" aqui fazia um workspace em outra
@@ -323,9 +350,15 @@ class TransactionCreate(TransactionBase):
         return self
 
 class TransactionPayerRead(TransactionPayerBase):
+    # Herda de um schema de ENTRADA (que recusa campo desconhecido), mas é resposta:
+    # aqui um campo a mais é ignorado, como sempre foi (auditoria 2026-09-26, A1).
+    model_config = ConfigDict(extra="ignore")
     id: int
 
 class TransactionSplitRead(TransactionSplitBase):
+    # Herda de um schema de ENTRADA (que recusa campo desconhecido), mas é resposta:
+    # aqui um campo a mais é ignorado, como sempre foi (auditoria 2026-09-26, A1).
+    model_config = ConfigDict(extra="ignore")
     id: int
     computed_amount: Decimal
 
@@ -358,6 +391,10 @@ class TransactionRead(TransactionBase):
     merchant: Optional[MerchantBrief] = None
 
 class TransactionUpdate(BaseModel):
+    # Campo desconhecido é RECUSADO (422), não ignorado: a importação de extrato
+    # mandava `category_id` que o schema não tinha, o Pydantic o jogava fora calado e
+    # a despesa ficava sem categoria (auditoria 2026-09-26, C1/A1).
+    model_config = ConfigDict(extra="forbid")
     title: Optional[str] = Field(default=None, min_length=1, max_length=TITLE_MAX)
     description: Optional[str] = Field(default=None, max_length=DESCRIPTION_MAX)
     total_amount: Optional[Decimal] = Field(default=None, gt=0, le=MAX_MONEY)
@@ -418,10 +455,16 @@ class TransactionListResponse(BaseModel):
 
 class BreakdownSplit(TransactionSplitBase):
     """Uma divisão JÁ CALCULADA: o que a pessoa efetivamente assume."""
+    # Herda de um schema de ENTRADA (que recusa campo desconhecido), mas é resposta:
+    # aqui um campo a mais é ignorado, como sempre foi (auditoria 2026-09-26, A1).
+    model_config = ConfigDict(extra="ignore")
     computed_amount: Decimal
 
 
 class BreakdownItemShare(TransactionItemShareBase):
+    # Herda de um schema de ENTRADA (que recusa campo desconhecido), mas é resposta:
+    # aqui um campo a mais é ignorado, como sempre foi (auditoria 2026-09-26, A1).
+    model_config = ConfigDict(extra="ignore")
     computed_amount: Decimal
 
 
@@ -487,6 +530,10 @@ class BulkCategorizeRequest(BaseModel):
     despesas uma a uma (abrir, editar, escolher, salvar) é o que faz ninguém
     categorizar nada.
     """
+    # Campo desconhecido é RECUSADO (422), não ignorado: a importação de extrato
+    # mandava `category_id` que o schema não tinha, o Pydantic o jogava fora calado e
+    # a despesa ficava sem categoria (auditoria 2026-09-26, C1/A1).
+    model_config = ConfigDict(extra="forbid")
     transaction_ids: List[int]
     category_id: int
 

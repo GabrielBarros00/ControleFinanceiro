@@ -6066,6 +6066,11 @@ export interface components {
             title: string;
             /** Description */
             description?: string | null;
+            /**
+             * Is Active
+             * @default true
+             */
+            is_active: boolean;
             /** Base Amount */
             base_amount: number | string;
             /** @default monthly */
@@ -6217,6 +6222,8 @@ export interface components {
             start_date?: string | null;
             /** End Date */
             end_date?: string | null;
+            /** End After Occurrences */
+            end_after_occurrences?: number | null;
             /**
              * Day Of Month
              * @default 1
@@ -6258,6 +6265,8 @@ export interface components {
             start_date?: string | null;
             /** End Date */
             end_date?: string | null;
+            /** End After Occurrences */
+            end_after_occurrences?: number | null;
             /** Day Of Month */
             day_of_month?: number | null;
             /** Day Of Week */

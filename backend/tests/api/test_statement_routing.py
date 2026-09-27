@@ -10,7 +10,7 @@ from decimal import Decimal
 
 import pytest
 from fastapi.testclient import TestClient
-from sqlmodel import Session, select
+from sqlmodel import Session, func, select
 
 from app.main import app
 from app.models.credit_card import CreditCard, CardStatement, StatementStatus
@@ -59,35 +59,42 @@ def _payload(user_id, **overrides):
     return payload
 
 
-def test_statement_id_do_cliente_e_ignorado(db_session, two_ws_cards, override_get_session):
-    """IDOR: apontar para fatura de outro workspace não pode ter efeito."""
+def test_statement_id_do_cliente_e_recusado(db_session, two_ws_cards, override_get_session):
+    """IDOR: apontar para fatura de outro workspace não pode ter efeito. Desde a
+    auditoria de 2026-09-26 (A1) o campo nem é aceito: 422, nada gravado."""
     ws1, u1 = two_ws_cards["ws1"], two_ws_cards["u1"]
     foreign = two_ws_cards["foreign_stmt"]
+    antes = db_session.exec(select(func.count(Transaction.id))).one()
 
     resp = client.post(
         f"/api/v1/workspaces/{ws1.id}/transactions/",
         json=_payload(u1.id, statement_id=foreign.id),
         headers=two_ws_cards["headers1"],
     )
-    assert resp.status_code == 200, resp.text
-    tx = db_session.get(Transaction, resp.json()["id"])
-    assert tx.statement_id is None  # sem cartão, sem fatura — campo do payload ignorado
+    assert resp.status_code == 422, resp.text
+    assert "statement_id" in resp.json()["error"]["details"]
+    assert db_session.exec(select(func.count(Transaction.id))).one() == antes
 
 
-def test_com_cartao_fatura_e_derivada_mesmo_com_statement_id_forjado(
+def test_com_cartao_fatura_e_derivada_pelo_servidor(
     db_session, two_ws_cards, override_get_session
 ):
+    """A fatura é derivada do cartão e da data (ADR 0002) — o cliente não a
+    escolhe. Com `statement_id` forjado a requisição é recusada (A1); sem ele, a
+    fatura é a do ciclo, do próprio cartão."""
     ws1, u1, card1 = two_ws_cards["ws1"], two_ws_cards["u1"], two_ws_cards["card1"]
     foreign = two_ws_cards["foreign_stmt"]
 
+    forjada = client.post(
+        f"/api/v1/workspaces/{ws1.id}/transactions/",
+        json=_payload(u1.id, credit_card_id=card1.id, payment_method="credit_card", statement_id=foreign.id),
+        headers=two_ws_cards["headers1"],
+    )
+    assert forjada.status_code == 422, forjada.text
+
     resp = client.post(
         f"/api/v1/workspaces/{ws1.id}/transactions/",
-        json=_payload(
-            u1.id,
-            credit_card_id=card1.id,
-            payment_method="credit_card",
-            statement_id=foreign.id,
-        ),
+        json=_payload(u1.id, credit_card_id=card1.id, payment_method="credit_card"),
         headers=two_ws_cards["headers1"],
     )
     assert resp.status_code == 200, resp.text

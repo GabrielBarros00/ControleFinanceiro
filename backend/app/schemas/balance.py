@@ -12,7 +12,7 @@ from datetime import date, datetime
 from decimal import Decimal
 from typing import List, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import ConfigDict, BaseModel, Field
 
 from app.models.payment_account import PaymentAccountType
 from app.schemas.common import DESCRIPTION_MAX, MAX_MONEY
@@ -93,6 +93,10 @@ class OpeningBalanceRequest(BaseModel):
 
     Não é renda, não é despesa e não entra em resultado de mês nenhum.
     """
+    # Campo desconhecido é RECUSADO (422), não ignorado: a importação de extrato
+    # mandava `category_id` que o schema não tinha, o Pydantic o jogava fora calado e
+    # a despesa ficava sem categoria (auditoria 2026-09-26, C1/A1).
+    model_config = ConfigDict(extra="forbid")
 
     amount: Decimal = Field(le=MAX_MONEY, ge=-MAX_MONEY)
     #: Data CIVIL do saldo. É ela que define a partir de quando os movimentos
@@ -106,6 +110,10 @@ class AdjustmentRequest(BaseModel):
     O corpo traz o saldo REAL, não a diferença — é o que a pessoa tem à mão. O
     servidor calcula o delta e grava o movimento, para os dois nunca discordarem.
     """
+    # Campo desconhecido é RECUSADO (422), não ignorado: a importação de extrato
+    # mandava `category_id` que o schema não tinha, o Pydantic o jogava fora calado e
+    # a despesa ficava sem categoria (auditoria 2026-09-26, C1/A1).
+    model_config = ConfigDict(extra="forbid")
 
     real_balance: Decimal = Field(le=MAX_MONEY, ge=-MAX_MONEY)
     occurred_on: Optional[date] = None
@@ -150,6 +158,10 @@ class AccountStatementRead(BaseModel):
 
 
 class TransferCreate(BaseModel):
+    # Campo desconhecido é RECUSADO (422), não ignorado: a importação de extrato
+    # mandava `category_id` que o schema não tinha, o Pydantic o jogava fora calado e
+    # a despesa ficava sem categoria (auditoria 2026-09-26, C1/A1).
+    model_config = ConfigDict(extra="forbid")
     from_account_id: int
     to_account_id: int
     from_amount: Decimal = Field(gt=0, le=MAX_MONEY)

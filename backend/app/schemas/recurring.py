@@ -8,7 +8,7 @@ from datetime import date
 from decimal import Decimal
 from typing import List, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import ConfigDict, BaseModel, Field
 
 from app.models.recurring import RecurrenceFrequency
 from app.models.transaction import (
@@ -21,14 +21,27 @@ from app.schemas.common import DESCRIPTION_MAX, MAX_MONEY, OptionalCurrencyCode,
 
 
 class RecurringSplitEntry(BaseModel):
+    # Campo desconhecido é RECUSADO (422), não ignorado: a importação de extrato
+    # mandava `category_id` que o schema não tinha, o Pydantic o jogava fora calado e
+    # a despesa ficava sem categoria (auditoria 2026-09-26, C1/A1).
+    model_config = ConfigDict(extra="forbid")
     user_id: int
     split_method: SplitMethod = SplitMethod.equal
     input_value: Decimal = Field(default=Decimal("0"), ge=0, le=MAX_MONEY)
 
 
 class RecurringCreate(BaseModel):
+    # Campo desconhecido é RECUSADO (422), não ignorado: a importação de extrato
+    # mandava `category_id` que o schema não tinha, o Pydantic o jogava fora calado e
+    # a despesa ficava sem categoria (auditoria 2026-09-26, C1/A1).
+    model_config = ConfigDict(extra="forbid")
     title: str = Field(min_length=1, max_length=TITLE_MAX)
     description: Optional[str] = Field(default=None, max_length=DESCRIPTION_MAX)
+    # A chave "Despesa Ativa" do formulário vale também na CRIAÇÃO. O campo não
+    # existia aqui: a tela o mandava, o schema o descartava calado, e a
+    # recorrência criada "pausada" nascia ativa e gerava lançamento — achado ao
+    # ligar o `extra="forbid"` (auditoria 2026-09-26, A1).
+    is_active: bool = True
     base_amount: Decimal = Field(gt=0, le=MAX_MONEY)
     frequency: RecurrenceFrequency = RecurrenceFrequency.monthly
     interval: int = Field(default=1, ge=1)
@@ -70,6 +83,10 @@ class RecurringCreate(BaseModel):
 
 
 class RecurringUpdate(BaseModel):
+    # Campo desconhecido é RECUSADO (422), não ignorado: a importação de extrato
+    # mandava `category_id` que o schema não tinha, o Pydantic o jogava fora calado e
+    # a despesa ficava sem categoria (auditoria 2026-09-26, C1/A1).
+    model_config = ConfigDict(extra="forbid")
     title: Optional[str] = Field(default=None, min_length=1, max_length=TITLE_MAX)
     description: Optional[str] = Field(default=None, max_length=DESCRIPTION_MAX)
     base_amount: Optional[Decimal] = Field(default=None, gt=0, le=MAX_MONEY)
