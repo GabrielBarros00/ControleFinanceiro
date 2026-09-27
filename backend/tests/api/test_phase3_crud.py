@@ -490,7 +490,12 @@ def test_update_total_amount_syncs_payer_and_split(ws_team):
     assert res.json() == []
 
 
-def test_update_total_amount_rejected_for_multi_split(ws_team):
+def test_update_total_amount_reparte_a_divisao_por_igual(ws_team):
+    """Um pagador e divisão por igual: o total novo tem um jeito só de se repartir.
+
+    Era 400 ("use a edição completa da divisão"), e o MCP contornava montando a
+    edição completa por conta própria (auditoria 2026-09-26, A2).
+    """
     ws, users = ws_team["ws"], ws_team["users"]
     payload = {
         "title": "Dividida",
@@ -510,7 +515,10 @@ def test_update_total_amount_rejected_for_multi_split(ws_team):
         json={"total_amount": "200.00"},
         headers=_headers(users["member"]),
     )
-    assert res.status_code == 400
+    assert res.status_code == 200, res.text
+    body = res.json()
+    assert [Decimal(str(p["amount"])) for p in body["payers"]] == [Decimal("200.00")]
+    assert sorted(Decimal(str(s["computed_amount"])) for s in body["splits"]) == [Decimal("100.00")] * 2
 
 
 # --- Recorrência: excluir template com instâncias geradas ---

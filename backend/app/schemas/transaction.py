@@ -397,8 +397,11 @@ class TransactionUpdate(BaseModel):
     model_config = ConfigDict(extra="forbid")
     title: Optional[str] = Field(default=None, min_length=1, max_length=TITLE_MAX)
     description: Optional[str] = Field(default=None, max_length=DESCRIPTION_MAX)
+    # Valor e moeda são os DA COMPRA: numa compra convertida, a moeda original
+    # (ADR 0015). Sem `currency`, `total_amount` está nela; mudar valor, moeda,
+    # data ou forma de pagamento reconverte, e a divisão é refeita pelo comando
+    # também na edição parcial (auditoria 2026-09-26, A2).
     total_amount: Optional[Decimal] = Field(default=None, gt=0, le=MAX_MONEY)
-    # Moeda do lançamento na edição: estrangeira dispara reconversão para BRL
     currency: OptionalCurrencyCode = None
     transaction_date: Optional[datetime] = None
     billing_month: Optional[str] = None
@@ -422,6 +425,9 @@ class TransactionUpdate(BaseModel):
     # `merchant_name` acha pelo nome/apelido ou cria.
     merchant_id: Optional[int] = None
     merchant_name: Optional[str] = Field(default=None, max_length=120)
+    # Conta de onde saiu o dinheiro, na despesa de UM pagador (ADR 0004); `null`
+    # tira a conta. Na edição completa a conta vai em cada item de `payers`.
+    account_id: Optional[int] = None
     # Edição completa da divisão: se qualquer um destes vier, a rota exige o
     # conjunto completo e recria payers/splits/items/ajustes atomicamente
     split_mode: Optional[SplitMode] = None
@@ -436,6 +442,8 @@ class TransactionUpdate(BaseModel):
             raise ValueError("Envie items OU category_id — nunca os dois")
         if self.payers is not None:
             _ensure_unique_users(self.payers, "payers")
+            if "account_id" in self.model_fields_set:
+                raise ValueError("Envie account_id OU payers: com payers, a conta vai em cada pagador")
         return self
 
 class TransactionListResponse(BaseModel):

@@ -303,10 +303,13 @@ def test_group_whole_estrangeiro_por_item_volta_na_moeda_original(db_session, ws
     assert hotel == {u1.id: Decimal("40.00"), u2.id: Decimal("20.00")}
 
 
-def test_partial_total_edit_limpa_original_estrangeiro(db_session, ws_with_card, override_get_session):
-    """Caminho parcial legado: mudar só o total (semântica BRL) de uma transação
-    que era estrangeira limpa os original_* obsoletos — senão o registro afirmaria
-    um câmbio que já não bate. Edição de moeda usa a edição completa (re-converte)."""
+def test_total_parcial_de_compra_convertida_e_na_moeda_da_compra(db_session, ws_with_card, override_get_session):
+    """A edição parcial lê o valor na moeda DA COMPRA, como o formulário mostra.
+
+    Antes (auditoria 2026-09-26, A2) `{"total_amount": 60}` numa compra de US$ 50
+    virava R$ 60 e apagava o original: o caminho parcial não convertia, e por isso
+    a tela e o MCP montavam a edição completa por conta própria.
+    """
     ws, u1, headers = ws_with_card["ws1"], ws_with_card["u1"], ws_with_card["headers1"]
     resp = client.post(
         f"/api/v1/workspaces/{ws.id}/transactions/",
@@ -314,23 +317,43 @@ def test_partial_total_edit_limpa_original_estrangeiro(db_session, ws_with_card,
         headers=headers,
     )
     assert resp.status_code == 200, resp.text
-    tx = resp.json()
-    assert tx["original_currency"] == "USD"
-    tx_id = tx["id"]
+    tx_id = resp.json()["id"]
 
-    # PUT parcial só com total_amount (sem currency, sem payers) → semântica BRL
     resp = client.put(
         f"/api/v1/workspaces/{ws.id}/transactions/{tx_id}",
-        json={"total_amount": 300.0},
+        json={"total_amount": 60.0},
         headers=headers,
     )
     assert resp.status_code == 200, resp.text
     upd = resp.json()
-    assert upd["total_amount"] == "300.00"
-    assert upd["currency"] == "BRL"
-    assert upd["original_currency"] is None
-    assert upd["original_amount"] is None
+    assert (upd["total_amount"], upd["currency"]) == ("300.00", "BRL")
+    assert (upd["original_amount"], upd["original_currency"]) == ("60.00", "USD")
+    assert Decimal(upd["exchange_rate"]) == Decimal("5.00")
+    assert [p["amount"] for p in upd["payers"]] == ["300.00"]
+    assert [s["computed_amount"] for s in upd["splits"]] == ["300.00"]
+
+
+def test_voltar_para_a_moeda_base_pela_edicao_parcial(db_session, ws_with_card, override_get_session):
+    """Com `currency` explícita a moeda muda e o número fica: "foram 250 reais, não dólares"."""
+    ws, u1, headers = ws_with_card["ws1"], ws_with_card["u1"], ws_with_card["headers1"]
+    resp = client.post(
+        f"/api/v1/workspaces/{ws.id}/transactions/",
+        json=_usd_payload(u1.id, payment_method="pix"),
+        headers=headers,
+    )
+    tx_id = resp.json()["id"]
+
+    resp = client.put(
+        f"/api/v1/workspaces/{ws.id}/transactions/{tx_id}",
+        json={"currency": "BRL", "total_amount": 250.0},
+        headers=headers,
+    )
+    assert resp.status_code == 200, resp.text
+    upd = resp.json()
+    assert (upd["total_amount"], upd["currency"]) == ("250.00", "BRL")
+    assert upd["original_currency"] is None and upd["original_amount"] is None
     assert upd["exchange_rate"] is None
+    assert [p["amount"] for p in upd["payers"]] == ["250.00"]
 
 
 def test_estrangeiro_por_item_com_ajuste(db_session, ws_with_card, override_get_session):

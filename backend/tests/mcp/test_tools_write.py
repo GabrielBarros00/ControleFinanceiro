@@ -595,8 +595,13 @@ def test_so_o_titulo_de_compra_convertida_preserva_a_conversao(mcp_client, db_se
     assert tx["amount"] == "250.00" and tx["foreign"]["exchange_rate"].startswith("5.00")
 
 
-def test_compra_convertida_com_divisao_fixa_pede_a_divisao_nova(mcp_client, db_session, c, monkeypatch):
-    """Os valores fixos gravados estão na moeda-base; refazer a conversão exige a divisão de novo."""
+def test_compra_convertida_com_divisao_fixa_reconverte_na_mesma_proporcao(mcp_client, db_session, c, monkeypatch):
+    """US$ 30 da Alice e US$ 20 do João continuam sendo isso com a cotação de outro dia.
+
+    A tool recusava ("informe a divisão de novo"), porque os valores fixos gravados
+    estão na moeda-base e ela montava a edição completa sozinha. Agora o comando
+    reconverte a divisão gravada na mesma proporção (auditoria 2026-09-26, A2).
+    """
     from app.services.currency_service import CurrencyService
 
     monkeypatch.setattr(CurrencyService, "get_rate_sync", lambda *a, **k: (Decimal("5.00"), "ptax"))
@@ -604,8 +609,14 @@ def test_compra_convertida_com_divisao_fixa_pede_a_divisao_nova(mcp_client, db_s
         "idempotency_key": chave(), "title": "Jantar", "amount": "50.00", "currency": "USD", "space": "Casa",
         "payment_method": "pix", "split": [{"person": "Alice", "amount": "30.00"}, {"person": "João", "amount": "20.00"}],
     }))["transaction"]
-    erro = err(call_tool(mcp_client, c.token, "transactions_update", {"transaction_id": tx["id"], "date": c.hoje.isoformat()}))
-    assert erro["code"] == "VALIDATION_ERROR" and "`split`" in erro["message"]
+    monkeypatch.setattr(CurrencyService, "get_rate_sync", lambda *a, **k: (Decimal("6.00"), "ptax"))
+    reconvertido = ok(call_tool(mcp_client, c.token, "transactions_update", {
+        "transaction_id": tx["id"], "date": c.hoje.replace(day=1).isoformat(),
+    }))["transaction"]
+    assert reconvertido["amount"] == "300.00" and reconvertido["foreign"]["original_amount"] == "50.00"
+    assert sorted(p["amount"] for p in reconvertido["split"]) == ["120.00", "180.00"]
+    # A divisão nova, quando vem, substitui a gravada.
+    monkeypatch.setattr(CurrencyService, "get_rate_sync", lambda *a, **k: (Decimal("5.00"), "ptax"))
     refeito = ok(call_tool(mcp_client, c.token, "transactions_update", {
         "transaction_id": tx["id"], "date": c.hoje.isoformat(),
         "split": [{"person": "Alice", "amount": "25.00"}, {"person": "João", "amount": "25.00"}],
@@ -643,3 +654,55 @@ def test_sair_do_cartao_mudando_o_valor_de_despesa_dividida(mcp_client, db_sessi
     }))["transaction"]
     assert tx["card"] is None and tx["payment_method"] == "pix" and tx["amount"] == "90.00"
     assert {p["amount"] for p in tx["split"]} == {"45.00"}
+
+
+@pytest.mark.parametrize("caso, codigo, parametro", [
+    ("por_item", "BUSINESS_RULE_VIOLATION", "`items`"),
+    ("itens", "BUSINESS_RULE_VIOLATION", "`items`"),
+    ("pagadores", "VALIDATION_ERROR", "`paid_by`"),
+    ("valores_fixos", "VALIDATION_ERROR", "`split`"),
+])
+def test_valor_novo_que_o_app_nao_reparte_diz_o_parametro_da_tool(mcp_client, c, caso, codigo, parametro):
+    """Quem decide que o total novo não se reparte sozinho é o comando (`ReescalaAmbigua`).
+
+    A tool só traduz a recusa para o parâmetro que completa a edição: a mensagem
+    do app diz "edição completa", que para o agente não é um caminho.
+    """
+    from tests.mcp.conftest import cookie_headers
+
+    iguais = [{"user_id": u.id, "split_method": "equal", "input_value": "0"} for u in (c.alice, c.joao)]
+    um = [{"user_id": c.alice.id, "amount": "100.00"}]
+    dois_itens = [{"title": "Arroz", "amount": "60.00"}, {"title": "Pão", "amount": "40.00", "position": 1}]
+    corpo = {
+        "por_item": {"split_mode": "item", "payers": um, "splits": [], "items": [
+            {**dois_itens[0], "shares": [{"user_id": c.alice.id, "split_method": "equal"}]},
+            {**dois_itens[1], "shares": [{"user_id": c.joao.id, "split_method": "equal"}]},
+        ]},
+        "itens": {"payers": um, "splits": iguais, "items": dois_itens},
+        "pagadores": {
+            "payers": [{"user_id": c.alice.id, "amount": "60.00"}, {"user_id": c.joao.id, "amount": "40.00"}],
+            "splits": iguais,
+        },
+        "valores_fixos": {"payers": um, "splits": [
+            {"user_id": c.alice.id, "split_method": "fixed", "input_value": "70.00"},
+            {"user_id": c.joao.id, "split_method": "fixed", "input_value": "30.00"},
+        ]},
+    }[caso]
+    r = mcp_client.post(f"/api/v1/workspaces/{c.casa.id}/transactions/", headers=cookie_headers(c.alice), json={
+        "title": "Mercado", "total_amount": "100.00", "transaction_date": f"{c.hoje.isoformat()}T15:00:00Z",
+        "payment_method": "pix", **corpo,
+    })
+    assert r.status_code == 200, r.text
+    erro = err(call_tool(mcp_client, c.token, "transactions_update", {"transaction_id": r.json()["id"], "amount": "120.00"}))
+    assert erro["code"] == codigo and parametro in erro["message"], erro
+    assert erro["details"]["app_url"]
+
+
+def test_conta_quando_outra_pessoa_pagou_e_recusada(mcp_client, c):
+    """A conta é de quem pagou: a regra (ADR 0004) agora é do comando, pela edição parcial."""
+    tx = ok(call_tool(mcp_client, c.token, "transactions_create", {
+        "idempotency_key": chave(), "title": "Luz", "amount": "100.00", "space": "Casa",
+        "payment_method": "pix", "paid_by": "João", "split_with": ["João"],
+    }))["transaction"]
+    erro = err(call_tool(mcp_client, c.token, "transactions_update", {"transaction_id": tx["id"], "account": "Itaú"}))
+    assert erro["code"] == "BUSINESS_RULE_VIOLATION" and "não pertence a quem pagou" in erro["message"]
