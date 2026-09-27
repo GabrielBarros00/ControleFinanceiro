@@ -137,6 +137,21 @@ registro por CIMD/DCR, 59 tools documentadas em `docs/mcp/TOOLS.md` (geradas do
 código), e as escritas das rotas REST passaram a morar em comandos
 compartilhados (`app/services/commands/`) — sem mudança de comportamento.
 
+### Atualização do app sem tela branca
+
+- **Quem estava com o app aberto durante uma atualização não fica mais com a tela
+  branca.** Ao abrir uma tela que ainda não tinha visitado, a aba pedia um pedaço do
+  app que a atualização tinha substituído, e a tela ficava em branco — no app
+  instalado, sem nem o botão de recarregar do navegador. Agora a página recarrega
+  sozinha, uma vez, já na versão nova; se ainda assim não der, aparece "O app foi
+  atualizado" com o botão **Recarregar**.
+- **Um erro numa tela mostra o que fazer**, com "Recarregar" e "Ir para o início",
+  em vez de apagar o app inteiro. Voltar pelo botão do celular sai da tela de erro.
+- **O app no celular não guarda mais uma página de erro no lugar de um pedaço do
+  app.** O cache do app instalado é renovado nesta versão, e o servidor passou a
+  dizer ao navegador quais arquivos nunca mudam (guardados por um ano) e qual precisa
+  ser conferido sempre (a página de entrada).
+
 ### O item da nota tem quantidade, unidade e preço unitário
 
 - **Cada item da nota diz quanto, de quê e a quanto.** "1,235 kg de picanha a
