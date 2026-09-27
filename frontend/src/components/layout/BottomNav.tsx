@@ -64,7 +64,7 @@ function MoreSheet({ open, onOpenChange }: { open: boolean; onOpenChange: (v: bo
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent
         showCloseButton={false}
-        className="max-h-[85vh] md:hidden sm:max-w-none"
+        className="max-h-[85vh] lg:hidden sm:max-w-none"
       >
         {/* O título é obrigatório: sem ele o Radix emite um erro em console que
             a suíte de a11y trata como falha dura — e, antes disso, é o nome que
@@ -152,14 +152,14 @@ export function BottomNav() {
       {/* `pb-safe`: a barra é `fixed bottom-0`, então sem a área segura os
           rótulos ficam sob o indicador de home do iPhone e sob a barra de
           gestos do Android — legíveis pela metade e difíceis de acertar. */}
-      <nav className="fixed inset-x-0 bottom-0 z-40 flex items-stretch justify-around border-t border-border bg-card/95 px-1 pb-safe backdrop-blur-sm md:hidden">
+      <nav className="fixed inset-x-0 bottom-0 z-40 flex items-stretch justify-around border-t border-border bg-card/95 px-1 pb-safe backdrop-blur-sm lg:hidden">
         {primary.slice(0, 2).map(item)}
         {/* O FAB só existe DENTRO de um espaço. Fora dele — no Seu mês,
             em `/me/*` — ele abria o diálogo com o último espaço visitado, sem
             mostrar qual, e a despesa ia para o lugar errado. O ADR 0020 define a
             camada pessoal como somente leitura por esse motivo, e a suíte de
             acessibilidade afirmava isso testando só o desktop, onde o FAB está
-            escondido por `md:hidden` e o problema não aparecia. */}
+            escondido por `lg:hidden` e o problema não aparecia. */}
         {workspaceDaUrl !== null && (
           <button
             type="button"

@@ -84,8 +84,8 @@ export function AppShell({ children }: { children: ReactNode }) {
           direita. Ele some sozinho quando não há o que oferecer — ver
           `components/pwa/InstallApp.tsx`.
         */}
-        <div className="sticky top-0 z-30 flex items-center justify-between gap-2 border-b border-border/40 bg-background/80 px-2 py-2 pt-safe backdrop-blur-sm sm:px-6 md:justify-end md:px-8">
-          <ScopeSwitcher className="md:hidden" />
+        <div className="sticky top-0 z-30 flex items-center justify-between gap-2 border-b border-border/40 bg-background/80 px-2 py-2 pt-safe backdrop-blur-sm sm:px-6 md:px-8 lg:justify-end">
+          <ScopeSwitcher className="lg:hidden" />
           <div className="flex items-center gap-1">
             {/* Buscar vem PRIMEIRO no grupo: é a única coisa aqui que a pessoa
                 procura ativamente — o resto (instalar, notificar, avisos) se
@@ -113,7 +113,7 @@ export function AppShell({ children }: { children: ReactNode }) {
         {/* `tabIndex={-1}`: sem ele o `<main>` não é um destino de foco válido e
             o atalho acima levaria a rolagem sem levar o FOCO — o próximo Tab
             voltaria para o começo da barra lateral, desfazendo o atalho. */}
-        <main id="conteudo" tabIndex={-1} className="mx-auto w-full max-w-[1200px] flex-1 space-y-6 px-4 py-6 pb-[calc(6rem+env(safe-area-inset-bottom))] animate-in fade-in duration-300 sm:px-6 md:px-8 md:py-8 md:pb-8">
+        <main id="conteudo" tabIndex={-1} className="mx-auto w-full max-w-[1200px] flex-1 space-y-6 px-4 py-6 pb-[calc(6rem+env(safe-area-inset-bottom))] animate-in fade-in duration-300 sm:px-6 md:px-8 md:py-8 lg:pb-8">
           {children}
         </main>
       </div>
