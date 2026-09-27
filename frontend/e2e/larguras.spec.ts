@@ -266,13 +266,19 @@ test('a ação principal do diálogo de despesa aparece sem rolar', async ({ bro
  * direita cai no mesmo defeito, e a lista de diálogos do app só cresce.
  */
 async function nadaSobOBotaoDeFechar(page: Page, onde: string) {
+  // O diálogo tem de estar NA TELA antes de medir. Sem isto a medição passava no
+  // vazio: o clique abre o diálogo de forma assíncrona, o `esperarAssentar`
+  // podia voltar antes de ele existir, e "nenhum diálogo" virava "nenhuma
+  // colisão" (auditoria 2026-09-26; o `Escape` seguinte caía na página, o
+  // diálogo abria depois e travava o clique em "Nova despesa" por 2 min).
+  await expect(page.getByRole('dialog'), `${onde}: o diálogo não abriu`).toBeVisible();
   const colisoes = await page.evaluate(() => {
     const dialogo = document.querySelector('[role="dialog"]');
-    if (!dialogo) return [];
+    if (!dialogo) return ['(sem diálogo para medir)'];
     const fechar = [...dialogo.querySelectorAll('button')].find(
       (b) => getComputedStyle(b).position === 'absolute' && /fechar/i.test(b.textContent ?? ''),
     );
-    if (!fechar) return [];
+    if (!fechar) return ['(diálogo sem o botão de fechar no canto — a medição não mediria nada)'];
     const alvo = fechar.getBoundingClientRect();
     const achados: string[] = [];
     for (const el of Array.from(dialogo.querySelectorAll<HTMLElement>('*'))) {
@@ -312,6 +318,7 @@ test('o botão de fechar não cobre o conteúdo do diálogo', async ({ browser }
     await esperarAssentar(page);
     await nadaSobOBotaoDeFechar(page, `detalhe do lançamento a ${largura}px`);
     await page.keyboard.press('Escape');
+    await expect(page.getByRole('dialog')).toBeHidden();
 
     await page.getByRole('button', { name: /nova despesa/i }).first().click();
     await esperarAssentar(page);
