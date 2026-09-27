@@ -315,4 +315,35 @@ describe('useAuth', () => {
       expect(seqDoBootstrap(5)).toBeUndefined();
     });
   });
+
+  describe('bootstrap em paralelo (P5)', () => {
+    it('pede a sessão e os espaços JUNTOS, não um depois do outro', async () => {
+      const linha: string[] = [];
+      server.use(
+        http.get('http://localhost:8000/api/v1/auth/me', async () => {
+          linha.push('me:pedido');
+          await new Promise((ok) => setTimeout(ok, 150));
+          linha.push('me:resposta');
+          return HttpResponse.json({ id: 1, name: 'Test User', email: 'test@example.com' });
+        }),
+        http.get('http://localhost:8000/api/v1/workspaces/', () => {
+          linha.push('espacos:pedido');
+          return HttpResponse.json([{ id: 5, name: 'Casa', owner_user_id: 1, event_seq: 0 }]);
+        }),
+      );
+      const { result } = renderHook(() => useAuth(), { wrapper });
+      await waitFor(() => expect(result.current.isAuthenticated).toBe(true));
+
+      // Em série, o pedido dos espaços só saía DEPOIS da resposta da sessão.
+      expect(linha.indexOf('espacos:pedido')).toBeLessThan(linha.indexOf('me:resposta'));
+    });
+
+    it('falha só na lista de espaços não derruba a sessão', async () => {
+      server.use(http.get('http://localhost:8000/api/v1/workspaces/', () =>
+        new HttpResponse(null, { status: 500 })));
+      const { result } = renderHook(() => useAuth(), { wrapper });
+      await waitFor(() => expect(result.current.isLoading).toBe(false));
+      expect(result.current.isAuthenticated).toBe(true);
+    });
+  });
 });
