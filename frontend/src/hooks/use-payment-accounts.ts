@@ -33,7 +33,10 @@ export function usePaymentAccounts() {
     queryClient.invalidateQueries({ queryKey: ['payment-accounts'] });
 
   const createMutation = useMutation({
-    mutationFn: async (data: { name: string; type: PaymentAccountType; owner_user_id?: number | null }) => {
+    // Só o que o `PaymentAccountCreate` aceita: a API recusa campo desconhecido
+    // (auditoria 2026-09-26, A1). `owner_user_id` saiu com o ADR 0021 — a conta
+    // é de quem a cria —, e o tipo ainda o oferecia.
+    mutationFn: async (data: { name: string; type?: PaymentAccountType; currency?: string }) => {
       const response = await apiClient.post(`/me/payment-accounts`, data);
       return response.data as PaymentAccountRead;
     },
@@ -41,7 +44,12 @@ export function usePaymentAccounts() {
   });
 
   const updateMutation = useMutation({
-    mutationFn: async ({ id, data }: { id: number; data: Partial<PaymentAccountRead> }) => {
+    // `PaymentAccountUpdate`, e não `Partial<PaymentAccountRead>`: o tipo de
+    // RESPOSTA deixava mandar `currency`, `id`… — hoje um 422 (A1).
+    mutationFn: async ({ id, data }: {
+      id: number;
+      data: Partial<Pick<PaymentAccountRead, 'name' | 'type' | 'active' | 'is_default'>>;
+    }) => {
       const response = await apiClient.put(`/me/payment-accounts/${id}`, data);
       return response.data as PaymentAccountRead;
     },

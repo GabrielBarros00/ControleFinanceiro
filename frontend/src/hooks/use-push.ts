@@ -133,9 +133,15 @@ export function usePush() {
           applicationServerKey: chaveParaBytes(chavePublica),
         }));
 
-      // `toJSON()` já entrega `{endpoint, keys:{p256dh, auth}}`, que é
-      // exatamente o corpo que a rota espera.
-      await apiClient.post('/me/push/subscriptions', inscricao.toJSON());
+      // Campo a campo, e não o `toJSON()` inteiro: ele traz também
+      // `expirationTime` (e o que os navegadores acrescentarem um dia), e a API
+      // recusa campo desconhecido (auditoria 2026-09-26, A1) — mandado cru,
+      // ativar o aviso de vencimento passaria a dar 422.
+      const { endpoint, keys } = inscricao.toJSON();
+      await apiClient.post('/me/push/subscriptions', {
+        endpoint,
+        keys: { p256dh: keys?.p256dh, auth: keys?.auth },
+      });
       setInscrito(true);
       return true;
     } catch {
