@@ -242,9 +242,17 @@ export function TransactionItem({
         // `relative z-10`: a área de clique estendida do título cobre a linha
         // inteira (ver o comentário no topo), e sem subir no empilhamento estes
         // botões ficariam POR BAIXO dela — clicar em excluir abriria o detalhe.
+        //
+        // No CELULAR eles saem quando a linha abre o detalhe (`onSelect`): tocar
+        // na linha leva ao detalhe, que tem Editar e Excluir (com o mesmo
+        // "Desfazer"). Os dois botões de 40px levavam ~80px de cada linha, e a
+        // 360px os títulos viravam "Restaur…", "Mercad…" (auditoria 2026-09-26,
+        // A5). Sem `onSelect` — o modo "Selecionar vários" — eles continuam, senão
+        // não haveria como editar dali.
         <div
           className={cn(
-            'relative z-10 flex shrink-0 items-center gap-0.5 transition-opacity',
+            'relative z-10 shrink-0 items-center gap-0.5 transition-opacity',
+            onSelect ? 'hidden sm:flex' : 'flex',
             'sm:opacity-0 sm:group-hover:opacity-100 sm:group-focus-within:opacity-100',
           )}
         >
