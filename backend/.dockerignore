@@ -8,3 +8,9 @@ __pycache__/
 # mas também variantes comuns como `.env.production` e `.env.local`.
 .env*
 tests/
+# Anexos e caches de DESENVOLVIMENTO: o `ATTACHMENT_STORAGE_DIR` padrão é
+# `./attachments_data`, dentro desta pasta — sem esta linha, arquivos enviados em
+# dev iam parar na imagem de produção (auditoria 2026-09-26, O4).
+attachments_data/
+.ruff_cache/
+htmlcov/
