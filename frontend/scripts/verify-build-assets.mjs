@@ -342,12 +342,13 @@ for (const arquivo of cargaInicial) {
   }
 }
 /*
- * Teto de tamanho, com folga sobre os 327 KiB de hoje. Não é meta: é o alarme
- * para uma dependência pesada entrando na carga inicial sem ninguém decidir.
- * Gzip nível 9 (o do nginx é mais leve): o número serve para comparar builds.
- * Subiu de propósito? Suba o teto no mesmo commit, dizendo por quê.
+ * Teto de tamanho, com folga sobre os 287 KiB de hoje (327 até o `framer-motion`
+ * sair, 436 com o recharts). Não é meta: é o alarme para uma dependência pesada
+ * entrando na carga inicial sem ninguém decidir. Gzip nível 9 (o do nginx é mais
+ * leve): o número serve para comparar builds. Subiu de propósito? Suba o teto no
+ * mesmo commit, dizendo por quê.
  */
-const TETO_GZIP_INICIAL = 350 * 1024;
+const TETO_GZIP_INICIAL = 310 * 1024;
 if (gzipInicial > TETO_GZIP_INICIAL) {
   throw new Error(
     `carga inicial com ${(gzipInicial / 1024).toFixed(1)} KiB gzip (teto: ${TETO_GZIP_INICIAL / 1024} KiB) `

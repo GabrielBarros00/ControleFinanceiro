@@ -60,7 +60,6 @@ export default defineConfig({
         // o build se código do recharts voltar à carga inicial.
         manualChunks(id) {
           if (!id.includes('node_modules')) return undefined;
-          if (id.includes('framer-motion')) return 'motion';
           if (id.includes('react-router') || id.includes('react-dom') || /[\\/]react[\\/]/.test(id)) {
             return 'react-vendor';
           }
