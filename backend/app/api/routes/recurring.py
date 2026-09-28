@@ -5,6 +5,7 @@ from sqlmodel import Session, select
 from app.db.session import get_session
 from app.domain.access_policy import shared_or_mine_scope
 from app.models.workspace import WorkspaceMembership, WorkspaceRole
+from app.models.payment_account import PaymentAccount
 from app.models.recurring import (
     RecurringExpense,
     RecurringExpenseBase,
@@ -81,6 +82,8 @@ class RecurringRead(RecurringExpenseBase):
     category_id: Optional[int] = None
     merchant_id: Optional[int] = None
     payer_user_id: Optional[int] = None
+    # Só o id; o nome da conta pessoal é lido pela rota /me/payment-accounts do dono.
+    account_id: Optional[int] = None
     split_snapshot: Optional[List[dict]] = None
     created_at: datetime
     updated_at: datetime
@@ -113,7 +116,7 @@ class RecurringPreviewRequest(BaseModel):
     since: Optional[date] = None
 
 
-def _to_read(template: RecurringExpense, me: int) -> dict:
+def _to_read(session: Session, template: RecurringExpense, me: int) -> dict:
     """O template com o que a lista precisa para dizer "87 de 144 restantes".
 
     Campos derivados e não colunas: a contagem depende da frequência e do
@@ -129,8 +132,15 @@ def _to_read(template: RecurringExpense, me: int) -> dict:
     )
     minha = sum((v for uid, v in RecurringService.shares_per_occurrence(template) if uid == me), Decimal("0"))
     proxima = RecurringService.next_occurrences(template, hoje) if template.is_active else []
+    dados = template.model_dump()
+    # A conta é pessoal: nem o id deve aparecer para outro membro, inclusive
+    # admin do espaço. O MCP já oculta o nome pelo mesmo motivo.
+    if template.account_id is not None:
+        conta = session.get(PaymentAccount, template.account_id)
+        if not conta or conta.owner_user_id != me:
+            dados["account_id"] = None
     return {
-        **template.model_dump(),
+        **dados,
         "occurrences_total": total,
         "occurrences_remaining": restantes,
         "next_occurrence": proxima[0] if proxima else None,
@@ -153,7 +163,7 @@ def create_recurring(
     db_recurring = rec_cmd.create_recurring(session, workspace_id, recurring_in, membership, materialize)
     session.commit()
     session.refresh(db_recurring)
-    return _to_read(db_recurring, membership.user_id)
+    return _to_read(session, db_recurring, membership.user_id)
 
 
 @router.post("/generate", response_model=CreatedCountRead)
@@ -179,7 +189,7 @@ def list_recurring(
     membership: WorkspaceMembership = Depends(get_workspace_membership)
 ):
     return [
-        _to_read(t, membership.user_id)
+        _to_read(session, t, membership.user_id)
         for t in session.exec(
             select(RecurringExpense).where(
                 RecurringExpense.workspace_id == workspace_id,
@@ -198,7 +208,7 @@ def get_recurring(
     session: Session = Depends(get_session),
     membership: WorkspaceMembership = Depends(get_workspace_membership)
 ):
-    return _to_read(_get_recurring_or_404(session, workspace_id, recurring_id, membership), membership.user_id)
+    return _to_read(session, _get_recurring_or_404(session, workspace_id, recurring_id, membership), membership.user_id)
 
 
 @router.post("/{recurring_id}/preview", response_model=RecurringPlanRead)
@@ -269,7 +279,7 @@ def update_recurring(
     )
     session.commit()
     session.refresh(db_recurring)
-    return _to_read(db_recurring, membership.user_id)
+    return _to_read(session, db_recurring, membership.user_id)
 
 
 @router.delete("/{recurring_id}", response_model=StatusRead)

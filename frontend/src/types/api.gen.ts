@@ -311,6 +311,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/workspaces/{workspace_id}/transactions/{transaction_id}/history": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Transaction History */
+        get: operations["get_transaction_history_api_v1_workspaces__workspace_id__transactions__transaction_id__history_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/workspaces/{workspace_id}/transactions/{transaction_id}/restore": {
         parameters: {
             query?: never;
@@ -1404,6 +1421,23 @@ export interface paths {
          *     exatamente a experiência que esta onda existe para eliminar.
          */
         post: operations["cancel_income_api_v1_me_income__income_id__cancel_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/me/income/{income_id}/restore": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Restore Income */
+        post: operations["restore_income_api_v1_me_income__income_id__restore_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -6114,6 +6148,8 @@ export interface components {
             category_id?: number | null;
             /** Payer User Id */
             payer_user_id?: number | null;
+            /** Account Id */
+            account_id?: number | null;
             /** Split Snapshot */
             split_snapshot?: components["schemas"]["RecurringSplitEntry"][] | null;
             /** Merchant Id */
@@ -6417,6 +6453,8 @@ export interface components {
             merchant_id?: number | null;
             /** Payer User Id */
             payer_user_id?: number | null;
+            /** Account Id */
+            account_id?: number | null;
             /** Split Snapshot */
             split_snapshot?: {
                 [key: string]: unknown;
@@ -6498,6 +6536,8 @@ export interface components {
             category_id?: number | null;
             /** Payer User Id */
             payer_user_id?: number | null;
+            /** Account Id */
+            account_id?: number | null;
             /** Split Snapshot */
             split_snapshot?: components["schemas"]["RecurringSplitEntry"][] | null;
             /** Merchant Id */
@@ -7321,6 +7361,48 @@ export interface components {
             settled?: boolean | null;
             /** Merchant Name */
             merchant_name?: string | null;
+        };
+        /** TransactionHistoryActor */
+        TransactionHistoryActor: {
+            /** Id */
+            id: number;
+            /** Name */
+            name: string;
+        };
+        /** TransactionHistoryChange */
+        TransactionHistoryChange: {
+            /** Field */
+            field: string;
+            /** Before */
+            before?: string | null;
+            /** After */
+            after?: string | null;
+        };
+        /** TransactionHistoryEntry */
+        TransactionHistoryEntry: {
+            /** At */
+            at: string;
+            /** Action */
+            action: string;
+            by?: components["schemas"]["TransactionHistoryActor"] | null;
+            /** Via Ai */
+            via_ai: boolean;
+            /** Client */
+            client?: string | null;
+            /** Changes */
+            changes?: components["schemas"]["TransactionHistoryChange"][];
+            /**
+             * Detail Only
+             * @default false
+             */
+            detail_only: boolean;
+        };
+        /** TransactionHistoryRead */
+        TransactionHistoryRead: {
+            /** Transaction Id */
+            transaction_id: number;
+            /** Entries */
+            entries: components["schemas"]["TransactionHistoryEntry"][];
         };
         /** TransactionItemCreate */
         TransactionItemCreate: {
@@ -8658,6 +8740,7 @@ export interface operations {
                 merchant_id?: number | null;
                 settled?: boolean | null;
                 uncategorized?: boolean;
+                deleted?: boolean;
             };
             header?: never;
             path: {
@@ -8856,6 +8939,42 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["DeleteResult"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_transaction_history_api_v1_workspaces__workspace_id__transactions__transaction_id__history_get: {
+        parameters: {
+            query?: {
+                limit?: number;
+            };
+            header?: never;
+            path: {
+                workspace_id: number;
+                transaction_id: number;
+            };
+            cookie?: {
+                access_token?: string | null;
+            };
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TransactionHistoryRead"];
                 };
             };
             /** @description Validation Error */
@@ -11050,6 +11169,7 @@ export interface operations {
         parameters: {
             query?: {
                 month?: string | null;
+                deleted?: boolean;
             };
             header?: never;
             path?: never;
@@ -11255,6 +11375,39 @@ export interface operations {
         };
     };
     cancel_income_api_v1_me_income__income_id__cancel_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                income_id: number;
+            };
+            cookie?: {
+                access_token?: string | null;
+            };
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IncomeRead"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    restore_income_api_v1_me_income__income_id__restore_post: {
         parameters: {
             query?: never;
             header?: never;

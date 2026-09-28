@@ -207,7 +207,7 @@ Busca lançamentos (despesas) em todos os seus espaços por período, texto, car
 
 Use quando: precisar achar um lançamento para ver, editar ou excluir ('a compra do McDonald's de ontem'), ou responder 'quanto gastei com X' por período ou filtro.
 
-Não use quando: quiser o resumo do mês por categoria (reports_summary) ou a fatura de um cartão (statements_get). Datas: YYYY-MM-DD; `month` filtra por competência.
+Não use quando: quiser o resumo do mês por categoria (reports_summary) ou a fatura de um cartão (statements_get). Datas: YYYY-MM-DD; `month` filtra por competência. Excluídos: `deleted=true`.
 
 **Entrada**
 
@@ -237,6 +237,7 @@ Não use quando: quiser o resumo do mês por categoria (reports_summary) ou a fa
 | `installment_group_id` | string | não | Parcelas de uma mesma compra. (máx. 64) |
 | `import_batch_id` | integer | não | Só o que entrou por uma importação (imports_list). (≥ 1) |
 | `merchant` | string | não | Estabelecimento (nome ou apelido). (máx. 120) |
+| `deleted` | boolean | não | Só excluídos (para restaurar). |
 | `sort` | `date_desc` \| `date_asc` \| `amount_desc` \| `amount_asc` | não |  |
 | `limit` | integer | não | ≥ 1, ≤ 50 |
 | `cursor` | string | não | `next_cursor` da página anterior. (máx. 512) |
@@ -518,6 +519,8 @@ Lista suas rendas (salário, freelas, reembolsos) do mês, com situação: previ
 
 Use quando: 'meu salário caiu?', 'quanto vou receber este mês?', ou antes de editar uma renda.
 
+Excluídas: `deleted=true`.
+
 Não use quando: quiser registrar ou marcar renda como recebida (income_create / income_update).
 
 **Entrada**
@@ -527,6 +530,7 @@ Não use quando: quiser registrar ou marcar renda como recebida (income_create /
 | `month` | string | não | Competência (YYYY-MM). Omitido: o mês atual. (padrão `^\d{4}-(0[1-9]|1[0-2])$`) |
 | `status` | `expected` \| `received` \| `overdue` \| `cancelled` | não |  |
 | `income_id` | integer | não | Uma renda específica, de qualquer mês. (≥ 1) |
+| `deleted` | boolean | não | Só excluídas (para restaurar). |
 
 **Saída (`structuredContent`)**: `month`, `currency_totals`, `incomes`
 
@@ -1530,7 +1534,7 @@ Exemplo:
 - **Idempotência:** `idempotency_key` obrigatória (replay devolve o mesmo resultado; outra carga com a mesma chave = `CONFLICT`).
 - **UI (MCP Apps):** `ui://controle-financeiro/widget-v8.html` · chamável pelo componente
 
-Cria uma despesa que se repete (aluguel, assinatura, academia) ou, com `kind=income`, uma renda que se repete (salário): o app lança cada ocorrência sozinho, com a mesma divisão, categoria e cartão (renda: a conta onde cai, em `account`).
+Cria uma despesa que se repete (aluguel, assinatura, academia) ou, com `kind=income`, uma renda que se repete (salário): o app lança cada ocorrência sozinho, com a mesma divisão, categoria e cartão e conta (`account`).
 
 Use quando: o usuário disser "todo mês pago R$ 49,90 de streaming no Nubank", "o aluguel de R$ 2.000 vence dia 5, metade do João", "meu salário é R$ 4.000 todo dia 5".
 
@@ -1605,7 +1609,7 @@ Exemplo:
 - **Annotations:** readOnlyHint=false, destructiveHint=true, idempotentHint=true, openWorldHint=false
 - **UI (MCP Apps):** `ui://controle-financeiro/widget-v8.html` · chamável pelo componente
 
-Altera uma despesa recorrente (ou, com `kind=income`, uma renda recorrente): valor, dia, frequência, fim, categoria, cartão, divisão, conta da renda, ou pausa/retoma (`active`). Ocorrências já pagas nunca mudam; as não pagas seguem `apply_to`.
+Altera uma despesa recorrente (ou, com `kind=income`, uma renda recorrente): valor, dia, frequência, fim, categoria, cartão, divisão, conta ou pausa/retoma (`active`). Ocorrências já pagas nunca mudam; as não pagas seguem `apply_to`.
 
 Use quando: "o streaming subiu para R$ 55", "pare de lançar a academia", "o aluguel agora vence dia 10". Pegue o id em recurring_list.
 
@@ -1621,6 +1625,7 @@ Não use quando: quiser mudar uma única ocorrência (transactions_update nela).
 | `amount` | string | não | Decimal em texto, até 2 casas. Ex.: "89.90". (padrão `^\d{1,16}([.,]\d{1,2})?$`) |
 | `active` | boolean | não | false = pausar (para de lançar); true = retomar. |
 | `remove_card` | boolean | não | true = a cobrança deixa de ser no cartão. |
+| `remove_account` | boolean | não | Tira a conta de origem. |
 | `remove_category` | boolean | não |  |
 | `apply_to` | `none` \| `future` \| `all` | não | O que acontece com ocorrências JÁ lançadas e ainda não pagas: `future` (padrão) ajusta as futuras; `all` ajusta todas as não pagas; `none` só muda daqui para frente. |
 | `frequency` | `daily` \| `weekly` \| `monthly` \| `yearly` | não |  |

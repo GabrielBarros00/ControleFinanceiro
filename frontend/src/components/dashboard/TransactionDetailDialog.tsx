@@ -19,6 +19,7 @@ import { paymentMethodWithCard } from '@/lib/payment-methods';
 import { useCreditCards } from '@/hooks/use-credit-cards';
 import { formatCurrency } from '@/lib/money';
 import { parseApiDate } from '@/lib/date';
+import { TransactionHistory } from './TransactionHistory';
 
 const STATUS_STYLES: Record<TransactionStatus, { label: string; className: string }> = {
   draft: { label: 'Rascunho', className: 'bg-muted text-muted-foreground border-border' },
@@ -148,6 +149,8 @@ export function TransactionDetailDialog({
         )}
 
         <TransactionSummary transaction={transaction} />
+
+        <TransactionHistory key={transaction.id} transactionId={transaction.id} currency={transaction.currency} />
 
         {(onEdit || onDelete) && (
           <DialogFooter className="gap-2 sm:justify-between">

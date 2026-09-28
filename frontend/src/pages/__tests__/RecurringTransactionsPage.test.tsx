@@ -22,6 +22,7 @@ const ITENS = [
     id: 1, title: 'Aluguel', base_amount: '2500.00', currency: 'BRL',
     frequency: 'monthly', interval: 1, day_of_month: 5, is_active: true,
     category_id: null, payment_method: 'pix', credit_card_id: null,
+    account_id: 7,
     // O equivalente mensal vem do servidor (ADR 0039), como a API manda.
     monthly_equivalent: '2500.00', my_monthly_equivalent: '1250.00',
     // Já dividido: é o que o teste de edição carrega de volta nas pílulas.
@@ -100,6 +101,9 @@ vi.mock('@/hooks/use-categories', () => ({
 vi.mock('@/hooks/use-base-currency', () => ({ useBaseCurrency: () => 'BRL' }));
 vi.mock('@/hooks/use-credit-cards', () => ({
   useCreditCards: () => ({ cards: [{ id: 9, name: 'Nubank', currency: 'BRL' }] }),
+}));
+vi.mock('@/hooks/use-payment-accounts', () => ({
+  usePaymentAccounts: () => ({ accounts: [{ id: 7, name: 'Itaú', currency: 'BRL', active: true }] }),
 }));
 vi.mock('@/components/ui/confirm', () => ({ useConfirm: () => vi.fn() }));
 
@@ -262,6 +266,22 @@ describe('Recorrência — dividir com', () => {
     const dialogo = screen.getByRole('dialog');
     expect(within(dialogo).getByRole('button', { name: 'Ana' })).toHaveAttribute('aria-pressed', 'true');
     expect(within(dialogo).getByRole('button', { name: 'Bruno' })).toHaveAttribute('aria-pressed', 'true');
+  });
+});
+
+describe('Recorrência — conta de origem', () => {
+  beforeEach(() => atualizar.mockClear());
+
+  it('mostra a conta no cadastro e a preserva ao editar o título', async () => {
+    desenhar();
+    expect(screen.getAllByText(/sai de Itaú/).length).toBeGreaterThan(0);
+    fireEvent.click(screen.getByRole('button', { name: /editar recorrência aluguel/i }));
+    const dialogo = screen.getByRole('dialog');
+    expect((within(dialogo).getByLabelText('Conta de onde sai') as HTMLSelectElement).value).toBe('7');
+    fireEvent.change(within(dialogo).getByLabelText(/título/i), { target: { value: 'Aluguel novo' } });
+    fireEvent.click(within(dialogo).getByRole('button', { name: /^salvar$/i }));
+    await waitFor(() => expect(atualizar).toHaveBeenCalled());
+    expect(atualizar.mock.calls[0][0].data.account_id).toBe(7);
   });
 });
 

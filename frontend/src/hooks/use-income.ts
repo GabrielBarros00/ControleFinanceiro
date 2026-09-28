@@ -24,7 +24,7 @@ export const INCOME_STATUS_LABEL: Record<string, string> = {
   cancelled: 'cancelada',
 };
 
-export function useIncome(month?: string) {
+export function useIncome(month?: string, showDeleted = false) {
   const queryClient = useQueryClient();
 
   const listQuery = useQuery({
@@ -35,6 +35,15 @@ export function useIncome(month?: string) {
       });
       return response.data;
     },
+  });
+
+  const deletedQuery = useQuery({
+    queryKey: ['income', month, 'deleted'],
+    queryFn: async (): Promise<Income[]> => {
+      const response = await apiClient.get('/me/income/', { params: { month, deleted: true } });
+      return response.data;
+    },
+    enabled: showDeleted,
   });
 
   // Pelo contrato único (`ws-events`), não à mão: a lista escrita aqui já tinha
@@ -75,6 +84,14 @@ export function useIncome(month?: string) {
     onSuccess: invalidate,
   });
 
+  const restoreMutation = useMutation({
+    mutationFn: async (id: number) => {
+      const response = await apiClient.post(`/me/income/${id}/restore`);
+      return response.data as Income;
+    },
+    onSuccess: invalidate,
+  });
+
   // As três transições de ESTADO da renda (ADR 0034). Separadas do `update`
   // porque não são edição de cadastro: confirmar o recebimento é registrar um
   // fato de caixa, e ele tem data e conta próprias.
@@ -109,10 +126,13 @@ export function useIncome(month?: string) {
 
   return {
     incomes: listQuery.data ?? [],
+    deletedIncomes: deletedQuery.data ?? [],
+    isLoadingDeleted: deletedQuery.isLoading,
     isLoading: listQuery.isLoading,
     create: createMutation.mutateAsync,
     update: updateMutation.mutateAsync,
     remove: deleteMutation.mutateAsync,
+    restore: restoreMutation.mutateAsync,
     receive: receiveMutation.mutateAsync,
     unreceive: unreceiveMutation.mutateAsync,
     cancel: cancelMutation.mutateAsync,

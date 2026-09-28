@@ -36,6 +36,7 @@ from app.schemas.transaction import (
     TransactionRead,
     TransactionUpdate,
     TransactionListResponse,
+    TransactionHistoryRead,
 )
 from app.api.deps import get_workspace_membership, require_role
 from app.core.config import settings
@@ -50,6 +51,7 @@ from app.services.transaction_service import (
     compute_transaction_breakdown,
 )
 from app.services.recurring_service import RecurringMaterializationService
+from app.services import transaction_history
 
 from app.services.commands import transactions as tx_cmd
 from app.services.commands.transactions import (  # usados pelas rotas de leitura daqui
@@ -148,15 +150,17 @@ def list_transactions(
     # combinada no código. É o destino do convite "categorizar" dos Relatórios,
     # que até aqui identificavam o problema sem oferecer saída.
     uncategorized: bool = False,
+    deleted: bool = False,
 ):
     offset = (page - 1) * limit
 
     # Despesas recorrentes vencidas do mês corrente entram sozinhas (lazy accrual)
     # antes de montar o extrato — assim "tudo que é recorrente" aparece sem o botão.
     # `role`: um viewer não provoca escrita (ver ensure_and_commit).
-    RecurringMaterializationService.ensure_and_commit(
-        session, workspace_id, role=membership.role
-    )
+    if not deleted:
+        RecurringMaterializationService.ensure_and_commit(
+            session, workspace_id, role=membership.role
+        )
 
     # Base query. O escopo de visibilidade (ADR 0018) entra ANTES de qualquer
     # filtro opcional, e por isso a contagem e a soma logo abaixo — que derivam
@@ -166,7 +170,7 @@ def list_transactions(
     statement = scope_transactions(
         select(Transaction).where(
             Transaction.workspace_id == workspace_id,
-            Transaction.deleted_at.is_(None),
+            Transaction.deleted_at.is_not(None) if deleted else Transaction.deleted_at.is_(None),
         ),
         membership,
     )
@@ -251,7 +255,7 @@ def list_transactions(
             subq.c.status.in_(REALIZED_STATUSES),
             subq.c.currency == base_currency,
         )
-    ).one()
+    ).one() if not deleted else Decimal("0")
 
     # Final statement with ordering and pagination.
     #
@@ -292,6 +296,36 @@ def get_transaction(
     membership: WorkspaceMembership = Depends(get_workspace_membership)
 ):
     return get_visible_transaction(session, workspace_id, transaction_id, membership)
+
+
+@router.get("/{transaction_id}/history", response_model=TransactionHistoryRead)
+def get_transaction_history(
+    workspace_id: int,
+    transaction_id: int,
+    session: Session = Depends(get_session),
+    membership: WorkspaceMembership = Depends(get_workspace_membership),
+    limit: int = Query(20, ge=1, le=50),
+):
+    tx = get_visible_transaction(
+        session, workspace_id, transaction_id, membership, include_deleted=True,
+    )
+    registros = transaction_history.historico(session, tx)
+    return {
+        "transaction_id": tx.id,
+        "entries": [
+            {
+                "at": r.quando, "action": r.acao,
+                "by": {"id": r.por_id, "name": r.por_nome or "?"} if r.por_id else None,
+                "via_ai": r.via_ia, "client": r.cliente,
+                "changes": [
+                    {"field": m.campo, "before": m.antes, "after": m.depois}
+                    for m in r.mudancas
+                ],
+                "detail_only": r.so_detalhe,
+            }
+            for r in registros[:limit]
+        ],
+    }
 
 @router.put("/{transaction_id}", response_model=TransactionRead)
 def update_transaction(

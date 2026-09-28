@@ -244,7 +244,7 @@ export function TransactionForm({ initialValues, onSubmit, submitLabel, resetOnS
 
   return (
     <FormProvider {...methods}>
-      <form onSubmit={handleSubmit((d) => submit(d))}>
+      <form className="min-w-0" onSubmit={handleSubmit((d) => submit(d))}>
         <div className="space-y-5">
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">

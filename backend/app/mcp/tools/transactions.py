@@ -1,7 +1,6 @@
 """Consulta de lançamentos: `transactions_search` e `transactions_get`."""
 from __future__ import annotations
 
-import datetime as dt
 from typing import List, Literal, Optional
 
 from fastapi import HTTPException
@@ -10,7 +9,6 @@ from sqlmodel import select
 
 from app.api.deps import get_workspace_membership
 from app.domain.access_policy import get_visible_transaction
-from app.domain.dates import local_day, to_local
 from app.mcp import resolve
 from app.mcp.dates import CivilDate, MonthKey
 from app.mcp.errors import ErrorCode, McpToolError
@@ -19,11 +17,8 @@ from app.mcp.ui import WIDGET_URI
 from app.mcp.registry import ToolCall, ToolInput, ToolOutput, tool
 from app.mcp.schemas import MoneyTotal, Ref, TransactionBrief, TransactionOut
 from app.mcp.serializers import load_bundle, one, to_brief
-from app.models.audit import AuditLog
-from app.models.credit_card import CreditCard
 from app.models.transaction import Transaction
-from app.models.user import User
-from app.services import transaction_query
+from app.services import transaction_history, transaction_query
 from app.services.oauth import scopes as escopos
 
 WIDGET = WIDGET_URI
@@ -131,6 +126,7 @@ def build_filters(call: ToolCall, f: SearchFilters):
 
 
 class SearchIn(SearchFilters):
+    deleted: bool = Field(False, description="Só excluídos (para restaurar).")
     sort: Literal["date_desc", "date_asc", "amount_desc", "amount_asc"] = "date_desc"
     limit: int = Field(20, ge=1, le=transaction_query.MAX_LIMIT)
     cursor: Optional[str] = Field(None, max_length=512, description="`next_cursor` da página anterior.")
@@ -155,7 +151,8 @@ class SearchOut(BaseModel):
         "Use quando: precisar achar um lançamento para ver, editar ou excluir ('a compra do "
         "McDonald's de ontem'), ou responder 'quanto gastei com X' por período ou filtro.\n"
         "Não use quando: quiser o resumo do mês por categoria (reports_summary) ou a fatura de um "
-        "cartão (statements_get). Datas: YYYY-MM-DD; `month` filtra por competência."
+        "cartão (statements_get). Datas: YYYY-MM-DD; `month` filtra por competência. "
+        "Excluídos: `deleted=true`."
     ),
     input_model=SearchIn,
     output_model=SearchOut,
@@ -170,6 +167,7 @@ class SearchOut(BaseModel):
 def transactions_search(call: ToolCall) -> ToolOutput:
     a: SearchIn = call.args
     memberships, filtros, resolvido = build_filters(call, a)
+    filtros.deleted = a.deleted
     try:
         pagina = transaction_query.search(
             call.session, memberships, filtros,
@@ -219,17 +217,12 @@ def visible_transaction(call: ToolCall, transaction_id: int, *, include_deleted:
         membership = get_workspace_membership(ws_id, session=call.session, current_user=call.user)
     except HTTPException:
         raise McpToolError(ErrorCode.NOT_FOUND, "Lançamento não encontrado.", details={"transaction_id": transaction_id})
-    if include_deleted:
-        from app.domain.access_policy import scope_transactions
-
-        tx = call.session.exec(scope_transactions(
-            select(Transaction).where(Transaction.id == transaction_id, Transaction.workspace_id == ws_id),
-            membership,
-        )).first()
-        if tx is None:
-            raise McpToolError(ErrorCode.NOT_FOUND, "Lançamento não encontrado.", details={"transaction_id": transaction_id})
-        return tx
-    return get_visible_transaction(call.session, ws_id, transaction_id, membership)
+    try:
+        return get_visible_transaction(
+            call.session, ws_id, transaction_id, membership, include_deleted=include_deleted,
+        )
+    except HTTPException:
+        raise McpToolError(ErrorCode.NOT_FOUND, "Lançamento não encontrado.", details={"transaction_id": transaction_id})
 
 
 class TransactionResult(BaseModel):
@@ -338,33 +331,6 @@ class HistoryOut(BaseModel):
     entries: List[HistoryEntry] = Field(description="Mais recentes primeiro.")
 
 
-#: Campo da trilha → rótulo na saída. Só estes aparecem: o resto da linha é
-#: interno (ids de fatura, carimbos) ou já sai de outra forma.
-_CAMPOS_DO_HISTORICO = {
-    "title": "title", "description": "description", "total_amount": "amount", "currency": "currency",
-    "transaction_date": "date", "billing_month": "billing_month", "status": "status",
-    "settled_at": "settled_on", "payment_method": "payment_method", "credit_card_id": "card",
-    "statement_shift": "statement_shift", "split_mode": "split_mode",
-}
-
-
-#: Campos que o app recalcula sozinho ao gravar (não são edição de ninguém).
-_DERIVADOS_DO_HISTORICO = frozenset({"billing_month", "statement_shift"})
-
-
-def _valor_do_historico(campo: str, valor, cartoes: dict[int, str]) -> Optional[str]:
-    if valor is None:
-        return None
-    if campo in ("transaction_date", "settled_at"):
-        try:
-            return local_day(dt.datetime.fromisoformat(str(valor))).isoformat()
-        except ValueError:
-            return str(valor)
-    if campo == "credit_card_id":
-        return cartoes.get(int(valor), f"cartão {valor}")
-    return str(valor)
-
-
 @tool(
     name="transactions_history",
     title="Histórico do lançamento",
@@ -390,81 +356,17 @@ def _valor_do_historico(campo: str, valor, cartoes: dict[int, str]) -> Optional[
 def transactions_history(call: ToolCall) -> ToolOutput:
     a: HistoryIn = call.args
     tx = visible_transaction(call, a.transaction_id, include_deleted=True)
-    linhas = call.session.exec(
-        select(AuditLog)
-        .where(
-            AuditLog.resource_type == "Transaction",
-            AuditLog.resource_id == tx.id,
-            AuditLog.workspace_id == tx.workspace_id,
+    # A regra mora no serviço, que a tela também usa (`GET .../history`).
+    entradas = [
+        HistoryEntry(
+            at=r.quando, action=r.acao,
+            by=Ref(id=r.por_id, name=r.por_nome or "?") if r.por_id else None,
+            via_ai=r.via_ia, client=r.cliente,
+            changes=[FieldChange(field=m.campo, before=m.antes, after=m.depois) for m in r.mudancas],
+            detail_only=r.so_detalhe,
         )
-        .order_by(AuditLog.created_at, AuditLog.id)
-    ).all()
-    pessoas = {m.id: m.name for m in resolve.space_members(call.session, tx.workspace_id)}
-    faltam = {r.user_id for r in linhas if r.user_id and r.user_id not in pessoas}
-    if faltam:
-        pessoas.update(dict(call.session.exec(select(User.id, User.name).where(User.id.in_(faltam))).all()))
-    ids_de_cartao = {int(c) for r in linhas if (c := (r.new_values or {}).get("credit_card_id"))}
-    cartoes = dict(call.session.exec(
-        select(CreditCard.id, CreditCard.name).where(CreditCard.id.in_(ids_de_cartao))
-    ).all()) if ids_de_cartao else {}
-
-    entradas: list[HistoryEntry] = []
-    anterior: dict = {}
-    for r in linhas:
-        atual = r.new_values or {}
-        origem = r.origin or ""
-        via_ia = origem.startswith("mcp:")
-        acao = getattr(r.action, "value", r.action)
-        mudancas: list[FieldChange] = []
-        if acao == "create" or not anterior:
-            acao_saida = "created"
-        else:
-            for campo, rotulo in _CAMPOS_DO_HISTORICO.items():
-                antes, depois = anterior.get(campo), atual.get(campo)
-                if antes != depois:
-                    mudancas.append(FieldChange(
-                        field=rotulo,
-                        before=_valor_do_historico(campo, antes, cartoes),
-                        after=_valor_do_historico(campo, depois, cartoes),
-                    ))
-            if anterior.get("deleted_at") is None and atual.get("deleted_at"):
-                acao_saida = "deleted"
-            elif anterior.get("deleted_at") and not atual.get("deleted_at"):
-                acao_saida = "restored"
-            elif anterior.get("status") != atual.get("status") and atual.get("status") in ("cancelled", "paid"):
-                acao_saida = atual["status"]
-            elif anterior.get("status") == "paid" and atual.get("status") == "confirmed":
-                acao_saida = "reopened"
-            else:
-                acao_saida = "updated"
-        if atual:
-            anterior = atual
-        quando = to_local(r.created_at).strftime("%Y-%m-%d %H:%M") if r.created_at else ""
-        entrada = HistoryEntry(
-            at=quando, action=acao_saida,
-            by=Ref(id=r.user_id, name=pessoas.get(r.user_id, "?")) if r.user_id else None,
-            via_ai=via_ia, client=origem[4:] if via_ia else None,
-            changes=mudancas,
-            detail_only=acao_saida == "updated" and not mudancas,
-        )
-        # A mesma gravação costuma gerar duas linhas seguidas (a fatura é
-        # reancorada no mesmo flush): junta com a anterior se foi a mesma pessoa,
-        # pelo mesmo caminho, no mesmo minuto. Na criação, só junta o que é
-        # derivado (fatura, competência): uma edição de verdade logo depois de
-        # criar aparecia como parte do "Criado", com o antes → depois dentro dele.
-        ultimo = entradas[-1] if entradas else None
-        if (
-            ultimo is not None and ultimo.at == entrada.at and ultimo.via_ai == entrada.via_ai
-            and (ultimo.by.id if ultimo.by else None) == (entrada.by.id if entrada.by else None)
-            and entrada.action == "updated" and ultimo.action != "deleted"
-            and (ultimo.action != "created" or all(c.field in _DERIVADOS_DO_HISTORICO for c in entrada.changes))
-        ):
-            vistos = {c.field for c in ultimo.changes}
-            ultimo.changes.extend(c for c in entrada.changes if c.field not in vistos)
-            ultimo.detail_only = ultimo.detail_only and entrada.detail_only
-            continue
-        entradas.append(entrada)
-    entradas.reverse()
+        for r in transaction_history.historico(call.session, tx)
+    ]
     saida = HistoryOut(transaction_id=tx.id, entries=entradas[:a.limit])
     return ToolOutput(
         structured=saida,

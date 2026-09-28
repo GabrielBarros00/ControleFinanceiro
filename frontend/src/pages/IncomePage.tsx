@@ -88,8 +88,9 @@ function rotuloDeData(income: Income): string {
 
 export function IncomePage() {
   const [month, setMonth] = useMonthParam();
-  const { incomes, isLoading, create, update, remove, receive, unreceive, cancel } =
-    useIncome(month);
+  const [showDeleted, setShowDeleted] = React.useState(false);
+  const { incomes, deletedIncomes, isLoading, isLoadingDeleted, create, update, remove, restore, receive, unreceive, cancel } =
+    useIncome(month, showDeleted);
   // A conta em que a renda cai — opcional, como no pagamento de conta: registrar
   // o recebimento sem dizer onde caiu continua valendo, só não move saldo.
   const { accounts, activeAccounts } = usePaymentAccounts();
@@ -267,6 +268,15 @@ export function IncomePage() {
     }
   };
 
+  const handleRestoreIncome = async (id: number) => {
+    try {
+      await restore(id);
+      toast.success('Renda restaurada.');
+    } catch (err) {
+      toast.error(getApiErrorMessage(err, 'Não foi possível restaurar a renda.'));
+    }
+  };
+
   const handleDeleteRecurring = async (id: number) => {
     const ok = await confirm({
       title: 'Excluir renda recorrente',
@@ -312,6 +322,43 @@ export function IncomePage() {
     );
   }
 
+  if (showDeleted) {
+    return (
+      <div className="space-y-6">
+        <PageHeader
+          title="Rendas excluídas"
+          subtitle="Rendas deste mês que podem ser restauradas."
+          period={<PeriodPicker value={month} onChange={setMonth} />}
+          action={<Button variant="outline" onClick={() => setShowDeleted(false)}>Voltar às rendas</Button>}
+        />
+        <div className="rounded-xl border border-border bg-card">
+          {isLoadingDeleted ? (
+            <div className="p-6 text-sm text-muted-foreground">Carregando rendas excluídas…</div>
+          ) : deletedIncomes.length === 0 ? (
+            <EmptyState icon={Wallet} title="Nenhuma renda excluída" description="Não há rendas excluídas neste mês." />
+          ) : (
+            <div className="divide-y divide-border">
+              {deletedIncomes.map((income) => (
+                <div key={income.id} className="flex flex-wrap items-center justify-between gap-3 px-4 py-3">
+                  <div>
+                    <p className="font-medium">{income.title}</p>
+                    <p className="text-xs text-muted-foreground">
+                      Competência {parseApiDate(income.received_at).toLocaleDateString('pt-BR')}
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-3">
+                    <MoneyText value={income.amount} kind="income" currency={income.currency} />
+                    <Button size="sm" variant="outline" onClick={() => handleRestoreIncome(income.id)}>Restaurar</Button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-6">
       <PageHeader
@@ -323,6 +370,7 @@ export function IncomePage() {
         period={<PeriodPicker value={month} onChange={setMonth} />}
         action={
           <div className="flex flex-wrap items-center gap-2">
+            <Button variant="outline" onClick={() => setShowDeleted(true)}>Ver excluídas</Button>
             <Button variant="outline" onClick={handleGenerate} disabled={isGenerating} className="gap-2">
               {isGenerating ? <Loader2 className="h-4 w-4 animate-spin" /> : <Repeat className="h-4 w-4" />}
               Lançar pendentes

@@ -24,6 +24,10 @@ import { useTags } from '@/hooks/use-tags';
 import { useMerchants } from '@/hooks/use-merchants';
 import { FilterBar } from '@/components/layout/FilterBar';
 import { nativeSelectClass as selectClass } from '@/components/ui/native-select';
+import { MoneyText } from '@/components/money/MoneyText';
+import { parseApiDate } from '@/lib/date';
+import { useAuth } from '@/hooks/use-auth';
+import { TransactionHistory } from '@/components/dashboard/TransactionHistory';
 
 
 const SEARCH_DEBOUNCE_MS = 300;
@@ -63,6 +67,7 @@ export function TransactionsPage() {
     merchant_id: numeroDaUrl('estabelecimento'),
     // `settled` é booleano de três estados: ausente = "pagas e a pagar".
     settled: searchParams.has('pagas') ? searchParams.get('pagas') === 'sim' : undefined,
+    deleted: searchParams.get('excluidos') === 'sim' || undefined,
   };
 
   const escreverNaUrl = React.useCallback(
@@ -95,7 +100,8 @@ export function TransactionsPage() {
   const { transactions, total, totalAmount, totalPages, currentPage, isLoading, isError, remove, restore } =
     useTransactions({ ...filters, month });
   const { currentWorkspaceId } = useUIStore();
-  const { canWrite } = useWorkspaceRole();
+  const { canWrite, isAdmin } = useWorkspaceRole();
+  const { user } = useAuth();
   const baseCurrency = useBaseCurrency();
   const { categories } = useCategories();
   const { tags } = useTags();
@@ -114,6 +120,7 @@ export function TransactionsPage() {
       ...('tag_id' in p ? { tag: p.tag_id } : {}),
       ...('merchant_id' in p ? { estabelecimento: p.merchant_id } : {}),
       ...('settled' in p ? { pagas: p.settled === undefined ? undefined : (p.settled ? 'sim' : 'nao') } : {}),
+      ...('deleted' in p ? { excluidos: p.deleted ? 'sim' : undefined } : {}),
       page: p.page ?? undefined,
     });
 
@@ -228,6 +235,15 @@ export function TransactionsPage() {
     }
   };
 
+  const handleRestore = async (id: number) => {
+    try {
+      await restore(id);
+      toast.success('Lançamento restaurado. Anexos apagados na exclusão não voltam.');
+    } catch (err) {
+      toast.error(getApiErrorMessage(err, 'Não foi possível restaurar'));
+    }
+  };
+
   // Soma do FILTRO inteiro (vem do backend) — antes era só a página atual,
   // exibida ao lado de uma contagem global, o que não fechava
   const totalSpent = totalAmount;
@@ -261,9 +277,14 @@ export function TransactionsPage() {
           <PeriodPicker value={month} onChange={setMonth} />
         }
         action={
-          <Button onClick={() => setNewTxOpen(true)} className="gap-2">
-            <Plus className="h-4 w-4" /> Nova despesa
-          </Button>
+          <div className="flex flex-wrap gap-2">
+            <Button variant="outline" onClick={() => patch({ deleted: !filters.deleted, page: 1 })}>
+              {filters.deleted ? 'Voltar aos lançamentos' : 'Ver excluídos'}
+            </Button>
+            <Button onClick={() => setNewTxOpen(true)} className="gap-2">
+              <Plus className="h-4 w-4" /> Nova despesa
+            </Button>
+          </div>
         }
       />
 
@@ -438,7 +459,7 @@ export function TransactionsPage() {
           Ela fica ACIMA da lista, e não flutuando no rodapé, porque a lista tem
           paginação: um rodapé fixo competiria com os controles de página no
           celular, que é onde essa disputa dói. */}
-      {canWrite && transactions.length > 0 && (
+      {canWrite && !filters.deleted && transactions.length > 0 && (
         <div className="flex flex-wrap items-center gap-2 rounded-xl border border-border bg-card px-4 py-2.5">
           {!modoLote ? (
             <Button variant="ghost" size="sm" className="gap-2" onClick={() => setModoLote(true)}>
@@ -485,7 +506,9 @@ export function TransactionsPage() {
           </div>
         ) : isError ? (
           <ErrorState message="Não foi possível carregar os lançamentos." />
-        ) : transactions.length === 0 ? (
+        ) : transactions.length === 0 ? filters.deleted ? (
+          <EmptyState icon={Receipt} title="Nenhum lançamento excluído" description="Não há lançamentos excluídos neste período com esses filtros." />
+        ) : (
           <EmptyState
             icon={Receipt}
             title="Nenhum lançamento"
@@ -496,6 +519,41 @@ export function TransactionsPage() {
               </Button>
             }
           />
+        ) : filters.deleted ? (
+          <>
+            <div className="border-b border-border px-4 py-3 text-sm text-muted-foreground">
+              {total} lançamento{total === 1 ? '' : 's'} excluído{total === 1 ? '' : 's'}
+            </div>
+            <div className="divide-y divide-border">
+              {transactions.map((tx) => (
+                <div key={tx.id} className="px-4 py-3">
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <div className="min-w-0">
+                      <p className="font-medium text-foreground">{tx.title}</p>
+                      <p className="text-xs text-muted-foreground">
+                        {parseApiDate(tx.transaction_date).toLocaleDateString('pt-BR')}
+                        {tx.installments_of && tx.installments_of > 1 ? ` · parcela ${tx.installment_no}/${tx.installments_of}` : ''}
+                      </p>
+                    </div>
+                    <div className="flex items-center gap-3">
+                      <MoneyText value={tx.total_amount} kind="expense" currency={tx.currency} />
+                      {canWrite && (isAdmin || tx.created_by_user_id === user?.id) && (
+                        <Button size="sm" variant="outline" onClick={() => handleRestore(tx.id)}>Restaurar</Button>
+                      )}
+                    </div>
+                  </div>
+                  <TransactionHistory transactionId={tx.id} currency={tx.currency} />
+                </div>
+              ))}
+            </div>
+            {totalPages > 1 && (
+              <div className="flex items-center justify-between border-t border-border px-4 py-3">
+                <Button variant="outline" size="sm" disabled={currentPage <= 1} onClick={() => patch({ page: currentPage - 1 })}>Anterior</Button>
+                <span className="text-xs text-muted-foreground">{currentPage} / {totalPages}</span>
+                <Button variant="outline" size="sm" disabled={currentPage >= totalPages} onClick={() => patch({ page: currentPage + 1 })}>Próxima</Button>
+              </div>
+            )}
+          </>
         ) : (
           <>
             <div className="flex items-center justify-between border-b border-border px-4 py-3 text-sm">

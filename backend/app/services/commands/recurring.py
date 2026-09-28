@@ -10,10 +10,11 @@ from fastapi import HTTPException
 from sqlmodel import Session, select
 
 from app.domain.access_policy import assert_can_read, assert_can_write
-from app.domain.query_policy import resolve_currency
+from app.domain.query_policy import resolve_currency, workspace_base_currency
 from app.domain.recurrence_rules import validate_frequency_fields as _validate_frequency_fields
 from app.models.category import Category
 from app.models.credit_card import CreditCard
+from app.models.payment_account import PaymentAccount
 from app.models.recurring import RecurringExpense
 from app.models.transaction import PaymentMethod, Transaction, TransactionStatus
 from app.models.workspace import WorkspaceMembership
@@ -59,11 +60,20 @@ def _check_ownership(membership: WorkspaceMembership, template: RecurringExpense
     )
 
 
+def _conta_informada_pertence_a_quem_edita(session: Session, account_id: Optional[int], user_id: int) -> None:
+    if account_id is None:
+        return
+    conta = session.get(PaymentAccount, account_id)
+    if not conta or conta.owner_user_id != user_id or conta.deleted_at:
+        raise HTTPException(status_code=400, detail="Conta de pagamento inválida")
+
+
 def _validate_snapshot(
     session: Session,
     workspace_id: int,
     category_id: Optional[int],
     payer_user_id: Optional[int],
+    account_id: Optional[int],
     split_snapshot: Optional[List[RecurringSplitEntry]],
     credit_card_id: Optional[int] = None,
     payment_method: Optional[PaymentMethod] = None,
@@ -71,6 +81,18 @@ def _validate_snapshot(
     actor_user_id: Optional[int] = None,
     statement_shift: int = 0,
 ) -> None:
+    if account_id is not None:
+        conta = session.get(PaymentAccount, account_id)
+        dono_esperado = payer_user_id if payer_user_id is not None else actor_user_id
+        if (
+            not conta or conta.deleted_at or not conta.active
+            or conta.owner_user_id != dono_esperado
+        ):
+            raise HTTPException(status_code=400, detail="Conta de pagamento inválida para quem paga")
+        if conta.currency != workspace_base_currency(session, workspace_id):
+            raise HTTPException(status_code=400, detail="A conta deve usar a moeda-base do espaço")
+        if credit_card_id is not None:
+            raise HTTPException(status_code=400, detail="Compra no cartão não usa conta de pagamento")
     if category_id is not None:
         category = session.get(Category, category_id)
         if not category or category.workspace_id != workspace_id or category.deleted_at:
@@ -191,9 +213,10 @@ def create_recurring(
         recurring_in.frequency, recurring_in.day_of_week, recurring_in.month_of_year,
         recurring_in.interval, recurring_in.start_date, recurring_in.end_date,
     )
+    _conta_informada_pertence_a_quem_edita(session, recurring_in.account_id, membership.user_id)
     _validate_snapshot(
         session, workspace_id,
-        recurring_in.category_id, recurring_in.payer_user_id, recurring_in.split_snapshot,
+        recurring_in.category_id, recurring_in.payer_user_id, recurring_in.account_id, recurring_in.split_snapshot,
         recurring_in.credit_card_id, recurring_in.payment_method,
         actor_user_id=membership.user_id,
         statement_shift=recurring_in.statement_shift,
@@ -251,6 +274,8 @@ def update_recurring(
     _check_ownership(membership, db_recurring)
 
     update_data = recurring_in.model_dump(exclude_unset=True)
+    if "account_id" in update_data:
+        _conta_informada_pertence_a_quem_edita(session, update_data["account_id"], membership.user_id)
     nome = update_data.pop("merchant_name", None)
     if nome or update_data.get("merchant_id") is not None:
         from app.services.commands.merchants import resolve_merchant
@@ -302,7 +327,7 @@ def update_recurring(
     )
     _validate_snapshot(
         session, workspace_id,
-        db_recurring.category_id, db_recurring.payer_user_id, recurring_in.split_snapshot,
+        db_recurring.category_id, db_recurring.payer_user_id, db_recurring.account_id, recurring_in.split_snapshot,
         db_recurring.credit_card_id, db_recurring.payment_method,
         actor_user_id=db_recurring.created_by_user_id or membership.user_id,
         # Do TEMPLATE já atualizado (os `setattr` do PUT rodaram acima), e não do

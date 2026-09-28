@@ -157,6 +157,9 @@ compartilhados (`app/services/commands/`) — sem mudança de comportamento.
   trocar.** A IA já registrava "o condomínio quem paga é o João" e "a assinatura cai
   na fatura seguinte"; a tela não mostrava nenhum dos dois. A lista também diz
   "pago por João" e "cai na fatura seguinte".
+- **A conta de origem da despesa recorrente aparece na lista e na edição.** Quem
+  paga pode escolhê-la uma vez para as próximas ocorrências; a conta pessoal de
+  outra pessoa continua privada. A IA também pode definir ou retirar essa conta.
 - **A observação da meta do mês aparece, e mudar o valor não a apaga.** Redefinir a
   meta pela tela (ou pedir à IA só um valor novo) jogava fora a observação, que a
   tela nem mostrava. As metas também passaram a ser editáveis, com observação: antes
@@ -174,6 +177,12 @@ compartilhados (`app/services/commands/`) — sem mudança de comportamento.
   não é excluir: o lançamento continua visível e deixa de contar em saldo, divisão e
   relatórios. O lançamento cancelado abre só para leitura, em vez de um formulário
   que o servidor recusava ao salvar.
+- **O histórico de cada lançamento aparece no detalhe** com data, pessoa, indicação
+  de IA e campos antes/depois. A mesma trilha alimenta a tool do agente.
+- **Lançamentos e rendas excluídos podem ser encontrados e restaurados depois que
+  o aviso de desfazer some.** O recorte respeita o mês e a visibilidade de cada
+  pessoa. Os anexos apagados junto com um lançamento não voltam ao restaurá-lo.
+  As buscas dos agentes também aceitam um filtro para encontrar exclusões antigas.
 
 ### Corrigir um lançamento pela IA segue a mesma regra do app
 

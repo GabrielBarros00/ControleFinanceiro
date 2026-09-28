@@ -86,6 +86,9 @@ Nomes que já causaram defeito por dizerem uma coisa e significarem outra.
 - **Recorrência** (`RecurringExpense`: `frequency` + `interval` + `start_date`/`end_date`)
   gera **ocorrências**: lançamentos materializados com `occurrence_date`. A ocorrência
   excluída deixa marca e não volta (ADR 0012, ADR 0030).
+  A **conta de origem** (`account_id`) é pessoal de quem paga (`payer_user_id`, ou
+  quem criou), na moeda-base do espaço; cada ocorrência herda a conta enquanto
+  ela estiver ativa. No cartão, a compra vai para a fatura e não usa conta.
 - **Categoria** e **tag**: do espaço. A categoria fica no item do lançamento.
 - **Estabelecimento** (`Merchant`, ADR 0038): onde a despesa foi feita, vocabulário do
   espaço como a categoria. O lançamento e a recorrência apontam para um

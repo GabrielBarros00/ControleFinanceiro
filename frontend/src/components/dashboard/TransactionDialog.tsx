@@ -129,7 +129,7 @@ export function TransactionDialog({
             <Loader2 className="h-6 w-6 animate-spin text-primary" />
           </div>
         ) : (
-          <div className="py-2">
+          <div className="min-w-0 py-2">
             {isGroup ? (
               <div className="mb-4 flex items-start gap-3 rounded-lg border border-primary/20 bg-primary/10 p-3">
                 <CreditCard className="mt-0.5 h-5 w-5 shrink-0 text-primary" />

@@ -112,6 +112,40 @@ def test_ocorrencia_nasce_com_a_conta_do_template(cena):
     assert all(p.account_id == conta["id"] for p in pagadores)
 
 
+def test_formulario_da_recorrencia_le_e_grava_conta_sem_expor_a_de_outra_pessoa(cena):
+    conta = _conta(cena)
+    base = f"/api/v1/workspaces/{cena['ws_id']}/recurring"
+    criada = client.post(base, params={"materialize": "future"}, json={
+        "title": "Internet", "base_amount": "120.00", "day_of_month": 5,
+        "payment_method": "pix", "payer_user_id": cena["dono"], "account_id": conta["id"],
+    }, headers=cena["headers"])
+    assert criada.status_code == 200, criada.text
+    template_id = criada.json()["id"]
+    assert criada.json()["account_id"] == conta["id"]
+    editada = client.put(base + f"/{template_id}", json={"title": "Internet nova"}, headers=cena["headers"])
+    assert editada.status_code == 200, editada.text
+    assert editada.json()["account_id"] == conta["id"]
+
+    # Um admin vê o template alheio, mas a conta pessoal continua privada.
+    membro = cena["db"].exec(select(WorkspaceMembership).where(
+        WorkspaceMembership.workspace_id == cena["ws_id"],
+        WorkspaceMembership.user_id == cena["outro"],
+    )).one()
+    membro.role = WorkspaceRole.admin
+    cena["db"].add(membro)
+    cena["db"].commit()
+    visto = client.get(base + f"/{template_id}", headers=cena["headers_outro"])
+    assert visto.status_code == 200, visto.text
+    assert visto.json()["account_id"] is None
+
+    conta_alheia = _conta(cena, nome="Conta do colega", headers=cena["headers_outro"])
+    invalida = client.post(base, params={"materialize": "future"}, json={
+        "title": "Outra", "base_amount": "10.00", "day_of_month": 5,
+        "payment_method": "pix", "payer_user_id": cena["outro"], "account_id": conta_alheia["id"],
+    }, headers=cena["headers"])
+    assert invalida.status_code == 400
+
+
 def test_editar_o_template_nao_apaga_a_conta_da_instancia(cena):
     """O vazamento que a auditoria encontrou.
 

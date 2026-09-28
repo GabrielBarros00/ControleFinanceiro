@@ -56,6 +56,7 @@ import { SubscriptionFields, type SubscriptionFieldsValue } from '@/components/r
 import { SubscriptionsPanel } from '@/components/recurrence/SubscriptionsPanel';
 import { emTeste } from '@/lib/assinatura';
 import { useMerchants } from '@/hooks/use-merchants';
+import { usePaymentAccounts } from '@/hooks/use-payment-accounts';
 
 // Base UI Select foge do focus-trap do Dialog (Radix) — dentro de modal usamos
 // <select> nativo, mesmo padrão de AmortizationTable/PaymentMethodField.
@@ -73,6 +74,7 @@ const recurringSchema = z.object({
   payment_method: z.string(),
   // 0 = nenhum cartão; só vale com payment_method === 'credit_card' (o backend recusa o resto)
   credit_card_id: z.number(),
+  account_id: z.number(),
   custom: z.boolean(),
   // "Pagamento automático" (ADR 0029): o banco debita sozinho na data, então a
   // ocorrência nasce liquidada e não entra em Contas a pagar.
@@ -174,6 +176,7 @@ interface RecurringItem {
   category_id?: number | null;
   payment_method?: string | null;
   credit_card_id?: number | null;
+  account_id?: number | null;
   auto_settle?: boolean | null;
   frequency: 'daily' | 'weekly' | 'monthly' | 'yearly';
   interval?: number | null;
@@ -253,6 +256,7 @@ const DESLOCAMENTO_NA_LINHA: Record<number, string> = {
 function metaDaLinha(
   item: RecurringItem,
   cards: unknown[],
+  accounts: { id: number; name: string }[],
   pagador?: (item: RecurringItem) => string | null,
 ): string {
   const forma = paymentMethodLabel(item.payment_method, item.credit_card_id);
@@ -262,7 +266,9 @@ function metaDaLinha(
   const deslocada = item.credit_card_id != null && item.statement_shift
     ? DESLOCAMENTO_NA_LINHA[item.statement_shift] ?? null
     : null;
-  return [item.plan || null, forma === '—' ? null : forma, cartao, deslocada, pagador?.(item) ?? null, item.description || null]
+  const conta = item.account_id != null ? accounts.find((a) => a.id === item.account_id)?.name : null;
+  return [item.plan || null, forma === '—' ? null : forma, cartao, conta ? `sai de ${conta}` : null,
+    deslocada, pagador?.(item) ?? null, item.description || null]
     .filter(Boolean).join(' · ');
 }
 
@@ -277,6 +283,7 @@ const DEFAULTS: RecurringValues = {
   category_id: 0,
   payment_method: '',
   credit_card_id: 0,
+  account_id: 0,
   custom: false,
   auto_settle: false,
   frequency: 'monthly',
@@ -310,6 +317,7 @@ export function RecurringTransactionsPage() {
   const { categories, categoryName } = useCategories();
   const baseCurrency = useBaseCurrency();
   const { cards } = useCreditCards();
+  const { accounts } = usePaymentAccounts();
   const { members } = useMembers();
   const { user } = useAuthStore();
   const eu = user ? String(user.id) : '';
@@ -444,6 +452,7 @@ export function RecurringTransactionsPage() {
       category_id: item.category_id ?? 0,
       payment_method: item.payment_method ?? '',
       credit_card_id: item.credit_card_id ?? 0,
+      account_id: item.account_id ?? 0,
       auto_settle: item.auto_settle ?? false,
       is_active: item.is_active,
       split_user_ids: (item.split_snapshot ?? []).map((p) => String(p.user_id)),
@@ -484,6 +493,14 @@ export function RecurringTransactionsPage() {
     // Cartão só acompanha o crédito — o backend rejeita a combinação inválida
     credit_card_id:
       data.payment_method === 'credit_card' && data.credit_card_id > 0 ? data.credit_card_id : null,
+    // A conta de outro pagador é privada e não vem na leitura. Omiti-la ao
+    // salvar outro campo preserva esse vínculo; ao trocar quem paga de você
+    // para outra pessoa, a conta antiga é solta de propósito.
+    ...((data.payer_id === eu || (recurring as RecurringItem[]).some((r) =>
+      r.id === editingId && String(r.payer_user_id ?? r.created_by_user_id) === eu))
+      ? { account_id: data.payment_method !== 'credit_card' && data.payer_id === eu && data.account_id > 0
+          ? data.account_id : null }
+      : {}),
     // No cartão a liquidação não existe (quem paga é a fatura), então mandar
     // `true` ali seria ruído — o backend ignora, mas o modelo ficaria dizendo
     // algo que não vale.
@@ -776,7 +793,7 @@ export function RecurringTransactionsPage() {
               </span>
             }
             meta={[
-              metaDaLinha(item, cards, pagoPorOutro),
+              metaDaLinha(item, cards, accounts, pagoPorOutro),
               item.category_id != null ? categoryName(item.category_id) : null,
             ].filter(Boolean).join(' · ')}
             value={
@@ -863,9 +880,9 @@ export function RecurringTransactionsPage() {
                           pagamento, e a captura do catálogo mostrou uma coluna
                           inteira de travessões soltos embaixo dos títulos: uma
                           linha de texto por lançamento para dizer nada. */}
-                      {metaDaLinha(item, cards, pagoPorOutro) && (
+                      {metaDaLinha(item, cards, accounts, pagoPorOutro) && (
                         <span className="text-xs text-muted-foreground line-clamp-1">
-                          {metaDaLinha(item, cards, pagoPorOutro)}
+                          {metaDaLinha(item, cards, accounts, pagoPorOutro)}
                         </span>
                       )}
                     </div>
@@ -1062,6 +1079,26 @@ export function RecurringTransactionsPage() {
                 </div>
               )}
             </div>
+
+            {paymentMethod !== 'credit_card' && watch('payer_id') === eu && (
+              <div className="space-y-2">
+                <Label htmlFor="rec-account">Conta de onde sai</Label>
+                <select
+                  id="rec-account"
+                  className={selectClass}
+                  value={watch('account_id')}
+                  onChange={(e) => setValue('account_id', Number(e.target.value), { shouldDirty: true })}
+                >
+                  <option value={0}>Sem conta</option>
+                  {accounts.filter((a) => a.active && a.currency === baseCurrency).map((a) => (
+                    <option key={a.id} value={a.id}>{a.name}</option>
+                  ))}
+                  {watch('account_id') > 0 && !accounts.some((a) => a.id === watch('account_id') && a.active && a.currency === baseCurrency) && (
+                    <option value={watch('account_id')}>Conta indisponível — escolha outra</option>
+                  )}
+                </select>
+              </div>
+            )}
 
             {/* A fatura em que a cobrança cai (ADR 0032). Só com cartão: sem ele
                 não há fatura a deslocar. O mês do gasto não muda. */}

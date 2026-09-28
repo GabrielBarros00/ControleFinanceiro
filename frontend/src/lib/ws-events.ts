@@ -101,7 +101,7 @@ const BY_PREFIX: Record<string, string[]> = {
   // relatórios, na previsão, nas dívidas (global e do mês), na fatura/limite do
   // cartão — e na visão pessoal, que soma todos os workspaces.
   transaction: [
-    'transactions', 'transaction', 'installment-group', 'reports', 'analytics-forecast',
+    'transactions', 'transaction', 'transaction-history', 'installment-group', 'reports', 'analytics-forecast',
     'debts', 'debts-monthly', 'debts-by-month', 'statements', 'credit-cards', 'attachments',
     'me-overview', 'me-ledger', 'me-reports', 'me-activity', 'me-commitments',
     'me-debts', 'me-debts-monthly', 'me-debts-by-month',
@@ -182,7 +182,7 @@ const BY_PREFIX: Record<string, string[]> = {
   // então outra aba seguia exibindo consolidações calculadas com o quadro de
   // membros antigo.
   member: [
-    'members', 'invites', 'debts', 'debts-monthly', 'debts-by-month', 'settlements', 'transactions',
+    'members', 'invites', 'debts', 'debts-monthly', 'debts-by-month', 'settlements', 'transactions', 'transaction-history',
     'reports', 'analytics-forecast', 'workspaces',
     'me-overview', 'me-ledger', 'me-reports', 'me-activity',
     // Entrar/sair muda o rateio, e o rateio é a base do pareamento de dívidas —
