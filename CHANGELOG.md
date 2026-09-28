@@ -161,6 +161,9 @@ compartilhados (`app/services/commands/`) — sem mudança de comportamento.
   meta pela tela (ou pedir à IA só um valor novo) jogava fora a observação, que a
   tela nem mostrava. As metas também passaram a ser editáveis, com observação: antes
   só dava para excluir e criar de novo. A IA agora lê a observação ao listar as metas.
+- **Editar uma compra em moeda estrangeira com itens, desconto, vários pagadores ou
+  valores fixos voltou a funcionar.** O total abria em dólar e as partes em reais, e
+  a soma nunca fechava: não dava para salvar. Agora tudo abre na moeda da compra.
 
 ### Corrigir um lançamento pela IA segue a mesma regra do app
 

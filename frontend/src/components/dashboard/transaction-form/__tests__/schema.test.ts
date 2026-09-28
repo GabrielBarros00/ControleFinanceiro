@@ -598,3 +598,76 @@ describe('nota na divisão pela despesa', () => {
     expect(semPartes.error!.issues.map((i) => i.path.join('.'))).toContain('items.0.shares');
   });
 });
+
+/*
+ * Compra em moeda estrangeira.
+ *
+ * O formulário edita a compra na moeda DELA (o total em US$, e o servidor
+ * reconverte ao salvar), mas itens, ajustes, pagadores e valores fixos vêm
+ * gravados na moeda do espaço. A edição abria "US$ 50" com itens de "US$ 290":
+ * a soma nunca fechava e não havia como salvar.
+ */
+describe('compra em moeda estrangeira', () => {
+  const emDolar: TransactionRead = {
+    id: 40, workspace_id: 1, title: 'Amazon', currency: 'BRL', total_amount: '290.00',
+    original_amount: '50.00', original_currency: 'USD', exchange_rate: '5.80',
+    transaction_date: '2026-09-10T15:00:00Z', billing_month: '2026-09', status: 'confirmed',
+    credit_card_id: null, split_mode: 'item', payment_method: 'pix', created_at: '', updated_at: '',
+    tags: [],
+    payers: [
+      { id: 1, user_id: 1, amount: '174.00' },
+      { id: 2, user_id: 2, amount: '116.00' },
+    ],
+    splits: [],
+    items: [
+      {
+        id: 1, title: 'Fone', amount: '174.00', quantity: '1', unit: 'un', unit_amount: '174.0000', position: 0,
+        category_id: null,
+        shares: [{ id: 1, user_id: 1, split_method: 'fixed', input_value: '174.00', computed_amount: '174.00' }],
+      },
+      {
+        id: 2, title: 'Cabo', amount: '145.00', quantity: '1', unit: 'un', unit_amount: '145.0000', position: 1,
+        category_id: null,
+        shares: [{ id: 2, user_id: 2, split_method: 'equal', input_value: '0', computed_amount: '145.00' }],
+      },
+    ],
+    adjustments: [{ id: 1, type: 'discount', amount: '-29.00', description: 'Cupom' }],
+  };
+
+  it('abre itens, ajustes, pagadores e valores fixos na moeda da compra', () => {
+    const v = fromApiTransaction(emDolar);
+    expect(v.currency).toBe('USD');
+    expect(v.total_amount).toBe(50);
+    expect(v.items.map((i) => [i.amount, i.unit_amount])).toEqual([[30, 30], [25, 25]]);
+    expect(v.items[0].shares).toEqual([{ user_id: '1', value: 30 }]);
+    expect(v.adjustments).toEqual([{ type: 'discount', description: 'Cupom', amount: 5, reduz: true }]);
+    expect(v.payers.map((p) => p.amount)).toEqual([30, 20]);
+    expect(transactionFormSchema.safeParse(v).success).toBe(true);
+  });
+
+  it('o centavo do arredondamento vai para o maior item, e a soma fecha', () => {
+    // R$ 33,33 = US$ 10,00: cada item de R$ 11,11 vira US$ 3,333… → 3,33 × 3 = 9,99.
+    const v = fromApiTransaction({
+      ...emDolar, total_amount: '33.33', original_amount: '10.00', adjustments: [],
+      payers: [{ id: 1, user_id: 1, amount: '33.33' }],
+      items: [0, 1, 2].map((n) => ({
+        id: n, title: `Item ${n}`, amount: '11.11', quantity: '1', unit: null, unit_amount: null, position: n,
+        category_id: null, shares: [{ id: n, user_id: 1, split_method: 'equal' as const, input_value: '0', computed_amount: '11.11' }],
+      })),
+    });
+    expect(v.items.map((i) => i.amount)).toEqual([3.34, 3.33, 3.33]);
+    expect(transactionFormSchema.safeParse(v).success).toBe(true);
+  });
+
+  it('na divisão pela despesa, o valor fixo de cada um também volta', () => {
+    const v = fromApiTransaction({
+      ...emDolar, split_mode: 'transaction', items: [], adjustments: [],
+      splits: [
+        { id: 1, user_id: 1, split_method: 'fixed', input_value: '174.00', computed_amount: '174.00' },
+        { id: 2, user_id: 2, split_method: 'fixed', input_value: '116.00', computed_amount: '116.00' },
+      ],
+    });
+    expect(v.splits).toEqual([{ user_id: '1', value: 30 }, { user_id: '2', value: 20 }]);
+    expect(transactionFormSchema.safeParse(v).success).toBe(true);
+  });
+});

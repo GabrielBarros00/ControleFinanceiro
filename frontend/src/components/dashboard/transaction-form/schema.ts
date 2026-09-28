@@ -506,7 +506,80 @@ export function toApiPayload(v: TransactionFormValues) {
   };
 }
 
-export function fromApiTransaction(tx: TransactionRead): TransactionFormValues {
+/*
+ * A compra estrangeira, de volta na moeda DELA.
+ *
+ * O formulário edita o total original (US$ 50) e o servidor reconverte ao
+ * salvar. Mas itens, ajustes, pagadores e valores fixos são gravados na moeda do
+ * espaço (a conversão da entrada os converte junto), e a edição os abria como
+ * vieram: "US$ 50" com itens de "US$ 290", uma soma que nunca fechava.
+ *
+ * Cada valor volta pela razão original ÷ convertido, e o centavo que o
+ * arredondamento deixa sobrando vai para a maior parcela do grupo — é o que faz
+ * a soma fechar exata, como o servidor exige. O unitário do item volta com 4
+ * casas, ou fica vazio se nem assim a linha fechar (a mesma regra da conversão
+ * de ida, ADR 0040).
+ */
+function naMoedaDaCompra(tx: TransactionRead): TransactionRead {
+  if (!tx.original_currency || !tx.original_amount) return tx;
+  const convertido = parseFloat(tx.total_amount);
+  const original = parseFloat(tx.original_amount);
+  if (!(convertido > 0) || !(original > 0)) return tx;
+
+  const centavos = (v: string | number) => Math.round(parseFloat(String(v)) * original * 100 / convertido);
+  const texto = (c: number) => (c / 100).toFixed(2);
+  /** Converte um grupo e põe a sobra na maior parcela entre as `ajustaveis` primeiras. */
+  const grupo = (valores: (string | number)[], alvo: number, ajustaveis = valores.length) => {
+    const cs = valores.map(centavos);
+    const sobra = alvo - cs.reduce((a, c) => a + c, 0);
+    if (sobra !== 0 && ajustaveis > 0) {
+      let maior = 0;
+      for (let i = 1; i < ajustaveis; i++) if (Math.abs(cs[i]) > Math.abs(cs[maior])) maior = i;
+      cs[maior] += sobra;
+    }
+    return cs;
+  };
+  const alvo = Math.round(original * 100);
+
+  const pagadores = grupo((tx.payers ?? []).map((p) => p.amount), alvo);
+  const fixos = tx.splits?.[0]?.split_method === 'fixed';
+  const partes = fixos ? grupo((tx.splits ?? []).map((s) => s.input_value), alvo) : null;
+
+  const itens = tx.items ?? [];
+  const ajustes = tx.adjustments ?? [];
+  // Itens e ajustes fecham o total juntos; a sobra fica num item, nunca num ajuste.
+  const linhas = itens.length > 0
+    ? grupo([...itens.map((i) => i.amount), ...ajustes.map((a) => a.amount)], alvo, itens.length)
+    : [];
+
+  return {
+    ...tx,
+    payers: (tx.payers ?? []).map((p, i) => ({ ...p, amount: texto(pagadores[i]) })),
+    splits: (tx.splits ?? []).map((s, i) => (partes ? { ...s, input_value: texto(partes[i]) } : s)),
+    items: itens.map((item, i) => {
+      const valor = linhas[i];
+      const qtd = parseFloat(item.quantity);
+      let unitario: string | null = null;
+      if (item.unit_amount != null && qtd > 0) {
+        const u = Math.round((valor / 100 / qtd) * 10_000) / 10_000;
+        unitario = linhaFecha(qtd, u, valor / 100) ? String(u) : null;
+      }
+      const cotas = item.shares?.[0]?.split_method === 'fixed'
+        ? grupo(item.shares.map((sh) => sh.input_value), valor)
+        : null;
+      return {
+        ...item,
+        amount: texto(valor),
+        unit_amount: unitario,
+        shares: (item.shares ?? []).map((sh, j) => (cotas ? { ...sh, input_value: texto(cotas[j]) } : sh)),
+      };
+    }),
+    adjustments: ajustes.map((a, j) => ({ ...a, amount: texto(linhas[itens.length + j] ?? centavos(a.amount)) })),
+  };
+}
+
+export function fromApiTransaction(lido: TransactionRead): TransactionFormValues {
+  const tx = naMoedaDaCompra(lido);
   const base = {
     title: tx.title,
     description: tx.description ?? '',
