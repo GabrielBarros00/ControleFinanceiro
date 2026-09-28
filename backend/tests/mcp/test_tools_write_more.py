@@ -238,6 +238,21 @@ def test_meta_do_mes(mcp_client, c):
     assert pessoal["scope"] == "personal"
 
 
+def test_meta_do_mes_guarda_a_observacao(mcp_client, c):
+    """`note` omitido mantém a observação — a descrição da tool promete que chamar
+    de novo "só atualiza o valor", e a chamada sem `note` a apagava. E o
+    `budgets_list` a devolve: sem isso o agente gravava algo que não conseguia ler."""
+    args = {"space": "Meu espaço", "category": "Alimentação"}
+    ok(call_tool(mcp_client, c.token, "budgets_set", {**args, "amount": "800.00", "note": "Sem delivery"}))
+    ok(call_tool(mcp_client, c.token, "budgets_set", {**args, "amount": "900.00"}))
+    metas = ok(call_tool(mcp_client, c.token, "budgets_list", {"space": "Meu espaço"}))["budgets"]
+    assert [(m["planned"], m["note"]) for m in metas] == [("900.00", "Sem delivery")]
+
+    ok(call_tool(mcp_client, c.token, "budgets_set", {**args, "amount": "900.00", "note": ""}))
+    metas = ok(call_tool(mcp_client, c.token, "budgets_list", {"space": "Meu espaço"}))["budgets"]
+    assert metas[0]["note"] is None
+
+
 def test_categoria_nova_e_duplicada(mcp_client, c):
     nova = ok(call_tool(mcp_client, c.token, "categories_create", {"space": "Casa", "name": "Pets"}))
     assert nova["name"] == "Pets"

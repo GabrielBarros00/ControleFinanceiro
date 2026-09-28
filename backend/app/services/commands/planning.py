@@ -74,7 +74,11 @@ def create_estimate(
         .where(MonthlyEstimate.deleted_at.is_(None))
     ).first()
     if existing:
-        for key, value in campos.items():
+        # Só o que veio muda. A observação AUSENTE fica: a tela redefine o valor
+        # sem mandar observação, e o `budgets_set` promete que chamar de novo
+        # "só atualiza o valor" — os dois a apagavam, porque o default `None`
+        # entrava no `setattr` como se alguém tivesse pedido para limpar.
+        for key, value in estimate_in.model_dump(exclude={"scope"}, exclude_unset=True).items():
             setattr(existing, key, value)
         session.add(existing)
         publish_event(session, workspace_id, "estimate.updated", "estimate", existing.id, membership.user_id)
@@ -105,7 +109,8 @@ def update_estimate(
     _ensure_estimate_owner(estimate, membership)
 
     _validate_estimate_category(session, workspace_id, estimate_in.category_id)
-    for key, value in estimate_in.model_dump(exclude={"scope"}).items():
+    # Ausente = mantém (ver o upsert acima); `null` explícito apaga.
+    for key, value in estimate_in.model_dump(exclude={"scope"}, exclude_unset=True).items():
         setattr(estimate, key, value)
     session.add(estimate)
     publish_event(session, workspace_id, "estimate.updated", "estimate", estimate.id, membership.user_id)

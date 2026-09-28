@@ -157,6 +157,10 @@ compartilhados (`app/services/commands/`) — sem mudança de comportamento.
   trocar.** A IA já registrava "o condomínio quem paga é o João" e "a assinatura cai
   na fatura seguinte"; a tela não mostrava nenhum dos dois. A lista também diz
   "pago por João" e "cai na fatura seguinte".
+- **A observação da meta do mês aparece, e mudar o valor não a apaga.** Redefinir a
+  meta pela tela (ou pedir à IA só um valor novo) jogava fora a observação, que a
+  tela nem mostrava. As metas também passaram a ser editáveis, com observação: antes
+  só dava para excluir e criar de novo. A IA agora lê a observação ao listar as metas.
 
 ### Corrigir um lançamento pela IA segue a mesma regra do app
 

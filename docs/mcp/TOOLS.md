@@ -1725,7 +1725,7 @@ Não use quando: quiser ver as metas e o quanto já foi gasto (budgets_list).
 | `amount` | string | sim | Quanto se pretende gastar no mês nessa categoria. Ex.: "89.90". (padrão `^\d{1,16}([.,]\d{1,2})?$`) |
 | `month` | string | não | Mês da meta (YYYY-MM). Omitido = mês atual. (padrão `^\d{4}-(0[1-9]|1[0-2])$`) |
 | `scope` | `personal` \| `space` | não | `personal` = sua meta (compara com a SUA parte); `space` = meta da casa (total do espaço). Obrigatório em espaço com mais de uma pessoa. |
-| `note` | string | não | máx. 2000 |
+| `note` | string | não | Observação da meta. Omitida, a que existir fica; "" apaga. (máx. 2000) |
 
 **Saída (`structuredContent`)**: `id`, `space`, `category`, `month`, `scope`, `amount`, `created`, `app_url`
 

@@ -118,4 +118,44 @@ describe('BudgetPanel', () => {
     });
     expect(screen.queryByRole('status')).not.toBeInTheDocument();
   });
+
+  /*
+   * A observação da meta. O agente de IA a grava ("sem delivery este mês"); a
+   * tela não a mostrava, e redefinir o valor pela tela a apagava. E não havia
+   * como editar uma meta: só excluir e criar de novo.
+   */
+  it('mostra a observação e edita a meta mantendo-a', async () => {
+    let corpo: Record<string, unknown> | null = null;
+    server.use(
+      http.get(`${API}/workspaces/`, () =>
+        HttpResponse.json([{ id: 1, name: 'Casa', base_currency: 'BRL' }]),
+      ),
+      http.get(`${API}/workspaces/1/categories`, () => HttpResponse.json([{ id: 7, name: 'Mercado' }])),
+      http.get(`${API}/workspaces/1/analytics/estimates`, () =>
+        HttpResponse.json([{
+          id: 3, category: 'Mercado', amount: '800.00', month: '2026-08', category_id: 7,
+          owner_user_id: null, scope: 'workspace', description: 'Sem delivery este mês',
+        }]),
+      ),
+      http.put(`${API}/workspaces/1/analytics/estimates/3`, async ({ request }) => {
+        corpo = (await request.json()) as Record<string, unknown>;
+        return HttpResponse.json({ id: 3, ...corpo });
+      }),
+    );
+    render(
+      <BudgetPanel spentByCategory={[{ category_id: 7, name: 'Mercado', value: 100 }]} totalExpenses={100} month="2026-08" />,
+      { wrapper },
+    );
+
+    expect(await screen.findByText('Sem delivery este mês')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Editar orçamento de Mercado' }));
+    expect((screen.getByLabelText('Observação (opcional)') as HTMLInputElement).value).toBe('Sem delivery este mês');
+    expect((screen.getByLabelText('Categoria') as HTMLSelectElement).value).toBe('7');
+    fireEvent.change(screen.getByLabelText('Meta do mês'), { target: { value: '900,00' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Salvar' }));
+
+    await waitFor(() => expect(corpo).not.toBeNull());
+    expect(corpo).toMatchObject({ category_id: 7, amount: '900', description: 'Sem delivery este mês' });
+  });
 });

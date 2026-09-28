@@ -626,7 +626,10 @@ class BudgetSetIn(ToolInput):
             "Obrigatório em espaço com mais de uma pessoa."
         ),
     )
-    note: Optional[str] = Field(None, max_length=DESCRIPTION_MAX)
+    note: Optional[str] = Field(
+        None, max_length=DESCRIPTION_MAX,
+        description="Observação da meta. Omitida, a que existir fica; \"\" apaga.",
+    )
 
     @model_validator(mode="after")
     def _pares(self):
@@ -685,13 +688,17 @@ def budgets_set(call: ToolCall) -> ToolOutput:
         )
     categoria = resolve.resolve_category(call.session, ref.id, category_id=a.category_id, category=a.category)
     mes = a.month or today_local().strftime("%Y-%m")
+    # A observação só vai quando foi dita: passar `None` a apagaria na meta que
+    # já existe, e a descrição desta tool promete que chamar de novo só atualiza
+    # o valor.
+    observacao = {"description": a.note or None} if a.note is not None else {}
     meta, criada = plan_cmd.create_estimate(call.session, ref.id, MonthlyEstimateCreate(
         category=categoria.name,
         category_id=categoria.id,
         amount=a.amount,
         month=mes,
-        description=a.note,
         scope="personal" if a.scope == "personal" else "workspace",
+        **observacao,
     ), membership)
     call.session.flush()
     saida = BudgetSetOut(

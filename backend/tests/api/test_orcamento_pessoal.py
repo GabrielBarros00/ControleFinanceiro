@@ -252,3 +252,34 @@ def test_minha_parte_por_item_usa_a_share_exata(client, casa):
         ).json()
         minha = {c["name"]: Decimal(c["value"]) for c in resumo["my_categories"]}
         assert minha["Mercado"] == Decimal(esperado)
+
+
+# --- a observação da meta ---------------------------------------------------
+
+
+def test_redefinir_a_meta_sem_observacao_nao_a_apaga(client, casa):
+    """A tela redefine o valor sem mandar observação, e a observação sumia.
+
+    O `setattr` do upsert (POST) e do PUT gravava o default `None` como se alguém
+    tivesse pedido para limpar. Ausente agora mantém; `null` explícito apaga.
+    """
+    url = f"/api/v1/workspaces/{casa['ws'].id}/analytics/estimates"
+    corpo = {"category": "Geral", "amount": "1000.00", "month": MES, "scope": "workspace"}
+    criada = client.post(url, json={**corpo, "description": "Viagem em julho"}, headers=casa["h_ana"])
+    assert criada.status_code == 200, criada.text
+    meta_id = criada.json()["id"]
+
+    # Upsert pelo POST (o que a tela faz ao redefinir o valor)
+    redefinida = client.post(url, json={**corpo, "amount": "1200.00"}, headers=casa["h_ana"])
+    assert redefinida.json()["id"] == meta_id
+    assert redefinida.json()["description"] == "Viagem em julho"
+
+    # PUT sem o campo
+    editada = client.put(f"{url}/{meta_id}", json={**corpo, "amount": "1300.00"}, headers=casa["h_ana"])
+    assert editada.status_code == 200, editada.text
+    assert editada.json()["amount"] == "1300.00"
+    assert editada.json()["description"] == "Viagem em julho"
+
+    # `null` explícito é o jeito de apagar
+    limpa = client.put(f"{url}/{meta_id}", json={**corpo, "description": None}, headers=casa["h_ana"])
+    assert limpa.json()["description"] is None
