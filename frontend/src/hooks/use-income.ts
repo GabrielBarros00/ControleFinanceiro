@@ -47,7 +47,10 @@ export function useIncome(month?: string) {
   };
 
   const createMutation = useMutation({
-    mutationFn: async (data: { title: string; amount: number; received_at: string; description?: string; currency?: string }) => {
+    mutationFn: async (data: {
+      title: string; amount: number; received_at: string; description?: string | null; currency?: string;
+      category?: string | null; account_id?: number | null;
+    }) => {
       const response = await apiClient.post(`/me/income/`, data);
       return response.data as Income;
     },
@@ -55,7 +58,10 @@ export function useIncome(month?: string) {
   });
 
   const updateMutation = useMutation({
-    mutationFn: async ({ id, data }: { id: number; data: Partial<{ title: string; amount: number; received_at: string; description: string; currency: string }> }) => {
+    mutationFn: async ({ id, data }: { id: number; data: Partial<{
+      title: string; amount: number; received_at: string; description: string | null; currency: string;
+      category: string | null; account_id: number | null;
+    }> }) => {
       const response = await apiClient.put(`/me/income/${id}`, data);
       return response.data as Income;
     },

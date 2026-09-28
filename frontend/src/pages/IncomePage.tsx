@@ -64,6 +64,19 @@ function IncomeStatusPill({ status }: { status?: string | null }) {
   );
 }
 
+/**
+ * Categoria, conta e observação, na linha. O agente de IA grava os três ("salário,
+ * cai no Itaú"), e a tela não mostrava nenhum — a renda parecia sem detalhe.
+ */
+function detalhesDaRenda(
+  item: { category?: string | null; account_id?: number | null; description?: string | null },
+  nomeDaConta: (id: number) => string | undefined,
+): string {
+  const conta = item.account_id != null ? nomeDaConta(item.account_id) : undefined;
+  return [item.category || null, conta ? `cai em ${conta}` : null, item.description || null]
+    .filter(Boolean).join(' · ');
+}
+
 /** "Recebida em 30/09" × "prevista para 30/09" — a data é a mesma, o fato não. */
 function rotuloDeData(income: Income): string {
   const dia = parseApiDate(income.settled_at ?? income.received_at).toLocaleDateString('pt-BR');
@@ -79,7 +92,8 @@ export function IncomePage() {
     useIncome(month);
   // A conta em que a renda cai — opcional, como no pagamento de conta: registrar
   // o recebimento sem dizer onde caiu continua valendo, só não move saldo.
-  const { activeAccounts } = usePaymentAccounts();
+  const { accounts, activeAccounts } = usePaymentAccounts();
+  const nomeDaConta = (id: number) => accounts.find((c) => c.id === id)?.name;
   const [recebendo, setRecebendo] = React.useState<Income | null>(null);
   // Renda é PESSOAL (ADR 0021): a moeda é a de relatório do usuário, não a
   // moeda-base do workspace aberto. Somar `amount` e formatar com a base do
@@ -110,6 +124,13 @@ export function IncomePage() {
   // com taxa 1). `useState(fn)` porque o valor vem de hook, não de literal.
   const [currency, setCurrency] = React.useState(baseCurrency);
   const [recurrence, setRecurrence] = React.useState<RecurrenceValue>(defaultRecurrenceValue);
+  // O que o agente de IA já gravava e a tela não mostrava nem editava: a
+  // observação, a categoria (rótulo livre), a conta em que cai e, na recorrente,
+  // se ela se confirma sozinha na data (ADR 0034).
+  const [description, setDescription] = React.useState('');
+  const [category, setCategory] = React.useState('');
+  const [accountId, setAccountId] = React.useState<number | ''>('');
+  const [autoConfirm, setAutoConfirm] = React.useState(true);
   // Só usado quando a data de início é retroativa (ver MaterializeScopeField)
   const [materialize, setMaterialize] = React.useState<MaterializeScope>('current');
   const [saving, setSaving] = React.useState(false);
@@ -128,6 +149,10 @@ export function IncomePage() {
     setRecurrence(defaultRecurrenceValue());
     setIsActive(true);
     setMaterialize('current');
+    setDescription('');
+    setCategory('');
+    setAccountId('');
+    setAutoConfirm(true);
     setError(null);
   };
 
@@ -147,6 +172,9 @@ export function IncomePage() {
     setAmount(income.original_amount ? parseFloat(income.original_amount) : parseFloat(income.amount));
     setCurrency(income.original_currency ?? income.currency ?? baseCurrency);
     setReceivedAt(income.received_at.slice(0, 10));
+    setDescription(income.description ?? '');
+    setCategory(income.category ?? '');
+    setAccountId((income.account_id as number | null) ?? '');
     setDialogOpen(true);
   };
 
@@ -159,6 +187,10 @@ export function IncomePage() {
     setCurrency(item.currency ?? baseCurrency);
     setRecurrence(recurrenceFromItem(item));
     setIsActive(item.is_active);
+    setDescription(item.description ?? '');
+    setCategory(item.category ?? '');
+    setAccountId(item.account_id ?? '');
+    setAutoConfirm(item.auto_confirm ?? true);
     setDialogOpen(true);
   };
 
@@ -173,6 +205,12 @@ export function IncomePage() {
     }
     setSaving(true);
     setError(null);
+    // Sempre explícitos: estão na tela, e o que está nela é o que vale (vazio apaga).
+    const detalhes = {
+      description: description.trim() || null,
+      category: category.trim() || null,
+      account_id: accountId === '' ? null : accountId,
+    };
     try {
       if (isRecurring) {
         const payload = {
@@ -180,6 +218,8 @@ export function IncomePage() {
           base_amount: amount,
           currency,
           is_active: isActive,
+          auto_confirm: autoConfirm,
+          ...detalhes,
           ...toRecurrencePayload(recurrence),
         };
         // `materialize` só viaja quando a pergunta foi feita; senão o backend
@@ -196,6 +236,7 @@ export function IncomePage() {
           amount,
           currency,
           received_at: new Date(`${receivedAt}T12:00:00`).toISOString(),
+          ...detalhes,
         };
         if (editing?.type === 'income') {
           await update({ id: editing.id, data: payload });
@@ -331,7 +372,14 @@ export function IncomePage() {
                 )}
               </span>
             }
-            meta={rotuloDeData(income)}
+            meta={
+              <>
+                {rotuloDeData(income)}
+                {detalhesDaRenda(income, nomeDaConta) && (
+                  <span className="block">{detalhesDaRenda(income, nomeDaConta)}</span>
+                )}
+              </>
+            }
             value={
               <>
                 {/* Prevista em tom secundário: ela é renda do mês (competência),
@@ -428,6 +476,9 @@ export function IncomePage() {
                         </span>
                       )}
                     </div>
+                    {detalhesDaRenda(income, nomeDaConta) && (
+                      <p className="mt-0.5 pl-6 text-xs text-muted-foreground">{detalhesDaRenda(income, nomeDaConta)}</p>
+                    )}
                   </TableCell>
                   <TableCell>
                     <div className="flex items-center gap-1.5 text-sm font-medium">
@@ -555,7 +606,14 @@ export function IncomePage() {
                   {item.is_active ? 'Ativa' : 'Inativa'}
                 </span>
               }
-              meta={recurrenceLabel(item)}
+              meta={
+                <>
+                  {recurrenceLabel(item)}
+                  {detalhesDaRenda(item, nomeDaConta) && (
+                    <span className="block">{detalhesDaRenda(item, nomeDaConta)}</span>
+                  )}
+                </>
+              }
               value={<MoneyText value={item.base_amount} kind="income" currency={item.currency} className="font-semibold" />}
               actions={
                 <>
@@ -613,6 +671,9 @@ export function IncomePage() {
                   <TableRow key={item.id} className="border-border group hover:bg-accent/30 transition-colors">
                     <TableCell>
                       <span className="font-bold text-foreground">{item.title}</span>
+                      {detalhesDaRenda(item, nomeDaConta) && (
+                        <p className="mt-0.5 text-xs text-muted-foreground">{detalhesDaRenda(item, nomeDaConta)}</p>
+                      )}
                     </TableCell>
                     <TableCell>
                       <div className="flex items-center gap-1.5 text-sm font-medium">
@@ -734,6 +795,67 @@ export function IncomePage() {
                 kind="income"
                 idPrefix="income"
               />
+            )}
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label htmlFor="income-category">Categoria (opcional)</Label>
+                <Input
+                  id="income-category"
+                  placeholder="Ex: Salário, Freela"
+                  maxLength={60}
+                  value={category}
+                  onChange={(e) => setCategory(e.target.value)}
+                  className="bg-background/50"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="income-account">Conta onde cai</Label>
+                {/* Só contas na moeda em que a renda é gravada: moeda da conta =
+                    moeda do movimento (ADR 0034). A avulsa é gravada convertida
+                    (na de relatório); a recorrente guarda a própria moeda e
+                    converte a cada ocorrência. A atual fica na lista mesmo
+                    arquivada, para abrir e salvar não a trocar. */}
+                <NativeSelect
+                  id="income-account"
+                  value={accountId === '' ? '' : String(accountId)}
+                  onChange={(e) => setAccountId(e.target.value ? Number(e.target.value) : '')}
+                >
+                  <option value="">Não informada</option>
+                  {accounts
+                    .filter((c) => c.currency === (isRecurring ? currency : baseCurrency) && (c.active || c.id === accountId))
+                    .map((c) => (
+                      <option key={c.id} value={c.id}>{c.name}</option>
+                    ))}
+                </NativeSelect>
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="income-description">Observação (opcional)</Label>
+              <Input
+                id="income-description"
+                placeholder="Ex: 13º adiantado"
+                maxLength={2000}
+                value={description}
+                onChange={(e) => setDescription(e.target.value)}
+                className="bg-background/50"
+              />
+            </div>
+
+            {/* Confirmar sozinha na data (ADR 0034). Ligada é o salário: chegou
+                o dia, entrou. Desligada é a renda incerta (freela, aluguel
+                recebido), que espera o "Recebi" e vira atrasada se não vier. */}
+            {isRecurring && (
+              <div className="flex items-center justify-between gap-4 p-3 rounded-lg bg-accent/30 border border-border">
+                <div className="min-w-0 space-y-0.5">
+                  <Label htmlFor="income-auto-confirm">Confirmar sozinha na data</Label>
+                  <p className="text-[10px] text-muted-foreground font-medium">
+                    Desligue para renda incerta: ela espera você marcar "Recebi".
+                  </p>
+                </div>
+                <Switch id="income-auto-confirm" checked={autoConfirm} onCheckedChange={setAutoConfirm} />
+              </div>
             )}
 
             {isRecurring && editing?.type === 'recurring' && (

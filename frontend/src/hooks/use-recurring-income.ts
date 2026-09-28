@@ -21,6 +21,10 @@ export interface RecurringIncome {
   month_of_year?: number | null;
   is_active: boolean;
   user_id: number;
+  /** Confirma sozinha na data (ADR 0034); desligada, a ocorrência espera o "Recebi". */
+  auto_confirm?: boolean;
+  /** Conta em que a ocorrência cai; `null` = não declarada. */
+  account_id?: number | null;
 }
 
 export function useRecurringIncome() {

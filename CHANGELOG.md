@@ -164,6 +164,9 @@ compartilhados (`app/services/commands/`) — sem mudança de comportamento.
 - **Editar uma compra em moeda estrangeira com itens, desconto, vários pagadores ou
   valores fixos voltou a funcionar.** O total abria em dólar e as partes em reais, e
   a soma nunca fechava: não dava para salvar. Agora tudo abre na moeda da compra.
+- **A renda mostra e edita categoria, conta onde cai e observação**, e a renda
+  recorrente também "Confirmar sozinha na data". A IA já gravava tudo isso ("salário,
+  cai no Itaú"; "freela, não confirme sozinho"), mas a tela não mostrava nada.
 
 ### Corrigir um lançamento pela IA segue a mesma regra do app
 
