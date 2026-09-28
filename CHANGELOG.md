@@ -167,6 +167,9 @@ compartilhados (`app/services/commands/`) — sem mudança de comportamento.
 - **A renda mostra e edita categoria, conta onde cai e observação**, e a renda
   recorrente também "Confirmar sozinha na data". A IA já gravava tudo isso ("salário,
   cai no Itaú"; "freela, não confirme sozinho"), mas a tela não mostrava nada.
+- **Dá para desfazer o pagamento de uma parcela de financiamento.** A parcela volta a
+  ficar em aberto e a despesa que o pagamento lançou é excluída. Um clique errado em
+  "Pagar" só tinha volta pedindo à IA.
 
 ### Corrigir um lançamento pela IA segue a mesma regra do app
 
