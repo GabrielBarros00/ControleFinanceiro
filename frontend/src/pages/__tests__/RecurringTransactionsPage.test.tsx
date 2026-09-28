@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { render, screen, within, fireEvent, waitFor } from '@/test/utils';
 import { RecurringTransactionsPage } from '../RecurringTransactionsPage';
+import { useAuthStore } from '@/stores';
 
 /**
  * Recorrência — a tela que sabia tudo menos a resposta.
@@ -32,7 +33,8 @@ const ITENS = [
   {
     id: 2, title: 'Streaming', base_amount: '55.90', currency: 'BRL',
     frequency: 'monthly', interval: 1, day_of_month: 12, is_active: true,
-    category_id: null, payment_method: 'credit_card', credit_card_id: null,
+    // Cobrada perto do fechamento: cai na fatura seguinte todo mês (ADR 0032).
+    category_id: null, payment_method: 'credit_card', credit_card_id: 9, statement_shift: 1,
     monthly_equivalent: '55.90', my_monthly_equivalent: '55.90',
     is_subscription: true, plan: 'Premium', next_occurrence: '2099-01-12',
   },
@@ -58,6 +60,8 @@ const ITENS = [
     frequency: 'monthly', interval: 1, day_of_month: 10, is_active: false,
     category_id: null, payment_method: 'pix', credit_card_id: null,
     monthly_equivalent: '1000.00', my_monthly_equivalent: '600.00',
+    // Quem paga é o Bruno — o agente grava "o condomínio quem paga é o Bruno".
+    payer_user_id: 2, created_by_user_id: 1,
     split_snapshot: [
       { user_id: 1, split_method: 'percentage', input_value: '60.00' },
       { user_id: 2, split_method: 'percentage', input_value: '40.00' },
@@ -372,5 +376,57 @@ describe('Recorrência — como dividir', () => {
       { user_id: 1, split_method: 'fixed', input_value: 1800 },
       { user_id: 2, split_method: 'fixed', input_value: 1200 },
     ]);
+  });
+});
+
+/*
+ * Quem paga e em qual fatura cai.
+ *
+ * Os dois existem no contrato do recorrente e o agente de IA os grava ("o
+ * condomínio quem paga é o Bruno"; "a assinatura cai na fatura seguinte"). A
+ * tela não mostrava nenhum dos dois — nem na lista, nem no formulário.
+ */
+describe('Recorrência — quem paga e a fatura', () => {
+  beforeEach(() => {
+    atualizar.mockClear();
+    useAuthStore.getState().setUser({ id: 1, name: 'Ana', email: 'ana@t.com' });
+  });
+
+  it('a lista diz quem paga quando não é você, e a fatura deslocada', () => {
+    desenhar();
+    const tabela = screen.getByRole('table');
+    expect(within(tabela).getByText(/pago por Bruno/)).toBeInTheDocument();
+    expect(within(tabela).getByText(/cai na fatura seguinte/)).toBeInTheDocument();
+  });
+
+  it('editar mostra quem paga e o devolve ao salvar', async () => {
+    desenhar();
+    fireEvent.click(screen.getByRole('button', { name: /editar recorrência condomínio/i }));
+    const dialogo = screen.getByRole('dialog');
+    expect((within(dialogo).getByLabelText('Quem paga') as HTMLSelectElement).value).toBe('2');
+
+    fireEvent.click(within(dialogo).getByRole('button', { name: /^salvar$/i }));
+    await waitFor(() => expect(atualizar).toHaveBeenCalled());
+    expect(atualizar.mock.calls[0][0].data).toMatchObject({ payer_user_id: 2 });
+  });
+
+  it('editar mostra a fatura deslocada e a devolve ao salvar', async () => {
+    desenhar();
+    fireEvent.click(screen.getByRole('button', { name: /editar recorrência streaming/i }));
+    const dialogo = screen.getByRole('dialog');
+    expect((within(dialogo).getByLabelText('Em qual fatura cai') as HTMLSelectElement).value).toBe('1');
+
+    fireEvent.click(within(dialogo).getByRole('button', { name: /^salvar$/i }));
+    await waitFor(() => expect(atualizar).toHaveBeenCalled());
+    expect(atualizar.mock.calls[0][0].data).toMatchObject({ statement_shift: 1, payer_user_id: 1, credit_card_id: 9 });
+  });
+
+  it('no cartão, outra pessoa pagando trava o salvar e diz por quê', () => {
+    desenhar();
+    fireEvent.click(screen.getByRole('button', { name: /editar recorrência streaming/i }));
+    const dialogo = screen.getByRole('dialog');
+    fireEvent.change(within(dialogo).getByLabelText('Quem paga'), { target: { value: '2' } });
+    expect(within(dialogo).getByText(/No cartão, quem paga é o dono dele/)).toBeInTheDocument();
+    expect(within(dialogo).getByRole('button', { name: /^salvar$/i })).toBeDisabled();
   });
 });

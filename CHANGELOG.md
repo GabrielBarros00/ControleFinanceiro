@@ -153,6 +153,10 @@ compartilhados (`app/services/commands/`) — sem mudança de comportamento.
   iguais. A tela só sabia "igual" e salvava tudo assim: o aluguel que a IA cadastrou
   como 60% seu e 40% do João virava meio a meio na primeira vez que alguém corrigia
   o título pela tela.
+- **Na despesa recorrente, "Quem paga" e "Em qual fatura cai" aparecem e dá para
+  trocar.** A IA já registrava "o condomínio quem paga é o João" e "a assinatura cai
+  na fatura seguinte"; a tela não mostrava nenhum dos dois. A lista também diz
+  "pago por João" e "cai na fatura seguinte".
 
 ### Corrigir um lançamento pela IA segue a mesma regra do app
 
