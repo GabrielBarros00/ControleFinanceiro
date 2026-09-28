@@ -137,6 +137,19 @@ registro por CIMD/DCR, 59 tools documentadas em `docs/mcp/TOOLS.md` (geradas do
 código), e as escritas das rotas REST passaram a morar em comandos
 compartilhados (`app/services/commands/`) — sem mudança de comportamento.
 
+### A nota lançada pela IA aparece no app, e editar não a apaga mais
+
+- **Os itens da nota aparecem no detalhe e na edição também quando a despesa é
+  dividida pelo total.** É assim que a IA lança uma nota em que todos os itens
+  seguem a mesma divisão, e o app só mostrava itens na divisão por item: o detalhe
+  exibia o desconto e a taxa de entrega, mas não o que foi comprado, e a edição
+  abria vazia.
+- **Salvar a edição não apaga mais os itens nem os ajustes.** Mesmo mexendo só no
+  título, o app trocava a nota por uma linha com o valor total e jogava fora o
+  desconto, o frete e a taxa.
+- **Desconto, frete, taxa e gorjeta dá para editar na tela**, em qualquer divisão, e
+  a conta "itens + ajustes = total" aparece enquanto você edita.
+
 ### Corrigir um lançamento pela IA segue a mesma regra do app
 
 - **Mudar só o valor, a data ou a forma de pagamento refaz as contas no servidor**,

@@ -99,7 +99,8 @@ export function TransactionForm({ initialValues, onSubmit, submitLabel, resetOnS
   const [detalhado, setDetalhado] = React.useState(
     () => !permiteModoSimples
       || initialValues.split_mode === 'item'
-      || initialValues.split_method !== 'equal',
+      || initialValues.split_method !== 'equal'
+      || initialValues.items.length > 0,
   );
 
   // Participantes reais do workspace (fallback: usuário atual enquanto carrega)
@@ -120,6 +121,10 @@ export function TransactionForm({ initialValues, onSubmit, submitLabel, resetOnS
   React.useEffect(() => { aoMudarSujo?.(isDirty); }, [isDirty, aoMudarSujo]);
 
   const splitMode = watch('split_mode');
+  // Divisão pela despesa COM nota: a IA lança assim quando todos os itens seguem
+  // a mesma divisão. A tela só conhecia itens na divisão por item, e aqui eles
+  // sumiam — do detalhe, da edição e, ao salvar, do banco.
+  const temNota = splitMode === 'transaction' && watch('items').length > 0;
   const currency = watch('currency');
   const baseCurrency = useBaseCurrency();
   const controlaPagamento = useSettlementTracking();
@@ -143,11 +148,29 @@ export function TransactionForm({ initialValues, onSubmit, submitLabel, resetOnS
     setValue('settled', transactionDate <= todayLocalISO(), { shouldValidate: false });
   }, [transactionDate, setValue]);
 
+  /*
+   * Os itens atravessam a troca de modo: a nota não muda porque mudou quem
+   * divide. Para "pela despesa", sai só a linha que nasceu agora e ficou em
+   * branco (senão ela reprovaria um formulário em que ninguém quis itens); para
+   * "por item", a linha da nota sem participantes herda os da divisão da despesa.
+   */
+  const paraPelaDespesa = () => {
+    const itens = getValues('items').filter((i) => !(i.nova && !i.title.trim() && !(i.amount > 0)));
+    if (itens.length !== getValues('items').length) setValue('items', itens);
+    if (itens.length === 0 && getValues('adjustments').length > 0) setValue('adjustments', []);
+    if (getValues('split_mode') !== 'transaction') setValue('split_mode', 'transaction', { shouldValidate: true });
+  };
+
   const handleSplitModeChange = (mode: 'transaction' | 'item') => {
-    setValue('split_mode', mode, { shouldValidate: true });
+    if (mode === 'transaction') {
+      paraPelaDespesa();
+    } else {
+      setValue('split_mode', mode, { shouldValidate: true });
+    }
     if (mode === 'item' && getValues('items').length === 0) {
       setValue('items', [{
         title: '',
+        description: '',
         quantity: 1,
         unit: 'un',
         unit_amount: null,
@@ -157,6 +180,12 @@ export function TransactionForm({ initialValues, onSubmit, submitLabel, resetOnS
         share_method: 'equal',
         shares: defaultUserId ? [{ user_id: defaultUserId, value: 0 }] : [],
       }]);
+    } else if (mode === 'item') {
+      const daDespesa = getValues('splits').filter((s) => s.user_id).map((s) => ({ user_id: s.user_id, value: 0 }));
+      const partes = daDespesa.length > 0 ? daDespesa : defaultUserId ? [{ user_id: defaultUserId, value: 0 }] : [];
+      setValue('items', getValues('items').map((i) => (
+        i.shares.length > 0 ? i : { ...i, share_method: 'equal' as const, shares: partes }
+      )), { shouldValidate: true });
     }
     if (mode === 'transaction' && getValues('splits').length === 0) {
       setValue('splits', defaultUserId ? [{ user_id: defaultUserId, value: 0 }] : []);
@@ -168,7 +197,7 @@ export function TransactionForm({ initialValues, onSubmit, submitLabel, resetOnS
       const next = !prev;
       // Ao recolher, volta ao caso simples: divisão igual pela despesa
       if (!next) {
-        if (getValues('split_mode') !== 'transaction') setValue('split_mode', 'transaction', { shouldValidate: true });
+        paraPelaDespesa();
         if (getValues('split_method') !== 'equal') setValue('split_method', 'equal', { shouldValidate: true });
         if ((getValues('splits') ?? []).length === 0 && defaultUserId) {
           setValue('splits', [{ user_id: defaultUserId, value: 0 }], { shouldValidate: true });
@@ -320,7 +349,7 @@ export function TransactionForm({ initialValues, onSubmit, submitLabel, resetOnS
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
               <div className="space-y-2">
                 <Label htmlFor="category_id" className="text-sm font-semibold text-foreground">Categoria</Label>
-                {splitMode === 'transaction' ? (
+                {splitMode === 'transaction' && !temNota ? (
                   <select id="category_id" className={selectClass} {...register('category_id')}>
                     <option value="" className="bg-card">Sem categoria</option>
                     {categories.map(c => (
@@ -329,7 +358,9 @@ export function TransactionForm({ initialValues, onSubmit, submitLabel, resetOnS
                   </select>
                 ) : (
                   <p id="category_id" className="rounded-lg border border-dashed border-border px-3 py-2 text-xs text-muted-foreground">
-                    Na divisão por item, cada item tem a sua categoria.
+                    {temNota
+                      ? 'Com itens da nota, cada item tem a sua categoria.'
+                      : 'Na divisão por item, cada item tem a sua categoria.'}
                   </p>
                 )}
                 <p className="text-xs text-muted-foreground">
@@ -353,6 +384,11 @@ export function TransactionForm({ initialValues, onSubmit, submitLabel, resetOnS
               {errors.description && <p className="text-xs text-destructive font-medium">{errors.description.message as string}</p>}
             </div>
           )}
+
+          {/* A nota da despesa dividida pelo total. Fora de "Dividir por…" de
+              propósito: ela diz o QUE foi comprado, não quem paga, e quem abre
+              a edição para conferir a nota não tem por que procurá-la ali. */}
+          {detalhado && temNota && <ItemsEditor participants={participants} defaultUserId={defaultUserId} />}
 
           {/* Divisão simples (padrão): rateio igual entre os selecionados */}
           {detalhado && !advanced && <SimpleSplitChips participants={participants} />}

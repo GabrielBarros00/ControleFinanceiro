@@ -80,3 +80,35 @@ describe('TransactionSummary', () => {
     expect(screen.queryByText('Sua parte')).not.toBeInTheDocument();
   });
 });
+
+describe('TransactionSummary — a nota', () => {
+  const comNota = {
+    ...DIVIDIDA,
+    total_amount: '37.41',
+    split_mode: 'transaction',
+    splits: [{ id: 1, user_id: 1, split_method: 'equal', input_value: '0', computed_amount: '37.41' }],
+    items: [{
+      id: 7, title: 'Combo: Big Mac + Quarterão', description: 'Combo com 2 sanduíches.',
+      amount: '37.90', quantity: '1.000', unit: 'un', unit_amount: '37.9000', position: 0, category_id: 1, shares: [],
+    }],
+    adjustments: [{ id: 1, type: 'discount', amount: '-0.49', description: 'Cupom' }],
+  } as unknown as TransactionRead;
+
+  it('lista os itens da nota com a medida, e não só os ajustes', () => {
+    render(<TransactionSummary transaction={comNota} />);
+    const itens = screen.getByTestId('summary-items');
+    expect(within(itens).getByText('Combo: Big Mac + Quarterão')).toBeInTheDocument();
+    expect(within(itens).getByText(/1 un × R\$\s37,90/)).toBeInTheDocument();
+    expect(within(itens).getByText('R$ 37,90')).toBeInTheDocument();
+    expect(within(itens).getByText('Combo com 2 sanduíches.')).toBeInTheDocument();
+  });
+
+  it('o item-sombra da categoria não vira "item"', () => {
+    render(<TransactionSummary transaction={{
+      ...comNota,
+      adjustments: [],
+      items: [{ id: 8, title: 'Jantar', description: null, amount: '37.41', quantity: '1.000', unit: null, unit_amount: null, position: 0, category_id: 1, shares: [] }],
+    } as unknown as TransactionRead} />);
+    expect(screen.queryByTestId('summary-items')).toBeNull();
+  });
+});

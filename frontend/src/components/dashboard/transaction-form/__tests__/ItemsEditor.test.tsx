@@ -78,6 +78,61 @@ describe('TransactionForm — divisão por item', () => {
     expect(share.value).toBe('1');
   });
 
+  /*
+   * Os itens passaram a atravessar a troca de modo (a nota não muda porque mudou
+   * quem divide). A linha que "Por item" semeia em branco não pode ir junto:
+   * quem só olhou a opção e voltou teria um formulário reprovado por um item que
+   * ninguém quis.
+   */
+  it('voltar para "Pela despesa" descarta a linha semeada em branco', async () => {
+    let payload: Record<string, unknown> | null = null;
+    server.use(
+      http.post(`${WS}/transactions/`, async ({ request }) => {
+        payload = (await request.json()) as Record<string, unknown>;
+        return HttpResponse.json({ id: 1, ...payload });
+      })
+    );
+    renderForm();
+    await screen.findAllByText('Alice');
+    await switchToItemMode();
+
+    fireEvent.click(screen.getByRole('radio', { name: 'Pela despesa' }));
+    await waitFor(() => expect(screen.queryByTestId('item-row-0')).toBeNull());
+
+    fireEvent.click(screen.getByRole('button', { name: 'Salvar despesa' }));
+    await waitFor(() => expect(payload).not.toBeNull());
+    expect(payload!.split_mode).toBe('transaction');
+    expect(payload!.items).toEqual([]);
+    expect(payload!.adjustments).toEqual([]);
+  });
+
+  it('a linha preenchida em "Por item" vira nota ao dividir pela despesa', async () => {
+    let payload: Record<string, unknown> | null = null;
+    server.use(
+      http.post(`${WS}/transactions/`, async ({ request }) => {
+        payload = (await request.json()) as Record<string, unknown>;
+        return HttpResponse.json({ id: 1, ...payload });
+      })
+    );
+    renderForm();
+    await screen.findAllByText('Alice');
+    await switchToItemMode();
+    fireEvent.change(screen.getByLabelText('Título do item'), { target: { value: 'Carne' } });
+    fireEvent.change(screen.getByLabelText('Quantidade'), { target: { value: '3' } });
+    fireEvent.change(screen.getByLabelText('Valor unitário'), { target: { value: '30,00' } });
+
+    fireEvent.click(screen.getByRole('radio', { name: 'Pela despesa' }));
+    // Continua à vista, agora como nota, e sem a divisão por item.
+    expect(await screen.findByText('O que foi comprado. A divisão vale para a despesa inteira.')).toBeInTheDocument();
+    expect(screen.queryByText('Dividir este item')).toBeNull();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Salvar despesa' }));
+    await waitFor(() => expect(payload).not.toBeNull());
+    expect(payload!.split_mode).toBe('transaction');
+    expect(payload!.items).toEqual([expect.objectContaining({ title: 'Carne', amount: 90, quantity: 3, unit: 'un' })]);
+    expect((payload!.items as Record<string, unknown>[])[0]).not.toHaveProperty('shares');
+  });
+
   it('quantidade × unitário calcula o total da linha automaticamente', async () => {
     renderForm();
     await screen.findAllByText('Alice');
@@ -229,14 +284,14 @@ describe('TransactionForm — divisão por item', () => {
     expect(payload!.splits).toEqual([]);
     expect(payload!.items).toEqual([
       {
-        title: 'Carne', amount: 60, quantity: 1.5, unit: 'kg', unit_amount: 40, position: 0, category_id: null,
+        title: 'Carne', description: null, amount: 60, quantity: 1.5, unit: 'kg', unit_amount: 40, position: 0, category_id: null,
         shares: [
           { user_id: 1, split_method: 'equal', input_value: 0 },
           { user_id: 2, split_method: 'equal', input_value: 0 },
         ],
       },
       {
-        title: 'Cerveja', amount: 30, quantity: 3, unit: 'un', unit_amount: 10, position: 1, category_id: null,
+        title: 'Cerveja', description: null, amount: 30, quantity: 3, unit: 'un', unit_amount: 10, position: 1, category_id: null,
         shares: [{ user_id: 2, split_method: 'equal', input_value: 0 }],
       },
     ]);
@@ -311,5 +366,80 @@ describe('TransactionForm — editar uma nota já lançada', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Salvar Alterações' }));
     await waitFor(() => expect(enviado).not.toBeNull());
     expect(enviado!.items[0]).toMatchObject({ unit: null, unit_amount: null });
+  });
+});
+
+describe('TransactionForm — a nota da despesa dividida pelo total', () => {
+  beforeEach(() => {
+    useAuthStore.getState().setUser({ id: 1, name: 'Alice', email: 'alice@t.com' });
+    useUIStore.getState().setCurrentWorkspaceId(1);
+    server.use(
+      http.get(`${WS}/members`, () => HttpResponse.json(members)),
+      http.get(`${WS}/invites`, () => HttpResponse.json([])),
+      http.get(`${WS}/categories`, () => HttpResponse.json([{ id: 1, name: 'Alimentação' }])),
+      http.get(`${WS}/credit-cards/`, () => HttpResponse.json([])),
+      http.get(`${WS}/tags`, () => HttpResponse.json([])),
+    );
+  });
+
+  // O lançamento #302 como a IA o gravou: um item com medida, três ajustes, e a
+  // despesa dividida pelo total. A edição abria sem nada disso.
+  const delivery = {
+    id: 302, workspace_id: 1, title: "McDonald's", total_amount: '37.41', currency: 'BRL',
+    transaction_date: '2026-09-27T15:00:00Z', billing_month: '2026-09', status: 'confirmed',
+    split_mode: 'transaction', payment_method: 'pix', credit_card_id: null,
+    created_at: '', updated_at: '', tags: [],
+    payers: [{ id: 1, user_id: 1, amount: '37.41' }],
+    splits: [{ id: 1, user_id: 1, split_method: 'equal', input_value: '0.00', computed_amount: '37.41' }],
+    items: [{
+      id: 7, title: 'Combo: Big Mac + Quarterão', description: 'Combo com 2 sanduíches.',
+      amount: '37.90', quantity: '1.000', unit: 'un', unit_amount: '37.9000', position: 0, category_id: 1, shares: [],
+    }],
+    adjustments: [
+      { id: 1, type: 'discount', amount: '-9.47', description: 'Desconto do pedido' },
+      { id: 2, type: 'shipping', amount: '7.99', description: 'Taxa de entrega' },
+      { id: 3, type: 'other', amount: '0.99', description: 'Taxa de serviço' },
+    ],
+  } as unknown as TransactionRead;
+
+  it('mostra os itens e os ajustes, e salvar os devolve', async () => {
+    let enviado: { items: Record<string, unknown>[]; adjustments: Record<string, unknown>[] } | null = null;
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={queryClient}>
+        <ConfirmProvider>
+          <TransactionForm
+            initialValues={fromApiTransaction(delivery)}
+            onSubmit={async (p) => { enviado = p as unknown as typeof enviado; }}
+            submitLabel="Salvar Alterações"
+          />
+        </ConfirmProvider>
+      </QueryClientProvider>
+    );
+
+    // A nota aparece sem abrir "Dividir por…": ela diz o que foi comprado.
+    expect(await screen.findByText('Itens da nota')).toBeInTheDocument();
+    expect((screen.getByLabelText('Título do item') as HTMLInputElement).value).toBe('Combo: Big Mac + Quarterão');
+    expect((screen.getByLabelText('Total do item') as HTMLInputElement).value).toBe('37,90');
+    expect(screen.getByText('Combo com 2 sanduíches.')).toBeInTheDocument();
+    // Sem divisão por item aqui: quem divide é a despesa.
+    expect(screen.queryByText('Dividir este item')).toBeNull();
+
+    const tipos = screen.getAllByLabelText('Tipo do ajuste') as HTMLSelectElement[];
+    expect(tipos.map((t) => t.value)).toEqual(['discount', 'shipping', 'other']);
+    expect((screen.getAllByLabelText('Valor do ajuste') as HTMLInputElement[]).map((i) => i.value))
+      .toEqual(['9,47', '7,99', '0,99']);
+    expect(screen.getByTestId('items-summary').textContent).toMatch(/fecham R\$\s37,41/);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Salvar Alterações' }));
+    await waitFor(() => expect(enviado).not.toBeNull());
+    expect(enviado!.items).toEqual([expect.objectContaining({
+      title: 'Combo: Big Mac + Quarterão', description: 'Combo com 2 sanduíches.', amount: 37.9, unit: 'un', category_id: 1,
+    })]);
+    expect(enviado!.adjustments).toEqual([
+      { type: 'discount', description: 'Desconto do pedido', amount: -9.47 },
+      { type: 'shipping', description: 'Taxa de entrega', amount: 7.99 },
+      { type: 'other', description: 'Taxa de serviço', amount: 0.99 },
+    ]);
   });
 });
