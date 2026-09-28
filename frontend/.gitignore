@@ -17,6 +17,8 @@ dist-ssr
 screenshots/
 shots.db
 test-results/
+# Log dos servidores do `npm run test:e2e` (scripts/e2e.mjs)
+e2e-logs/
 
 # Editor directories and files
 .vscode/*

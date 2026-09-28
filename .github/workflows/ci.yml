@@ -310,11 +310,15 @@ jobs:
         env:
           E2E_PYTHON: python
         run: npm run test:e2e
+      # O log dos servidores vai junto: o relatório mostra o sintoma, o log do
+      # backend (duração de cada requisição, traceback) mostra a causa.
       - uses: actions/upload-artifact@v7
         if: failure()
         with:
           name: playwright-report
-          path: frontend/playwright-report/
+          path: |
+            frontend/playwright-report/
+            frontend/e2e-logs/
 
   # O MESMO gate no Windows, e o que ele mede é o encerramento.
   #
@@ -367,7 +371,9 @@ jobs:
         if: failure()
         with:
           name: playwright-report-windows
-          path: frontend/playwright-report/
+          path: |
+            frontend/playwright-report/
+            frontend/e2e-logs/
 
   # Stack REAL do Compose (nginx + backend production + Postgres) com os dois
   # gates que só existem aqui: o smoke da jornada completa e a suíte `e2e-prod`.

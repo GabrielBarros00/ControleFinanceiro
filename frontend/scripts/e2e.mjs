@@ -92,6 +92,24 @@ const SERVIDORES = [
 
 const processos = [];
 
+/*
+ * Log INTEIRO de cada servidor em `e2e-logs/<nome>.log`, e o CI o sobe junto do
+ * relatório quando a suíte falha.
+ *
+ * O `e2e-windows` passou a falhar de vez em quando só no CI, com testes
+ * diferentes a cada vez e, numa delas, o próprio `POST /auth/register` pendurado
+ * até o fim do teste: o backend travava. O log dele morria aqui dentro — só era
+ * impresso se o servidor não subisse —, e a única pista era o relatório do
+ * Playwright, que vê o sintoma, nunca a causa. Com o arquivo, a requisição lenta
+ * aparece com a duração (`http_request ... duration_ms`) e o erro com o traceback.
+ *
+ * `appendFileSync`, não stream: o `process.exit` do fim deste script não espera
+ * buffer, e o pedaço perdido seria justamente o da falha.
+ */
+const LOGS = path.join(FRONTEND, 'e2e-logs');
+fs.rmSync(LOGS, { recursive: true, force: true });
+fs.mkdirSync(LOGS, { recursive: true });
+
 function subir({ nome, comando, args, cwd, env, url }) {
   const filho = spawn(comando, args, {
     cwd,
@@ -107,9 +125,11 @@ function subir({ nome, comando, args, cwd, env, url }) {
   });
 
   const log = [];
+  const arquivo = path.join(LOGS, `${nome}.log`);
   const guardar = (buf) => {
     log.push(buf.toString());
     if (log.length > 200) log.shift();
+    fs.appendFileSync(arquivo, buf);
   };
   filho.stdout.on('data', guardar);
   filho.stderr.on('data', guardar);
