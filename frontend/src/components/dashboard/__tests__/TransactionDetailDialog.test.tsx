@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { http, HttpResponse } from 'msw';
 import { server } from '@/test/setup';
@@ -51,5 +51,20 @@ describe('TransactionDetailDialog', () => {
   it('sem observação, não desenha a caixa vazia', () => {
     renderizar({ ...tx, description: null });
     expect(screen.queryByText(/comprada na Duff/)).not.toBeInTheDocument();
+  });
+
+  it('mostra quem mudou o lançamento e o valor anterior pela trilha compartilhada', async () => {
+    server.use(http.get('http://localhost:8000/api/v1/workspaces/1/transactions/231/history', () =>
+      HttpResponse.json({ transaction_id: 231, entries: [{
+        at: '2026-09-24 12:30', action: 'updated', by: { id: 1, name: 'Alice' },
+        via_ai: true, client: 'Claude', detail_only: false,
+        changes: [{ field: 'amount', before: '4.70', after: '5.70' }],
+      }] }),
+    ));
+    renderizar(tx);
+    fireEvent.click(screen.getByRole('button', { name: 'Ver histórico' }));
+    expect(await screen.findByText(/Atualizado · 2026-09-24 12:30/)).toBeInTheDocument();
+    expect(screen.getByText(/Alice via IA \(Claude\)/)).toBeInTheDocument();
+    expect(screen.getByText(/Valor: R\$ 4,70 → R\$ 5,70/)).toBeInTheDocument();
   });
 });

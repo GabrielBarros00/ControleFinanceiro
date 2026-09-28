@@ -27,6 +27,8 @@ interface TransactionDialogProps {
    */
   onSave: (data: TransactionApiPayload | { status: 'confirmed' }) => Promise<void> | void;
   onDelete: (id: number) => void;
+  /** Cancelar (deixa de contar, continua visível) — definitivo, ADR 0003. */
+  onCancel?: (id: number) => void;
   // Compra parcelada: definição INTEIRA (agregada) para editar o grupo todo, e
   // quantas parcelas já estão pagas (mostrado no aviso).
   installmentWhole?: TransactionRead | null;
@@ -41,6 +43,7 @@ export function TransactionDialog({
   onOpenChange,
   onSave,
   onDelete,
+  onCancel,
   installmentWhole = null,
   paidCount = 0,
 }: TransactionDialogProps) {
@@ -49,6 +52,9 @@ export function TransactionDialog({
   if (!transaction) return null;
 
   const isPaid = transaction.status === 'paid';
+  // Cancelado é definitivo (ADR 0003): o servidor recusa qualquer edição, e o
+  // formulário que abria aqui só descobria isso no "Salvar".
+  const isCancelled = transaction.status === 'cancelled';
   // Compra parcelada: o form edita a COMPRA INTEIRA (total cheio + nº de parcelas)
   const isGroup = (transaction.installments_of ?? 0) > 1;
 
@@ -80,7 +86,21 @@ export function TransactionDialog({
           </DialogDescription>
         </DialogHeader>
 
-        {isPaid ? (
+        {isCancelled ? (
+          <div className="space-y-4 py-4">
+            <TransactionSummary transaction={transaction} />
+            <div className="p-4 rounded-lg bg-muted border border-border flex items-start gap-3">
+              <AlertCircle className="h-5 w-5 text-muted-foreground mt-0.5" />
+              <div className="space-y-1">
+                <p className="text-sm font-bold text-foreground">Lançamento cancelado</p>
+                <p className="text-xs text-muted-foreground">
+                  Ele continua visível, mas não conta em saldo, divisão nem relatórios.
+                  Cancelar é definitivo: para voltar a contar, lance de novo (dá para duplicar pelo detalhe).
+                </p>
+              </div>
+            </div>
+          </div>
+        ) : isPaid ? (
           <div className="space-y-4 py-4">
             <TransactionSummary transaction={transaction} />
             <div className="p-4 rounded-lg bg-warning-subtle border border-warning/20 flex items-start gap-3">
@@ -109,7 +129,7 @@ export function TransactionDialog({
             <Loader2 className="h-6 w-6 animate-spin text-primary" />
           </div>
         ) : (
-          <div className="py-2">
+          <div className="min-w-0 py-2">
             {isGroup ? (
               <div className="mb-4 flex items-start gap-3 rounded-lg border border-primary/20 bg-primary/10 p-3">
                 <CreditCard className="mt-0.5 h-5 w-5 shrink-0 text-primary" />
@@ -163,6 +183,18 @@ export function TransactionDialog({
                 >
                   Remover transação permanentemente
                 </Button>
+                {/* Cancelar ≠ excluir: continua visível e deixa de contar. O
+                    agente de IA já cancelava; a tela só sabia excluir. */}
+                {onCancel && (
+                  <Button
+                    type="button"
+                    variant="link"
+                    className="block p-0 h-auto text-xs text-destructive font-bold hover:underline"
+                    onClick={() => onCancel(transaction.id)}
+                  >
+                    {isGroup ? 'Cancelar a compra (parcelas em aberto)' : 'Cancelar lançamento (continua visível, não conta)'}
+                  </Button>
+                )}
               </div>
             </div>
           </div>

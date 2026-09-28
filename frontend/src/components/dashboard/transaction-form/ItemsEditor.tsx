@@ -18,6 +18,8 @@ import type { TransactionFormValues } from './schema';
 import { nativeSelectClass as selectClass } from '@/components/ui/native-select';
 import { normalizarAoSair } from './normalizar-numero';
 import { CASAS_UNITARIO, UNIDADES, UNIDADE_ROTULO, totalDaLinha } from '@/lib/item-da-nota';
+import { ajusteComSinal } from '@/lib/ajuste-da-nota';
+import { AdjustmentsEditor } from './AdjustmentsEditor';
 
 
 interface ItemsEditorProps {
@@ -25,15 +27,19 @@ interface ItemsEditorProps {
   defaultUserId: string;
 }
 
-// Divisão por item: cada item é uma linha da nota — quantidade, unidade, preço
-// unitário e total (ADR 0040) —, com categoria e os próprios participantes/método;
-// os splits da despesa são derivados
+// Os itens da nota: cada item é uma linha — quantidade, unidade, preço unitário e
+// total (ADR 0040) —, com categoria; os ajustes fecham a soma com o total. Na
+// divisão POR ITEM cada linha tem ainda os próprios participantes, e os splits da
+// despesa são derivados; na divisão PELA DESPESA a nota só registra o que foi
+// comprado, e quem divide é a despesa inteira.
 export function ItemsEditor({ participants, defaultUserId }: ItemsEditorProps) {
-  const { control, watch, formState: { errors } } = useFormContext<TransactionFormValues>();
+  const { control, watch, setValue, formState: { errors } } = useFormContext<TransactionFormValues>();
   const { fields, append, remove } = useFieldArray({ control, name: 'items' });
   const { fmt } = useFormCurrency();
 
+  const porItem = watch('split_mode') === 'item';
   const watchedItems = watch('items');
+  const watchedAdjustments = watch('adjustments');
   const watchedTotal = watch('total_amount');
 
   const itemsError = errors.items?.root?.message
@@ -42,12 +48,28 @@ export function ItemsEditor({ participants, defaultUserId }: ItemsEditorProps) {
   const itemsCents = (watchedItems ?? []).reduce(
     (acc, item) => acc + Math.round((Number.isFinite(item?.amount) ? item.amount : 0) * 100), 0
   );
+  const ajustesCents = (watchedAdjustments ?? []).reduce(
+    (acc, a) => acc + Math.round(ajusteComSinal(a.type, Number.isFinite(a?.amount) ? a.amount : 0, a.reduz) * 100), 0
+  );
+  const temAjustes = (watchedAdjustments ?? []).length > 0;
+  const somaCents = itemsCents + ajustesCents;
   const totalCents = Math.round((watchedTotal ?? 0) * 100);
-  const closed = totalCents > 0 && itemsCents === totalCents;
-  const diff = Math.abs(totalCents - itemsCents) / 100;
+  const closed = totalCents > 0 && somaCents === totalCents;
+  const diff = Math.abs(totalCents - somaCents) / 100;
+  const parcelas = temAjustes
+    ? `Itens (${fmt(itemsCents / 100)}) + ajustes (${fmt(ajustesCents / 100)})`
+    : 'Itens';
+
+  // Na divisão pela despesa o editor só existe enquanto há nota: tirar o último
+  // item o esconde, e ajuste sem item seria um erro que ninguém veria.
+  const removerItem = (index: number) => {
+    remove(index);
+    if (!porItem && fields.length === 1) setValue('adjustments', [], { shouldValidate: true });
+  };
 
   const appendItem = () => append({
     title: '',
+    description: '',
     quantity: 1,
     unit: 'un',
     unit_amount: null,
@@ -59,15 +81,22 @@ export function ItemsEditor({ participants, defaultUserId }: ItemsEditorProps) {
   });
 
   return (
-    <div className="space-y-4 border-t border-border pt-6">
-      <div className="flex items-center justify-between">
-        <Label className="text-sm font-bold text-foreground">Itens da Despesa</Label>
+    <div className="space-y-4 border-t border-border pt-6" data-testid="items-editor">
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0 space-y-0.5">
+          <Label className="text-sm font-bold text-foreground">Itens da nota</Label>
+          {!porItem && (
+            <p className="text-xs text-muted-foreground">
+              O que foi comprado. A divisão vale para a despesa inteira.
+            </p>
+          )}
+        </div>
         <Button
           type="button"
           variant="outline"
           size="sm"
           onClick={appendItem}
-          className="h-8 border-primary text-primary hover:bg-primary/10 gap-1"
+          className="h-8 shrink-0 border-primary text-primary hover:bg-primary/10 gap-1"
         >
           <Plus className="h-3 w-3" /> Item
         </Button>
@@ -79,7 +108,8 @@ export function ItemsEditor({ participants, defaultUserId }: ItemsEditorProps) {
             key={field.id}
             index={index}
             participants={participants}
-            onRemove={() => remove(index)}
+            porItem={porItem}
+            onRemove={() => removerItem(index)}
           />
         ))}
       </div>
@@ -95,16 +125,18 @@ export function ItemsEditor({ participants, defaultUserId }: ItemsEditorProps) {
         <Plus className="h-4 w-4" /> Adicionar item
       </Button>
 
+      <AdjustmentsEditor />
+
       <div className="space-y-1">
         <p
           data-testid="items-summary"
           className={`text-xs font-semibold ${closed ? 'text-income' : 'text-destructive'}`}
         >
           {closed
-            ? `Itens fecham ${fmt(watchedTotal ?? 0)}`
-            : itemsCents < totalCents
-              ? `Itens: ${fmt(itemsCents / 100)} de ${fmt(totalCents / 100)} — faltam ${fmt(diff)}`
-              : `Itens: ${fmt(itemsCents / 100)} de ${fmt(totalCents / 100)} — ${fmt(diff)} acima do total`}
+            ? `${parcelas} fecham ${fmt(watchedTotal ?? 0)}`
+            : somaCents < totalCents
+              ? `${parcelas}: ${fmt(somaCents / 100)} de ${fmt(totalCents / 100)} — faltam ${fmt(diff)}`
+              : `${parcelas}: ${fmt(somaCents / 100)} de ${fmt(totalCents / 100)} — ${fmt(diff)} acima do total`}
         </p>
         {/* Resumo ao vivo acima é a fonte única da soma. O erro do schema só
             aparece quando NÃO há itens — evita a mensagem stale que contradizia
@@ -120,10 +152,12 @@ export function ItemsEditor({ participants, defaultUserId }: ItemsEditorProps) {
 interface ItemRowProps {
   index: number;
   participants: Participant[];
+  /** Divisão por item: a linha tem os próprios participantes. */
+  porItem: boolean;
   onRemove: () => void;
 }
 
-function ItemRow({ index, participants, onRemove }: ItemRowProps) {
+function ItemRow({ index, participants, porItem, onRemove }: ItemRowProps) {
   const { register, control, watch, setValue, getValues, formState: { errors } } = useFormContext<TransactionFormValues>();
   const { categories } = useCategories();
   const { currency, symbol } = useFormCurrency();
@@ -134,6 +168,7 @@ function ItemRow({ index, participants, onRemove }: ItemRowProps) {
   const amount = watch(`items.${index}.amount` as const);
   const nova = watch(`items.${index}.nova` as const);
   const unit = watch(`items.${index}.unit` as const);
+  const detalhe = watch(`items.${index}.description` as const);
 
   /*
    * O total da linha acompanha quantidade × unitário — mas só quando a PESSOA
@@ -169,6 +204,9 @@ function ItemRow({ index, participants, onRemove }: ItemRowProps) {
         </Button>
       </div>
       {itemErrors?.title && <p className="text-[10px] text-destructive font-medium">{itemErrors.title.message as string}</p>}
+      {/* O detalhe da linha vem de quem lançou (em geral a IA, lendo a nota);
+          aqui ele é lido, e volta intacto ao salvar. */}
+      {detalhe && <p className="text-xs text-muted-foreground">{detalhe}</p>}
 
       {/* A linha da nota: quantidade, unidade, preço unitário e total — cada campo
           rotulado. Duas colunas no celular (quatro campos numa linha de 312px
@@ -278,126 +316,128 @@ function ItemRow({ index, participants, onRemove }: ItemRowProps) {
         </select>
       </div>
 
-      {/* Como dividir este item + participantes */}
-      <div className="flex items-center gap-4 flex-wrap">
-        <Label className="text-[11px] font-semibold text-muted-foreground">Dividir este item</Label>
-        <Controller
-          name={`items.${index}.share_method` as const}
-          control={control}
-          render={({ field }) => (
-            <RadioGroup
-              value={field.value}
-              onValueChange={(value) => field.onChange(value as string)}
-              // Mesmo motivo do SplitEditor, agravado: aqui a linha ainda tem o
-              // recuo do item dentro do sheet.
-              className="flex flex-wrap gap-x-4 gap-y-2"
-            >
-              <div className="flex items-center space-x-1.5">
-                <RadioGroupItem value="equal" id={`item-${index}-equal`} className="border-primary text-primary" />
-                <Label htmlFor={`item-${index}-equal`} className="text-xs font-medium text-foreground cursor-pointer">Igual</Label>
-              </div>
-              <div className="flex items-center space-x-1.5">
-                <RadioGroupItem value="percentage" id={`item-${index}-percentage`} className="border-primary text-primary" />
-                <Label htmlFor={`item-${index}-percentage`} className="text-xs font-medium text-foreground cursor-pointer">Porcentagem</Label>
-              </div>
-              <div className="flex items-center space-x-1.5">
-                <RadioGroupItem value="fixed" id={`item-${index}-fixed`} className="border-primary text-primary" />
-                <Label htmlFor={`item-${index}-fixed`} className="text-xs font-medium text-foreground cursor-pointer">Valor Fixo</Label>
-              </div>
-            </RadioGroup>
-          )}
-        />
-
-        <Button
-          type="button"
-          variant="ghost"
-          size="sm"
-          onClick={() => append({ user_id: '', value: 0 })}
-          className="h-7 text-xs text-primary hover:bg-primary/10 ml-auto"
-        >
-          + Participante
-        </Button>
-      </div>
-
-      <div className="space-y-2">
-        {fields.map((shareField, shareIndex) => (
-          <div key={shareField.id} className="flex items-center gap-3">
-            <div className="flex-1">
-              <select
-                aria-label={`Participante do item ${index + 1}`}
-                className={selectClass}
-                {...register(`items.${index}.shares.${shareIndex}.user_id` as const)}
+      {/* Como dividir este item + participantes — só na divisão por item */}
+      {porItem && (<>
+        <div className="flex items-center gap-4 flex-wrap">
+          <Label className="text-[11px] font-semibold text-muted-foreground">Dividir este item</Label>
+          <Controller
+            name={`items.${index}.share_method` as const}
+            control={control}
+            render={({ field }) => (
+              <RadioGroup
+                value={field.value}
+                onValueChange={(value) => field.onChange(value as string)}
+                // Mesmo motivo do SplitEditor, agravado: aqui a linha ainda tem o
+                // recuo do item dentro do sheet.
+                className="flex flex-wrap gap-x-4 gap-y-2"
               >
-                <option value="" className="bg-card">Usuário...</option>
-                {participants.map(p => (
-                  <option key={p.id} value={p.id} className="bg-card">{p.name}</option>
-                ))}
-              </select>
-              {itemErrors?.shares?.[shareIndex]?.user_id && (
-                <p className="text-[10px] text-destructive mt-1 font-medium">{itemErrors.shares[shareIndex]?.user_id?.message as string}</p>
-              )}
-            </div>
-            {shareMethod !== 'equal' && (
-              // Elástico, não fixo: com o prefixo da moeda dentro do campo,
-              // 96px cortavam "R$ 1.234,56", e mesmo 128px não davam conta de
-              // um valor de milhão. O `min-w` garante o piso, o `flex-1` usa o
-              // que sobrar da linha.
-              <div
-                className={
-                  shareMethod === 'percentage'
-                    ? 'w-24 shrink-0'
-                    : 'min-w-28 flex-1 sm:max-w-40'
-                }
-              >
-                {shareMethod === 'percentage' ? (
-                  <Input
-                    type="number"
-                    inputMode="decimal"
-                    step="0.01"
-                    placeholder="%"
-                    aria-label={`Percentual do item ${index + 1}`}
-                    {...register(`items.${index}.shares.${shareIndex}.value` as const, { valueAsNumber: true })}
-                    onBlur={normalizarAoSair(setValue, `items.${index}.shares.${shareIndex}.value`)}
-                    className="bg-background border-border h-9"
-                  />
-                ) : (
-                  <Controller
-                    name={`items.${index}.shares.${shareIndex}.value` as const}
-                    control={control}
-                    render={({ field }) => (
-                      <MoneyInput
-                        aria-label={`Valor fixo do item ${index + 1}`}
-                        value={field.value}
-                        onChange={field.onChange}
-                        prefix={symbol}
-                        className="bg-background border-border h-9"
-                      />
-                    )}
-                  />
+                <div className="flex items-center space-x-1.5">
+                  <RadioGroupItem value="equal" id={`item-${index}-equal`} className="border-primary text-primary" />
+                  <Label htmlFor={`item-${index}-equal`} className="text-xs font-medium text-foreground cursor-pointer">Igual</Label>
+                </div>
+                <div className="flex items-center space-x-1.5">
+                  <RadioGroupItem value="percentage" id={`item-${index}-percentage`} className="border-primary text-primary" />
+                  <Label htmlFor={`item-${index}-percentage`} className="text-xs font-medium text-foreground cursor-pointer">Porcentagem</Label>
+                </div>
+                <div className="flex items-center space-x-1.5">
+                  <RadioGroupItem value="fixed" id={`item-${index}-fixed`} className="border-primary text-primary" />
+                  <Label htmlFor={`item-${index}-fixed`} className="text-xs font-medium text-foreground cursor-pointer">Valor Fixo</Label>
+                </div>
+              </RadioGroup>
+            )}
+          />
+
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            onClick={() => append({ user_id: '', value: 0 })}
+            className="h-7 text-xs text-primary hover:bg-primary/10 ml-auto"
+          >
+            + Participante
+          </Button>
+        </div>
+
+        <div className="space-y-2">
+          {fields.map((shareField, shareIndex) => (
+            <div key={shareField.id} className="flex items-center gap-3">
+              <div className="flex-1">
+                <select
+                  aria-label={`Participante do item ${index + 1}`}
+                  className={selectClass}
+                  {...register(`items.${index}.shares.${shareIndex}.user_id` as const)}
+                >
+                  <option value="" className="bg-card">Usuário...</option>
+                  {participants.map(p => (
+                    <option key={p.id} value={p.id} className="bg-card">{p.name}</option>
+                  ))}
+                </select>
+                {itemErrors?.shares?.[shareIndex]?.user_id && (
+                  <p className="text-[10px] text-destructive mt-1 font-medium">{itemErrors.shares[shareIndex]?.user_id?.message as string}</p>
                 )}
               </div>
-            )}
-            <Button type="button" variant="ghost" size="sm" aria-label="Remover participante do item" onClick={() => remove(shareIndex)} className="h-8 w-8 p-0 text-destructive hover:bg-destructive/10">
-              <Trash2 className="h-3.5 w-3.5" />
-            </Button>
-          </div>
-        ))}
-      </div>
+              {shareMethod !== 'equal' && (
+                // Elástico, não fixo: com o prefixo da moeda dentro do campo,
+                // 96px cortavam "R$ 1.234,56", e mesmo 128px não davam conta de
+                // um valor de milhão. O `min-w` garante o piso, o `flex-1` usa o
+                // que sobrar da linha.
+                <div
+                  className={
+                    shareMethod === 'percentage'
+                      ? 'w-24 shrink-0'
+                      : 'min-w-28 flex-1 sm:max-w-40'
+                  }
+                >
+                  {shareMethod === 'percentage' ? (
+                    <Input
+                      type="number"
+                      inputMode="decimal"
+                      step="0.01"
+                      placeholder="%"
+                      aria-label={`Percentual do item ${index + 1}`}
+                      {...register(`items.${index}.shares.${shareIndex}.value` as const, { valueAsNumber: true })}
+                      onBlur={normalizarAoSair(setValue, `items.${index}.shares.${shareIndex}.value`)}
+                      className="bg-background border-border h-9"
+                    />
+                  ) : (
+                    <Controller
+                      name={`items.${index}.shares.${shareIndex}.value` as const}
+                      control={control}
+                      render={({ field }) => (
+                        <MoneyInput
+                          aria-label={`Valor fixo do item ${index + 1}`}
+                          value={field.value}
+                          onChange={field.onChange}
+                          prefix={symbol}
+                          className="bg-background border-border h-9"
+                        />
+                      )}
+                    />
+                  )}
+                </div>
+              )}
+              <Button type="button" variant="ghost" size="sm" aria-label="Remover participante do item" onClick={() => remove(shareIndex)} className="h-8 w-8 p-0 text-destructive hover:bg-destructive/10">
+                <Trash2 className="h-3.5 w-3.5" />
+              </Button>
+            </div>
+          ))}
+        </div>
 
-      <SplitSummary
-        method={shareMethod}
-        splits={shares ?? []}
-        totalAmount={Number.isFinite(amount) ? amount : 0}
-        currency={currency}
-        testId={`item-summary-${index}`}
-      />
-      {/* Mesma regra do resumo dos itens: com participantes na tela, o resumo ao
-          vivo acima JÁ diz quanto falta — repetir a soma em vermelho era a
-          mesma frase duas vezes. Sem participantes não há resumo, e aí o erro
-          ("adicione pelo menos um") é o único sinal. */}
-      {fields.length === 0 && sharesError && (
-        <p className="text-xs text-destructive font-medium">{sharesError}</p>
-      )}
+        <SplitSummary
+          method={shareMethod}
+          splits={shares ?? []}
+          totalAmount={Number.isFinite(amount) ? amount : 0}
+          currency={currency}
+          testId={`item-summary-${index}`}
+        />
+        {/* Mesma regra do resumo dos itens: com participantes na tela, o resumo ao
+            vivo acima JÁ diz quanto falta — repetir a soma em vermelho era a
+            mesma frase duas vezes. Sem participantes não há resumo, e aí o erro
+            ("adicione pelo menos um") é o único sinal. */}
+        {fields.length === 0 && sharesError && (
+          <p className="text-xs text-destructive font-medium">{sharesError}</p>
+        )}
+      </>)}
     </div>
   );
 }

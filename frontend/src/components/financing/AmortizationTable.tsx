@@ -331,6 +331,27 @@ function FinancingDetail(
     formatMoney(value, { currency: financing.currency });
   // Número da parcela em pagamento (o diálogo pergunta se ela vira despesa).
   const [pagando, setPagando] = React.useState<number | null>(null);
+  const { unpayInstallment } = useFinancing();
+  const confirm = useConfirm();
+
+  /* Desfazer um pagamento — o clique errado em "Pagar" não tinha volta pela
+     tela, só pelo agente de IA. Pergunta antes porque o estorno também exclui a
+     despesa que o pagamento lançou num espaço. */
+  const desfazer = async (numero: number) => {
+    const ok = await confirm({
+      title: `Desfazer o pagamento da parcela ${numero}?`,
+      description: 'Ela volta a ficar em aberto. Se o pagamento lançou uma despesa num espaço, a despesa é excluída.',
+      confirmLabel: 'Desfazer pagamento',
+      destructive: true,
+    });
+    if (!ok) return;
+    try {
+      await unpayInstallment({ financingId: financing.id, installmentNumber: numero });
+      toast.success(`Pagamento da parcela ${numero} desfeito.`);
+    } catch (err) {
+      toast.error(getApiErrorMessage(err, 'Não foi possível desfazer o pagamento.'));
+    }
+  };
 
   const unpaid = schedule.filter((i) => !i.is_paid);
   /*
@@ -470,6 +491,16 @@ function FinancingDetail(
                     >
                       Pagar parcela
                     </Button>
+                  ) : row.is_paid ? (
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      aria-label={`Desfazer o pagamento da parcela ${row.installment_number}`}
+                      className="h-10 w-full text-muted-foreground"
+                      onClick={() => desfazer(row.installment_number)}
+                    >
+                      Desfazer pagamento
+                    </Button>
                   ) : undefined
                 }
               />
@@ -500,7 +531,18 @@ function FinancingDetail(
                   <TableCell className="text-right text-muted-foreground">{fmt(row.remaining_balance)}</TableCell>
                   <TableCell className="text-center">
                     {row.is_paid ? (
-                      <StatusPill tone="success">Paga</StatusPill>
+                      <span className="inline-flex items-center gap-1">
+                        <StatusPill tone="success">Paga</StatusPill>
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          aria-label={`Desfazer o pagamento da parcela ${row.installment_number}`}
+                          className="h-7 px-2 text-xs text-muted-foreground"
+                          onClick={() => desfazer(row.installment_number)}
+                        >
+                          Desfazer
+                        </Button>
+                      </span>
                     ) : row.installment_number === proximaAPagar?.installment_number ? (
                       <Button
                         size="sm"

@@ -78,6 +78,8 @@ class TxFilters:
     import_batch_id: Optional[int] = None
     #: Os de um (ou mais, mesmo nome em espaços diferentes) estabelecimento (ADR 0038).
     merchant_ids: Optional[Sequence[int]] = None
+    #: Só exclusões lógicas, para encontrar uma linha a restaurar.
+    deleted: bool = False
 
     def fingerprint(self, space_ids: Iterable[int], sort: str) -> str:
         dados = {k: (str(v) if v is not None else None) for k, v in self.__dict__.items()}
@@ -116,17 +118,18 @@ def decode_cursor(cursor: str, fingerprint: str) -> int:
     return offset
 
 
-def _base(memberships: Sequence[WorkspaceMembership]):
+def _base(memberships: Sequence[WorkspaceMembership], *, deleted: bool = False):
     if not memberships:
         return select(Transaction).where(false())
     escopos = [
         and_(Transaction.workspace_id == m.workspace_id, transaction_scope(m)) for m in memberships
     ]
-    return select(Transaction).where(Transaction.deleted_at.is_(None), or_(*escopos))
+    apagado = Transaction.deleted_at.is_not(None) if deleted else Transaction.deleted_at.is_(None)
+    return select(Transaction).where(apagado, or_(*escopos))
 
 
 def build_statement(memberships: Sequence[WorkspaceMembership], f: TxFilters):
-    consulta = _base(memberships)
+    consulta = _base(memberships, deleted=f.deleted)
     if f.ids is not None:
         consulta = consulta.where(Transaction.id.in_(list(f.ids) or [-1]))
     if f.month:
@@ -229,13 +232,13 @@ def search(
         select(sub.c.currency, func.coalesce(func.sum(sub.c.total_amount), 0), func.count())
         .where(sub.c.status.in_(REALIZED_STATUSES))
         .group_by(sub.c.currency)
-    ).all()
+    ).all() if not filtros.deleted else []
     minha_parte = session.exec(
         select(sub.c.currency, func.coalesce(func.sum(TransactionSplit.computed_amount), 0), func.count())
         .join(TransactionSplit, TransactionSplit.transaction_id == sub.c.id)
         .where(sub.c.status.in_(REALIZED_STATUSES), TransactionSplit.user_id == me_id)
         .group_by(sub.c.currency)
-    ).all()
+    ).all() if not filtros.deleted else []
 
     linhas = list(session.exec(_ordena(consulta, sort).offset(offset).limit(limit)).all())
     proximo = encode_cursor(offset + limit, impressao) if offset + limit < total else None

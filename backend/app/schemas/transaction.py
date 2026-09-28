@@ -457,6 +457,32 @@ class TransactionListResponse(BaseModel):
     total_pages: int
 
 
+class TransactionHistoryChange(BaseModel):
+    field: str
+    before: Optional[str] = None
+    after: Optional[str] = None
+
+
+class TransactionHistoryActor(BaseModel):
+    id: int
+    name: str
+
+
+class TransactionHistoryEntry(BaseModel):
+    at: str
+    action: str
+    by: Optional[TransactionHistoryActor] = None
+    via_ai: bool
+    client: Optional[str] = None
+    changes: List[TransactionHistoryChange] = Field(default_factory=list)
+    detail_only: bool = False
+
+
+class TransactionHistoryRead(BaseModel):
+    transaction_id: int
+    entries: List[TransactionHistoryEntry]
+
+
 # --------------------------------------------------------------------------
 # Rotas que devolviam dict cru
 # --------------------------------------------------------------------------

@@ -241,6 +241,7 @@ def get_visible_transaction(
     membership,
     *,
     detail: str = "Lançamento não encontrado",
+    include_deleted: bool = False,
 ):
     """Transação do workspace visível a ESTE membro, ou 404.
 
@@ -255,9 +256,10 @@ def get_visible_transaction(
         select(Transaction)
         .where(Transaction.id == transaction_id)
         .where(Transaction.workspace_id == workspace_id)
-        .where(Transaction.deleted_at.is_(None))
         .where(transaction_scope(membership))
     )
+    if not include_deleted:
+        statement = statement.where(Transaction.deleted_at.is_(None))
     transacao = session.exec(statement).first()
     if not transacao:
         raise HTTPException(status_code=404, detail=detail)

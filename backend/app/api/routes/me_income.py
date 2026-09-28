@@ -93,6 +93,7 @@ def list_income(
     session: Session = Depends(get_session),
     current_user: User = Depends(get_current_user),
     month: Optional[str] = None,  # YYYY-MM: recorta pela competência (received_at)
+    deleted: bool = False,
 ):
     # Materializa recorrências vencidas só quando o mês pedido é o corrente: a
     # materialização é sempre restrita ao mês de hoje, então em mês fechado seria
@@ -102,11 +103,11 @@ def list_income(
     # tela pedia o mês corrente e a materialização era pulada por "não é o mês
     # de hoje" — o salário do mês não aparecia até o dia virar de verdade.
     mes_corrente = month_key(today_local())
-    if month is None or month == mes_corrente:
+    if not deleted and (month is None or month == mes_corrente):
         RecurringMaterializationService.ensure_income_and_commit(session, current_user.id)
 
     statement = select(Income).where(
-        Income.deleted_at.is_(None),
+        Income.deleted_at.is_not(None) if deleted else Income.deleted_at.is_(None),
         personal_scope(Income.user_id, current_user.id),
     )
 
@@ -215,6 +216,18 @@ def delete_income(
     inc_cmd.delete_income(session, current_user.id, income_id)
     session.commit()
     return {"status": "ok"}
+
+
+@router.post("/income/{income_id}/restore", response_model=IncomeRead)
+def restore_income(
+    income_id: int,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+):
+    income = inc_cmd.restore_income(session, current_user.id, income_id)
+    session.commit()
+    session.refresh(income)
+    return income
 
 
 # ---------------------------------------------------------------------------

@@ -24,7 +24,7 @@ export const INCOME_STATUS_LABEL: Record<string, string> = {
   cancelled: 'cancelada',
 };
 
-export function useIncome(month?: string) {
+export function useIncome(month?: string, showDeleted = false) {
   const queryClient = useQueryClient();
 
   const listQuery = useQuery({
@@ -37,6 +37,15 @@ export function useIncome(month?: string) {
     },
   });
 
+  const deletedQuery = useQuery({
+    queryKey: ['income', month, 'deleted'],
+    queryFn: async (): Promise<Income[]> => {
+      const response = await apiClient.get('/me/income/', { params: { month, deleted: true } });
+      return response.data;
+    },
+    enabled: showDeleted,
+  });
+
   // Pelo contrato único (`ws-events`), não à mão: a lista escrita aqui já tinha
   // divergido dele — faltavam `me-overview` e `me-reports`, que `BY_PREFIX.income`
   // inclui —, então lançar uma renda não atualizava a Visão global nem "Seus
@@ -47,7 +56,10 @@ export function useIncome(month?: string) {
   };
 
   const createMutation = useMutation({
-    mutationFn: async (data: { title: string; amount: number; received_at: string; description?: string; currency?: string }) => {
+    mutationFn: async (data: {
+      title: string; amount: number; received_at: string; description?: string | null; currency?: string;
+      category?: string | null; account_id?: number | null;
+    }) => {
       const response = await apiClient.post(`/me/income/`, data);
       return response.data as Income;
     },
@@ -55,7 +67,10 @@ export function useIncome(month?: string) {
   });
 
   const updateMutation = useMutation({
-    mutationFn: async ({ id, data }: { id: number; data: Partial<{ title: string; amount: number; received_at: string; description: string; currency: string }> }) => {
+    mutationFn: async ({ id, data }: { id: number; data: Partial<{
+      title: string; amount: number; received_at: string; description: string | null; currency: string;
+      category: string | null; account_id: number | null;
+    }> }) => {
       const response = await apiClient.put(`/me/income/${id}`, data);
       return response.data as Income;
     },
@@ -65,6 +80,14 @@ export function useIncome(month?: string) {
   const deleteMutation = useMutation({
     mutationFn: async (id: number) => {
       await apiClient.delete(`/me/income/${id}`);
+    },
+    onSuccess: invalidate,
+  });
+
+  const restoreMutation = useMutation({
+    mutationFn: async (id: number) => {
+      const response = await apiClient.post(`/me/income/${id}/restore`);
+      return response.data as Income;
     },
     onSuccess: invalidate,
   });
@@ -103,10 +126,13 @@ export function useIncome(month?: string) {
 
   return {
     incomes: listQuery.data ?? [],
+    deletedIncomes: deletedQuery.data ?? [],
+    isLoadingDeleted: deletedQuery.isLoading,
     isLoading: listQuery.isLoading,
     create: createMutation.mutateAsync,
     update: updateMutation.mutateAsync,
     remove: deleteMutation.mutateAsync,
+    restore: restoreMutation.mutateAsync,
     receive: receiveMutation.mutateAsync,
     unreceive: unreceiveMutation.mutateAsync,
     cancel: cancelMutation.mutateAsync,

@@ -2,7 +2,8 @@ import * as z from 'zod';
 import { formatCurrency } from '@/lib/money';
 import type { PaymentMethod, TransactionRead } from '@/types/transaction';
 import { apiDateToInput, todayLocalISO } from '@/lib/date';
-import { UNIDADES, UNIDADE_ROTULO, linhaFecha, totalDaLinha, type Unidade } from '@/lib/item-da-nota';
+import { UNIDADES, UNIDADE_ROTULO, itensDaNota, linhaFecha, totalDaLinha, type Unidade } from '@/lib/item-da-nota';
+import { TIPOS_DE_AJUSTE, ajusteComSinal } from '@/lib/ajuste-da-nota';
 
 const formatPercent = (value: number) =>
   value.toLocaleString('pt-BR', { maximumFractionDigits: 2 });
@@ -24,6 +25,9 @@ const payerSchema = z.object({
 
 const itemSchema = z.object({
   title: z.string().min(1, 'Informe o título do item').max(200, 'Título do item muito longo'),
+  // O detalhe da linha ("combo com 2 sanduíches"). A tela não o edita, mas o
+  // devolve: a edição é completa e, sem ele, salvar apagava o que a IA anotou.
+  description: z.string(),
   quantity: z.number({ error: 'Informe a quantidade' }).gt(0, 'Quantidade inválida'),
   // A medida da nota (ADR 0040): unidade e preço unitário com até 4 casas.
   // `null` só em linha antiga, gravada antes de a medida existir.
@@ -37,7 +41,18 @@ const itemSchema = z.object({
   nova: z.boolean(),
   category_id: z.string(),
   share_method: z.enum(['equal', 'percentage', 'fixed']),
-  shares: z.array(shareSchema).min(1, 'Adicione pelo menos um participante'),
+  // Só a divisão POR ITEM usa: na divisão pela despesa o item é linha da nota,
+  // sem participantes. O "pelo menos um" é conferido lá embaixo, por modo.
+  shares: z.array(shareSchema),
+});
+
+// Ajuste da nota (desconto, frete, taxa…): o valor vai sem sinal, e o sinal
+// sai do tipo — ou de `reduz`, no arredondamento e no "outro" (`ajuste-da-nota`).
+const adjustmentSchema = z.object({
+  type: z.enum(TIPOS_DE_AJUSTE),
+  description: z.string().max(2000, 'Descrição do ajuste muito longa'),
+  amount: z.number({ error: 'Informe o valor' }).min(0.01, 'Informe o valor do ajuste'),
+  reduz: z.boolean(),
 });
 
 // Espelham TITLE_MAX e MAX_MONEY do backend (app/schemas/common.py). Sem eles o
@@ -78,7 +93,12 @@ export const transactionFormSchema = z.object({
   split_mode: z.enum(['transaction', 'item']),
   split_method: z.enum(['equal', 'percentage', 'fixed']),
   splits: z.array(shareSchema),
+  // Os itens da nota. Na divisão por item, cada um com os seus participantes; na
+  // divisão pela despesa, só a nota (vazio = lançamento sem nota, e a categoria
+  // vai no item-sombra).
   items: z.array(itemSchema),
+  // Fecham a soma dos itens com o total; só existem com itens.
+  adjustments: z.array(adjustmentSchema),
   // "Já foi paga" (ADR 0029): CAIXA, não competência. `true` = o dinheiro já
   // saiu; `false` = a despesa existe e entra no rateio, mas ainda está na fila
   // de Contas a pagar. Só aparece nos espaços que controlam pagamento.
@@ -163,7 +183,9 @@ export const transactionFormSchema = z.object({
     }
   }
 
-  if (data.split_mode === 'transaction') {
+  const porItem = data.split_mode === 'item';
+
+  if (!porItem) {
     validateShareGroup(ctx, ['splits'], data.split_method, data.splits, data.total_amount, money);
     if (data.splits.length === 0) {
       ctx.addIssue({
@@ -172,11 +194,15 @@ export const transactionFormSchema = z.object({
         message: 'Adicione pelo menos um participante',
       });
     }
-    return;
-  }
-
-  // ------- split_mode === 'item' -------
-  if (data.items.length === 0) {
+    // O backend recusa: cada parcela levaria a nota inteira.
+    if (data.installments > 1 && data.items.length > 0) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['items'],
+        message: 'Parcelamento pela despesa não leva itens da nota — use a divisão por item',
+      });
+    }
+  } else if (data.items.length === 0) {
     ctx.addIssue({
       code: 'custom',
       path: ['items'],
@@ -185,16 +211,43 @@ export const transactionFormSchema = z.object({
     return;
   }
 
+  // Ajustes fecham os itens com o total — sem itens, não há o que fechar.
+  if (data.adjustments.length > 0 && data.items.length === 0) {
+    ctx.addIssue({
+      code: 'custom',
+      path: ['adjustments'],
+      message: 'Ajustes fecham a soma dos itens com o total — adicione os itens da nota',
+    });
+  }
+  if (data.adjustments.length > 0 && data.installments > 1) {
+    ctx.addIssue({
+      code: 'custom',
+      path: ['adjustments'],
+      message: 'Compra parcelada não leva ajustes (desconto, frete, taxa) — lance os itens já com o desconto',
+    });
+  }
+
+  // Divisão pela despesa sem nota: nada mais a conferir.
+  if (data.items.length === 0) return;
+
   const itemsCents = data.items.reduce((acc, item) => acc + cents(item.amount), 0);
+  const ajustesCents = data.adjustments.reduce(
+    (acc, a) => acc + cents(ajusteComSinal(a.type, a.amount, a.reduz)), 0,
+  );
   const totalCents = cents(data.total_amount);
-  if (itemsCents !== totalCents) {
-    const diff = Math.abs(totalCents - itemsCents) / 100;
+  const somaCents = itemsCents + ajustesCents;
+  if (somaCents !== totalCents) {
+    const diff = Math.abs(totalCents - somaCents) / 100;
+    const falta = somaCents < totalCents;
     ctx.addIssue({
       code: 'custom',
       path: ['items'],
-      message: itemsCents < totalCents
-        ? `Os itens somam ${money(itemsCents / 100)} de ${money(totalCents / 100)} — faltam ${money(diff)}`
-        : `Os itens somam ${money(itemsCents / 100)} de ${money(totalCents / 100)} — ${money(diff)} acima do total`,
+      message: data.adjustments.length === 0
+        ? (falta
+            ? `Os itens somam ${money(itemsCents / 100)} de ${money(totalCents / 100)} — faltam ${money(diff)}`
+            : `Os itens somam ${money(itemsCents / 100)} de ${money(totalCents / 100)} — ${money(diff)} acima do total`)
+        : `Itens (${money(itemsCents / 100)}) + ajustes (${money(ajustesCents / 100)}) dão ${money(somaCents / 100)} de ${money(totalCents / 100)} — `
+          + (falta ? `faltam ${money(diff)}` : `${money(diff)} acima do total`),
     });
   }
 
@@ -223,6 +276,14 @@ export const transactionFormSchema = z.object({
         code: 'custom',
         path: ['items', index, 'amount'],
         message: `${quantidade}${unidade} × unitário dá ${money(totalDaLinha(item.quantity, item.unit_amount!))} — confira a nota (a balança pode diferir em até 1 centavo)`,
+      });
+    }
+    if (!porItem) return;
+    if (item.shares.length === 0) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['items', index, 'shares'],
+        message: 'Adicione pelo menos um participante',
       });
     }
     validateShareGroup(
@@ -383,6 +444,25 @@ export function toApiPayload(v: TransactionFormValues) {
         })),
   };
 
+  // A linha da nota, igual nos dois modos; a divisão por item acrescenta as partes.
+  const linha = (item: TransactionFormValues['items'][number], index: number) => ({
+    title: item.title,
+    description: item.description.trim() || null,
+    amount: item.amount,
+    quantity: item.quantity,
+    unit: item.unit,
+    unit_amount: item.unit_amount && item.unit_amount > 0 ? item.unit_amount : null,
+    position: index,
+    category_id: item.category_id ? Number(item.category_id) : null,
+  });
+  // Sempre explícitos: a edição é completa, e sem o campo o backend DESCARTA os
+  // ajustes gravados (`_full_edit`).
+  const adjustments = v.items.length === 0 ? [] : v.adjustments.map((a) => ({
+    type: a.type,
+    description: a.description.trim() || null,
+    amount: ajusteComSinal(a.type, a.amount, a.reduz),
+  }));
+
   if (v.split_mode === 'transaction') {
     return {
       ...base,
@@ -391,19 +471,23 @@ export function toApiPayload(v: TransactionFormValues) {
         split_method: v.split_method,
         input_value: v.split_method === 'equal' ? 0 : s.value,
       })),
-      // Categoria opcional: cria o item único da transação (alimenta relatórios).
+      // Com nota, vão os itens dela, sem participantes: quem divide é a despesa.
+      // Sem nota, a categoria opcional cria o item-sombra (alimenta relatórios).
       // `quantity`/`position` explícitos: o backend tem default para os dois, mas
       // omiti-los deixava o payload divergente do item do modo `item` logo abaixo
       // — e nada garantia que os defaults continuassem sendo 1 e 0.
-      items: v.category_id
-        ? [{
-            title: v.title,
-            amount: v.total_amount,
-            quantity: 1,
-            position: 0,
-            category_id: Number(v.category_id),
-          }]
-        : [],
+      items: v.items.length > 0
+        ? v.items.map(linha)
+        : v.category_id
+          ? [{
+              title: v.title,
+              amount: v.total_amount,
+              quantity: 1,
+              position: 0,
+              category_id: Number(v.category_id),
+            }]
+          : [],
+      adjustments,
     };
   }
 
@@ -411,23 +495,91 @@ export function toApiPayload(v: TransactionFormValues) {
     ...base,
     splits: [],
     items: v.items.map((item, index) => ({
-      title: item.title,
-      amount: item.amount,
-      quantity: item.quantity,
-      unit: item.unit,
-      unit_amount: item.unit_amount && item.unit_amount > 0 ? item.unit_amount : null,
-      position: index,
-      category_id: item.category_id ? Number(item.category_id) : null,
+      ...linha(item, index),
       shares: item.shares.map((sh) => ({
         user_id: Number(sh.user_id),
         split_method: item.share_method,
         input_value: item.share_method === 'equal' ? 0 : sh.value,
       })),
     })),
+    adjustments,
   };
 }
 
-export function fromApiTransaction(tx: TransactionRead): TransactionFormValues {
+/*
+ * A compra estrangeira, de volta na moeda DELA.
+ *
+ * O formulário edita o total original (US$ 50) e o servidor reconverte ao
+ * salvar. Mas itens, ajustes, pagadores e valores fixos são gravados na moeda do
+ * espaço (a conversão da entrada os converte junto), e a edição os abria como
+ * vieram: "US$ 50" com itens de "US$ 290", uma soma que nunca fechava.
+ *
+ * Cada valor volta pela razão original ÷ convertido, e o centavo que o
+ * arredondamento deixa sobrando vai para a maior parcela do grupo — é o que faz
+ * a soma fechar exata, como o servidor exige. O unitário do item volta com 4
+ * casas, ou fica vazio se nem assim a linha fechar (a mesma regra da conversão
+ * de ida, ADR 0040).
+ */
+function naMoedaDaCompra(tx: TransactionRead): TransactionRead {
+  if (!tx.original_currency || !tx.original_amount) return tx;
+  const convertido = parseFloat(tx.total_amount);
+  const original = parseFloat(tx.original_amount);
+  if (!(convertido > 0) || !(original > 0)) return tx;
+
+  const centavos = (v: string | number) => Math.round(parseFloat(String(v)) * original * 100 / convertido);
+  const texto = (c: number) => (c / 100).toFixed(2);
+  /** Converte um grupo e põe a sobra na maior parcela entre as `ajustaveis` primeiras. */
+  const grupo = (valores: (string | number)[], alvo: number, ajustaveis = valores.length) => {
+    const cs = valores.map(centavos);
+    const sobra = alvo - cs.reduce((a, c) => a + c, 0);
+    if (sobra !== 0 && ajustaveis > 0) {
+      let maior = 0;
+      for (let i = 1; i < ajustaveis; i++) if (Math.abs(cs[i]) > Math.abs(cs[maior])) maior = i;
+      cs[maior] += sobra;
+    }
+    return cs;
+  };
+  const alvo = Math.round(original * 100);
+
+  const pagadores = grupo((tx.payers ?? []).map((p) => p.amount), alvo);
+  const fixos = tx.splits?.[0]?.split_method === 'fixed';
+  const partes = fixos ? grupo((tx.splits ?? []).map((s) => s.input_value), alvo) : null;
+
+  const itens = tx.items ?? [];
+  const ajustes = tx.adjustments ?? [];
+  // Itens e ajustes fecham o total juntos; a sobra fica num item, nunca num ajuste.
+  const linhas = itens.length > 0
+    ? grupo([...itens.map((i) => i.amount), ...ajustes.map((a) => a.amount)], alvo, itens.length)
+    : [];
+
+  return {
+    ...tx,
+    payers: (tx.payers ?? []).map((p, i) => ({ ...p, amount: texto(pagadores[i]) })),
+    splits: (tx.splits ?? []).map((s, i) => (partes ? { ...s, input_value: texto(partes[i]) } : s)),
+    items: itens.map((item, i) => {
+      const valor = linhas[i];
+      const qtd = parseFloat(item.quantity);
+      let unitario: string | null = null;
+      if (item.unit_amount != null && qtd > 0) {
+        const u = Math.round((valor / 100 / qtd) * 10_000) / 10_000;
+        unitario = linhaFecha(qtd, u, valor / 100) ? String(u) : null;
+      }
+      const cotas = item.shares?.[0]?.split_method === 'fixed'
+        ? grupo(item.shares.map((sh) => sh.input_value), valor)
+        : null;
+      return {
+        ...item,
+        amount: texto(valor),
+        unit_amount: unitario,
+        shares: (item.shares ?? []).map((sh, j) => (cotas ? { ...sh, input_value: texto(cotas[j]) } : sh)),
+      };
+    }),
+    adjustments: ajustes.map((a, j) => ({ ...a, amount: texto(linhas[itens.length + j] ?? centavos(a.amount)) })),
+  };
+}
+
+export function fromApiTransaction(lido: TransactionRead): TransactionFormValues {
+  const tx = naMoedaDaCompra(lido);
   const base = {
     title: tx.title,
     description: tx.description ?? '',
@@ -456,19 +608,49 @@ export function fromApiTransaction(tx: TransactionRead): TransactionFormValues {
     // ainda não paga com a caixa marcada, e salvar, a daria por paga sem que
     // ninguém tivesse dito isso.
     settled: tx.settled_at != null,
+    // O valor gravado tem sinal; o formulário o separa em valor e `reduz`.
+    adjustments: (tx.adjustments ?? []).map((a) => ({
+      type: a.type,
+      description: a.description ?? '',
+      amount: Math.abs(parseFloat(a.amount)),
+      reduz: parseFloat(a.amount) < 0,
+    })),
   };
 
+  const itens = (lidos: TransactionRead['items']) => lidos
+    .slice()
+    .sort((a, b) => a.position - b.position)
+    .map((item) => ({
+      title: item.title,
+      description: item.description ?? '',
+      amount: parseFloat(item.amount),
+      quantity: item.quantity != null ? parseFloat(item.quantity) : 1,
+      unit: (UNIDADES as readonly string[]).includes(item.unit ?? '') ? (item.unit as Unidade) : null,
+      unit_amount: item.unit_amount != null ? parseFloat(item.unit_amount) : null,
+      nova: false,
+      category_id: item.category_id ? String(item.category_id) : '',
+      share_method: item.shares?.[0]?.split_method ?? 'equal',
+      shares: (item.shares ?? []).map((sh) => ({
+        user_id: String(sh.user_id),
+        value: parseFloat(sh.input_value),
+      })),
+    }));
+
   if ((tx.split_mode ?? 'transaction') === 'transaction') {
+    // A divisão pela despesa também pode ter nota (a IA lança assim quando todos
+    // os itens seguem a mesma divisão). Sem nota, o único item é a sombra da
+    // categoria, e é só a categoria que o formulário lê dele.
+    const nota = itensDaNota({ ...tx, split_mode: 'transaction' });
     return {
       ...base,
       split_mode: 'transaction',
-      category_id: tx.items?.[0]?.category_id ? String(tx.items[0].category_id) : '',
+      category_id: nota.length === 0 && tx.items?.[0]?.category_id ? String(tx.items[0].category_id) : '',
       split_method: tx.splits?.[0]?.split_method ?? 'equal',
       splits: (tx.splits ?? []).map((s) => ({
         user_id: String(s.user_id),
         value: parseFloat(s.input_value),
       })),
-      items: [],
+      items: itens(nota),
     };
   }
 
@@ -478,22 +660,6 @@ export function fromApiTransaction(tx: TransactionRead): TransactionFormValues {
     category_id: '',
     split_method: 'equal',
     splits: [],
-    items: (tx.items ?? [])
-      .slice()
-      .sort((a, b) => a.position - b.position)
-      .map((item) => ({
-        title: item.title,
-        amount: parseFloat(item.amount),
-        quantity: item.quantity != null ? parseFloat(item.quantity) : 1,
-        unit: (UNIDADES as readonly string[]).includes(item.unit ?? '') ? (item.unit as Unidade) : null,
-        unit_amount: item.unit_amount != null ? parseFloat(item.unit_amount) : null,
-        nova: false,
-        category_id: item.category_id ? String(item.category_id) : '',
-        share_method: item.shares?.[0]?.split_method ?? 'equal',
-        shares: (item.shares ?? []).map((sh) => ({
-          user_id: String(sh.user_id),
-          value: parseFloat(sh.input_value),
-        })),
-      })),
+    items: itens(tx.items ?? []),
   };
 }

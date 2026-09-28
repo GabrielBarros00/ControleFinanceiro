@@ -27,6 +27,7 @@ const baseValues: TransactionFormValues = {
   split_method: 'equal',
   splits: [{ user_id: '1', value: 0 }],
   items: [],
+  adjustments: [],
   // Despesa de hoje nasce liquidada (ADR 0029) — o padrão do formulário.
   settled: true,
 };
@@ -35,6 +36,7 @@ const baseValues: TransactionFormValues = {
 // linha que nasce no formulário, e os casos dela têm testes próprios abaixo.
 const item = (over: Partial<TransactionFormValues['items'][number]> = {}) => ({
   title: 'Carne',
+  description: '',
   quantity: 1,
   unit: null as TransactionFormValues['items'][number]['unit'],
   unit_amount: null,
@@ -263,11 +265,11 @@ describe('toApiPayload', () => {
     expect(payload.splits).toEqual([]);
     expect(payload.items).toEqual([
       {
-        title: 'Cerveja', amount: 30, quantity: 3, unit: null, unit_amount: 10, position: 0, category_id: null,
+        title: 'Cerveja', description: null, amount: 30, quantity: 3, unit: null, unit_amount: 10, position: 0, category_id: null,
         shares: [{ user_id: 2, split_method: 'equal', input_value: 0 }],
       },
       {
-        title: 'Carne', amount: 60, quantity: 1, unit: null, unit_amount: null, position: 1, category_id: null,
+        title: 'Carne', description: null, amount: 60, quantity: 1, unit: null, unit_amount: null, position: 1, category_id: null,
         shares: [{ user_id: 1, split_method: 'fixed', input_value: 60 }],
       },
     ]);
@@ -281,7 +283,7 @@ describe('toApiPayload', () => {
       items: [item({ nova: true, unit: 'kg', quantity: 1.235, unit_amount: 39.9, amount: 49.27 })],
     });
     expect(payload.items[0]).toEqual({
-      title: 'Carne', amount: 49.27, quantity: 1.235, unit: 'kg', unit_amount: 39.9,
+      title: 'Carne', description: null, amount: 49.27, quantity: 1.235, unit: 'kg', unit_amount: 39.9,
       position: 0, category_id: null,
       shares: [{ user_id: 1, split_method: 'equal', input_value: 0 }],
     });
@@ -478,5 +480,194 @@ describe('observação (description)', () => {
     };
     expect(fromApiTransaction({ ...tx, description: 'Coca lata comprada na Duff' }).description).toBe('Coca lata comprada na Duff');
     expect(fromApiTransaction({ ...tx, description: null }).description).toBe('');
+  });
+});
+
+/*
+ * A nota na divisão PELA DESPESA — o lançamento #302, gravado pela IA.
+ *
+ * O MCP grava assim toda nota em que nenhum item tem divisão própria
+ * (`plan_items`): itens com medida, ajustes, e a despesa dividida pelo total. A
+ * tela só conhecia itens na divisão por item: aqui ela lia o primeiro item como
+ * o item-sombra da categoria, e a edição abria sem nota nenhuma. Pior, salvar —
+ * até para trocar o título — mandava o item-sombra no lugar do combo e nenhum
+ * ajuste, e a edição completa apagava os dois.
+ */
+describe('nota na divisão pela despesa', () => {
+  const delivery: TransactionRead = {
+    id: 302, workspace_id: 1, title: "McDonald's", currency: 'BRL', total_amount: '37.41',
+    description: 'Pedido nº 8509.',
+    transaction_date: '2026-09-27T15:00:00Z', billing_month: '2026-09', status: 'confirmed',
+    credit_card_id: 1, split_mode: 'transaction', payment_method: 'credit_card', created_at: '', updated_at: '',
+    tags: [],
+    payers: [{ id: 1, user_id: 1, amount: '37.41' }],
+    splits: [{ id: 1, user_id: 1, split_method: 'equal', input_value: '0.00', computed_amount: '37.41' }],
+    items: [{
+      id: 7, title: 'Combo: Big Mac + Quarterão', description: 'Combo com 2 sanduíches.',
+      amount: '37.90', quantity: '1.000', unit: 'un', unit_amount: '37.9000', position: 0, category_id: 1, shares: [],
+    }],
+    adjustments: [
+      { id: 1, type: 'discount', amount: '-9.47', description: 'Desconto do pedido' },
+      { id: 2, type: 'shipping', amount: '7.99', description: 'Taxa de entrega' },
+      { id: 3, type: 'other', amount: '0.99', description: 'Taxa de serviço' },
+    ],
+  };
+
+  it('a edição abre com os itens e os ajustes da nota', () => {
+    const v = fromApiTransaction(delivery);
+    expect(v.split_mode).toBe('transaction');
+    // A categoria mora no item: não há item-sombra para lê-la.
+    expect(v.category_id).toBe('');
+    expect(v.items).toHaveLength(1);
+    expect(v.items[0]).toMatchObject({
+      title: 'Combo: Big Mac + Quarterão', description: 'Combo com 2 sanduíches.',
+      amount: 37.9, quantity: 1, unit: 'un', unit_amount: 37.9, category_id: '1', shares: [],
+    });
+    expect(v.adjustments).toEqual([
+      { type: 'discount', description: 'Desconto do pedido', amount: 9.47, reduz: true },
+      { type: 'shipping', description: 'Taxa de entrega', amount: 7.99, reduz: false },
+      { type: 'other', description: 'Taxa de serviço', amount: 0.99, reduz: false },
+    ]);
+    // Item da nota na divisão pela despesa não tem participantes, e isso é válido.
+    expect(transactionFormSchema.safeParse(v).success).toBe(true);
+  });
+
+  it('salvar sem mexer devolve a nota inteira, com o sinal de cada ajuste', () => {
+    const payload = toApiPayload(fromApiTransaction(delivery));
+    expect(payload.split_mode).toBe('transaction');
+    expect(payload.splits).toEqual([{ user_id: 1, split_method: 'equal', input_value: 0 }]);
+    expect(payload.items).toEqual([{
+      title: 'Combo: Big Mac + Quarterão', description: 'Combo com 2 sanduíches.', amount: 37.9,
+      quantity: 1, unit: 'un', unit_amount: 37.9, position: 0, category_id: 1,
+    }]);
+    expect(payload.adjustments).toEqual([
+      { type: 'discount', description: 'Desconto do pedido', amount: -9.47 },
+      { type: 'shipping', description: 'Taxa de entrega', amount: 7.99 },
+      { type: 'other', description: 'Taxa de serviço', amount: 0.99 },
+    ]);
+  });
+
+  it('o item-sombra continua sendo só a categoria', () => {
+    const simples: TransactionRead = {
+      ...delivery,
+      adjustments: [],
+      items: [{
+        id: 8, title: "McDonald's", description: null, amount: '37.41', quantity: '1.000', unit: null,
+        unit_amount: null, position: 0, category_id: 4, shares: [],
+      }],
+    };
+    const v = fromApiTransaction(simples);
+    expect(v.items).toEqual([]);
+    expect(v.category_id).toBe('4');
+    const payload = toApiPayload(v);
+    expect(payload.items).toEqual([{ title: "McDonald's", amount: 37.41, quantity: 1, position: 0, category_id: 4 }]);
+    expect(payload.adjustments).toEqual([]);
+  });
+
+  it('itens + ajustes que não fecham o total: a mensagem mostra a conta', () => {
+    const r = transactionFormSchema.safeParse({ ...fromApiTransaction(delivery), total_amount: 40 });
+    expect(r.success).toBe(false);
+    expect(r.error!.issues.map((i) => i.message).join('\n'))
+      .toMatch(/Itens \(R\$\s37,90\) \+ ajustes \(.*0,49\) dão R\$\s37,41 de R\$\s40,00 — faltam R\$\s2,59/);
+  });
+
+  it('ajuste sem item é recusado, e parcelado não leva ajuste nem nota pela despesa', () => {
+    const v = fromApiTransaction(delivery);
+    const semItens = transactionFormSchema.safeParse({ ...v, items: [] });
+    expect(semItens.error!.issues.map((i) => i.path.join('.'))).toContain('adjustments');
+
+    const parcelado = transactionFormSchema.safeParse({ ...v, installments: 3 });
+    const caminhos = parcelado.error!.issues.map((i) => i.path.join('.'));
+    expect(caminhos).toContain('adjustments');
+    expect(caminhos).toContain('items');
+  });
+
+  it('na divisão por item, os ajustes também entram na soma', () => {
+    const porItem: TransactionFormValues = {
+      ...baseValues,
+      total_amount: 85,
+      split_mode: 'item',
+      splits: [],
+      items: [item(), item({ title: 'Cerveja', amount: 30, shares: [{ user_id: '2', value: 0 }] })],
+      adjustments: [{ type: 'discount', description: '', amount: 5, reduz: true }],
+    };
+    expect(transactionFormSchema.safeParse(porItem).success).toBe(true);
+    expect(toApiPayload(porItem).adjustments).toEqual([{ type: 'discount', description: null, amount: -5 }]);
+    // Ainda exige participantes por item.
+    const semPartes = transactionFormSchema.safeParse({ ...porItem, items: [item({ amount: 90, shares: [] })] });
+    expect(semPartes.error!.issues.map((i) => i.path.join('.'))).toContain('items.0.shares');
+  });
+});
+
+/*
+ * Compra em moeda estrangeira.
+ *
+ * O formulário edita a compra na moeda DELA (o total em US$, e o servidor
+ * reconverte ao salvar), mas itens, ajustes, pagadores e valores fixos vêm
+ * gravados na moeda do espaço. A edição abria "US$ 50" com itens de "US$ 290":
+ * a soma nunca fechava e não havia como salvar.
+ */
+describe('compra em moeda estrangeira', () => {
+  const emDolar: TransactionRead = {
+    id: 40, workspace_id: 1, title: 'Amazon', currency: 'BRL', total_amount: '290.00',
+    original_amount: '50.00', original_currency: 'USD', exchange_rate: '5.80',
+    transaction_date: '2026-09-10T15:00:00Z', billing_month: '2026-09', status: 'confirmed',
+    credit_card_id: null, split_mode: 'item', payment_method: 'pix', created_at: '', updated_at: '',
+    tags: [],
+    payers: [
+      { id: 1, user_id: 1, amount: '174.00' },
+      { id: 2, user_id: 2, amount: '116.00' },
+    ],
+    splits: [],
+    items: [
+      {
+        id: 1, title: 'Fone', amount: '174.00', quantity: '1', unit: 'un', unit_amount: '174.0000', position: 0,
+        category_id: null,
+        shares: [{ id: 1, user_id: 1, split_method: 'fixed', input_value: '174.00', computed_amount: '174.00' }],
+      },
+      {
+        id: 2, title: 'Cabo', amount: '145.00', quantity: '1', unit: 'un', unit_amount: '145.0000', position: 1,
+        category_id: null,
+        shares: [{ id: 2, user_id: 2, split_method: 'equal', input_value: '0', computed_amount: '145.00' }],
+      },
+    ],
+    adjustments: [{ id: 1, type: 'discount', amount: '-29.00', description: 'Cupom' }],
+  };
+
+  it('abre itens, ajustes, pagadores e valores fixos na moeda da compra', () => {
+    const v = fromApiTransaction(emDolar);
+    expect(v.currency).toBe('USD');
+    expect(v.total_amount).toBe(50);
+    expect(v.items.map((i) => [i.amount, i.unit_amount])).toEqual([[30, 30], [25, 25]]);
+    expect(v.items[0].shares).toEqual([{ user_id: '1', value: 30 }]);
+    expect(v.adjustments).toEqual([{ type: 'discount', description: 'Cupom', amount: 5, reduz: true }]);
+    expect(v.payers.map((p) => p.amount)).toEqual([30, 20]);
+    expect(transactionFormSchema.safeParse(v).success).toBe(true);
+  });
+
+  it('o centavo do arredondamento vai para o maior item, e a soma fecha', () => {
+    // R$ 33,33 = US$ 10,00: cada item de R$ 11,11 vira US$ 3,333… → 3,33 × 3 = 9,99.
+    const v = fromApiTransaction({
+      ...emDolar, total_amount: '33.33', original_amount: '10.00', adjustments: [],
+      payers: [{ id: 1, user_id: 1, amount: '33.33' }],
+      items: [0, 1, 2].map((n) => ({
+        id: n, title: `Item ${n}`, amount: '11.11', quantity: '1', unit: null, unit_amount: null, position: n,
+        category_id: null, shares: [{ id: n, user_id: 1, split_method: 'equal' as const, input_value: '0', computed_amount: '11.11' }],
+      })),
+    });
+    expect(v.items.map((i) => i.amount)).toEqual([3.34, 3.33, 3.33]);
+    expect(transactionFormSchema.safeParse(v).success).toBe(true);
+  });
+
+  it('na divisão pela despesa, o valor fixo de cada um também volta', () => {
+    const v = fromApiTransaction({
+      ...emDolar, split_mode: 'transaction', items: [], adjustments: [],
+      splits: [
+        { id: 1, user_id: 1, split_method: 'fixed', input_value: '174.00', computed_amount: '174.00' },
+        { id: 2, user_id: 2, split_method: 'fixed', input_value: '116.00', computed_amount: '116.00' },
+      ],
+    });
+    expect(v.splits).toEqual([{ user_id: '1', value: 30 }, { user_id: '2', value: 20 }]);
+    expect(transactionFormSchema.safeParse(v).success).toBe(true);
   });
 });

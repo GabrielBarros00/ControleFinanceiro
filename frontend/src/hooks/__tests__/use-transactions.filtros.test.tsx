@@ -89,4 +89,15 @@ describe('useTransactions — os filtros chegam à API', () => {
     // e a lista ficaria congelada no recorte antigo.
     await waitFor(() => expect(mockGet).toHaveBeenCalledTimes(2));
   });
+
+  it('a lixeira consulta só excluídos e não reutiliza o cache dos lançamentos vivos', async () => {
+    const { rerender } = renderHook(
+      ({ deleted }: { deleted?: boolean }) => useTransactions({ page: 1, deleted }),
+      { wrapper, initialProps: {} as { deleted?: boolean } },
+    );
+    await waitFor(() => expect(mockGet).toHaveBeenCalledTimes(1));
+    rerender({ deleted: true });
+    await waitFor(() => expect(mockGet).toHaveBeenCalledTimes(2));
+    expect(mockGet.mock.calls[1][1].params.deleted).toBe(true);
+  });
 });

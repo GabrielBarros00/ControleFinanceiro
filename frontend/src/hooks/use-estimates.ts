@@ -74,11 +74,14 @@ export function useEstimates(month: string) {
       categoryId,
       amount,
       scope = 'workspace',
+      description,
     }: {
       category: string;
       categoryId?: number | null;
       amount: number;
       scope?: EstimateScope;
+      /** Observação da meta. `undefined` não mexe na que existir; `null` apaga. */
+      description?: string | null;
     }) => {
       // O escopo entra na busca: definir a MINHA meta de Mercado não pode
       // sobrescrever a meta da CASA na mesma categoria (elas convivem).
@@ -91,6 +94,7 @@ export function useEstimates(month: string) {
         amount: String(amount),
         month,
         scope,
+        ...(description !== undefined ? { description } : {}),
       };
       if (existing) {
         const response = await apiClient.put(

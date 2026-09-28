@@ -253,6 +253,7 @@ class BudgetOut(BaseModel):
     remaining: Optional[MoneyOut] = None
     over_budget: Optional[bool] = None
     currency: str
+    note: Optional[str] = Field(None, description="Observação da meta (budgets_set.note).")
 
 
 class BudgetsOut(BaseModel):
@@ -314,6 +315,7 @@ def budgets_list(call: ToolCall) -> ToolOutput:
                 remaining=(Decimal(meta.amount) - gasto) if gasto is not None else None,
                 over_budget=(gasto > Decimal(meta.amount)) if gasto is not None else None,
                 currency=resumo["base_currency"],
+                note=meta.description,
             ))
     estouradas = [m for m in metas if m.over_budget]
     resumo_txt = f"{len(metas)} meta(s) em {chave}"

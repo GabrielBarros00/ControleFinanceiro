@@ -72,7 +72,7 @@ Confirmação: `host` = o cliente pede confirmação por não ser `readOnlyHint`
 
 ## Por rota REST
 
-187 rotas.
+189 rotas.
 
 | Rota | Funcionalidade | Tool(s) | Observação |
 |---|---|---|---|
@@ -150,7 +150,8 @@ Confirmação: `host` = o cliente pede confirmação por não ser `readOnlyHint`
 | `GET /api/v1/me/financing/{financing_id}/schedule` | Cronograma | `financings_list` | Cronograma paginado com `financing`. |
 | `GET /api/v1/me/income` | Rendas | `income_list` |  |
 | `POST /api/v1/me/income` | Registrar renda | `income_create` |  |
-| `DELETE /api/v1/me/income/{income_id}` | Excluir renda | `income_delete`, `income_restore` | Exclusão lógica; income_restore desfaz (o app ainda não tem o botão). |
+| `DELETE /api/v1/me/income/{income_id}` | Excluir renda | `income_delete`, `income_restore` | Exclusão lógica; income_restore desfaz. |
+| `POST /api/v1/me/income/{income_id}/restore` | Restaurar renda | `income_restore` |  |
 | `PUT /api/v1/me/income/{income_id}` | Editar renda | `income_update` |  |
 | `POST /api/v1/me/income/{income_id}/cancel` | Cancelar renda | `income_update` |  |
 | `POST /api/v1/me/income/{income_id}/receive` | Confirmar recebimento | `income_update` |  |
@@ -253,6 +254,7 @@ Confirmação: `host` = o cliente pede confirmação por não ser `readOnlyHint`
 | `POST /api/v1/workspaces/{workspace_id}/transactions/preview` | Prévia da divisão | `transactions_create` | A saída da criação já traz a divisão calculada. |
 | `DELETE /api/v1/workspaces/{workspace_id}/transactions/{transaction_id}` | Excluir lançamento | `transactions_delete`, `transactions_bulk_preview`, `transactions_bulk_delete` |  |
 | `GET /api/v1/workspaces/{workspace_id}/transactions/{transaction_id}` | Ver lançamento | `transactions_get`, `transactions_show` |  |
+| `GET /api/v1/workspaces/{workspace_id}/transactions/{transaction_id}/history` | Histórico do lançamento | `transactions_history` |  |
 | `PUT /api/v1/workspaces/{workspace_id}/transactions/{transaction_id}` | Editar lançamento | `transactions_update` |  |
 | `GET /api/v1/workspaces/{workspace_id}/transactions/{transaction_id}/attachments` | Anexos do lançamento | `transactions_get` | `files` traz os metadados de cada anexo. |
 | `POST /api/v1/workspaces/{workspace_id}/transactions/{transaction_id}/attachments` | Enviar anexo | `attachments_upload_link`, `attachments_add` | No ChatGPT, o arquivo que a pessoa pôs na conversa chega por `openai/fileParams` e o servidor o baixa (attachments_add, hosts permitidos em MCP_FILE_URL_HOSTS). Pelo terminal: attachments_upload_link. |

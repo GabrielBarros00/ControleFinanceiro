@@ -66,6 +66,7 @@ function Formulario({ shift = 0 }: { shift?: number }) {
       split_method: 'equal',
       splits: [],
       items: [],
+      adjustments: [],
       settled: true,
     } as TransactionFormValues,
   });

@@ -4,17 +4,26 @@ import { useMembers } from '@/hooks/use-members';
 import { usePaymentAccounts } from '@/hooks/use-payment-accounts';
 import { paymentMethodLabel } from '@/lib/payment-methods';
 import { formatCurrency } from '@/lib/money';
-import type { AdjustmentType, TransactionRead } from '@/types/transaction';
+import { AJUSTE_ROTULO } from '@/lib/ajuste-da-nota';
+import { UNIDADES, UNIDADE_ROTULO, itensDaNota, type Unidade } from '@/lib/item-da-nota';
+import type { TransactionRead } from '@/types/transaction';
 
-const ADJUSTMENT_TYPE_LABELS: Record<AdjustmentType, string> = {
-  discount: 'Desconto',
-  tax: 'Taxa/Imposto',
-  tip: 'Gorjeta',
-  shipping: 'Frete',
-  cashback: 'Cashback',
-  rounding: 'Arredondamento',
-  other: 'Ajuste',
-};
+// "1,235 kg × R$ 39,90": a medida da linha, quando a nota a trouxe (ADR 0040).
+function medida(quantidade: string, unidade: string | null | undefined, unitario: string | null | undefined, moeda: string) {
+  if (unitario == null) return null;
+  const qtd = parseFloat(quantidade).toLocaleString('pt-BR', { maximumFractionDigits: 3 });
+  const un = (UNIDADES as readonly string[]).includes(unidade ?? '') ? ` ${UNIDADE_ROTULO[unidade as Unidade]}` : '';
+  // Até 4 casas: o litro custa R$ 5,899, e cortar para 5,90 mentiria.
+  let preco: string;
+  try {
+    preco = new Intl.NumberFormat('pt-BR', {
+      style: 'currency', currency: moeda, minimumFractionDigits: 2, maximumFractionDigits: 4,
+    }).format(parseFloat(unitario));
+  } catch {
+    preco = formatCurrency(unitario, moeda);
+  }
+  return `${qtd}${un} × ${preco}`;
+}
 
 interface TransactionSummaryProps {
   transaction: TransactionRead;
@@ -34,6 +43,8 @@ export function TransactionSummary({ transaction }: TransactionSummaryProps) {
     accountId != null ? accounts.find((a) => a.id === accountId)?.name : undefined;
 
   const hasAdjustments = (transaction.adjustments ?? []).length > 0;
+  // Sem a sombra da categoria: ela repetiria o próprio lançamento como "item".
+  const nota = itensDaNota(transaction).slice().sort((a, b) => a.position - b.position);
   const isInstallment = transaction.installment_no != null && transaction.installments_of != null;
 
   const splits = transaction.splits ?? [];
@@ -123,12 +134,35 @@ export function TransactionSummary({ transaction }: TransactionSummaryProps) {
         })}
       </div>
 
+      {/* A nota que a pessoa veio conferir. O resumo mostrava os ajustes e
+          não os itens que eles ajustam — o desconto aparecia sem a compra. */}
+      {nota.length > 0 && (
+        <div className="space-y-1" data-testid="summary-items">
+          <p className="text-[11px] font-semibold uppercase text-muted-foreground">Itens da nota</p>
+          {nota.map((item) => {
+            const conta = medida(item.quantity, item.unit, item.unit_amount, transaction.currency);
+            return (
+              <div key={item.id} className="flex items-baseline justify-between gap-3 text-xs">
+                <span className="min-w-0">
+                  <span className="font-bold text-foreground">{item.title}</span>
+                  {conta && <span className="ml-1 text-muted-foreground">{conta}</span>}
+                  {item.description && <span className="block text-muted-foreground">{item.description}</span>}
+                </span>
+                <span className="shrink-0 font-bold text-foreground">
+                  {formatCurrency(parseFloat(item.amount), transaction.currency)}
+                </span>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
       {hasAdjustments && (
         <div className="space-y-1">
-          <p className="text-[11px] font-semibold uppercase text-muted-foreground">Ajustes do documento</p>
+          <p className="text-[11px] font-semibold uppercase text-muted-foreground">Ajustes da nota</p>
           {(transaction.adjustments ?? []).map((adj) => (
             <p key={adj.id} className="text-xs text-foreground">
-              {ADJUSTMENT_TYPE_LABELS[adj.type]}
+              {AJUSTE_ROTULO[adj.type]}
               {adj.description ? ` (${adj.description})` : ''}:{' '}
               <span className={`font-bold ${parseFloat(adj.amount) < 0 ? 'text-income' : ''}`}>
                 {formatCurrency(parseFloat(adj.amount), transaction.currency)}

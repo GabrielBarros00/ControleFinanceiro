@@ -61,6 +61,31 @@ def test_assinatura_dividida_mostra_a_minha_parte(mcp_client, c):
     assert lista["monthly_my_share"] == {"BRL": "26.95"}
 
 
+def test_despesa_recorrente_guarda_conta_de_origem_pelo_agente(mcp_client, c):
+    criada = ok(call_tool(mcp_client, c.token, "recurring_create", {
+        "idempotency_key": chave(), "title": "Internet", "amount": "120.00", "space": "Casa",
+        "payment_method": "pix", "account": "Itaú", "day_of_month": 5, "materialize": "future",
+    }))['recurring']
+    assert criada["account"]["name"] == "Itaú"
+    editada = ok(call_tool(mcp_client, c.token, "recurring_update", {
+        "recurring_id": criada["id"], "title": "Internet nova",
+    }))['recurring']
+    assert editada["account"]["name"] == "Itaú"
+    retirada = ok(call_tool(mcp_client, c.token, "recurring_update", {
+        "recurring_id": criada["id"], "remove_account": True,
+    }))['recurring']
+    assert retirada["account"] is None
+
+    ok(call_tool(mcp_client, c.token, "recurring_update", {
+        "recurring_id": criada["id"], "account": "Itaú",
+    }))
+    outro_pagador = ok(call_tool(mcp_client, c.token, "recurring_update", {
+        "recurring_id": criada["id"], "paid_by_id": c.joao.id, "split_with_ids": [c.joao.id],
+    }))['recurring']
+    assert outro_pagador["paid_by"]["name"] == "João Pereira"
+    assert outro_pagador["account"] is None
+
+
 def test_renda_recorrente_pelo_agente(mcp_client, db_session, c):
     criada = ok(call_tool(mcp_client, c.token, "recurring_create", {
         "idempotency_key": chave(), "kind": "income", "title": "Salário", "amount": "4000.00",
@@ -116,6 +141,12 @@ def test_renda_com_descricao_conta_excluir_e_restaurar(mcp_client, db_session, c
     ok(call_tool(mcp_client, c.token, "income_delete", {"income_id": renda["id"]}))
     assert db_session.get(Income, renda["id"]).deleted_at is not None
     assert err(call_tool(mcp_client, c.token, "income_list", {"income_id": renda["id"]}))["code"] == "NOT_FOUND"
+    excluidas = ok(call_tool(mcp_client, c.token, "income_list", {"income_id": renda["id"], "deleted": True}))
+    assert [r["id"] for r in excluidas["incomes"]] == [renda["id"]]
+    assert excluidas["currency_totals"] == {}
+    assert err(call_tool(mcp_client, c.token_bob, "income_list", {
+        "income_id": renda["id"], "deleted": True,
+    }))["code"] == "NOT_FOUND"
     volta = ok(call_tool(mcp_client, c.token, "income_restore", {"income_id": renda["id"]}))["income"]
     assert volta["amount"] == "800.00"
     db_session.expire_all()
@@ -394,6 +425,12 @@ def test_historico_do_lancamento(mcp_client, db_session, c):
     tx = _cria(mcp_client, c, title="Mercado", amount="80.00")
     ok(call_tool(mcp_client, c.token, "transactions_update", {"transaction_id": tx["id"], "amount": "95.00"}))
     ok(call_tool(mcp_client, c.token, "transactions_delete", {"transaction_id": tx["id"]}))
+    excluidos = ok(call_tool(mcp_client, c.token, "transactions_search", {"deleted": True, "text": "Mercado"}))
+    assert [item["id"] for item in excluidos["items"]] == [tx["id"]]
+    assert excluidos["totals"] == [] and excluidos["my_share_totals"] == []
+    assert ok(call_tool(mcp_client, c.token_bob, "transactions_search", {
+        "deleted": True, "text": "Mercado",
+    }))["items"] == []
     ok(call_tool(mcp_client, c.token, "transactions_restore", {"transaction_id": tx["id"]}))
     hist = ok(call_tool(mcp_client, c.token, "transactions_history", {"transaction_id": tx["id"]}))["entries"]
     acoes = [e["action"] for e in hist]

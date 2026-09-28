@@ -55,6 +55,11 @@ Nomes que já causaram defeito por dizerem uma coisa e significarem outra.
     partes (`TransactionItemShare`), e a divisão da despesa é derivada delas.
   - **Ajustes** (`TransactionAdjustment`): desconto, frete, gorjeta, cashback… entram no
     total.
+  - **A nota existe nos dois modos.** Itens e ajustes não são exclusivos da divisão
+    por item: com `split_mode = transaction` os itens da nota não têm partes (quem
+    divide é a despesa inteira), e é assim que o MCP grava a nota em que nenhum item
+    tem divisão própria. Tratar todo item desse modo como item-sombra escondia a nota
+    na tela, e a edição completa — que substitui itens e ajustes — a apagava.
 - **Item da nota** (`TransactionItem`): uma linha da nota, com **quantidade**
   (`quantity`, até 3 casas), **unidade** (`unit`: `un`, `kg`, `g`, `l`, `ml`, `m`) e
   **preço unitário** (`unit_amount`, até 4 casas — o litro custa R$ 5,899). O **total
@@ -81,6 +86,9 @@ Nomes que já causaram defeito por dizerem uma coisa e significarem outra.
 - **Recorrência** (`RecurringExpense`: `frequency` + `interval` + `start_date`/`end_date`)
   gera **ocorrências**: lançamentos materializados com `occurrence_date`. A ocorrência
   excluída deixa marca e não volta (ADR 0012, ADR 0030).
+  A **conta de origem** (`account_id`) é pessoal de quem paga (`payer_user_id`, ou
+  quem criou), na moeda-base do espaço; cada ocorrência herda a conta enquanto
+  ela estiver ativa. No cartão, a compra vai para a fatura e não usa conta.
 - **Categoria** e **tag**: do espaço. A categoria fica no item do lançamento.
 - **Estabelecimento** (`Merchant`, ADR 0038): onde a despesa foi feita, vocabulário do
   espaço como a categoria. O lançamento e a recorrência apontam para um
@@ -255,7 +263,8 @@ Ver [docs/mcp/](docs/mcp/README.md) e o ADR 0035.
 - **Compra** (`purchase`): num parcelado, a compra inteira remontada das parcelas vivas,
   com os itens uma vez só. Os itens ficam FATIADOS nas parcelas no banco.
 - **Item-sombra**: o único `TransactionItem` de um lançamento simples com categoria (é
-  onde a categoria mora). A saída do MCP não o mostra como item da nota.
+  onde a categoria mora). A saída do MCP não o mostra como item da nota, e a tela
+  também não (`itensDaNota` em `frontend/src/lib/item-da-nota.ts`, a mesma regra).
 - **Link de envio** (`cfm_up_…`): token de uso único que `attachments_upload_link` emite
   para o agente de terminal mandar um arquivo com `curl` a `POST /api/v1/mcp/uploads`.
   O arquivo não passa pela conversa; a rota reconfere tudo e grava pelo mesmo comando

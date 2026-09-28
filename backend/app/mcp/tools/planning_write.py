@@ -114,13 +114,6 @@ class _RecurringFields(ToolInput):
         return self
 
 
-def _sem_conta(d: DivisionIn) -> None:
-    if d.account is not None or d.account_id is not None:
-        raise McpToolError(
-            ErrorCode.VALIDATION_ERROR,
-            "Despesa recorrente não guarda conta de origem pela IA; `account` vale para renda recorrente (kind=income).",
-        )
-
 # --- renda recorrente (kind=income) -------------------------------------------------------
 
 _SO_DESPESA = (
@@ -131,6 +124,7 @@ _SO_DESPESA = (
     ("category_id", "category_id (renda usa `category` em texto)"),
     ("merchant", "merchant"), ("subscription", "subscription"), ("plan", "plan"),
     ("trial_ends_on", "trial_ends_on"), ("notes", "notes"),
+    ("remove_account", "remove_account"),
 )
 
 
@@ -293,7 +287,7 @@ def _replay_recurring(call: ToolCall, ref: dict) -> ToolOutput:
     description=(
         "Cria uma despesa que se repete (aluguel, assinatura, academia) ou, com `kind=income`, uma renda "
         "que se repete (salário): o app lança cada ocorrência sozinho, com a mesma divisão, categoria e "
-        "cartão (renda: a conta onde cai, em `account`).\n"
+        "cartão e conta (`account`).\n"
         "Use quando: o usuário disser \"todo mês pago R$ 49,90 de streaming no Nubank\", \"o aluguel "
         "de R$ 2.000 vence dia 5, metade do João\", \"meu salário é R$ 4.000 todo dia 5\".\n"
         "Não use quando: for uma compra parcelada (transactions_create com installments) ou um gasto/"
@@ -326,7 +320,6 @@ def recurring_create(call: ToolCall) -> ToolOutput:
     me = call.identity.user_id
     if a.kind == "income":
         return _create_income(call, a)
-    _sem_conta(a)
     ref = resolve.resolve_space(call.session, me, space_id=a.space_id, space=a.space)
     if ref is None:
         nomes, ids = a.people_named()
@@ -335,6 +328,9 @@ def recurring_create(call: ToolCall) -> ToolOutput:
     categoria = resolve.resolve_category(call.session, ref.id, category_id=a.category_id, category=a.category)
     cartao = resolve.resolve_card(call.session, me, card_id=a.card_id, card=a.card)
     pagador, snapshot = _snapshot(call, ref.id, a, a.amount)
+    conta = _conta_da_renda(call, a)
+    if conta is not None and pagador not in (None, me):
+        raise McpToolError(ErrorCode.VALIDATION_ERROR, "A conta só pode ser informada quando você paga a recorrência.")
     metodo = PaymentMethod.credit_card if cartao else (PaymentMethod(a.payment_method) if a.payment_method else None)
     entrada = RecurringCreate(
         title=a.title,
@@ -356,6 +352,7 @@ def recurring_create(call: ToolCall) -> ToolOutput:
         statement_shift=a.statement_shift or 0,
         category_id=categoria.id if categoria else None,
         payer_user_id=pagador,
+        account_id=conta,
         split_snapshot=snapshot,
         is_subscription=bool(a.subscription or a.plan or a.trial_ends_on),
         plan=a.plan or None,
@@ -385,6 +382,7 @@ class _RecurringUpdateCore(ToolInput):
     amount: Optional[MoneyIn] = None
     active: Optional[bool] = Field(None, description="false = pausar (para de lançar); true = retomar.")
     remove_card: bool = Field(False, description="true = a cobrança deixa de ser no cartão.")
+    remove_account: bool = Field(False, description="Tira a conta de origem.")
     remove_category: bool = False
     apply_to: Literal["none", "future", "all"] = Field(
         "future",
@@ -404,11 +402,15 @@ class RecurringUpdateIn(DivisionIn, _RecurringFields, _RecurringUpdateCore):
             raise ValueError("remove_card não combina com card/card_id")
         if self.remove_category and (self.category is not None or self.category_id is not None):
             raise ValueError("remove_category não combina com category/category_id")
+        if self.remove_account and (self.account is not None or self.account_id is not None):
+            raise ValueError("remove_account não combina com account/account_id")
         mudancas = self.model_dump(exclude_unset=True, exclude={"recurring_id", "apply_to", "kind", "expected_version"})
         if not self.remove_card:
             mudancas.pop("remove_card", None)
         if not self.remove_category:
             mudancas.pop("remove_category", None)
+        if not self.remove_account:
+            mudancas.pop("remove_account", None)
         if not mudancas:
             raise ValueError("nada para alterar: informe ao menos um campo")
         return self
@@ -419,7 +421,7 @@ class RecurringUpdateIn(DivisionIn, _RecurringFields, _RecurringUpdateCore):
     title="Editar recorrência",
     description=(
         "Altera uma despesa recorrente (ou, com `kind=income`, uma renda recorrente): valor, dia, "
-        "frequência, fim, categoria, cartão, divisão, conta da renda, ou pausa/retoma (`active`). "
+        "frequência, fim, categoria, cartão, divisão, conta ou pausa/retoma (`active`). "
         "Ocorrências já pagas nunca mudam; as não pagas seguem `apply_to`.\n"
         "Use quando: \"o streaming subiu para R$ 55\", \"pare de lançar a academia\", \"o aluguel "
         "agora vence dia 10\". Pegue o id em recurring_list.\n"
@@ -445,7 +447,6 @@ def recurring_update(call: ToolCall) -> ToolOutput:
     me = call.identity.user_id
     if a.kind == "income":
         return _update_income(call, a)
-    _sem_conta(a)
     ws_id = call.session.exec(select(RecurringExpense.workspace_id).where(RecurringExpense.id == a.recurring_id)).first()
     if ws_id is None:
         raise McpToolError(ErrorCode.NOT_FOUND, "Recorrência não encontrada.", details={"recurring_id": a.recurring_id})
@@ -491,6 +492,17 @@ def recurring_update(call: ToolCall) -> ToolOutput:
         pagador, snapshot = _snapshot(call, ws_id, a, a.amount or t.base_amount)
         dados["payer_user_id"] = pagador
         dados["split_snapshot"] = snapshot
+        # A conta anterior é pessoal. Ao transferir o pagamento para outra
+        # pessoa, solte-a como faz o formulário; preservá-la reprovaria a edição.
+        if pagador not in (None, me) and t.account_id is not None:
+            dados["account_id"] = None
+    if a.remove_account:
+        dados["account_id"] = None
+    elif a.account is not None or a.account_id is not None:
+        pagador_efetivo = dados.get("payer_user_id") or t.payer_user_id or t.created_by_user_id
+        if pagador_efetivo != me:
+            raise McpToolError(ErrorCode.VALIDATION_ERROR, "A conta só pode ser informada quando você paga a recorrência.")
+        dados["account_id"] = _conta_da_renda(call, a)
     # Assinatura (ADR 0039): "" apaga plano e observações; `merchant` "" desvincula.
     if a.subscription is not None:
         dados["is_subscription"] = a.subscription
@@ -626,7 +638,10 @@ class BudgetSetIn(ToolInput):
             "Obrigatório em espaço com mais de uma pessoa."
         ),
     )
-    note: Optional[str] = Field(None, max_length=DESCRIPTION_MAX)
+    note: Optional[str] = Field(
+        None, max_length=DESCRIPTION_MAX,
+        description="Observação da meta. Omitida, a que existir fica; \"\" apaga.",
+    )
 
     @model_validator(mode="after")
     def _pares(self):
@@ -685,13 +700,17 @@ def budgets_set(call: ToolCall) -> ToolOutput:
         )
     categoria = resolve.resolve_category(call.session, ref.id, category_id=a.category_id, category=a.category)
     mes = a.month or today_local().strftime("%Y-%m")
+    # A observação só vai quando foi dita: passar `None` a apagaria na meta que
+    # já existe, e a descrição desta tool promete que chamar de novo só atualiza
+    # o valor.
+    observacao = {"description": a.note or None} if a.note is not None else {}
     meta, criada = plan_cmd.create_estimate(call.session, ref.id, MonthlyEstimateCreate(
         category=categoria.name,
         category_id=categoria.id,
         amount=a.amount,
         month=mes,
-        description=a.note,
         scope="personal" if a.scope == "personal" else "workspace",
+        **observacao,
     ), membership)
     call.session.flush()
     saida = BudgetSetOut(

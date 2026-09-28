@@ -343,6 +343,7 @@ class IncomeIn(ToolInput):
     month: Optional[MonthKey] = Field(None, description="Competência (YYYY-MM). Omitido: o mês atual.")
     status: Optional[Literal["expected", "received", "overdue", "cancelled"]] = None
     income_id: Optional[int] = Field(None, ge=1, description="Uma renda específica, de qualquer mês.")
+    deleted: bool = Field(False, description="Só excluídas (para restaurar).")
 
 
 class IncomeOut(BaseModel):
@@ -394,7 +395,7 @@ def nomes_de_contas(call: ToolCall, ids) -> dict[int, str]:
 
 class IncomeListOut(BaseModel):
     month: Optional[str] = None
-    currency_totals: dict[str, MoneyOut] = Field(description="Total por moeda, sem as canceladas.")
+    currency_totals: dict[str, MoneyOut] = Field(description="Total por moeda, sem as canceladas e excluídas.")
     incomes: List[IncomeOut]
 
 
@@ -406,6 +407,7 @@ class IncomeListOut(BaseModel):
         "recebida, atrasada ou cancelada, a conta e a recorrência de origem. Com `income_id`, "
         "devolve só aquela renda (de qualquer mês).\n"
         "Use quando: 'meu salário caiu?', 'quanto vou receber este mês?', ou antes de editar uma renda.\n"
+        "Excluídas: `deleted=true`.\n"
         "Não use quando: quiser registrar ou marcar renda como recebida (income_create / income_update)."
     ),
     input_model=IncomeIn,
@@ -416,7 +418,8 @@ class IncomeListOut(BaseModel):
 def income_list(call: ToolCall) -> ToolOutput:
     a: IncomeIn = call.args
     me = call.identity.user_id
-    consulta = select(Income).where(Income.deleted_at.is_(None), personal_scope(Income.user_id, me))
+    apagada = Income.deleted_at.is_not(None) if a.deleted else Income.deleted_at.is_(None)
+    consulta = select(Income).where(apagada, personal_scope(Income.user_id, me))
     mes = None
     if a.income_id is not None:
         consulta = consulta.where(Income.id == a.income_id)
@@ -435,7 +438,7 @@ def income_list(call: ToolCall) -> ToolOutput:
         item = income_out(r, contas)
         if a.status and item.status != a.status:
             continue
-        if item.status != "cancelled":
+        if not a.deleted and item.status != "cancelled":
             totais[r.currency] = totais.get(r.currency, Decimal("0")) + Decimal(r.amount)
         rendas.append(item)
     return ToolOutput(

@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { render, screen, within, fireEvent, waitFor } from '@/test/utils';
 import { RecurringTransactionsPage } from '../RecurringTransactionsPage';
+import { useAuthStore } from '@/stores';
 
 /**
  * Recorrência — a tela que sabia tudo menos a resposta.
@@ -21,6 +22,7 @@ const ITENS = [
     id: 1, title: 'Aluguel', base_amount: '2500.00', currency: 'BRL',
     frequency: 'monthly', interval: 1, day_of_month: 5, is_active: true,
     category_id: null, payment_method: 'pix', credit_card_id: null,
+    account_id: 7,
     // O equivalente mensal vem do servidor (ADR 0039), como a API manda.
     monthly_equivalent: '2500.00', my_monthly_equivalent: '1250.00',
     // Já dividido: é o que o teste de edição carrega de volta nas pílulas.
@@ -32,7 +34,8 @@ const ITENS = [
   {
     id: 2, title: 'Streaming', base_amount: '55.90', currency: 'BRL',
     frequency: 'monthly', interval: 1, day_of_month: 12, is_active: true,
-    category_id: null, payment_method: 'credit_card', credit_card_id: null,
+    // Cobrada perto do fechamento: cai na fatura seguinte todo mês (ADR 0032).
+    category_id: null, payment_method: 'credit_card', credit_card_id: 9, statement_shift: 1,
     monthly_equivalent: '55.90', my_monthly_equivalent: '55.90',
     is_subscription: true, plan: 'Premium', next_occurrence: '2099-01-12',
   },
@@ -51,18 +54,34 @@ const ITENS = [
     category_id: null, payment_method: 'pix', credit_card_id: null,
     monthly_equivalent: '99.00', my_monthly_equivalent: '99.00', is_subscription: true,
   },
+  {
+    // Dividida 60/40, como o agente de IA grava ("60% meu, 40% do Bruno").
+    // Inativa para não mexer no total do topo, que os testes acima medem.
+    id: 5, title: 'Condomínio', base_amount: '1000.00', currency: 'BRL',
+    frequency: 'monthly', interval: 1, day_of_month: 10, is_active: false,
+    category_id: null, payment_method: 'pix', credit_card_id: null,
+    monthly_equivalent: '1000.00', my_monthly_equivalent: '600.00',
+    // Quem paga é o Bruno — o agente grava "o condomínio quem paga é o Bruno".
+    payer_user_id: 2, created_by_user_id: 1,
+    split_snapshot: [
+      { user_id: 1, split_method: 'percentage', input_value: '60.00' },
+      { user_id: 2, split_method: 'percentage', input_value: '40.00' },
+    ],
+  },
 ];
 
 const criar = vi.hoisted(() => vi.fn());
+const atualizar = vi.hoisted(() => vi.fn());
 vi.mock('@/hooks/use-recurring', () => ({
   useRecurring: () => ({
     recurring: ITENS,
     isLoading: false,
     create: criar,
-    update: vi.fn(),
+    update: atualizar,
     remove: vi.fn(),
     generate: vi.fn(),
-    preview: vi.fn(),
+    // Nada a revisar: a edição segue direto para o `update`.
+    preview: async () => [],
     isGenerating: false,
     isPreviewing: false,
   }),
@@ -82,6 +101,9 @@ vi.mock('@/hooks/use-categories', () => ({
 vi.mock('@/hooks/use-base-currency', () => ({ useBaseCurrency: () => 'BRL' }));
 vi.mock('@/hooks/use-credit-cards', () => ({
   useCreditCards: () => ({ cards: [{ id: 9, name: 'Nubank', currency: 'BRL' }] }),
+}));
+vi.mock('@/hooks/use-payment-accounts', () => ({
+  usePaymentAccounts: () => ({ accounts: [{ id: 7, name: 'Itaú', currency: 'BRL', active: true }] }),
 }));
 vi.mock('@/components/ui/confirm', () => ({ useConfirm: () => vi.fn() }));
 
@@ -121,7 +143,7 @@ describe('Recorrência', () => {
 
     const tabela = screen.getByRole('table');
     // A informação continua na tela...
-    expect(within(tabela).getByText(/inativa/i)).toBeInTheDocument();
+    expect(within(tabela).getAllByText(/inativa/i).length).toBeGreaterThan(0);
     // ...mas sem uma coluna cujo cabeçalho promete algo que quase toda linha
     // responde igual.
     expect(within(tabela).queryByRole('columnheader', { name: /status/i })).toBeNull();
@@ -247,6 +269,22 @@ describe('Recorrência — dividir com', () => {
   });
 });
 
+describe('Recorrência — conta de origem', () => {
+  beforeEach(() => atualizar.mockClear());
+
+  it('mostra a conta no cadastro e a preserva ao editar o título', async () => {
+    desenhar();
+    expect(screen.getAllByText(/sai de Itaú/).length).toBeGreaterThan(0);
+    fireEvent.click(screen.getByRole('button', { name: /editar recorrência aluguel/i }));
+    const dialogo = screen.getByRole('dialog');
+    expect((within(dialogo).getByLabelText('Conta de onde sai') as HTMLSelectElement).value).toBe('7');
+    fireEvent.change(within(dialogo).getByLabelText(/título/i), { target: { value: 'Aluguel novo' } });
+    fireEvent.click(within(dialogo).getByRole('button', { name: /^salvar$/i }));
+    await waitFor(() => expect(atualizar).toHaveBeenCalled());
+    expect(atualizar.mock.calls[0][0].data.account_id).toBe(7);
+  });
+});
+
 /**
  * "No cartão" sem cartão.
  *
@@ -296,5 +334,119 @@ describe('Recorrência — cartão coerente', () => {
       target: { value: 'pix' },
     });
     expect(within(dialogo).getByRole('button', { name: /^salvar$/i })).toBeEnabled();
+  });
+});
+
+/*
+ * Como dividir: igual, porcentagem ou valor fixo.
+ *
+ * A tela só sabia "igual" e mandava `equal` a cada edição. A recorrência que o
+ * agente de IA grava com 60/40 virava 50/50 na primeira vez que alguém corrigia
+ * o título pela tela — sem aviso, e em toda ocorrência dali em diante.
+ */
+describe('Recorrência — como dividir', () => {
+  beforeEach(() => { criar.mockClear(); atualizar.mockClear(); });
+
+  it('editar uma divisão 60/40 mostra os percentuais e salva 60/40', async () => {
+    desenhar();
+    fireEvent.click(screen.getByRole('button', { name: /editar recorrência condomínio/i }));
+    const dialogo = screen.getByRole('dialog');
+
+    expect(within(dialogo).getByRole('radio', { name: 'Porcentagem' })).toBeChecked();
+    expect((within(dialogo).getByLabelText('Percentual de Ana') as HTMLInputElement).value).toBe('60');
+    expect((within(dialogo).getByLabelText('Percentual de Bruno') as HTMLInputElement).value).toBe('40');
+
+    fireEvent.change(within(dialogo).getByLabelText(/título/i), { target: { value: 'Condomínio do prédio' } });
+    fireEvent.click(within(dialogo).getByRole('button', { name: /^salvar$/i }));
+
+    await waitFor(() => expect(atualizar).toHaveBeenCalled());
+    expect(atualizar.mock.calls[0][0].data.split_snapshot).toEqual([
+      { user_id: 1, split_method: 'percentage', input_value: 60 },
+      { user_id: 2, split_method: 'percentage', input_value: 40 },
+    ]);
+  });
+
+  it('percentuais que não somam 100 travam o salvar e dizem quanto falta', async () => {
+    desenhar();
+    fireEvent.click(screen.getByRole('button', { name: /editar recorrência condomínio/i }));
+    const dialogo = screen.getByRole('dialog');
+
+    fireEvent.change(within(dialogo).getByLabelText('Percentual de Bruno'), { target: { value: '30' } });
+    fireEvent.click(within(dialogo).getByRole('button', { name: /^salvar$/i }));
+
+    expect(await within(dialogo).findByText('Os percentuais somam 90% — faltam 10%')).toBeInTheDocument();
+    expect(atualizar).not.toHaveBeenCalled();
+  });
+
+  it('valor fixo manda o valor de cada um', async () => {
+    desenhar();
+    fireEvent.click(screen.getByRole('button', { name: /nova despesa/i }));
+    const dialogo = screen.getByRole('dialog');
+    fireEvent.change(within(dialogo).getByLabelText(/título/i), { target: { value: 'Aluguel' } });
+    fireEvent.change(within(dialogo).getByLabelText(/valor base/i), { target: { value: '3.000,00' } });
+    fireEvent.click(within(dialogo).getByRole('button', { name: 'Ana' }));
+    fireEvent.click(within(dialogo).getByRole('button', { name: 'Bruno' }));
+    fireEvent.click(within(dialogo).getByRole('radio', { name: 'Valor fixo' }));
+    fireEvent.change(within(dialogo).getByLabelText('Valor de Ana'), { target: { value: '1.800,00' } });
+    fireEvent.change(within(dialogo).getByLabelText('Valor de Bruno'), { target: { value: '1.200,00' } });
+    fireEvent.click(within(dialogo).getByRole('button', { name: /^salvar$/i }));
+
+    await waitFor(() => expect(criar).toHaveBeenCalled());
+    expect(criar.mock.calls[0][0].data.split_snapshot).toEqual([
+      { user_id: 1, split_method: 'fixed', input_value: 1800 },
+      { user_id: 2, split_method: 'fixed', input_value: 1200 },
+    ]);
+  });
+});
+
+/*
+ * Quem paga e em qual fatura cai.
+ *
+ * Os dois existem no contrato do recorrente e o agente de IA os grava ("o
+ * condomínio quem paga é o Bruno"; "a assinatura cai na fatura seguinte"). A
+ * tela não mostrava nenhum dos dois — nem na lista, nem no formulário.
+ */
+describe('Recorrência — quem paga e a fatura', () => {
+  beforeEach(() => {
+    atualizar.mockClear();
+    useAuthStore.getState().setUser({ id: 1, name: 'Ana', email: 'ana@t.com' });
+  });
+
+  it('a lista diz quem paga quando não é você, e a fatura deslocada', () => {
+    desenhar();
+    const tabela = screen.getByRole('table');
+    expect(within(tabela).getByText(/pago por Bruno/)).toBeInTheDocument();
+    expect(within(tabela).getByText(/cai na fatura seguinte/)).toBeInTheDocument();
+  });
+
+  it('editar mostra quem paga e o devolve ao salvar', async () => {
+    desenhar();
+    fireEvent.click(screen.getByRole('button', { name: /editar recorrência condomínio/i }));
+    const dialogo = screen.getByRole('dialog');
+    expect((within(dialogo).getByLabelText('Quem paga') as HTMLSelectElement).value).toBe('2');
+
+    fireEvent.click(within(dialogo).getByRole('button', { name: /^salvar$/i }));
+    await waitFor(() => expect(atualizar).toHaveBeenCalled());
+    expect(atualizar.mock.calls[0][0].data).toMatchObject({ payer_user_id: 2 });
+  });
+
+  it('editar mostra a fatura deslocada e a devolve ao salvar', async () => {
+    desenhar();
+    fireEvent.click(screen.getByRole('button', { name: /editar recorrência streaming/i }));
+    const dialogo = screen.getByRole('dialog');
+    expect((within(dialogo).getByLabelText('Em qual fatura cai') as HTMLSelectElement).value).toBe('1');
+
+    fireEvent.click(within(dialogo).getByRole('button', { name: /^salvar$/i }));
+    await waitFor(() => expect(atualizar).toHaveBeenCalled());
+    expect(atualizar.mock.calls[0][0].data).toMatchObject({ statement_shift: 1, payer_user_id: 1, credit_card_id: 9 });
+  });
+
+  it('no cartão, outra pessoa pagando trava o salvar e diz por quê', () => {
+    desenhar();
+    fireEvent.click(screen.getByRole('button', { name: /editar recorrência streaming/i }));
+    const dialogo = screen.getByRole('dialog');
+    fireEvent.change(within(dialogo).getByLabelText('Quem paga'), { target: { value: '2' } });
+    expect(within(dialogo).getByText(/No cartão, quem paga é o dono dele/)).toBeInTheDocument();
+    expect(within(dialogo).getByRole('button', { name: /^salvar$/i })).toBeDisabled();
   });
 });

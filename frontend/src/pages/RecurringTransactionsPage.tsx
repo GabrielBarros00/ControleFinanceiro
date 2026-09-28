@@ -2,7 +2,9 @@ import * as React from 'react';
 import { Card, CardContent } from "@/components/ui/card";
 import { StatTile } from "@/components/ui/stat-tile";
 import { ChipsDeDivisao } from "@/components/money/ChipsDeDivisao";
+import { MetodoDaDivisao, type MetodoDeDivisao } from "@/components/money/MetodoDaDivisao";
 import { useMembers } from '@/hooks/use-members';
+import { useAuthStore } from '@/stores';
 import { useWorkspaceId } from '@/hooks/use-workspace-id';
 import { Link } from 'react-router-dom';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -54,6 +56,7 @@ import { SubscriptionFields, type SubscriptionFieldsValue } from '@/components/r
 import { SubscriptionsPanel } from '@/components/recurrence/SubscriptionsPanel';
 import { emTeste } from '@/lib/assinatura';
 import { useMerchants } from '@/hooks/use-merchants';
+import { usePaymentAccounts } from '@/hooks/use-payment-accounts';
 
 // Base UI Select foge do focus-trap do Dialog (Radix) — dentro de modal usamos
 // <select> nativo, mesmo padrão de AmortizationTable/PaymentMethodField.
@@ -71,6 +74,7 @@ const recurringSchema = z.object({
   payment_method: z.string(),
   // 0 = nenhum cartão; só vale com payment_method === 'credit_card' (o backend recusa o resto)
   credit_card_id: z.number(),
+  account_id: z.number(),
   custom: z.boolean(),
   // "Pagamento automático" (ADR 0029): o banco debita sozinho na data, então a
   // ocorrência nasce liquidada e não entra em Contas a pagar.
@@ -96,6 +100,26 @@ const recurringSchema = z.object({
    * importa porque a recorrência materializa sozinha.
    */
   split_user_ids: z.array(z.string()),
+  /*
+   * Quem paga cada ocorrência (id de membro, em texto). O agente de IA grava
+   * "o aluguel quem paga é o João"; a tela não mostrava nem deixava trocar.
+   */
+  payer_id: z.string(),
+  /*
+   * Em qual fatura a cobrança cai, relativa à regra do fechamento (ADR 0032):
+   * a assinatura cobrada perto do fechamento cai na seguinte TODO mês. Existia
+   * no contrato e o agente o gravava; a tela não o mostrava.
+   */
+  statement_shift: z.number().int().min(-1).max(2),
+  /*
+   * COMO dividir entre os marcados. A tela só conhecia partes iguais e mandava
+   * `equal` a cada edição: a recorrência que o agente de IA criou com 60/40 ou
+   * valor fixo virava 50/50 quando alguém corrigia o título. Os três métodos do
+   * contrato fazem agora o caminho de ida e volta.
+   */
+  split_method: z.enum(['equal', 'percentage', 'fixed']),
+  /** Percentual ou valor de cada participante, por id (ignorado no igual). */
+  split_values: z.record(z.string(), z.number()),
   // Assinatura (ADR 0039) e o estabelecimento/provedor (ADR 0038).
   is_subscription: z.boolean(),
   plan: z.string().max(120),
@@ -104,6 +128,41 @@ const recurringSchema = z.object({
   merchant_name: z.string().max(120),
   /** O nome com que o formulário abriu: o campo só vai quando muda. */
   merchant_initial: z.string(),
+}).superRefine((d, ctx) => {
+  // As mesmas somas que a despesa avulsa confere. Sem elas o erro só apareceria
+  // na materialização, num mês em que ninguém está olhando.
+  if (d.split_method === 'equal' || d.split_user_ids.length === 0) return;
+  const valores = d.split_user_ids.map((id) => d.split_values[id] ?? 0);
+  if (d.split_method === 'percentage') {
+    if (valores.some((v) => !(v > 0) || v > 100)) {
+      ctx.addIssue({ code: 'custom', path: ['split_values'], message: 'Cada percentual deve ficar entre 0 e 100' });
+      return;
+    }
+    const soma = valores.reduce((acc, v) => acc + Math.round(v * 100), 0);
+    if (soma !== 10000) {
+      const pct = (n: number) => (n / 100).toLocaleString('pt-BR', { maximumFractionDigits: 2 });
+      ctx.addIssue({
+        code: 'custom',
+        path: ['split_values'],
+        message: soma < 10000
+          ? `Os percentuais somam ${pct(soma)}% — faltam ${pct(10000 - soma)}%`
+          : `Os percentuais somam ${pct(soma)}% — ${pct(soma - 10000)}% acima de 100%`,
+      });
+    }
+    return;
+  }
+  const soma = valores.reduce((acc, v) => acc + Math.round(v * 100), 0);
+  const total = Math.round(d.base_amount * 100);
+  if (soma !== total) {
+    const fmt = (c: number) => formatCurrency(c / 100, d.currency || 'BRL');
+    ctx.addIssue({
+      code: 'custom',
+      path: ['split_values'],
+      message: soma < total
+        ? `Os valores somam ${fmt(soma)} de ${fmt(total)} — faltam ${fmt(total - soma)}`
+        : `Os valores somam ${fmt(soma)} de ${fmt(total)} — ${fmt(soma - total)} acima do total`,
+    });
+  }
 });
 
 type RecurringValues = z.infer<typeof recurringSchema>;
@@ -117,6 +176,7 @@ interface RecurringItem {
   category_id?: number | null;
   payment_method?: string | null;
   credit_card_id?: number | null;
+  account_id?: number | null;
   auto_settle?: boolean | null;
   frequency: 'daily' | 'weekly' | 'monthly' | 'yearly';
   interval?: number | null;
@@ -129,6 +189,11 @@ interface RecurringItem {
   is_active: boolean;
   /** Divisão do template (ADR 0012): materializa em splits de verdade. */
   split_snapshot?: { user_id: number; split_method?: string; input_value?: string }[] | null;
+  /** Quem paga; `null` = quem cadastrou. */
+  payer_user_id?: number | null;
+  created_by_user_id?: number | null;
+  /** Deslocamento de fatura do template (ADR 0032). */
+  statement_shift?: number | null;
   /** Derivados do servidor: alimentam o "87 de 144 restantes" da lista. */
   occurrences_total?: number | null;
   occurrences_remaining?: number | null;
@@ -167,13 +232,43 @@ function custoMensal(item: RecurringItem): number {
   return Number.isFinite(valor) ? valor : 0;
 }
 
+/** O método gravado na divisão do template; sem divisão, igual. */
+function metodoDoSnapshot(snapshot: RecurringItem['split_snapshot']): MetodoDeDivisao {
+  const metodo = snapshot?.[0]?.split_method;
+  return metodo === 'percentage' || metodo === 'fixed' ? metodo : 'equal';
+}
+
+/** Como a lista e o formulário dizem o deslocamento de fatura (ADR 0032). */
+const FATURA_DO_DESLOCAMENTO: Record<number, string> = {
+  [-1]: 'Uma fatura antes da regra',
+  0: 'A da regra do fechamento',
+  1: 'A fatura seguinte',
+  2: 'Duas faturas à frente',
+};
+
+const DESLOCAMENTO_NA_LINHA: Record<number, string> = {
+  [-1]: 'cai uma fatura antes',
+  1: 'cai na fatura seguinte',
+  2: 'cai duas faturas à frente',
+};
+
 /** A linha de apoio da lista — vazia quando não há o que dizer. */
-function metaDaLinha(item: RecurringItem, cards: unknown[]): string {
+function metaDaLinha(
+  item: RecurringItem,
+  cards: unknown[],
+  accounts: { id: number; name: string }[],
+  pagador?: (item: RecurringItem) => string | null,
+): string {
   const forma = paymentMethodLabel(item.payment_method, item.credit_card_id);
   const cartao = item.credit_card_id != null
     ? (cards as { id: number; name: string }[]).find((c) => c.id === item.credit_card_id)?.name
     : null;
-  return [item.plan || null, forma === '—' ? null : forma, cartao, item.description || null]
+  const deslocada = item.credit_card_id != null && item.statement_shift
+    ? DESLOCAMENTO_NA_LINHA[item.statement_shift] ?? null
+    : null;
+  const conta = item.account_id != null ? accounts.find((a) => a.id === item.account_id)?.name : null;
+  return [item.plan || null, forma === '—' ? null : forma, cartao, conta ? `sai de ${conta}` : null,
+    deslocada, pagador?.(item) ?? null, item.description || null]
     .filter(Boolean).join(' · ');
 }
 
@@ -188,6 +283,7 @@ const DEFAULTS: RecurringValues = {
   category_id: 0,
   payment_method: '',
   credit_card_id: 0,
+  account_id: 0,
   custom: false,
   auto_settle: false,
   frequency: 'monthly',
@@ -201,6 +297,10 @@ const DEFAULTS: RecurringValues = {
   month_of_year: 1,
   is_active: true,
   split_user_ids: [],
+  split_method: 'equal',
+  split_values: {},
+  payer_id: '',
+  statement_shift: 0,
   is_subscription: false,
   plan: '',
   trial_ends_on: '',
@@ -217,7 +317,10 @@ export function RecurringTransactionsPage() {
   const { categories, categoryName } = useCategories();
   const baseCurrency = useBaseCurrency();
   const { cards } = useCreditCards();
+  const { accounts } = usePaymentAccounts();
   const { members } = useMembers();
+  const { user } = useAuthStore();
+  const eu = user ? String(user.id) : '';
   const { merchants } = useMerchants();
   const currentWorkspaceId = useWorkspaceId();
   const confirm = useConfirm();
@@ -282,10 +385,24 @@ export function RecurringTransactionsPage() {
     [members],
   );
 
+  /* "pago por João" na linha — só quando não é quem está olhando, que é o caso
+     que a pessoa precisa notar. */
+  const pagoPorOutro = (item: RecurringItem): string | null => {
+    const quem = item.payer_user_id ?? item.created_by_user_id;
+    if (quem == null || String(quem) === eu) return null;
+    const nome = members.find((m) => m.user_id === quem)?.user_name;
+    return nome ? `pago por ${nome}` : null;
+  };
+
   /* Crédito exige cartão — a mesma regra da despesa avulsa, que o formulário
      de recorrência não aplicava. */
   const faltaCartao =
     watch('payment_method') === 'credit_card' && !(watch('credit_card_id') > 0);
+  /* O cartão é pessoal (ADR 0021): a cobrança no cartão é de quem é dono dele, e
+     os cartões desta tela são os seus. Com outra pessoa pagando, o servidor
+     recusaria — aqui a pessoa fica sabendo antes. */
+  const cartaoDeOutro =
+    watch('payment_method') === 'credit_card' && !!watch('payer_id') && watch('payer_id') !== eu;
 
   const alternarParticipante = (id: string) => {
     const atuais = getValues('split_user_ids');
@@ -318,7 +435,7 @@ export function RecurringTransactionsPage() {
     setEditingId(null);
     setMaterialize('current');
     setSince(firstOfCurrentMonth());
-    reset({ ...DEFAULTS, currency: baseCurrency, start_date: todayStr() });
+    reset({ ...DEFAULTS, currency: baseCurrency, start_date: todayStr(), payer_id: eu });
     setDialogOpen(true);
   };
 
@@ -335,9 +452,18 @@ export function RecurringTransactionsPage() {
       category_id: item.category_id ?? 0,
       payment_method: item.payment_method ?? '',
       credit_card_id: item.credit_card_id ?? 0,
+      account_id: item.account_id ?? 0,
       auto_settle: item.auto_settle ?? false,
       is_active: item.is_active,
       split_user_ids: (item.split_snapshot ?? []).map((p) => String(p.user_id)),
+      // Sem pagador declarado, paga quem cadastrou — o mesmo padrão do servidor.
+      payer_id: String(item.payer_user_id ?? item.created_by_user_id ?? eu),
+      statement_shift: item.statement_shift ?? 0,
+      // O método gravado, e não `equal`: é ele que salvar tem de devolver.
+      split_method: metodoDoSnapshot(item.split_snapshot),
+      split_values: Object.fromEntries(
+        (item.split_snapshot ?? []).map((p) => [String(p.user_id), Number(p.input_value ?? 0)]),
+      ),
       is_subscription: item.is_subscription ?? false,
       plan: item.plan ?? '',
       trial_ends_on: item.trial_ends_on ?? '',
@@ -367,10 +493,23 @@ export function RecurringTransactionsPage() {
     // Cartão só acompanha o crédito — o backend rejeita a combinação inválida
     credit_card_id:
       data.payment_method === 'credit_card' && data.credit_card_id > 0 ? data.credit_card_id : null,
+    // A conta de outro pagador é privada e não vem na leitura. Omiti-la ao
+    // salvar outro campo preserva esse vínculo; ao trocar quem paga de você
+    // para outra pessoa, a conta antiga é solta de propósito.
+    ...((data.payer_id === eu || (recurring as RecurringItem[]).some((r) =>
+      r.id === editingId && String(r.payer_user_id ?? r.created_by_user_id) === eu))
+      ? { account_id: data.payment_method !== 'credit_card' && data.payer_id === eu && data.account_id > 0
+          ? data.account_id : null }
+      : {}),
     // No cartão a liquidação não existe (quem paga é a fatura), então mandar
     // `true` ali seria ruído — o backend ignora, mas o modelo ficaria dizendo
     // algo que não vale.
     auto_settle: data.payment_method === 'credit_card' ? false : data.auto_settle,
+    // Sempre explícitos: o formulário os mostra, então o que está na tela é o
+    // que vale. Sem cartão não há fatura a deslocar — o servidor recusaria.
+    payer_user_id: data.payer_id ? Number(data.payer_id) : null,
+    statement_shift:
+      data.payment_method === 'credit_card' && data.credit_card_id > 0 ? data.statement_shift : 0,
     is_active: data.is_active,
     /*
      * `null` e não `[]` quando ninguém foi marcado: para o backend, ausência de
@@ -380,13 +519,14 @@ export function RecurringTransactionsPage() {
      *
      * `equal` com `input_value: 0` é a divisão IGUAL: o servidor reparte o valor
      * entre os marcados a cada ocorrência, com o arredondamento que fecha a soma
-     * (o mesmo caminho da despesa avulsa). Porcentagem e valor fixo existem no
-     * contrato e ficaram de fora desta tela de propósito — ver o comentário do
-     * bloco "Dividir com".
+     * (o mesmo caminho da despesa avulsa). Porcentagem e valor fixo levam o
+     * número de cada um.
      */
     split_snapshot: data.split_user_ids.length > 0
       ? data.split_user_ids.map((id) => ({
-        user_id: Number(id), split_method: 'equal', input_value: 0,
+        user_id: Number(id),
+        split_method: data.split_method,
+        input_value: data.split_method === 'equal' ? 0 : (data.split_values[id] ?? 0),
       }))
       : null,
     // Assinatura: desmarcada, os campos dela saem juntos (escondidos na tela,
@@ -653,7 +793,7 @@ export function RecurringTransactionsPage() {
               </span>
             }
             meta={[
-              metaDaLinha(item, cards),
+              metaDaLinha(item, cards, accounts, pagoPorOutro),
               item.category_id != null ? categoryName(item.category_id) : null,
             ].filter(Boolean).join(' · ')}
             value={
@@ -740,9 +880,9 @@ export function RecurringTransactionsPage() {
                           pagamento, e a captura do catálogo mostrou uma coluna
                           inteira de travessões soltos embaixo dos títulos: uma
                           linha de texto por lançamento para dizer nada. */}
-                      {metaDaLinha(item, cards) && (
+                      {metaDaLinha(item, cards, accounts, pagoPorOutro) && (
                         <span className="text-xs text-muted-foreground line-clamp-1">
-                          {metaDaLinha(item, cards)}
+                          {metaDaLinha(item, cards, accounts, pagoPorOutro)}
                         </span>
                       )}
                     </div>
@@ -876,6 +1016,21 @@ export function RecurringTransactionsPage() {
               </select>
             </div>
 
+            {/* Quem paga cada ocorrência. Sozinho no espaço a resposta é sempre
+                "você", e o campo seria uma pergunta sem escolha. */}
+            {participantes.length > 1 && (
+              <div className="space-y-2">
+                <Label htmlFor="rec-payer">Quem paga</Label>
+                <select id="rec-payer" className={selectClass} {...register('payer_id')}>
+                  {participantes.map((p) => (
+                    <option key={p.id} value={p.id} className="bg-card">
+                      {p.id === eu ? `${p.name} (você)` : p.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
+
             {/* Forma de pagamento + cartão: no crédito, cada ocorrência é roteada
                 para a fatura do ciclo dela — sem isso a assinatura ficava fora
                 da fatura e do limite comprometido. */}
@@ -916,9 +1071,56 @@ export function RecurringTransactionsPage() {
                         : 'Escolha o cartão: a fatura dele é quem paga esta despesa.'}
                     </p>
                   )}
+                  {!faltaCartao && cartaoDeOutro && (
+                    <p id="rec-falta-cartao" className="text-xs font-medium text-destructive">
+                      No cartão, quem paga é o dono dele: escolha você em "Quem paga" ou outra forma de pagamento.
+                    </p>
+                  )}
                 </div>
               )}
             </div>
+
+            {paymentMethod !== 'credit_card' && watch('payer_id') === eu && (
+              <div className="space-y-2">
+                <Label htmlFor="rec-account">Conta de onde sai</Label>
+                <select
+                  id="rec-account"
+                  className={selectClass}
+                  value={watch('account_id')}
+                  onChange={(e) => setValue('account_id', Number(e.target.value), { shouldDirty: true })}
+                >
+                  <option value={0}>Sem conta</option>
+                  {accounts.filter((a) => a.active && a.currency === baseCurrency).map((a) => (
+                    <option key={a.id} value={a.id}>{a.name}</option>
+                  ))}
+                  {watch('account_id') > 0 && !accounts.some((a) => a.id === watch('account_id') && a.active && a.currency === baseCurrency) && (
+                    <option value={watch('account_id')}>Conta indisponível — escolha outra</option>
+                  )}
+                </select>
+              </div>
+            )}
+
+            {/* A fatura em que a cobrança cai (ADR 0032). Só com cartão: sem ele
+                não há fatura a deslocar. O mês do gasto não muda. */}
+            {paymentMethod === 'credit_card' && watch('credit_card_id') > 0 && (
+              <div className="space-y-2">
+                <Label htmlFor="rec-shift">Em qual fatura cai</Label>
+                <select
+                  id="rec-shift"
+                  className={selectClass}
+                  value={watch('statement_shift')}
+                  onChange={(e) => setValue('statement_shift', Number(e.target.value), { shouldDirty: true })}
+                >
+                  {[0, 1, 2, -1].map((n) => (
+                    <option key={n} value={n} className="bg-card">{FATURA_DO_DESLOCAMENTO[n]}</option>
+                  ))}
+                </select>
+                <p className="text-[11px] font-medium text-muted-foreground">
+                  Para a cobrança que o emissor processa perto do fechamento e cai na
+                  fatura seguinte todo mês. O mês do gasto continua o da ocorrência.
+                </p>
+              </div>
+            )}
 
             {/* Pagamento automático (ADR 0029). Some no cartão: ali a compra vai
                 para a fatura e é ELA que se paga — marcar a ocorrência como
@@ -965,20 +1167,39 @@ export function RecurringTransactionsPage() {
                 porque a materialização é preguiçosa e a ocorrência do mês
                 seguinte nasceria errada de novo, sozinha.
 
-                Só divisão IGUAL aqui. Porcentagem e valor fixo existem no
-                contrato (`split_method`/`input_value`) e ficam para quando
-                alguém precisar: numa despesa que se repete indefinidamente, um
-                rateio fixo em reais envelhece junto com o valor — o aluguel sobe
-                e a divisão declarada continua a mesma, em silêncio. A divisão
-                igual acompanha. */}
+                Igual é o padrão e o caminho que envelhece bem: o aluguel sobe e
+                a divisão igual acompanha, enquanto um rateio fixo em reais fica
+                para trás em silêncio. Porcentagem e valor fixo aparecem mesmo
+                assim, porque o contrato os aceita e o agente de IA os grava — e
+                uma tela que só sabe "igual" reenviava tudo como igual a cada
+                edição, desfazendo o 60/40 de alguém sem ninguém pedir. */}
             {participantes.length > 1 ? (
-              <ChipsDeDivisao
-                participantes={participantes}
-                selecionados={watch('split_user_ids')}
-                onAlternar={alternarParticipante}
-                total={watch('base_amount')}
-                formatar={(v) => formatCurrency(v, watch('currency') || baseCurrency)}
-              />
+              <div className="space-y-3">
+                <ChipsDeDivisao
+                  participantes={participantes}
+                  selecionados={watch('split_user_ids')}
+                  onAlternar={alternarParticipante}
+                  total={watch('split_method') === 'equal' ? watch('base_amount') : 0}
+                  formatar={(v) => formatCurrency(v, watch('currency') || baseCurrency)}
+                />
+                {/* O "como" só faz sentido com mais de uma pessoa — ou quando a
+                    divisão gravada já não é igual, para ela não sumir da tela. */}
+                {(watch('split_user_ids').length > 1 || watch('split_method') !== 'equal') && (
+                  <MetodoDaDivisao
+                    idPrefix="rec"
+                    participantes={participantes.filter((p) => watch('split_user_ids').includes(p.id))}
+                    metodo={watch('split_method')}
+                    onMetodo={(m) => setValue('split_method', m, { shouldDirty: true, shouldValidate: true })}
+                    valores={watch('split_values')}
+                    onValor={(id, v) => setValue(
+                      'split_values', { ...getValues('split_values'), [id]: v },
+                      { shouldDirty: true, shouldValidate: true },
+                    )}
+                    simbolo={currencySymbol(currency)}
+                    erro={(errors.split_values as { message?: string } | undefined)?.message}
+                  />
+                )}
+              </div>
             ) : (
               /* Sozinho no espaço, o bloco EXPLICA em vez de sumir.
                  A primeira versão escondia tudo — "não há com quem dividir,
@@ -1043,8 +1264,8 @@ export function RecurringTransactionsPage() {
                 type="submit"
                 className="bg-primary font-bold px-8"
                 pending={isSubmitting}
-                disabled={faltaCartao}
-                aria-describedby={faltaCartao ? 'rec-falta-cartao' : undefined}
+                disabled={faltaCartao || cartaoDeOutro}
+                aria-describedby={faltaCartao || cartaoDeOutro ? 'rec-falta-cartao' : undefined}
               >
                 Salvar
               </Button>

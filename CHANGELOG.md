@@ -137,6 +137,53 @@ registro por CIMD/DCR, 59 tools documentadas em `docs/mcp/TOOLS.md` (geradas do
 código), e as escritas das rotas REST passaram a morar em comandos
 compartilhados (`app/services/commands/`) — sem mudança de comportamento.
 
+### O que a IA grava aparece no app, e editar pela tela não desfaz
+
+- **Os itens da nota aparecem no detalhe e na edição também quando a despesa é
+  dividida pelo total.** É assim que a IA lança uma nota em que todos os itens
+  seguem a mesma divisão, e o app só mostrava itens na divisão por item: o detalhe
+  exibia o desconto e a taxa de entrega, mas não o que foi comprado, e a edição
+  abria vazia.
+- **Salvar a edição não apaga mais os itens nem os ajustes.** Mesmo mexendo só no
+  título, o app trocava a nota por uma linha com o valor total e jogava fora o
+  desconto, o frete e a taxa.
+- **Desconto, frete, taxa e gorjeta dá para editar na tela**, em qualquer divisão, e
+  a conta "itens + ajustes = total" aparece enquanto você edita.
+- **A despesa recorrente divide por porcentagem e por valor fixo**, além de em partes
+  iguais. A tela só sabia "igual" e salvava tudo assim: o aluguel que a IA cadastrou
+  como 60% seu e 40% do João virava meio a meio na primeira vez que alguém corrigia
+  o título pela tela.
+- **Na despesa recorrente, "Quem paga" e "Em qual fatura cai" aparecem e dá para
+  trocar.** A IA já registrava "o condomínio quem paga é o João" e "a assinatura cai
+  na fatura seguinte"; a tela não mostrava nenhum dos dois. A lista também diz
+  "pago por João" e "cai na fatura seguinte".
+- **A conta de origem da despesa recorrente aparece na lista e na edição.** Quem
+  paga pode escolhê-la uma vez para as próximas ocorrências; a conta pessoal de
+  outra pessoa continua privada. A IA também pode definir ou retirar essa conta.
+- **A observação da meta do mês aparece, e mudar o valor não a apaga.** Redefinir a
+  meta pela tela (ou pedir à IA só um valor novo) jogava fora a observação, que a
+  tela nem mostrava. As metas também passaram a ser editáveis, com observação: antes
+  só dava para excluir e criar de novo. A IA agora lê a observação ao listar as metas.
+- **Editar uma compra em moeda estrangeira com itens, desconto, vários pagadores ou
+  valores fixos voltou a funcionar.** O total abria em dólar e as partes em reais, e
+  a soma nunca fechava: não dava para salvar. Agora tudo abre na moeda da compra.
+- **A renda mostra e edita categoria, conta onde cai e observação**, e a renda
+  recorrente também "Confirmar sozinha na data". A IA já gravava tudo isso ("salário,
+  cai no Itaú"; "freela, não confirme sozinho"), mas a tela não mostrava nada.
+- **Dá para desfazer o pagamento de uma parcela de financiamento.** A parcela volta a
+  ficar em aberto e a despesa que o pagamento lançou é excluída. Um clique errado em
+  "Pagar" só tinha volta pedindo à IA.
+- **Dá para cancelar um lançamento, ou a compra parcelada inteira, pela tela.** Cancelar
+  não é excluir: o lançamento continua visível e deixa de contar em saldo, divisão e
+  relatórios. O lançamento cancelado abre só para leitura, em vez de um formulário
+  que o servidor recusava ao salvar.
+- **O histórico de cada lançamento aparece no detalhe** com data, pessoa, indicação
+  de IA e campos antes/depois. A mesma trilha alimenta a tool do agente.
+- **Lançamentos e rendas excluídos podem ser encontrados e restaurados depois que
+  o aviso de desfazer some.** O recorte respeita o mês e a visibilidade de cada
+  pessoa. Os anexos apagados junto com um lançamento não voltam ao restaurá-lo.
+  As buscas dos agentes também aceitam um filtro para encontrar exclusões antigas.
+
 ### Corrigir um lançamento pela IA segue a mesma regra do app
 
 - **Mudar só o valor, a data ou a forma de pagamento refaz as contas no servidor**,

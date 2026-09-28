@@ -50,3 +50,31 @@ export function casasDecimais(texto: string): number {
   const [, fracao = ''] = texto.replace(',', '.').split('.');
   return fracao.length;
 }
+
+/**
+ * Os itens da NOTA de um lançamento — vazio quando ele não foi detalhado.
+ *
+ * Todo lançamento simples com categoria guarda UM item, o **item-sombra**: título
+ * e valor do próprio lançamento, só para a categoria morar em algum lugar. Ele não
+ * é item da nota. A regra é a mesma do MCP (`_itens` em
+ * `backend/app/mcp/serializers.py`): há nota quando há mais de um item, divisão
+ * por item, ajustes, ou quando a única linha diz algo a mais que o lançamento
+ * (quantidade, unidade, unitário, descrição).
+ *
+ * Sem ela, a tela tratava todo item da divisão "pela despesa" como sombra: a
+ * nota que a IA lançou — um item com medida e três ajustes — não aparecia no
+ * detalhe nem na edição, e salvar a edição a trocava pelo item-sombra.
+ */
+export function itensDaNota<T extends {
+  quantity: string;
+  unit?: string | null;
+  unit_amount?: string | null;
+  description?: string | null;
+}>(tx: { split_mode: string; items?: T[] | null; adjustments?: unknown[] | null }): T[] {
+  const itens = tx.items ?? [];
+  const detalhado = itens.length > 1
+    || tx.split_mode === 'item'
+    || (tx.adjustments ?? []).length > 0
+    || itens.some((i) => parseFloat(i.quantity) !== 1 || !!i.unit || i.unit_amount != null || !!i.description);
+  return detalhado ? itens : [];
+}

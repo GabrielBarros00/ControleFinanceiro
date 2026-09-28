@@ -3,7 +3,8 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
 import { MoneyInput } from '@/components/ui/MoneyInput';
-import { Target, Trash2, Plus } from 'lucide-react';
+import { Target, Trash2, Plus, Pencil } from 'lucide-react';
+import { Input } from '@/components/ui/input';
 import { useEstimates, type Estimate, type EstimateScope } from '@/hooks/use-estimates';
 import { useCategories } from '@/hooks/use-categories';
 import { useBaseCurrency } from '@/hooks/use-base-currency';
@@ -52,6 +53,11 @@ export function BudgetPanel({
   // Chave do <select>: 'geral' ou o id da categoria (nunca o nome — ver spentFor)
   const [newCategoryKey, setNewCategoryKey] = React.useState('');
   const [newAmount, setNewAmount] = React.useState(0);
+  // A observação da meta ("sem delivery este mês"). O agente de IA a grava; a
+  // tela não a mostrava, e redefinir o valor a apagava.
+  const [newNote, setNewNote] = React.useState('');
+  // Meta existente sendo editada. Antes só dava para excluir e criar de novo.
+  const [editando, setEditando] = React.useState<Estimate | null>(null);
   const [error, setError] = React.useState<string | null>(null);
 
   // Sem acesso completo o gasto da casa não vem (ADR 0018), então a visão da
@@ -82,9 +88,29 @@ export function BudgetPanel({
     ...categories.map((c) => ({ key: String(c.id), id: c.id as number | null, name: c.name })),
   ].filter((opt) =>
     !estimates.some((e) =>
-      opt.id != null && e.category_id != null ? e.category_id === opt.id : e.category === opt.name,
+      e.id !== editando?.id
+      && (opt.id != null && e.category_id != null ? e.category_id === opt.id : e.category === opt.name),
     ),
   );
+
+  const chaveDa = (e: Estimate): string =>
+    e.category === 'Geral' ? 'geral'
+      : String(e.category_id ?? categories.find((c) => c.name === e.category)?.id ?? '');
+
+  const limparFormulario = () => {
+    setEditando(null);
+    setNewCategoryKey('');
+    setNewAmount(0);
+    setNewNote('');
+  };
+
+  const editar = (e: Estimate) => {
+    setError(null);
+    setEditando(e);
+    setNewCategoryKey(chaveDa(e));
+    setNewAmount(parseFloat(e.amount));
+    setNewNote(e.description ?? '');
+  };
 
   const addBudget = async () => {
     setError(null);
@@ -103,9 +129,10 @@ export function BudgetPanel({
         categoryId: option.id,
         amount: newAmount,
         scope,
+        // O campo está na tela: o que está nele é o que vale (vazio apaga).
+        description: newNote.trim() || null,
       });
-      setNewCategoryKey('');
-      setNewAmount(0);
+      limparFormulario();
     } catch (err) {
       setError(getApiErrorMessage(err, 'Erro ao salvar o orçamento.'));
     }
@@ -153,7 +180,7 @@ export function BudgetPanel({
               aria-selected={scope === valor}
               onClick={() => {
                 setScope(valor);
-                setNewCategoryKey('');
+                limparFormulario();
                 setError(null);
               }}
               className={`rounded-md px-3 py-1.5 text-sm font-medium transition-colors ${
@@ -185,12 +212,26 @@ export function BudgetPanel({
               return (
                 <div key={estimate.id} className="space-y-1.5" data-testid={`budget-row-${estimate.category}`}>
                   <div className="flex items-center justify-between gap-2">
-                    <span className="text-sm font-bold text-foreground capitalize">{estimate.category}</span>
-                    <div className="flex items-center gap-3">
+                    <span className="min-w-0">
+                      <span className="block text-sm font-bold text-foreground capitalize">{estimate.category}</span>
+                      {estimate.description && (
+                        <span className="block text-xs text-muted-foreground">{estimate.description}</span>
+                      )}
+                    </span>
+                    <div className="flex shrink-0 items-center gap-3">
                       <span className={`text-xs font-semibold ${over ? 'text-destructive' : 'text-muted-foreground'}`}>
                         {formatBRL(spent)} de {formatBRL(budget)}
                         {over && ` — ${formatBRL(spent - budget)} acima`}
                       </span>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        aria-label={`Editar orçamento de ${estimate.category}`}
+                        onClick={() => editar(estimate)}
+                        className="h-7 w-7 p-0 text-primary hover:bg-primary/10"
+                      >
+                        <Pencil className="h-3.5 w-3.5" />
+                      </Button>
                       <Button
                         variant="ghost"
                         size="sm"
@@ -224,6 +265,8 @@ export function BudgetPanel({
               className={selectClass}
               value={newCategoryKey}
               onChange={(e) => setNewCategoryKey(e.target.value)}
+              // Editando, a categoria é a da meta: trocar seria outra meta.
+              disabled={editando != null}
             >
               <option value="">Selecione...</option>
               {availableCategories.map((opt) => (
@@ -242,9 +285,22 @@ export function BudgetPanel({
               prefix={currencySymbol(baseCurrency)}
             />
           </div>
+          <div className="min-w-48 basis-full space-y-1.5">
+            <Label htmlFor="budget-note" className="text-xs font-semibold">Observação (opcional)</Label>
+            <Input
+              id="budget-note"
+              value={newNote}
+              maxLength={2000}
+              placeholder="Ex.: sem delivery este mês"
+              onChange={(e) => setNewNote(e.target.value)}
+            />
+          </div>
           <Button onClick={addBudget} className="gap-1.5 font-bold bg-primary text-primary-foreground">
-            <Plus className="h-4 w-4" /> Definir
+            {editando ? 'Salvar' : <><Plus className="h-4 w-4" /> Definir</>}
           </Button>
+          {editando && (
+            <Button variant="ghost" onClick={limparFormulario}>Cancelar</Button>
+          )}
         </div>
         {error && <p role="alert" className="text-sm text-destructive font-medium">{error}</p>}
       </CardContent>

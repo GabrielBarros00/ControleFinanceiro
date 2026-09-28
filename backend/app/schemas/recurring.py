@@ -70,6 +70,8 @@ class RecurringCreate(BaseModel):
     )
     category_id: Optional[int] = None
     payer_user_id: Optional[int] = None
+    # Conta pessoal do pagador, usada nas ocorrências fora do cartão.
+    account_id: Optional[int] = None
     split_snapshot: Optional[List[RecurringSplitEntry]] = None
     #: Estabelecimento das ocorrências (ADR 0038); `null` explícito na edição desvincula.
     merchant_id: Optional[int] = None
@@ -108,6 +110,7 @@ class RecurringUpdate(BaseModel):
     )
     category_id: Optional[int] = None
     payer_user_id: Optional[int] = None
+    account_id: Optional[int] = None
     split_snapshot: Optional[List[RecurringSplitEntry]] = None
     #: Estabelecimento das ocorrências (ADR 0038); `null` explícito na edição desvincula.
     merchant_id: Optional[int] = None

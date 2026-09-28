@@ -118,12 +118,31 @@ export function useFinancing() {
     },
   });
 
+  /**
+   * Estorna o pagamento de uma parcela: ela volta a aberta, e a despesa que o
+   * pagamento lançou (se lançou) é excluída. O agente de IA já fazia isto
+   * (`financings_installment`); a tela só sabia pagar, e o clique errado em
+   * "Pagar" não tinha volta por aqui.
+   */
+  const unpayInstallment = useMutation({
+    mutationFn: async ({ financingId, installmentNumber }: { financingId: number; installmentNumber: number }) => {
+      await apiClient.post(`/me/financing/${financingId}/installments/${installmentNumber}/unpay`);
+    },
+    onSuccess: () => {
+      invalidateForEvent(queryClient, 'financing.updated', null);
+      // A despesa vinculada (se houve) saiu de algum espaço: não sabemos qual,
+      // então o evento vai sem espaço — o contrato invalida as listas globais.
+      invalidateForEvent(queryClient, 'transaction.deleted', null);
+    },
+  });
+
   return {
     financings: listQuery.data ?? [],
     isLoading: listQuery.isLoading,
     create: createMutation.mutateAsync,
     remove: deleteMutation.mutateAsync,
     payInstallment: payInstallment.mutateAsync,
+    unpayInstallment: unpayInstallment.mutateAsync,
     quitarAnteriores: quitarAnteriores.mutateAsync,
   };
 }
