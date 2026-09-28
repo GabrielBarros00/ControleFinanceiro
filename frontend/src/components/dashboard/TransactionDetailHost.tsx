@@ -16,7 +16,7 @@ export function TransactionDetailHost() {
   const { transaction } = useTransaction(txId);
   // Só as mutations: sem `false`, este host (montado no AppShell) disparava uma
   // listagem de extrato em toda tela autenticada — duas na Home.
-  const { update, updateGroup, remove, removeGroup, restore } = useTransactions(undefined, false);
+  const { update, updateGroup, remove, removeGroup, restore, cancelGroup } = useTransactions(undefined, false);
   const { canWrite } = useWorkspaceRole();
   const confirm = useConfirm();
 
@@ -84,6 +84,42 @@ export function TransactionDetailHost() {
       );
     } catch (err) {
       toast.error(getApiErrorMessage(err, 'Erro ao remover transação'));
+    }
+  };
+
+  /**
+   * Cancelar — o que o agente de IA já fazia (`status=cancelled`) e a tela não.
+   *
+   * Não é excluir: o lançamento cancelado continua visível, marcado, e deixa de
+   * contar em saldo, divisão e relatórios. É definitivo (ADR 0003), e por isso
+   * pergunta antes — ao contrário da exclusão, que tem o "desfazer".
+   *
+   * Na compra parcelada cancela a compra: todas as parcelas em aberto (as pagas
+   * ficam), como a exclusão e a edição já tratam o parcelamento.
+   */
+  const handleCancel = async (id: number) => {
+    const isInstallment = !!transaction?.installment_group_id;
+    const ok = await confirm({
+      title: isInstallment ? 'Cancelar compra parcelada' : 'Cancelar lançamento',
+      description: (isInstallment
+        ? `Todas as parcelas em aberto desta compra deixam de contar, mas continuam visíveis.${paidCount > 0 ? ` ${paidCount} parcela(s) já paga(s) ficam como estão.` : ''}`
+        : 'Ele deixa de contar em saldo, divisão e relatórios, mas continua visível.')
+        + ' Cancelar é definitivo.',
+      confirmLabel: isInstallment ? 'Cancelar compra' : 'Cancelar lançamento',
+      destructive: true,
+    });
+    if (!ok) return;
+    try {
+      if (isInstallment) {
+        const { cancelled } = await cancelGroup(id);
+        toast.success(`${cancelled} parcela(s) cancelada(s).`);
+      } else {
+        await update({ id, data: { status: 'cancelled' } });
+        toast.success('Lançamento cancelado.');
+      }
+      close();
+    } catch (err) {
+      toast.error(getApiErrorMessage(err, 'Não foi possível cancelar'));
     }
   };
 
@@ -159,6 +195,7 @@ export function TransactionDetailHost() {
         onOpenChange={(o) => { if (!o) close(); }}
         onSave={handleSave}
         onDelete={handleDelete}
+        onCancel={handleCancel}
         installmentWhole={group?.whole ?? null}
         paidCount={paidCount}
       />

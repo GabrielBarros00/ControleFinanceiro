@@ -186,6 +186,17 @@ export function useTransactions(
     onSuccess: invalidateTransactionData
   });
 
+  // Cancelar a COMPRA parcelada: as parcelas vivas não pagas ficam canceladas —
+  // continuam visíveis e deixam de contar (as pagas ficam como estão).
+  const cancelGroupMutation = useMutation({
+    mutationFn: async (id: number): Promise<{ cancelled: number; skipped_paid: number }> => {
+      if (!currentWorkspaceId) throw new Error('Workspace not selected');
+      const response = await apiClient.post(`/workspaces/${currentWorkspaceId}/transactions/${id}/installment-group/cancel`);
+      return response.data;
+    },
+    onSuccess: invalidateTransactionData
+  });
+
   // Editar a COMPRA parcelada inteira (refatia total/nº de parcelas; congela pagas)
   const updateGroupMutation = useMutation({
     mutationFn: async ({ id, data }: { id: number, data: TransactionPayload }) => {
@@ -211,6 +222,7 @@ export function useTransactions(
     remove: deleteMutation.mutateAsync,
     restore: restoreMutation.mutateAsync,
     removeGroup: deleteGroupMutation.mutateAsync,
+    cancelGroup: cancelGroupMutation.mutateAsync,
     isMutating: createMutation.isPending || updateMutation.isPending || deleteMutation.isPending
   };
 }

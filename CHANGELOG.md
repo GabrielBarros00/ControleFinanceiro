@@ -170,6 +170,10 @@ compartilhados (`app/services/commands/`) — sem mudança de comportamento.
 - **Dá para desfazer o pagamento de uma parcela de financiamento.** A parcela volta a
   ficar em aberto e a despesa que o pagamento lançou é excluída. Um clique errado em
   "Pagar" só tinha volta pedindo à IA.
+- **Dá para cancelar um lançamento, ou a compra parcelada inteira, pela tela.** Cancelar
+  não é excluir: o lançamento continua visível e deixa de contar em saldo, divisão e
+  relatórios. O lançamento cancelado abre só para leitura, em vez de um formulário
+  que o servidor recusava ao salvar.
 
 ### Corrigir um lançamento pela IA segue a mesma regra do app
 
