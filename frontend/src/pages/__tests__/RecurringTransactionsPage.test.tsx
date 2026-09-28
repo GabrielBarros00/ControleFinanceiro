@@ -51,18 +51,32 @@ const ITENS = [
     category_id: null, payment_method: 'pix', credit_card_id: null,
     monthly_equivalent: '99.00', my_monthly_equivalent: '99.00', is_subscription: true,
   },
+  {
+    // Dividida 60/40, como o agente de IA grava ("60% meu, 40% do Bruno").
+    // Inativa para não mexer no total do topo, que os testes acima medem.
+    id: 5, title: 'Condomínio', base_amount: '1000.00', currency: 'BRL',
+    frequency: 'monthly', interval: 1, day_of_month: 10, is_active: false,
+    category_id: null, payment_method: 'pix', credit_card_id: null,
+    monthly_equivalent: '1000.00', my_monthly_equivalent: '600.00',
+    split_snapshot: [
+      { user_id: 1, split_method: 'percentage', input_value: '60.00' },
+      { user_id: 2, split_method: 'percentage', input_value: '40.00' },
+    ],
+  },
 ];
 
 const criar = vi.hoisted(() => vi.fn());
+const atualizar = vi.hoisted(() => vi.fn());
 vi.mock('@/hooks/use-recurring', () => ({
   useRecurring: () => ({
     recurring: ITENS,
     isLoading: false,
     create: criar,
-    update: vi.fn(),
+    update: atualizar,
     remove: vi.fn(),
     generate: vi.fn(),
-    preview: vi.fn(),
+    // Nada a revisar: a edição segue direto para o `update`.
+    preview: async () => [],
     isGenerating: false,
     isPreviewing: false,
   }),
@@ -121,7 +135,7 @@ describe('Recorrência', () => {
 
     const tabela = screen.getByRole('table');
     // A informação continua na tela...
-    expect(within(tabela).getByText(/inativa/i)).toBeInTheDocument();
+    expect(within(tabela).getAllByText(/inativa/i).length).toBeGreaterThan(0);
     // ...mas sem uma coluna cujo cabeçalho promete algo que quase toda linha
     // responde igual.
     expect(within(tabela).queryByRole('columnheader', { name: /status/i })).toBeNull();
@@ -296,5 +310,67 @@ describe('Recorrência — cartão coerente', () => {
       target: { value: 'pix' },
     });
     expect(within(dialogo).getByRole('button', { name: /^salvar$/i })).toBeEnabled();
+  });
+});
+
+/*
+ * Como dividir: igual, porcentagem ou valor fixo.
+ *
+ * A tela só sabia "igual" e mandava `equal` a cada edição. A recorrência que o
+ * agente de IA grava com 60/40 virava 50/50 na primeira vez que alguém corrigia
+ * o título pela tela — sem aviso, e em toda ocorrência dali em diante.
+ */
+describe('Recorrência — como dividir', () => {
+  beforeEach(() => { criar.mockClear(); atualizar.mockClear(); });
+
+  it('editar uma divisão 60/40 mostra os percentuais e salva 60/40', async () => {
+    desenhar();
+    fireEvent.click(screen.getByRole('button', { name: /editar recorrência condomínio/i }));
+    const dialogo = screen.getByRole('dialog');
+
+    expect(within(dialogo).getByRole('radio', { name: 'Porcentagem' })).toBeChecked();
+    expect((within(dialogo).getByLabelText('Percentual de Ana') as HTMLInputElement).value).toBe('60');
+    expect((within(dialogo).getByLabelText('Percentual de Bruno') as HTMLInputElement).value).toBe('40');
+
+    fireEvent.change(within(dialogo).getByLabelText(/título/i), { target: { value: 'Condomínio do prédio' } });
+    fireEvent.click(within(dialogo).getByRole('button', { name: /^salvar$/i }));
+
+    await waitFor(() => expect(atualizar).toHaveBeenCalled());
+    expect(atualizar.mock.calls[0][0].data.split_snapshot).toEqual([
+      { user_id: 1, split_method: 'percentage', input_value: 60 },
+      { user_id: 2, split_method: 'percentage', input_value: 40 },
+    ]);
+  });
+
+  it('percentuais que não somam 100 travam o salvar e dizem quanto falta', async () => {
+    desenhar();
+    fireEvent.click(screen.getByRole('button', { name: /editar recorrência condomínio/i }));
+    const dialogo = screen.getByRole('dialog');
+
+    fireEvent.change(within(dialogo).getByLabelText('Percentual de Bruno'), { target: { value: '30' } });
+    fireEvent.click(within(dialogo).getByRole('button', { name: /^salvar$/i }));
+
+    expect(await within(dialogo).findByText('Os percentuais somam 90% — faltam 10%')).toBeInTheDocument();
+    expect(atualizar).not.toHaveBeenCalled();
+  });
+
+  it('valor fixo manda o valor de cada um', async () => {
+    desenhar();
+    fireEvent.click(screen.getByRole('button', { name: /nova despesa/i }));
+    const dialogo = screen.getByRole('dialog');
+    fireEvent.change(within(dialogo).getByLabelText(/título/i), { target: { value: 'Aluguel' } });
+    fireEvent.change(within(dialogo).getByLabelText(/valor base/i), { target: { value: '3.000,00' } });
+    fireEvent.click(within(dialogo).getByRole('button', { name: 'Ana' }));
+    fireEvent.click(within(dialogo).getByRole('button', { name: 'Bruno' }));
+    fireEvent.click(within(dialogo).getByRole('radio', { name: 'Valor fixo' }));
+    fireEvent.change(within(dialogo).getByLabelText('Valor de Ana'), { target: { value: '1.800,00' } });
+    fireEvent.change(within(dialogo).getByLabelText('Valor de Bruno'), { target: { value: '1.200,00' } });
+    fireEvent.click(within(dialogo).getByRole('button', { name: /^salvar$/i }));
+
+    await waitFor(() => expect(criar).toHaveBeenCalled());
+    expect(criar.mock.calls[0][0].data.split_snapshot).toEqual([
+      { user_id: 1, split_method: 'fixed', input_value: 1800 },
+      { user_id: 2, split_method: 'fixed', input_value: 1200 },
+    ]);
   });
 });

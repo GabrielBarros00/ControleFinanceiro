@@ -2,6 +2,7 @@ import * as React from 'react';
 import { Card, CardContent } from "@/components/ui/card";
 import { StatTile } from "@/components/ui/stat-tile";
 import { ChipsDeDivisao } from "@/components/money/ChipsDeDivisao";
+import { MetodoDaDivisao, type MetodoDeDivisao } from "@/components/money/MetodoDaDivisao";
 import { useMembers } from '@/hooks/use-members';
 import { useWorkspaceId } from '@/hooks/use-workspace-id';
 import { Link } from 'react-router-dom';
@@ -96,6 +97,15 @@ const recurringSchema = z.object({
    * importa porque a recorrência materializa sozinha.
    */
   split_user_ids: z.array(z.string()),
+  /*
+   * COMO dividir entre os marcados. A tela só conhecia partes iguais e mandava
+   * `equal` a cada edição: a recorrência que o agente de IA criou com 60/40 ou
+   * valor fixo virava 50/50 quando alguém corrigia o título. Os três métodos do
+   * contrato fazem agora o caminho de ida e volta.
+   */
+  split_method: z.enum(['equal', 'percentage', 'fixed']),
+  /** Percentual ou valor de cada participante, por id (ignorado no igual). */
+  split_values: z.record(z.string(), z.number()),
   // Assinatura (ADR 0039) e o estabelecimento/provedor (ADR 0038).
   is_subscription: z.boolean(),
   plan: z.string().max(120),
@@ -104,6 +114,41 @@ const recurringSchema = z.object({
   merchant_name: z.string().max(120),
   /** O nome com que o formulário abriu: o campo só vai quando muda. */
   merchant_initial: z.string(),
+}).superRefine((d, ctx) => {
+  // As mesmas somas que a despesa avulsa confere. Sem elas o erro só apareceria
+  // na materialização, num mês em que ninguém está olhando.
+  if (d.split_method === 'equal' || d.split_user_ids.length === 0) return;
+  const valores = d.split_user_ids.map((id) => d.split_values[id] ?? 0);
+  if (d.split_method === 'percentage') {
+    if (valores.some((v) => !(v > 0) || v > 100)) {
+      ctx.addIssue({ code: 'custom', path: ['split_values'], message: 'Cada percentual deve ficar entre 0 e 100' });
+      return;
+    }
+    const soma = valores.reduce((acc, v) => acc + Math.round(v * 100), 0);
+    if (soma !== 10000) {
+      const pct = (n: number) => (n / 100).toLocaleString('pt-BR', { maximumFractionDigits: 2 });
+      ctx.addIssue({
+        code: 'custom',
+        path: ['split_values'],
+        message: soma < 10000
+          ? `Os percentuais somam ${pct(soma)}% — faltam ${pct(10000 - soma)}%`
+          : `Os percentuais somam ${pct(soma)}% — ${pct(soma - 10000)}% acima de 100%`,
+      });
+    }
+    return;
+  }
+  const soma = valores.reduce((acc, v) => acc + Math.round(v * 100), 0);
+  const total = Math.round(d.base_amount * 100);
+  if (soma !== total) {
+    const fmt = (c: number) => formatCurrency(c / 100, d.currency || 'BRL');
+    ctx.addIssue({
+      code: 'custom',
+      path: ['split_values'],
+      message: soma < total
+        ? `Os valores somam ${fmt(soma)} de ${fmt(total)} — faltam ${fmt(total - soma)}`
+        : `Os valores somam ${fmt(soma)} de ${fmt(total)} — ${fmt(soma - total)} acima do total`,
+    });
+  }
 });
 
 type RecurringValues = z.infer<typeof recurringSchema>;
@@ -167,6 +212,12 @@ function custoMensal(item: RecurringItem): number {
   return Number.isFinite(valor) ? valor : 0;
 }
 
+/** O método gravado na divisão do template; sem divisão, igual. */
+function metodoDoSnapshot(snapshot: RecurringItem['split_snapshot']): MetodoDeDivisao {
+  const metodo = snapshot?.[0]?.split_method;
+  return metodo === 'percentage' || metodo === 'fixed' ? metodo : 'equal';
+}
+
 /** A linha de apoio da lista — vazia quando não há o que dizer. */
 function metaDaLinha(item: RecurringItem, cards: unknown[]): string {
   const forma = paymentMethodLabel(item.payment_method, item.credit_card_id);
@@ -201,6 +252,8 @@ const DEFAULTS: RecurringValues = {
   month_of_year: 1,
   is_active: true,
   split_user_ids: [],
+  split_method: 'equal',
+  split_values: {},
   is_subscription: false,
   plan: '',
   trial_ends_on: '',
@@ -338,6 +391,11 @@ export function RecurringTransactionsPage() {
       auto_settle: item.auto_settle ?? false,
       is_active: item.is_active,
       split_user_ids: (item.split_snapshot ?? []).map((p) => String(p.user_id)),
+      // O método gravado, e não `equal`: é ele que salvar tem de devolver.
+      split_method: metodoDoSnapshot(item.split_snapshot),
+      split_values: Object.fromEntries(
+        (item.split_snapshot ?? []).map((p) => [String(p.user_id), Number(p.input_value ?? 0)]),
+      ),
       is_subscription: item.is_subscription ?? false,
       plan: item.plan ?? '',
       trial_ends_on: item.trial_ends_on ?? '',
@@ -380,13 +438,14 @@ export function RecurringTransactionsPage() {
      *
      * `equal` com `input_value: 0` é a divisão IGUAL: o servidor reparte o valor
      * entre os marcados a cada ocorrência, com o arredondamento que fecha a soma
-     * (o mesmo caminho da despesa avulsa). Porcentagem e valor fixo existem no
-     * contrato e ficaram de fora desta tela de propósito — ver o comentário do
-     * bloco "Dividir com".
+     * (o mesmo caminho da despesa avulsa). Porcentagem e valor fixo levam o
+     * número de cada um.
      */
     split_snapshot: data.split_user_ids.length > 0
       ? data.split_user_ids.map((id) => ({
-        user_id: Number(id), split_method: 'equal', input_value: 0,
+        user_id: Number(id),
+        split_method: data.split_method,
+        input_value: data.split_method === 'equal' ? 0 : (data.split_values[id] ?? 0),
       }))
       : null,
     // Assinatura: desmarcada, os campos dela saem juntos (escondidos na tela,
@@ -965,20 +1024,39 @@ export function RecurringTransactionsPage() {
                 porque a materialização é preguiçosa e a ocorrência do mês
                 seguinte nasceria errada de novo, sozinha.
 
-                Só divisão IGUAL aqui. Porcentagem e valor fixo existem no
-                contrato (`split_method`/`input_value`) e ficam para quando
-                alguém precisar: numa despesa que se repete indefinidamente, um
-                rateio fixo em reais envelhece junto com o valor — o aluguel sobe
-                e a divisão declarada continua a mesma, em silêncio. A divisão
-                igual acompanha. */}
+                Igual é o padrão e o caminho que envelhece bem: o aluguel sobe e
+                a divisão igual acompanha, enquanto um rateio fixo em reais fica
+                para trás em silêncio. Porcentagem e valor fixo aparecem mesmo
+                assim, porque o contrato os aceita e o agente de IA os grava — e
+                uma tela que só sabe "igual" reenviava tudo como igual a cada
+                edição, desfazendo o 60/40 de alguém sem ninguém pedir. */}
             {participantes.length > 1 ? (
-              <ChipsDeDivisao
-                participantes={participantes}
-                selecionados={watch('split_user_ids')}
-                onAlternar={alternarParticipante}
-                total={watch('base_amount')}
-                formatar={(v) => formatCurrency(v, watch('currency') || baseCurrency)}
-              />
+              <div className="space-y-3">
+                <ChipsDeDivisao
+                  participantes={participantes}
+                  selecionados={watch('split_user_ids')}
+                  onAlternar={alternarParticipante}
+                  total={watch('split_method') === 'equal' ? watch('base_amount') : 0}
+                  formatar={(v) => formatCurrency(v, watch('currency') || baseCurrency)}
+                />
+                {/* O "como" só faz sentido com mais de uma pessoa — ou quando a
+                    divisão gravada já não é igual, para ela não sumir da tela. */}
+                {(watch('split_user_ids').length > 1 || watch('split_method') !== 'equal') && (
+                  <MetodoDaDivisao
+                    idPrefix="rec"
+                    participantes={participantes.filter((p) => watch('split_user_ids').includes(p.id))}
+                    metodo={watch('split_method')}
+                    onMetodo={(m) => setValue('split_method', m, { shouldDirty: true, shouldValidate: true })}
+                    valores={watch('split_values')}
+                    onValor={(id, v) => setValue(
+                      'split_values', { ...getValues('split_values'), [id]: v },
+                      { shouldDirty: true, shouldValidate: true },
+                    )}
+                    simbolo={currencySymbol(currency)}
+                    erro={(errors.split_values as { message?: string } | undefined)?.message}
+                  />
+                )}
+              </div>
             ) : (
               /* Sozinho no espaço, o bloco EXPLICA em vez de sumir.
                  A primeira versão escondia tudo — "não há com quem dividir,

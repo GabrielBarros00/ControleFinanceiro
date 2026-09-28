@@ -137,7 +137,7 @@ registro por CIMD/DCR, 59 tools documentadas em `docs/mcp/TOOLS.md` (geradas do
 código), e as escritas das rotas REST passaram a morar em comandos
 compartilhados (`app/services/commands/`) — sem mudança de comportamento.
 
-### A nota lançada pela IA aparece no app, e editar não a apaga mais
+### O que a IA grava aparece no app, e editar pela tela não desfaz
 
 - **Os itens da nota aparecem no detalhe e na edição também quando a despesa é
   dividida pelo total.** É assim que a IA lança uma nota em que todos os itens
@@ -149,6 +149,10 @@ compartilhados (`app/services/commands/`) — sem mudança de comportamento.
   desconto, o frete e a taxa.
 - **Desconto, frete, taxa e gorjeta dá para editar na tela**, em qualquer divisão, e
   a conta "itens + ajustes = total" aparece enquanto você edita.
+- **A despesa recorrente divide por porcentagem e por valor fixo**, além de em partes
+  iguais. A tela só sabia "igual" e salvava tudo assim: o aluguel que a IA cadastrou
+  como 60% seu e 40% do João virava meio a meio na primeira vez que alguém corrigia
+  o título pela tela.
 
 ### Corrigir um lançamento pela IA segue a mesma regra do app
 
