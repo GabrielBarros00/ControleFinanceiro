@@ -1,3 +1,4 @@
+import sys
 import time
 import uuid
 
@@ -32,6 +33,24 @@ from app.api.routes import well_known
 from app.core.public_cors import PublicCorsMiddleware
 from app.mcp import asgi as mcp_asgi
 
+def log_nunca_quebra_por_codificacao(*fluxos) -> None:
+    """Caractere que a saída não codifica vira escape, em vez de exceção.
+
+    No Windows, a saída de um processo ligado a um PIPE (o `e2e.mjs`, um serviço)
+    é cp1252, e "→" ou uma moldura de traceback não existem nele: o `print` do log
+    levantava `UnicodeEncodeError`. Dentro de um `except` "best-effort" isso
+    transformava a falha tratada num erro 500.
+    """
+    for fluxo in fluxos:
+        try:
+            fluxo.reconfigure(errors="backslashreplace")
+        except (AttributeError, ValueError, OSError):
+            pass  # saída que não é um TextIOWrapper (a captura do pytest, por exemplo)
+
+
+if not settings.is_deployed:
+    log_nunca_quebra_por_codificacao(sys.stdout, sys.stderr)
+
 # Logging estruturado: JSON em produção (agregável), console legível em dev
 structlog.configure(
     processors=[
@@ -40,7 +59,12 @@ structlog.configure(
         (
             structlog.processors.JSONRenderer()
             if settings.is_deployed
-            else structlog.dev.ConsoleRenderer()
+            # Traceback SIMPLES. Com o `rich` instalado (vem com o pip-audit), o
+            # ConsoleRenderer desenhava cada frame com as variáveis locais: dezenas
+            # de segundos num runner lento — e dentro do event loop quando quem
+            # loga é o handler do 500, que é `async`. O backend inteiro parava
+            # ~30 s, e o `e2e-windows` caía em testes diferentes a cada vez.
+            else structlog.dev.ConsoleRenderer(exception_formatter=structlog.dev.plain_traceback)
         ),
     ],
 )
