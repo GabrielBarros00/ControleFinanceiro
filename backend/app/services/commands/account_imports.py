@@ -150,11 +150,28 @@ def parse_account_statement(
 
 # --- Gravação --------------------------------------------------------------------------
 
-class _Recusa(Exception):
+class _MotivoDaLinha(Exception):
+    """Exceção que carrega o MOTIVO que a pessoa lê, num atributo próprio.
+
+    Quem grava e responde usa `.motivo`, nunca `str()` da exceção. Os textos são
+    todos escritos aqui, para a pessoa ler; mas responder com a exceção
+    convertida em texto é o padrão que vaza detalhe interno (CodeQL
+    `py/stack-trace-exposure`): bastava um `raise` com a mensagem de um erro de
+    banco, ou uma exceção de outra classe capturada no mesmo lugar, para ela ir
+    parar na tela. Com o atributo, o que chega ao cliente é só o que foi escrito
+    para ele.
+    """
+
+    def __init__(self, motivo: str):
+        super().__init__(motivo)
+        self.motivo = motivo
+
+
+class _Recusa(_MotivoDaLinha):
     """A linha não entra, com o motivo (vira `skipped`, nunca some calada)."""
 
 
-class _JaExiste(Exception):
+class _JaExiste(_MotivoDaLinha):
     """O movimento já está no app por outro caminho (vira `duplicate`, com o motivo)."""
 
 
@@ -334,13 +351,13 @@ def commit_account_statement(session: Session, user_id: int, body: AccountCommit
         try:
             criado = _CRIA[classe](ctx, row, quando)
         except _JaExiste as ja:
-            session.add(ImportRow(**base, status=ImportRowStatus.duplicate, reason=str(ja)))
+            session.add(ImportRow(**base, status=ImportRowStatus.duplicate, reason=ja.motivo))
             contagem["duplicate"] += 1
             continue
         except _Recusa as recusa:
-            session.add(ImportRow(**base, status=ImportRowStatus.skipped, reason=str(recusa)))
+            session.add(ImportRow(**base, status=ImportRowStatus.skipped, reason=recusa.motivo))
             contagem["skipped"] += 1
-            problemas.append({"line": row.line or 0, "reason": str(recusa)})
+            problemas.append({"line": row.line or 0, "reason": recusa.motivo})
             continue
         except HTTPException as exc:
             raise HTTPException(status_code=exc.status_code, detail=f"Linha {row.line}: {exc.detail}")

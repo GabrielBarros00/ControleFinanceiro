@@ -19,6 +19,7 @@ from app.models.account_ledger import AccountTransfer
 from app.models.attachment import Attachment
 from app.models.category import Category
 from app.models.credit_card import CardStatement, CreditCard, StatementPayment, StatementStatus
+from app.models.import_batch import ImportRow, ImportRowStatus
 from app.models.income import Income
 from app.models.transaction import Transaction
 from app.models.user import User
@@ -257,6 +258,10 @@ def test_a_transferencia_vista_pelo_extrato_da_outra_conta_nao_duplica(cena):
     r = _grava(cena, [espelho], conta=cena["poupanca"])
     assert (r["imported"], r["duplicate"]) == (0, 1)
     assert len(cena["db"].exec(select(AccountTransfer).where(AccountTransfer.deleted_at.is_(None))).all()) == 1
+    # O motivo gravado é o texto escrito para a pessoa (`_JaExiste.motivo`), e não
+    # a exceção convertida em texto (CodeQL `py/stack-trace-exposure`).
+    linha = cena["db"].exec(select(ImportRow).where(ImportRow.status == ImportRowStatus.duplicate)).one()
+    assert linha.reason == "a mesma transferência já está registrada (pelo extrato da outra conta?)"
 
 
 
