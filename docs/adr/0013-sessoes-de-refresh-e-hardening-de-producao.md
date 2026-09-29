@@ -7,7 +7,7 @@ O refresh era stateless (SEC-004): o logout só limpava cookies, então um refre
 **Sessões de refresh persistidas com rotação e detecção de reuso (SEC-004).** Cada refresh token carrega um `jti` (uma linha em `RefreshSession`) e um `family` (a cadeia de rotações da mesma sessão).
 - **Login/registro/OAuth** iniciam uma família nova (`start_session`).
 - **Refresh** valida o `jti`, **rotaciona** (revoga o atual, emite o próximo na mesma família) e reemite o cookie.
-- **Reuso**: reapresentar um `jti` já rotacionado denuncia roubo → a **família inteira** é revogada (o ladrão e a vítima caem juntos).
+- **Reuso**: reapresentar um `jti` já rotacionado denuncia roubo → a **família inteira** é revogada (o ladrão e a vítima caem juntos). *Revisto pelo [ADR 0042](0042-janela-de-reapresentacao-do-refresh.md): nos 30 s seguintes à rotação, com a sucessora viva, a reapresentação devolve a sessão vigente.*
 - **Logout** revoga a sessão do token — o cookie copiado deixa de valer imediatamente.
 - **Legado**: tokens sem `jti` (emitidos antes da migração) são aceitos uma vez e migrados para uma sessão gerenciada — ninguém é deslogado no deploy.
 
