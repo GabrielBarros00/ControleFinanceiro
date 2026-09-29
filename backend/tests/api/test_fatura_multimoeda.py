@@ -28,7 +28,7 @@ from fastapi.testclient import TestClient
 from sqlmodel import Session, select
 
 from app.core.jwt import create_access_token
-from app.domain.dates import civil_instant, today_local
+from app.domain.dates import add_months, civil_instant, today_local
 from app.main import app
 from app.models.credit_card import CreditCard
 from app.models.exchange_rate import ExchangeRate
@@ -36,6 +36,7 @@ from app.models.transaction import Transaction, TransactionStatus
 from app.models.user import User
 from app.models.workspace import Workspace, WorkspaceMembership, WorkspaceRole
 from app.services.credit_card_service import CreditCardService
+from app.services.currency_service import CurrencyService
 
 client = TestClient(app)
 
@@ -59,8 +60,17 @@ TAXA_USD = Decimal("5.000000")
 
 
 @pytest.fixture(name="cena")
-def cena_fixture(db_session: Session, override_get_session):
+def cena_fixture(db_session: Session, override_get_session, monkeypatch):
     """Workspace em BRL, cartão do dono em USD — as duas moedas em desacordo."""
+    # A PTAX SEM rede, e sempre respondendo — como em produção. A cotação do dia 1
+    # vem do banco (abaixo); qualquer outra data cairia na API do Banco Central, e
+    # o resultado dependia de o CI ter internet e do dia do mês: a ocorrência do
+    # mês seguinte (horizonte do ADR 0034) só achava cotação nos últimos dias do
+    # mês, pelo look-back de 5 dias. Aí o teste via duas ocorrências onde
+    # esperava uma, e o CI ficava vermelho do dia ~26 ao fim de todo mês.
+    monkeypatch.setattr(
+        CurrencyService, "_fetch_ptax_sync", classmethod(lambda cls, moeda, dia: TAXA_USD)
+    )
     user = User(
         name="Dona", email="onda9-fx@t.com", password_hash="h", report_currency="USD"
     )
@@ -318,6 +328,16 @@ def _criar_recorrencia(cena, valor="100.00", card_id=None):
     )
 
 
+def _ocorrencia_do_mes(db_session):
+    """A ocorrência de DIA. O horizonte (ADR 0034) também materializa a do mês
+    seguinte, e estes testes são sobre a do mês corrente."""
+    return db_session.exec(
+        select(Transaction).where(
+            Transaction.transaction_date < civil_instant(add_months(DIA, 1))
+        )
+    ).one()
+
+
 def _materializar(cena, recurring_id):
     resp = client.post(
         f"/api/v1/workspaces/{cena['ws_id']}/recurring/generate",
@@ -335,7 +355,7 @@ def test_editar_recorrencia_move_a_fatura_junto(db_session, cena):
     rec_id = criada.json()["id"]
     _materializar(cena, rec_id)
 
-    tx = db_session.exec(select(Transaction)).one()
+    tx = _ocorrencia_do_mes(db_session)
     assert tx.statement_amount == Decimal("20.70"), "a criação já nascia certa"
     statement_id = tx.statement_id
 
@@ -348,7 +368,7 @@ def test_editar_recorrencia_move_a_fatura_junto(db_session, cena):
     assert resp.status_code == 200, resp.text
 
     db_session.expire_all()
-    tx = db_session.exec(select(Transaction)).one()
+    tx = _ocorrencia_do_mes(db_session)
     assert tx.total_amount == Decimal("200.00")
     assert tx.statement_amount == Decimal("41.40"), "R$ 200 ÷ 5 × 1,035"
     assert tx.statement_currency == "USD"
@@ -380,7 +400,7 @@ def test_trocar_o_cartao_da_recorrencia_leva_a_perna_monetaria(db_session, cena)
     assert resp.status_code == 200, resp.text
 
     db_session.expire_all()
-    tx = db_session.exec(select(Transaction)).one()
+    tx = _ocorrencia_do_mes(db_session)
     assert tx.credit_card_id == outro.id
     # Cartão em BRL, lançamento em BRL: sem conversão e sem IOF.
     assert tx.statement_currency == "BRL"
@@ -398,7 +418,7 @@ def test_tirar_o_cartao_da_recorrencia_esvazia_a_perna(db_session, cena):
     criada = _criar_recorrencia(cena)
     rec_id = criada.json()["id"]
     _materializar(cena, rec_id)
-    statement_id = db_session.exec(select(Transaction)).one().statement_id
+    statement_id = _ocorrencia_do_mes(db_session).statement_id
 
     resp = client.put(
         f"/api/v1/workspaces/{cena['ws_id']}/recurring/{rec_id}",
@@ -409,7 +429,7 @@ def test_tirar_o_cartao_da_recorrencia_esvazia_a_perna(db_session, cena):
     assert resp.status_code == 200, resp.text
 
     db_session.expire_all()
-    tx = db_session.exec(select(Transaction)).one()
+    tx = _ocorrencia_do_mes(db_session)
     assert tx.statement_id is None
     assert tx.statement_amount is None
     assert tx.statement_currency is None

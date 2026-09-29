@@ -13,6 +13,8 @@ API REST versionada sob **`/api/v1`**. Esta página cobre as convenções; o con
 ### Autenticação
 Sessão em **cookies HttpOnly** (`access_token` + `refresh_token`) — definidos por `POST /auth/login`, `/auth/register`, callback do Google, e renovados por `POST /auth/refresh`. Não há header `Authorization`; o navegador envia os cookies automaticamente. `POST /auth/logout` revoga a sessão.
 
+Cada renovação **gira** o refresh token, e reapresentar um token já girado revoga a sessão inteira (ADR 0013) — salvo nos 30 s seguintes à rotação, com a sessão ainda viva: aí a resposta é a sessão vigente, sem girar de novo (ADR 0042). O cliente web faz uma renovação por vez, na aba e entre abas (`renovarSessao` em `frontend/src/api/client.ts`).
+
 ### Autorização — dois eixos (ADR 0018)
 
 **Papel** diz o que você FAZ; **acesso financeiro** diz o que você VÊ. São independentes.

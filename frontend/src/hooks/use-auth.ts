@@ -39,6 +39,16 @@ export function ehFalhaDeInfraestrutura(erro: unknown): boolean {
   return status >= 500;
 }
 
+/*
+ * Prazo de cada tentativa da carga da sessão — menor que o padrão do cliente.
+ *
+ * É esta carga que segura a tela inteira em "Carregando sua sessão…". Depois do
+ * aparelho dormir, a primeira requisição pode sair por uma conexão morta e não
+ * voltar nunca; com 10 s ela vira falha de rede, e o `retry` da `auth-me` tenta
+ * de novo — já por outra conexão, que é o que o F5 fazia.
+ */
+export const PRAZO_DA_SESSAO_MS = 10_000;
+
 /**
  * A sessão + a seleção de workspace, fora do hook para poder ser chamada de dois
  * lugares: como `queryFn` da `auth-me` e diretamente pelo login (ver abaixo por
@@ -63,11 +73,14 @@ async function buscarSessao(
    * expirada não dispara duas renovações: o interceptor de 401 é single-flight.
    */
   const [sessao, espacos] = await Promise.allSettled([
-    apiClient.get('/auth/me'),
-    apiClient.get('/workspaces/'),
+    apiClient.get('/auth/me', { timeout: PRAZO_DA_SESSAO_MS }),
+    apiClient.get('/workspaces/', { timeout: PRAZO_DA_SESSAO_MS }),
   ]);
   if (sessao.status === 'rejected') {
-    clearStore();
+    // Só o servidor dizendo "não há sessão" apaga o espelho. Uma falha de rede
+    // num refetch em segundo plano (a volta da aba com a conexão ainda subindo)
+    // desligava o tempo real e os avisos de quem continuava logado.
+    if (!ehFalhaDeInfraestrutura(sessao.reason)) clearStore();
     throw sessao.reason;
   }
   const user = sessao.value.data;
@@ -228,7 +241,20 @@ export function useAuth() {
      * mostra "sem conexão" e um botão de tentar de novo, em vez de mandar para
      * a tela de login alguém cuja sessão está perfeitamente viva.
      */
-    falhaDeConexao: meQuery.isError && ehFalhaDeInfraestrutura(meQuery.error),
+    //
+    // Só enquanto a sessão nunca foi conhecida (`data` ainda `undefined`). Com
+    // a pessoa já dentro, um refetch que falha por rede (a volta da aba, com o
+    // Wi-Fi ainda conectando) trocava o app INTEIRO por esta tela — os dados que
+    // estavam à vista sumiam por causa de uma checagem de fundo. Cada tela já
+    // mostra o erro das próprias consultas.
+    //
+    // `isPaused` cobre o outro lado da mesma moeda: sem rede, o react-query nem
+    // tenta — a consulta fica pausada, sem erro e sem "carregando", e o guard
+    // concluía "não há sessão" e mandava para o login.
+    falhaDeConexao:
+      meQuery.data === undefined &&
+      ((meQuery.isError && ehFalhaDeInfraestrutura(meQuery.error)) ||
+        (meQuery.isPending && meQuery.isPaused)),
     tentarSessaoDeNovo: () => meQuery.refetch(),
     error: loginMutation.error || registerMutation.error,
     login: loginMutation.mutateAsync,

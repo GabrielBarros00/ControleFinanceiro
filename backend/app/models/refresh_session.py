@@ -10,7 +10,8 @@ class RefreshSession(SQLModel, table=True):
 
     Cada refresh token carrega um `jti` (esta linha) e um `family` (a cadeia de
     rotações da mesma sessão). Reapresentar um jti já rotacionado (revoked)
-    denuncia roubo → a família inteira é revogada.
+    denuncia roubo → a família inteira é revogada — salvo logo depois da
+    rotação, com a sucessora viva (ADR 0042).
     """
     id: Optional[int] = Field(default=None, primary_key=True)
     user_id: int = Field(foreign_key="user.id", index=True)

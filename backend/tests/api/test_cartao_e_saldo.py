@@ -13,6 +13,7 @@ conta do saldo, então declarar que USD 500 saíram de uma conta em reais soma m
 diferentes em silêncio. Antes desta onda os três gates de conta (existe, é do dono,
 está ativa) deixavam isso passar.
 """
+import calendar
 from datetime import timedelta
 from decimal import Decimal
 
@@ -291,7 +292,10 @@ def test_fatura_que_vence_no_mes_entra_na_projecao_pelo_SALDO(cena):
         card_id=cena["card_id"], month=month_key(ciclo),
         status=StatementStatus.closed,
         closing_date=civil_instant(ciclo),
-        due_date=civil_instant(HOJE.replace(day=min(HOJE.day + 1, 28))),
+        # O último dia do mês: sempre hoje ou depois, e sempre neste mês. O
+        # `min(HOJE.day + 1, 28)` que estava aqui virava ONTEM do dia 29 em
+        # diante, e a fatura passava a contar como atrasada, não como 'a pagar'.
+        due_date=civil_instant(HOJE.replace(day=calendar.monthrange(HOJE.year, HOJE.month)[1])),
         total_amount=Decimal("1500.00"),
         closed_at=civil_instant(ciclo),
     )

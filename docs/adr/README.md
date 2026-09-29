@@ -47,6 +47,7 @@ Cada ADR registra **uma decisão** relevante do projeto: o contexto, a decisão 
 | [0039](0039-assinaturas.md) | Assinatura é uma recorrência marcada (plano, teste grátis, benefícios, provedor = estabelecimento); o custo por mês é calculado no servidor | Recorrência |
 | [0040](0040-item-da-nota-com-medida.md) | O item da nota tem medida: unidade (un, kg, g, l, ml, m), preço unitário com 4 casas e conferência com tolerância de 1 centavo; obrigatório só ao adicionar item | Lançamento |
 | [0041](0041-edicao-parcial-completada-pelo-comando.md) | A edição parcial que mexe no dinheiro é completada pelo comando com a divisão gravada: valor na moeda da compra, reconversão na mesma proporção, total novo só onde há um jeito de repartir | Lançamento / moeda |
+| [0042](0042-janela-de-reapresentacao-do-refresh.md) | Reapresentar o refresh até 30 s depois da rotação, com a sucessora viva, devolve a sessão vigente (mesmo `jti`); fora da janela, ou depois de logout/troca de senha, continua revogando a família | Sessão / segurança |
 
 ## Escrevendo um novo ADR
 

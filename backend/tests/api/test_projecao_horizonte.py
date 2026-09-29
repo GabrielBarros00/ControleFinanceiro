@@ -33,6 +33,7 @@ Nada é escondido: a tela de Contas a pagar já fazia essa separação
 (`overdue_total` × `due_this_month_total`), e a projeção passa a falar a mesma
 língua da tela vizinha.
 """
+import calendar
 from datetime import timedelta
 from decimal import Decimal
 
@@ -50,6 +51,12 @@ from app.models.workspace import Workspace, WorkspaceMembership, WorkspaceRole
 client = TestClient(app)
 
 HOJE = today_local()
+# A parcela "a vencer neste mês" vence no ÚLTIMO dia do mês corrente, e não
+# "daqui a 2 dias": do dia 29 em diante, +2 caía no mês seguinte — fora do
+# 'a pagar' do mês — e três testes daqui ficavam vermelhos todo fim de mês. O
+# último dia é sempre hoje ou depois (vencer hoje ainda é 'a pagar', o atraso é
+# `vence < hoje`), e sempre dentro do mês.
+A_VENCER_NO_MES = calendar.monthrange(HOJE.year, HOJE.month)[1] - HOJE.day
 
 
 @pytest.fixture(name="cena")
@@ -137,11 +144,11 @@ def _financiamento(cena, *, vencimentos: list):
 # O caso que motivou o arquivo
 #
 # Cenário fixo em todos: TRÊS parcelas vencidas (40, 25 e 10 dias atrás), UMA
-# vencendo daqui a 2 dias, e o resto num futuro distante. Datas ditas, não
-# deduzidas — ver `_financiamento`.
+# vencendo ainda neste mês (no último dia dele), e o resto num futuro distante.
+# Datas ditas, não deduzidas — ver `_financiamento`.
 # --------------------------------------------------------------------------- #
 
-CENARIO = [-40, -25, -10, +2]
+CENARIO = [-40, -25, -10, A_VENCER_NO_MES]
 
 
 def test_parcelas_vencidas_nao_entram_no_a_pagar_do_mes(cena):
@@ -233,8 +240,8 @@ def test_saldo_projetado_considera_so_o_mes(cena):
 # --------------------------------------------------------------------------- #
 
 def test_controle_parcela_do_mes_continua_contando(cena):
-    """Uma parcela vencendo daqui a dois dias continua no 'a pagar'."""
-    _financiamento(cena, vencimentos=[+2])
+    """Uma parcela vencendo ainda neste mês continua no 'a pagar'."""
+    _financiamento(cena, vencimentos=[A_VENCER_NO_MES])
 
     corpo = _saldo(cena)
     financiamento = _linha(corpo, "financing")
@@ -249,7 +256,7 @@ def test_controle_parcela_do_mes_continua_contando(cena):
 
 def test_controle_sem_atraso_nao_inventa_linha_de_vencido(cena):
     """Quem está em dia não vê aviso de atraso."""
-    _financiamento(cena, vencimentos=[+2])
+    _financiamento(cena, vencimentos=[A_VENCER_NO_MES])
 
     corpo = _saldo(cena)
 

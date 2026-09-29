@@ -5,6 +5,15 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { useWorkspaceEvents, keysForEvent, wsUrl } from '../use-workspace-events';
 import { useAuthStore, useUIStore } from '@/stores';
 import { esquecerSeqsDoBootstrap, registrarSeqDoBootstrap } from '@/lib/seq-do-bootstrap';
+import { renovarSessao } from '@/api/client';
+
+// A renovação de sessão é a do cliente HTTP (a mesma das consultas); aqui só
+// importa o que o socket faz com o resultado dela — `client.test.ts` cobre ela.
+vi.mock('@/api/client', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/api/client')>()),
+  renovarSessao: vi.fn(),
+}));
+const renovar = vi.mocked(renovarSessao);
 
 class FakeWebSocket {
   static instances: FakeWebSocket[] = [];
@@ -13,6 +22,8 @@ class FakeWebSocket {
   onclose: ((e: { code: number }) => void) | null = null;
   onerror: (() => void) | null = null;
   closed = false;
+  readyState = 1; // OPEN
+  sent: string[] = [];
 
   constructor(url: string) {
     this.url = url;
@@ -22,6 +33,15 @@ class FakeWebSocket {
   close() {
     this.closed = true;
     this.onclose?.({ code: 1000 });
+  }
+
+  send(data: string) {
+    this.sent.push(data);
+  }
+
+  /** Conexão que morreu com o aparelho dormindo: o `close()` nunca completa. */
+  morrer() {
+    this.close = () => { this.closed = true; };
   }
 
   emit(data: unknown) {
@@ -337,5 +357,126 @@ describe('useWorkspaceEvents', () => {
 
     expect(FakeWebSocket.instances).toHaveLength(1);
     hook.unmount();
+  });
+
+  describe('a volta do aparelho', () => {
+    const voltarParaAba = () => {
+      Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'visible' });
+      document.dispatchEvent(new Event('visibilitychange'));
+    };
+
+    afterEach(() => {
+      renovar.mockReset();
+      // Devolve o getter do jsdom
+      delete (document as { visibilityState?: unknown }).visibilityState;
+    });
+
+    it('4401 renova pela MESMA renovação das consultas HTTP e reconecta', async () => {
+      // Antes o socket chamava `/auth/refresh` por conta própria, junto com as
+      // consultas da tela — e o servidor lia a segunda renovação como roubo.
+      renovar.mockResolvedValue(undefined);
+      const { hook } = setup();
+
+      await act(async () => {
+        FakeWebSocket.instances[0].onclose?.({ code: 4401 });
+        await vi.advanceTimersByTimeAsync(2_000);
+      });
+
+      expect(renovar).toHaveBeenCalledTimes(1);
+      expect(FakeWebSocket.instances).toHaveLength(2);
+      hook.unmount();
+    });
+
+    it('4401 com falha de REDE na renovação tenta de novo, em vez de desistir calado', async () => {
+      renovar.mockRejectedValueOnce(new Error('Network Error')).mockResolvedValue(undefined);
+      const { hook } = setup();
+
+      await act(async () => {
+        FakeWebSocket.instances[0].onclose?.({ code: 4401 });
+        await vi.advanceTimersByTimeAsync(2_000);
+      });
+
+      expect(FakeWebSocket.instances).toHaveLength(2);
+      hook.unmount();
+    });
+
+    it('4401 com a sessão RECUSADA não insiste', async () => {
+      renovar.mockRejectedValue({ response: { status: 401 } });
+      const { hook } = setup();
+
+      await act(async () => {
+        FakeWebSocket.instances[0].onclose?.({ code: 4401 });
+        await vi.advanceTimersByTimeAsync(60_000);
+      });
+      act(() => voltarParaAba());
+
+      expect(FakeWebSocket.instances).toHaveLength(1);
+      hook.unmount();
+    });
+
+    it('socket mudo além do prazo é trocado sem esperar o close que nunca vem', () => {
+      const { hook } = setup();
+      const morto = FakeWebSocket.instances[0];
+      morto.morrer();
+
+      act(() => {
+        vi.advanceTimersByTime(60_000 + 2_000);
+      });
+
+      expect(morto.closed).toBe(true);
+      expect(FakeWebSocket.instances.length).toBeGreaterThanOrEqual(2);
+      hook.unmount();
+    });
+
+    it('a aba que volta reconecta NA HORA, sem esperar o backoff', () => {
+      const { hook } = setup();
+      // Várias quedas seguidas (aparelho sem rede): o backoff chega a 16 s.
+      act(() => {
+        for (let i = 0; i < 5; i += 1) {
+          FakeWebSocket.instances.at(-1)!.onclose?.({ code: 1006 });
+          vi.advanceTimersByTime(30_000);
+        }
+        FakeWebSocket.instances.at(-1)!.onclose?.({ code: 1006 });
+      });
+      const antes = FakeWebSocket.instances.length;
+
+      act(() => voltarParaAba());
+
+      expect(FakeWebSocket.instances).toHaveLength(antes + 1);
+      hook.unmount();
+    });
+
+    it('na volta, o socket aberto é sondado: sem resposta ao ping, troca', () => {
+      const { hook } = setup();
+      const socket = FakeWebSocket.instances[0];
+      socket.morrer();
+
+      act(() => {
+        vi.advanceTimersByTime(10_000);
+        voltarParaAba();
+      });
+      expect(socket.sent).toEqual(['ping']);
+
+      act(() => {
+        vi.advanceTimersByTime(5_000);
+      });
+      expect(FakeWebSocket.instances).toHaveLength(2);
+      hook.unmount();
+    });
+
+    it('na volta, o socket que responde ao ping fica', () => {
+      const { hook } = setup();
+      const socket = FakeWebSocket.instances[0];
+
+      act(() => {
+        vi.advanceTimersByTime(10_000);
+        voltarParaAba();
+        socket.emit({ type: 'pong' });
+        vi.advanceTimersByTime(5_000);
+      });
+
+      expect(FakeWebSocket.instances).toHaveLength(1);
+      hook.unmount();
+    });
   });
 });

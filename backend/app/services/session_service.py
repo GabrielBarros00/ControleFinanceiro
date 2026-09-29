@@ -14,6 +14,48 @@ class SessionError(Exception):
     """Refresh inválido/expirado/reutilizado (o chamador traduz para 401)."""
 
 
+#: Reapresentar um refresh girado há MENOS que isto não é roubo (ADR 0042).
+#:
+#: É a própria pessoa chegando atrasada: a resposta da renovação se perdeu na
+#: rede do celular (o servidor girou, o navegador nunca recebeu o cookie novo),
+#: ou duas renovações saíram juntas com o mesmo cookie — a aba e o WebSocket na
+#: volta do aparelho, duas janelas, uma aba ainda com o JS de antes do deploy.
+#: Tratado como roubo, isso revogava a família e deslogava quem não fez nada de
+#: errado. Passada a janela, reapresentar continua derrubando tudo.
+JANELA_DE_REAPRESENTACAO = timedelta(seconds=30)
+
+
+def _utc(momento: datetime) -> datetime:
+    """As colunas não têm fuso: o valor lido volta ingênuo, e ele é UTC."""
+    return momento if momento.tzinfo is not None else momento.replace(tzinfo=UTC)
+
+
+def _sucessora_na_janela(db: Session, girada: RefreshSession) -> Optional[RefreshSession]:
+    """A sessão viva que nasceu da rotação de `girada`, se ela foi há pouco.
+
+    Exigir a sucessora VIVA e nascida depois da revogação é o que separa a
+    rotação das outras revogações: o logout e a troca de senha revogam sem criar
+    nada, então o token de uma sessão encerrada nunca cai aqui — nem dentro da
+    janela.
+    """
+    agora = datetime.now(UTC)
+    revogada_em = _utc(girada.revoked_at)
+    if agora - revogada_em > JANELA_DE_REAPRESENTACAO:
+        return None
+    vivas = db.exec(
+        select(RefreshSession)
+        .where(
+            RefreshSession.family_id == girada.family_id,
+            RefreshSession.revoked_at.is_(None),
+        )
+        .order_by(RefreshSession.id.desc())
+    ).all()
+    for viva in vivas:
+        if _utc(viva.created_at) >= revogada_em and _utc(viva.expires_at) > agora:
+            return viva
+    return None
+
+
 def _new_refresh(db: Session, user_id: int, family_id: str) -> str:
     jti = uuid.uuid4().hex
     expires_at = datetime.now(UTC) + timedelta(days=settings.REFRESH_TOKEN_EXPIRES_DAYS)
@@ -43,7 +85,9 @@ def rotate_session(db: Session, refresh_token: str) -> Tuple[int, str]:
     """Valida o refresh e devolve (user_id, novo_refresh_token), rotacionando.
 
     - jti desconhecido → inválido;
-    - jti já revogado → REUSO: revoga a família inteira;
+    - jti girado há menos de `JANELA_DE_REAPRESENTACAO`, com a sucessora viva →
+      devolve a SUCESSORA, sem girar de novo (ADR 0042);
+    - jti já revogado fora disso → REUSO: revoga a família inteira;
     - expirado → inválido;
     - token sem jti/family → inválido (formato legado, pré-SEC-004).
     """
@@ -72,6 +116,16 @@ def rotate_session(db: Session, refresh_token: str) -> Tuple[int, str]:
     if session is None:
         raise SessionError("sessão desconhecida")
     if session.revoked_at is not None:
+        sucessora = _sucessora_na_janela(db, session)
+        if sucessora is not None:
+            # Não gira de novo: quem chegou atrasado e quem já tem a sucessora
+            # ficam com o MESMO jti, e a próxima renovação de qualquer um dos
+            # dois segue a cadeia normal.
+            return sucessora.user_id, create_refresh_token(data={
+                "sub": str(sucessora.user_id),
+                "jti": sucessora.jti,
+                "family": sucessora.family_id,
+            })
         # Reuso de um jti já rotacionado → roubo: derruba a família toda
         _revoke_family(db, session.family_id)
         raise SessionError("sessão reutilizada")
