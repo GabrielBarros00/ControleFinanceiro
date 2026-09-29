@@ -1,6 +1,6 @@
 import { renderHook, waitFor } from '@testing-library/react';
 import { useAuth } from '../use-auth';
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { QueryClient, QueryClientProvider, onlineManager } from '@tanstack/react-query';
 import React from 'react';
 import { http, HttpResponse } from 'msw';
 import { server } from '@/test/setup';
@@ -344,6 +344,60 @@ describe('useAuth', () => {
       const { result } = renderHook(() => useAuth(), { wrapper });
       await waitFor(() => expect(result.current.isLoading).toBe(false));
       expect(result.current.isAuthenticated).toBe(true);
+    });
+  });
+
+  describe('sem conexão não é "deslogado" (a volta do aparelho)', () => {
+    /*
+     * A `auth-me` tem `retry` próprio para falha de infraestrutura (duas
+     * tentativas, 1 s e 2 s depois): os testes abaixo esperam por ele.
+     */
+    const ESPERA_DOS_RETRIES = { timeout: 6_000 };
+    const semResposta = () =>
+      server.use(http.get('http://localhost:8000/api/v1/auth/me', () => HttpResponse.error()));
+
+    it('primeira carga sem resposta do servidor: "sem conexão", e não a tela de login', async () => {
+      semResposta();
+      const { result } = renderHook(() => useAuth(), { wrapper });
+
+      await waitFor(() => expect(result.current.falhaDeConexao).toBe(true), ESPERA_DOS_RETRIES);
+      expect(result.current.isLoading).toBe(false);
+      expect(result.current.isAuthenticated).toBe(false);
+    }, 10_000);
+
+    it('refetch de fundo que falha por rede não troca o app pela tela de erro', async () => {
+      /*
+       * Na volta da aba o react-query reconfere a sessão, e o Wi-Fi ainda está
+       * subindo. Antes, a falha dessa checagem de fundo trocava o app INTEIRO
+       * por "Sem conexão com o servidor", com os dados à vista sumindo — e
+       * ainda apagava o espelho em Zustand, desligando o tempo real.
+       */
+      const { result } = renderHook(() => useAuth(), { wrapper });
+      await waitFor(() => expect(result.current.isAuthenticated).toBe(true));
+
+      semResposta();
+      await queryClient.refetchQueries({ queryKey: ['auth-me'] });
+      await waitFor(
+        () => expect(queryClient.getQueryState(['auth-me'])?.status).toBe('error'),
+        ESPERA_DOS_RETRIES,
+      );
+
+      expect(result.current.falhaDeConexao).toBe(false);
+      expect(result.current.isAuthenticated).toBe(true);
+      expect(useAuthStore.getState().isAuthenticated).toBe(true);
+    }, 10_000);
+
+    it('sem rede na carga (consulta pausada): "sem conexão", e não a tela de login', async () => {
+      // Sem rede o react-query nem tenta: a consulta fica pausada, sem erro e
+      // sem "carregando" — e o guard concluía "não há sessão".
+      onlineManager.setOnline(false);
+      try {
+        const { result } = renderHook(() => useAuth(), { wrapper });
+        await waitFor(() => expect(result.current.falhaDeConexao).toBe(true));
+        expect(result.current.isAuthenticated).toBe(false);
+      } finally {
+        onlineManager.setOnline(true);
+      }
     });
   });
 });

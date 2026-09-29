@@ -137,6 +137,33 @@ registro por CIMD/DCR, 59 tools documentadas em `docs/mcp/TOOLS.md` (geradas do
 código), e as escritas das rotas REST passaram a morar em comandos
 compartilhados (`app/services/commands/`) — sem mudança de comportamento.
 
+### Voltar ao app depois de um tempo não deixa mais a tela escura carregando
+
+- **O app não fica mais preso em "Carregando sua sessão…" quando você volta
+  depois de um tempo.** Com o celular dormindo (ou o PC suspenso), a conexão com o
+  servidor morria sem aviso, e a primeira consulta da volta ficava esperando uma
+  resposta que nunca vinha: tela escura, um spinner discreto, e só o F5 ou fechar e
+  abrir resolvia. Agora toda consulta tem prazo; a que passa dele é pedida de novo
+  por uma conexão nova, e o app abre sozinho.
+- **Se a espera passar de alguns segundos, a tela diz isso** e oferece o botão
+  **Recarregar** — no app instalado não há o do navegador à vista.
+- **Uma falha de rede na volta não desloga mais.** Se a renovação da sessão
+  falhava por rede (ou pelo servidor no meio de uma atualização), o app tratava
+  como sessão expirada e mostrava "Bem-vindo, entre com suas credenciais" para quem
+  estava logado. Agora ele tenta de novo; só a recusa do servidor encerra a sessão.
+- **A sessão não cai mais meia hora depois de voltar ao app.** Na volta, o tempo
+  real e as telas renovavam a sessão ao mesmo tempo (e cada aba aberta também), e o
+  servidor lia a segunda renovação como roubo e encerrava a sessão. Agora a
+  renovação é uma só, na aba e entre abas, e o servidor tolera a renovação repetida
+  nos 30 segundos seguintes ([ADR 0042](docs/adr/0042-janela-de-reapresentacao-do-refresh.md)).
+- **O tempo real volta junto com você.** Ao voltar para a aba (ou a rede voltar), a
+  conexão de tempo real é conferida na hora e refeita se tiver morrido, em vez de
+  esperar até 45 segundos — ou para sempre, quando a renovação da sessão falhava.
+- **Uma checagem de fundo que falha não some com a tela.** Quando a reconferência da
+  sessão na volta da aba falhava por rede, o app inteiro virava "Sem conexão com o
+  servidor", mesmo com tudo à vista; agora cada tela mostra o erro das próprias
+  consultas.
+
 ### O que a IA grava aparece no app, e editar pela tela não desfaz
 
 - **Os itens da nota aparecem no detalhe e na edição também quando a despesa é

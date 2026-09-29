@@ -14,6 +14,7 @@ import { Toaster } from './components/ui/toaster';
 import { ConfirmProvider } from './components/ui/confirm';
 import { ErrorState } from './components/ui/error-state';
 import { ErrorBoundary } from './components/layout/ErrorBoundary';
+import { Button } from './components/ui/button';
 
 // Code-splitting por rota: o dashboard carrega no bundle inicial; o resto
 // (em especial o recharts dos relatórios) só quando a rota é visitada
@@ -67,10 +68,42 @@ const queryClient = new QueryClient({
 // O interceptor de 401 precisa descartar o cache quando a sessão morre
 registerQueryClient(queryClient);
 
+/*
+ * Carregamento com saída.
+ *
+ * O relato que trouxe isto: "volto depois de um tempo e a tela fica preta, como
+ * se tentasse carregar, mas não mostra nada — só com F5". A tela era esta: o
+ * spinner sobre o fundo escuro, sem prazo e sem nenhum botão. As requisições
+ * agora têm prazo (`api/client.ts`) e a carga tenta de novo sozinha; mas, se a
+ * espera passar do razoável, a tela precisa DIZER isso e oferecer o que a pessoa
+ * fazia por conta própria. No app instalado não há botão de recarregar à vista.
+ */
+const DEMORA_MS = 8_000;
+
+function AvisoDeDemora() {
+  const [demorou, setDemorou] = React.useState(false);
+  React.useEffect(() => {
+    const id = setTimeout(() => setDemorou(true), DEMORA_MS);
+    return () => clearTimeout(id);
+  }, []);
+  if (!demorou) return null;
+  return (
+    <div role="status" className="flex max-w-xs flex-col items-center gap-3 text-center">
+      <p className="text-sm text-muted-foreground">
+        Está demorando mais que o normal. A conexão pode ter caído enquanto o app estava parado.
+      </p>
+      <Button variant="outline" size="sm" onClick={() => window.location.reload()}>
+        Recarregar
+      </Button>
+    </div>
+  );
+}
+
 function RouteFallback() {
   return (
-    <div className="min-h-[50vh] flex items-center justify-center">
+    <div className="min-h-[50vh] flex flex-col items-center justify-center gap-6 p-6">
       <div className="h-10 w-10 border-4 border-primary/20 border-t-primary rounded-full animate-spin" />
+      <AvisoDeDemora />
     </div>
   );
 }
@@ -121,10 +154,11 @@ const ProtectedRoute = ({ children }: ProtectedRouteProps) => {
 
   if (isLoading) {
     return (
-      <div className="min-h-dvh flex items-center justify-center bg-background">
+      <div className="min-h-dvh flex items-center justify-center bg-background p-6">
         <div className="flex flex-col items-center gap-4">
           <div className="h-12 w-12 border-4 border-primary/20 border-t-primary rounded-full animate-spin" />
           <p className="text-muted-foreground text-sm font-medium animate-pulse">Carregando sua sessão...</p>
+          <AvisoDeDemora />
         </div>
       </div>
     );
