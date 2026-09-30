@@ -107,7 +107,7 @@ pydantic-core==2.46.5
     # via pydantic
 pydantic-settings==2.15.0
     # via -r requirements.in
-pyjwt==2.14.0
+pyjwt==2.15.0
     # via
     #   -r requirements.in
     #   mcp
@@ -136,11 +136,11 @@ sqlalchemy==2.0.54
     #   -r requirements.in
     #   alembic
     #   sqlmodel
-sqlmodel==0.0.42
+sqlmodel==0.0.47
     # via -r requirements.in
 sse-starlette==3.4.11
     # via mcp
-starlette==1.6.0
+starlette==1.7.0
     # via
     #   -r requirements.in
     #   fastapi
@@ -173,7 +173,7 @@ typing-inspection==0.4.4
     #   pydantic-settings
 tzdata==2026.4
     # via -r requirements.in
-uvicorn==0.53.0
+uvicorn==0.54.0
     # via
     #   -r requirements.in
     #   mcp
