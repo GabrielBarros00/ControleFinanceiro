@@ -49,7 +49,7 @@ psycopg2-binary==2.9.13
 # PyJWT no lugar de python-jose: o jose está praticamente sem manutenção e
 # acumula CVEs (confusão de algoritmo, "JWT bomb"). PyJWT é mantido e exige
 # `algorithms=` explícito na verificação.
-PyJWT[crypto]==2.14.0
+PyJWT[crypto]==2.15.0
 # Piso da `cryptography`, que entra pelo extra `[crypto]` acima e não tinha
 # restrição própria: o resolvedor congelou a 49.0.0 e o `pip-audit --strict` do
 # CI passou a reprovar por PYSEC-2026-3552 (oracle Bleichenbacher na
