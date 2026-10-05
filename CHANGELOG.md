@@ -137,6 +137,14 @@ registro por CIMD/DCR, 59 tools documentadas em `docs/mcp/TOOLS.md` (geradas do
 código), e as escritas das rotas REST passaram a morar em comandos
 compartilhados (`app/services/commands/`) — sem mudança de comportamento.
 
+### Segurança: PyJWT 2.15.0
+
+- **`PyJWT 2.14.0` reprovava o `pip-audit --strict`** (CVE-2026-101918) e bloqueava o
+  CI do backend em todo PR desde 30/09. Um token com o conteúdo aninhado fundo o
+  bastante fazia a leitura estourar um `RecursionError` em vez de ser recusado como
+  token inválido; a 2.15.0 o recusa como `DecodeError`. Nada muda para quem usa o
+  app: as sessões continuam as mesmas.
+
 ### Voltar ao app depois de um tempo não deixa mais a tela escura carregando
 
 - **O app não fica mais preso em "Carregando sua sessão…" quando você volta
