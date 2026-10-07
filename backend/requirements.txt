@@ -39,7 +39,7 @@ cffi==2.1.1
     #   cryptography
 click==8.4.2
     # via uvicorn
-cryptography==50.0.1
+cryptography==50.0.2
     # via
     #   -r requirements.in
     #   http-ece
@@ -48,7 +48,7 @@ dnspython==2.8.0
     # via email-validator
 email-validator==2.3.0
     # via pydantic
-fastapi==0.141.1
+fastapi==0.142.2
     # via -r requirements.in
 greenlet==3.5.5
     # via sqlalchemy
@@ -83,12 +83,14 @@ mako==1.4.1
     # via alembic
 markupsafe==3.0.3
     # via mako
-mcp==2.2.0
+mcp==2.3.0
     # via -r requirements.in
-mcp-types==2.2.0
+mcp-types==2.3.0
     # via mcp
 opentelemetry-api==1.44.0
-    # via mcp
+    # via
+    #   fastapi
+    #   mcp
 passlib==1.7.4
     # via -r requirements.in
 psycopg2-binary==2.9.13
@@ -107,12 +109,12 @@ pydantic-core==2.46.5
     # via pydantic
 pydantic-settings==2.15.0
     # via -r requirements.in
-pyjwt==2.14.0
+pyjwt==2.15.1
     # via
     #   -r requirements.in
     #   mcp
     #   pyjwt
-python-dotenv==1.2.3
+python-dotenv==1.2.4
     # via
     #   -r requirements.in
     #   pydantic-settings
@@ -136,11 +138,11 @@ sqlalchemy==2.0.54
     #   -r requirements.in
     #   alembic
     #   sqlmodel
-sqlmodel==0.0.42
+sqlmodel==0.0.47
     # via -r requirements.in
 sse-starlette==3.4.11
     # via mcp
-starlette==1.6.0
+starlette==1.7.0
     # via
     #   -r requirements.in
     #   fastapi
@@ -171,9 +173,9 @@ typing-inspection==0.4.4
     #   mcp
     #   pydantic
     #   pydantic-settings
-tzdata==2026.4
+tzdata==2026.5
     # via -r requirements.in
-uvicorn==0.53.0
+uvicorn==0.54.0
     # via
     #   -r requirements.in
     #   mcp
