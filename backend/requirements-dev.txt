@@ -19,7 +19,7 @@
 pytest==9.1.1
 pytest-asyncio==1.4.0
 pytest-cov==7.1.0
-ruff==0.16.8
+ruff==0.17.0
 # Gera o `requirements.txt` compilado e é o que o gate "Compilado de dependências
 # em dia" do CI executa. FIXADO porque o gate compara a saída dele com o versionado:
 # instalado sem versão, uma release que mude o cabeçalho gerado ou a estratégia
@@ -37,7 +37,7 @@ ruff==0.16.8
 # O pip PASSOU a ser fixado no workflow (`pip==...` no ci.yml e no relock.sh),
 # que era a saída sugerida aqui. `test_nenhum_pip_install_sem_versao_no_ci`
 # impede que ele volte a ficar solto.
-pip-tools==7.6.1
+pip-tools==7.6.2
 
 # Roda o gate "Audit dependencies (pip)" do CI e o alvo `backend-audit` do
 # Makefile. FIXADO pela mesma razão do pip-tools: solto, uma release que mude a
