@@ -1,6 +1,7 @@
 from datetime import datetime, UTC
 from typing import Optional
 
+from sqlalchemy import DateTime
 from sqlmodel import SQLModel, Field
 
 
@@ -17,6 +18,6 @@ class RefreshSession(SQLModel, table=True):
     user_id: int = Field(foreign_key="user.id", index=True)
     jti: str = Field(unique=True, index=True)
     family_id: str = Field(index=True)
-    expires_at: datetime
-    revoked_at: Optional[datetime] = Field(default=None)
-    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    expires_at: datetime = Field(sa_type=DateTime)
+    revoked_at: Optional[datetime] = Field(default=None, sa_type=DateTime)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC), sa_type=DateTime)

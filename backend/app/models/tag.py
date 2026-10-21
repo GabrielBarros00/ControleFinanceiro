@@ -1,5 +1,6 @@
 from datetime import datetime, UTC
 from typing import Optional
+from sqlalchemy import DateTime
 from sqlmodel import SQLModel, Field, UniqueConstraint
 
 
@@ -11,9 +12,9 @@ class Tag(SQLModel, table=True):
     name: str
     color: Optional[str] = None  # hex, ex: #f59e0b
 
-    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
-    updated_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
-    deleted_at: Optional[datetime] = None
+    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC), sa_type=DateTime)
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(UTC), sa_type=DateTime)
+    deleted_at: Optional[datetime] = Field(default=None, sa_type=DateTime)
 
 
 class TransactionTagLink(SQLModel, table=True):

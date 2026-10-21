@@ -2,7 +2,7 @@ from datetime import datetime, UTC
 from enum import Enum
 from typing import Optional
 
-from sqlalchemy import Index
+from sqlalchemy import DateTime, Index
 from sqlmodel import SQLModel, Field
 
 
@@ -47,5 +47,5 @@ class Notification(SQLModel, table=True):
     workspace_name: Optional[str] = None
     invite_token: Optional[str] = Field(default=None, index=True)
 
-    read_at: Optional[datetime] = Field(default=None)
-    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC), index=True)
+    read_at: Optional[datetime] = Field(default=None, sa_type=DateTime)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC), index=True, sa_type=DateTime)

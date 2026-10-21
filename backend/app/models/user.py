@@ -2,7 +2,7 @@ import secrets
 from datetime import datetime, UTC
 from enum import Enum
 from typing import Optional
-from sqlalchemy import Boolean, Column, Integer, String
+from sqlalchemy import Boolean, Column, DateTime, Integer, String
 from sqlalchemy.sql import expression
 from sqlmodel import SQLModel, Field
 from pydantic import EmailStr, ConfigDict
@@ -114,9 +114,9 @@ class User(UserBase, table=True):
         sa_column=Column(Boolean, nullable=False, server_default=expression.false()),
     )
 
-    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
-    updated_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
-    deleted_at: Optional[datetime] = Field(default=None)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC), sa_type=DateTime)
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(UTC), sa_type=DateTime)
+    deleted_at: Optional[datetime] = Field(default=None, sa_type=DateTime)
 
     @property
     def avatar_version(self) -> Optional[str]:

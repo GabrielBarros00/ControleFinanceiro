@@ -2,7 +2,7 @@ from datetime import datetime, UTC
 from enum import Enum
 from typing import Optional, List
 from decimal import Decimal
-from sqlalchemy import Index, text
+from sqlalchemy import DateTime, Index, text
 from sqlmodel import SQLModel, Field, Relationship, UniqueConstraint
 
 class StatementStatus(str, Enum):
@@ -44,17 +44,17 @@ class CreditCard(CreditCardBase, table=True):
     # Dono — a identidade do cartão. NOT NULL: "cartão de todo mundo" era o que
     # fazia qualquer member mexer no limite alheio.
     owner_user_id: int = Field(foreign_key="user.id", index=True)
-    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
-    updated_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
-    deleted_at: Optional[datetime] = Field(default=None)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC), sa_type=DateTime)
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(UTC), sa_type=DateTime)
+    deleted_at: Optional[datetime] = Field(default=None, sa_type=DateTime)
 
     statements: List["CardStatement"] = Relationship(back_populates="card")
 
 
 class CardStatementBase(SQLModel):
     month: str = Field(index=True)  # Format YYYY-MM
-    closing_date: datetime
-    due_date: datetime
+    closing_date: datetime = Field(sa_type=DateTime)
+    due_date: datetime = Field(sa_type=DateTime)
     status: StatementStatus = Field(default=StatementStatus.open)
     # total_amount é CONGELADO no fechamento (ADR 0011): enquanto open, o total
     # autoritativo é calculado no servidor (soma das transações realizadas);
@@ -70,11 +70,11 @@ class CardStatement(CardStatementBase, table=True):
     card_id: int = Field(foreign_key="creditcard.id", index=True)
 
     # Ciclo open→closed→paid + reabertura (ADR 0011)
-    closed_at: Optional[datetime] = Field(default=None)
-    paid_at: Optional[datetime] = Field(default=None)
+    closed_at: Optional[datetime] = Field(default=None, sa_type=DateTime)
+    paid_at: Optional[datetime] = Field(default=None, sa_type=DateTime)
 
-    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
-    updated_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC), sa_type=DateTime)
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(UTC), sa_type=DateTime)
 
     card: CreditCard = Relationship(back_populates="statements")
     payments: List["StatementPayment"] = Relationship(back_populates="statement")
@@ -106,12 +106,12 @@ class StatementPayment(SQLModel, table=True):
     statement_id: int = Field(foreign_key="cardstatement.id", index=True)
     account_id: Optional[int] = Field(default=None, foreign_key="paymentaccount.id")
     amount: Decimal = Field(decimal_places=2, max_digits=20)
-    paid_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    paid_at: datetime = Field(default_factory=lambda: datetime.now(UTC), sa_type=DateTime)
     note: Optional[str] = None
     created_by_user_id: Optional[int] = Field(default=None, foreign_key="user.id")
 
-    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
-    updated_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
-    deleted_at: Optional[datetime] = Field(default=None)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC), sa_type=DateTime)
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(UTC), sa_type=DateTime)
+    deleted_at: Optional[datetime] = Field(default=None, sa_type=DateTime)
 
     statement: CardStatement = Relationship(back_populates="payments")

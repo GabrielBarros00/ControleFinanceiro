@@ -10,7 +10,7 @@ from datetime import date, datetime, UTC
 from enum import Enum
 from typing import Optional
 
-from sqlalchemy import Column, Date, String, UniqueConstraint
+from sqlalchemy import Column, Date, DateTime, String, UniqueConstraint
 from sqlmodel import SQLModel, Field
 
 
@@ -80,4 +80,4 @@ class DueReminder(SQLModel, table=True):
     # correção como "já avisei".
     due_date: date = Field(sa_column=Column(Date, nullable=False))
 
-    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC), sa_type=DateTime)

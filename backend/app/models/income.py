@@ -1,7 +1,7 @@
 from datetime import datetime, UTC
 from typing import Optional
 from decimal import Decimal
-from sqlalchemy import Index, text
+from sqlalchemy import DateTime, Index, text
 from sqlmodel import SQLModel, Field
 
 class IncomeBase(SQLModel):
@@ -16,7 +16,7 @@ class IncomeBase(SQLModel):
     #: isso para ganhar só um nome melhor. Quando o dinheiro de fato caiu é
     #: `settled_at`, exatamente como `Transaction.transaction_date` (competência) e
     #: `Transaction.settled_at` (caixa) se dividem desde o ADR 0029.
-    received_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    received_at: datetime = Field(default_factory=lambda: datetime.now(UTC), sa_type=DateTime)
     category: Optional[str] = Field(default=None, index=True) # e.g., "Salary", "Freelance"
 
 class Income(IncomeBase, table=True):
@@ -78,16 +78,16 @@ class Income(IncomeBase, table=True):
     # Coluna própria, e não um enum `expected|received`, pela mesma razão do ADR
     # 0029: competência e caixa são ortogonais, e um estado único que significasse
     # as duas coisas voltaria a amarrá-las.
-    settled_at: Optional[datetime] = Field(default=None)
+    settled_at: Optional[datetime] = Field(default=None, sa_type=DateTime)
     # Prevista que NÃO veio. Diferente de `deleted_at`: a linha continua visível
     # como "cancelada" e segue ocupando a vaga da unique de ocorrência (tombstone),
     # então a materialização não a recria no mês seguinte.
-    cancelled_at: Optional[datetime] = Field(default=None)
+    cancelled_at: Optional[datetime] = Field(default=None, sa_type=DateTime)
     # Em qual conta o dinheiro caiu (ADR 0034). `None` = não declarada: a renda
     # conta no caixa e no resultado, mas não move saldo de conta nenhuma, e entra
     # no contador de "movimentos sem conta" da tela de Contas.
     account_id: Optional[int] = Field(default=None, foreign_key="paymentaccount.id")
 
-    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
-    updated_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
-    deleted_at: Optional[datetime] = Field(default=None)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC), sa_type=DateTime)
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(UTC), sa_type=DateTime)
+    deleted_at: Optional[datetime] = Field(default=None, sa_type=DateTime)

@@ -1,6 +1,7 @@
 from datetime import date, datetime, UTC
 from decimal import Decimal
 from typing import Optional
+from sqlalchemy import DateTime
 from sqlmodel import SQLModel, Field, UniqueConstraint
 
 
@@ -18,4 +19,4 @@ class ExchangeRate(SQLModel, table=True):
     rate_date: date = Field(index=True)    # data da cotação
     rate: Decimal = Field(decimal_places=6, max_digits=20)
     source: str                            # 'ptax' (oficial) | 'market' (referência)
-    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC), sa_type=DateTime)

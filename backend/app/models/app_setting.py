@@ -1,7 +1,7 @@
 from datetime import datetime, UTC
 from typing import Optional
 
-from sqlalchemy import Column, String, Text
+from sqlalchemy import Column, DateTime, String, Text
 from sqlmodel import SQLModel, Field
 
 
@@ -35,4 +35,4 @@ class AppSetting(SQLModel, table=True):
     # porque alguém gravou "false" seria um belo jeito de derrubar o site.
     value: str = Field(sa_column=Column(Text, nullable=False))
     updated_by_user_id: Optional[int] = Field(default=None, foreign_key="user.id")
-    updated_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(UTC), sa_type=DateTime)

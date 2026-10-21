@@ -2,7 +2,7 @@ from datetime import datetime, UTC, date
 from enum import Enum
 from typing import Optional, List
 from decimal import Decimal
-from sqlalchemy import Index, text
+from sqlalchemy import DateTime, Index, text
 from sqlmodel import SQLModel, Field, Relationship, UniqueConstraint
 
 class AmortizationMethod(str, Enum):
@@ -37,9 +37,9 @@ class Financing(FinancingBase, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
     owner_user_id: int = Field(foreign_key="user.id", index=True)
 
-    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
-    updated_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
-    deleted_at: Optional[datetime] = Field(default=None)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC), sa_type=DateTime)
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(UTC), sa_type=DateTime)
+    deleted_at: Optional[datetime] = Field(default=None, sa_type=DateTime)
 
     schedule: List["AmortizationInstallment"] = Relationship(back_populates="financing")
 
@@ -66,7 +66,7 @@ class AmortizationInstallment(AmortizationInstallmentBase, table=True):
 
     id: Optional[int] = Field(default=None, primary_key=True)
     financing_id: int = Field(foreign_key="financing.id", index=True)
-    paid_at: Optional[datetime] = None
+    paid_at: Optional[datetime] = Field(default=None, sa_type=DateTime)
     # O pagamento aconteceu ANTES de o app existir para esta pessoa (ADR 0023).
     #
     # `is_paid` sozinho não distingue dois fatos diferentes: "paguei e não lancei a
