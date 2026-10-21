@@ -70,8 +70,14 @@ def test_get_me_success(db_session: Session, override_get_session):
     db_session.refresh(user)
     
     token = create_access_token(data={"sub": str(user.id)})
+    # O `client` é do módulo e guarda o `access_token` do test_login_success, num
+    # cookie de domínio "testserver.local"; o `set` abaixo cria outro, de domínio "".
+    # Com os dois no jar vão dois `access_token` no header, e qual deles o servidor lê
+    # depende da ordem do httpx2 (a 2.16.0 inverteu). No Postgres o velho é de um
+    # usuário que o db_session já apagou, e a resposta vira 401.
+    client.cookies.clear()
     client.cookies.set("access_token", token)
-    
+
     response = client.get("/api/v1/auth/me")
     assert response.status_code == 200
     assert response.json()["email"] == "me@example.com"
