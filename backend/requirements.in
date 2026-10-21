@@ -30,9 +30,9 @@
 # `requirements-dev.txt`, não o compilado.
 
 # --- Web ---
-fastapi==0.141.1
-uvicorn[standard]==0.53.0
-starlette==1.6.0
+fastapi==0.143.3
+uvicorn[standard]==0.54.0
+starlette==1.8.0
 python-multipart==0.0.32
 
 # --- Modelos e validação ---
@@ -49,7 +49,7 @@ psycopg2-binary==2.9.13
 # PyJWT no lugar de python-jose: o jose está praticamente sem manutenção e
 # acumula CVEs (confusão de algoritmo, "JWT bomb"). PyJWT é mantido e exige
 # `algorithms=` explícito na verificação.
-PyJWT[crypto]==2.15.0
+PyJWT[crypto]==2.15.1
 # Piso da `cryptography`, que entra pelo extra `[crypto]` acima e não tinha
 # restrição própria: o resolvedor congelou a 49.0.0 e o `pip-audit --strict` do
 # CI passou a reprovar por PYSEC-2026-3552 (oracle Bleichenbacher na
@@ -57,7 +57,7 @@ PyJWT[crypto]==2.15.0
 # Este app não usa as APIs PKCS#7 e assina JWT só com HS256, então a
 # explorabilidade aqui é baixa — o que não é motivo para carregar a versão
 # vulnerável, e sim a razão de isto ser um piso e não um pin exato.
-cryptography>=50.0.1
+cryptography>=50.0.2
 # argon2 é o algoritmo primário de senha (ver app/core/security.py). passlib
 # segue apenas para VERIFICAR hashes antigos (pbkdf2_sha256/bcrypt) e permitir o
 # rehash transparente no login; sai daqui quando não houver mais hash legado.
@@ -72,7 +72,7 @@ bcrypt==5.0.0
 # OAuth é NOSSO (`app/services/oauth/`): o do SDK está depreciado, e o login a
 # reaproveitar é o do app. Pin exato: a API de servidor mudou entre as 1.x e as
 # 2.x, e o `app/mcp/server.py` depende da 2.x.
-mcp==2.2.0
+mcp==2.3.0
 
 # --- Infra ---
 httpx==0.28.1
@@ -83,12 +83,12 @@ httpx==0.28.1
 certifi>=2026.10.19
 structlog==26.1.0
 anyio==4.15.1
-python-dotenv==1.2.3
+python-dotenv==1.2.4
 # Base de fusos para `zoneinfo`. O calendário do app é `APP_TIMEZONE`
 # (America/Sao_Paulo por padrão) e o Windows não tem base de fusos do sistema —
 # sem este pacote, `ZoneInfo` levanta ModuleNotFoundError no desenvolvimento
 # local e o backend degradava para UTC justamente onde a diferença importa.
-tzdata==2026.4
+tzdata==2026.5
 # Criptografia do payload do Web Push (aes128gcm, RFC 8291/8188). É a ÚNICA peça
 # nova do aviso de vencimento (ADR 0033), e de propósito:
 #
