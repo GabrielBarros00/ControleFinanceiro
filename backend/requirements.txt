@@ -29,8 +29,9 @@ attrs==26.1.0
     #   referencing
 bcrypt==5.0.0
     # via -r requirements.in
-certifi==2026.7.22
+certifi==2026.10.19
     # via
+    #   -r requirements.in
     #   httpcore
     #   httpx
 cffi==2.1.1
@@ -95,7 +96,7 @@ psycopg2-binary==2.9.13
     # via -r requirements.in
 pycparser==3.0
     # via cffi
-pydantic==2.13.5
+pydantic==2.14.1
     # via
     #   -r requirements.in
     #   fastapi
@@ -103,11 +104,11 @@ pydantic==2.13.5
     #   mcp-types
     #   pydantic-settings
     #   sqlmodel
-pydantic-core==2.46.5
+pydantic-core==2.50.1
     # via pydantic
-pydantic-settings==2.15.0
+pydantic-settings==2.16.0
     # via -r requirements.in
-pyjwt==2.14.0
+pyjwt==2.15.0
     # via
     #   -r requirements.in
     #   mcp
@@ -131,12 +132,12 @@ rpds-py==2026.6.3
     # via
     #   jsonschema
     #   referencing
-sqlalchemy==2.0.54
+sqlalchemy==2.0.55
     # via
     #   -r requirements.in
     #   alembic
     #   sqlmodel
-sqlmodel==0.0.42
+sqlmodel==0.0.48
     # via -r requirements.in
 sse-starlette==3.4.11
     # via mcp
@@ -162,6 +163,7 @@ typing-extensions==4.16.0
     #   opentelemetry-api
     #   pydantic
     #   pydantic-core
+    #   pydantic-settings
     #   sqlalchemy
     #   sqlmodel
     #   typing-inspection

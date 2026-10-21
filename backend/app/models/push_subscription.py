@@ -8,7 +8,7 @@ navegador — e é por isso que a tela de Configurações lista aparelhos, no pl
 from datetime import datetime, UTC
 from typing import Optional
 
-from sqlalchemy import Column, String, Text
+from sqlalchemy import Column, DateTime, String, Text
 from sqlmodel import SQLModel, Field
 
 
@@ -42,8 +42,8 @@ class PushSubscription(SQLModel, table=True):
         default=None, sa_column=Column(String(255), nullable=True)
     )
 
-    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC), sa_type=DateTime)
     # Quando o serviço de push aceitou o último envio. Serve para a tela dizer
     # "sem uso desde…" e para diagnosticar um aparelho que parou de receber sem
     # ter sido apagado (o serviço só responde 410 quando tem certeza).
-    last_success_at: Optional[datetime] = Field(default=None)
+    last_success_at: Optional[datetime] = Field(default=None, sa_type=DateTime)
