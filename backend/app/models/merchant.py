@@ -16,7 +16,7 @@ import unicodedata
 from datetime import UTC, datetime
 from typing import List, Optional
 
-from sqlalchemy import JSON, Column, Index
+from sqlalchemy import Column, DateTime, Index, JSON
 from sqlmodel import Field, SQLModel
 
 
@@ -46,9 +46,9 @@ class Merchant(SQLModel, table=True):
     #: Categoria sugerida para o lançamento novo ligado a ele (só quando a pessoa
     #: não escolheu nenhuma).
     default_category_id: Optional[int] = Field(default=None, foreign_key="category.id")
-    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
-    updated_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
-    deleted_at: Optional[datetime] = None
+    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC), sa_type=DateTime)
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(UTC), sa_type=DateTime)
+    deleted_at: Optional[datetime] = Field(default=None, sa_type=DateTime)
 
     def chaves(self) -> set[str]:
         """Tudo o que vincula um título a ele: o nome e os apelidos."""

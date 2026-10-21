@@ -3,7 +3,7 @@ from decimal import Decimal
 from enum import Enum
 from typing import Optional
 
-from sqlalchemy import Column, String
+from sqlalchemy import Column, DateTime, String
 from sqlmodel import SQLModel, Field
 
 from app.domain.dates import local_day
@@ -44,7 +44,7 @@ class ImportBatch(SQLModel, table=True):
     ignored_count: int = Field(default=0)
     duplicate_count: int = Field(default=0)
     skipped_count: int = Field(default=0)
-    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC), sa_type=DateTime)
 
 
 class ImportRow(SQLModel, table=True):
@@ -64,7 +64,7 @@ class ImportRow(SQLModel, table=True):
     line: Optional[int] = None
     title: str
     amount: Decimal = Field(decimal_places=2, max_digits=20)
-    transaction_date: datetime
+    transaction_date: datetime = Field(sa_type=DateTime)
     fingerprint: str = Field(index=True)
     status: ImportRowStatus
     transaction_id: Optional[int] = Field(default=None, foreign_key="transaction.id")
@@ -72,7 +72,7 @@ class ImportRow(SQLModel, table=True):
     transfer_id: Optional[int] = Field(default=None, foreign_key="accounttransfer.id")
     statement_payment_id: Optional[int] = Field(default=None, foreign_key="statementpayment.id")
     reason: Optional[str] = None
-    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC), sa_type=DateTime)
 
 
 def compute_fingerprint(workspace_id: int, when: datetime, amount: Decimal, title: str) -> str:
