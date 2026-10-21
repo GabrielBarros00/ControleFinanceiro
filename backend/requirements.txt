@@ -29,8 +29,9 @@ attrs==26.1.0
     #   referencing
 bcrypt==5.0.0
     # via -r requirements.in
-certifi==2026.7.22
+certifi==2026.10.19
     # via
+    #   -r requirements.in
     #   httpcore
     #   httpx
 cffi==2.1.1
@@ -107,7 +108,7 @@ pydantic-core==2.46.5
     # via pydantic
 pydantic-settings==2.15.0
     # via -r requirements.in
-pyjwt==2.14.0
+pyjwt==2.15.0
     # via
     #   -r requirements.in
     #   mcp
