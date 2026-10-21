@@ -76,6 +76,11 @@ mcp==2.2.0
 
 # --- Infra ---
 httpx==0.28.1
+# Piso da `certifi`, que entra pela `httpx` acima e não tinha restrição própria:
+# o resolvedor congelou a 2026.7.22 e o `pip-audit --strict` do CI passou a
+# reprovar por PYSEC-2026-4320 (corrigida na 2026.10.19). Piso, não pin exato,
+# pela mesma razão da `cryptography` logo acima.
+certifi>=2026.10.19
 structlog==26.1.0
 anyio==4.15.1
 python-dotenv==1.2.3
