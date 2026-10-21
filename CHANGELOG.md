@@ -145,6 +145,15 @@ compartilhados (`app/services/commands/`) — sem mudança de comportamento.
   token inválido; a 2.15.0 o recusa como `DecodeError`. Nada muda para quem usa o
   app: as sessões continuam as mesmas.
 
+### Segurança: certifi, follow-redirects e fast-uri
+
+- **O gate de dependências ficou vermelho de novo em todo PR a partir de 19/10**,
+  independente do que o PR mudasse: `certifi 2026.7.22` (PYSEC-2026-4320, via
+  `httpx`) no `pip-audit --strict`, e `follow-redirects`/`fast-uri` (transitivas de
+  `axios`/`ajv`) no `npm run audit`. As três subiram para a versão corrigida — um
+  piso em `requirements.in` e dois `overrides` no `package.json`, já que nenhuma
+  tem range própria para mover sozinha. Nada muda para quem usa o app.
+
 ### Voltar ao app depois de um tempo não deixa mais a tela escura carregando
 
 - **O app não fica mais preso em "Carregando sua sessão…" quando você volta
