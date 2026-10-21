@@ -137,6 +137,23 @@ registro por CIMD/DCR, 59 tools documentadas em `docs/mcp/TOOLS.md` (geradas do
 código), e as escritas das rotas REST passaram a morar em comandos
 compartilhados (`app/services/commands/`) — sem mudança de comportamento.
 
+### Segurança: PyJWT 2.15.0
+
+- **`PyJWT 2.14.0` reprovava o `pip-audit --strict`** (CVE-2026-101918) e bloqueava o
+  CI do backend em todo PR desde 30/09. Um token com o conteúdo aninhado fundo o
+  bastante fazia a leitura estourar um `RecursionError` em vez de ser recusado como
+  token inválido; a 2.15.0 o recusa como `DecodeError`. Nada muda para quem usa o
+  app: as sessões continuam as mesmas.
+
+### Segurança: certifi, follow-redirects e fast-uri
+
+- **O gate de dependências ficou vermelho de novo em todo PR a partir de 19/10**,
+  independente do que o PR mudasse: `certifi 2026.7.22` (PYSEC-2026-4320, via
+  `httpx`) no `pip-audit --strict`, e `follow-redirects`/`fast-uri` (transitivas de
+  `axios`/`ajv`) no `npm run audit`. As três subiram para a versão corrigida — um
+  piso em `requirements.in` e dois `overrides` no `package.json`, já que nenhuma
+  tem range própria para mover sozinha. Nada muda para quem usa o app.
+
 ### Voltar ao app depois de um tempo não deixa mais a tela escura carregando
 
 - **O app não fica mais preso em "Carregando sua sessão…" quando você volta
