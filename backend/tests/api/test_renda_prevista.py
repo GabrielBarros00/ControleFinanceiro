@@ -148,7 +148,12 @@ def test_renda_prevista_nao_entra_no_saldo_mas_entra_na_projecao(pessoa):
         json={"amount": "1000.00", "as_of": ONTEM.isoformat()},
         headers=pessoa["headers"],
     )
-    _renda(pessoa, FUTURO)
+    # A projeção vai até o FIM do mês, então a renda prevista tem de cair dentro
+    # dele. `FUTURO` é amanhã a partir do dia 28, e no último dia do mês amanhã
+    # já é o mês seguinte: o teste ficava vermelho todo dia 30/31. Ali, a prevista
+    # é a de hoje ainda não recebida (`received=False`).
+    no_mes = FUTURO if FUTURO.month == HOJE.month else HOJE
+    _renda(pessoa, no_mes, received=False)
 
     corpo = _saldo(pessoa)
     assert Decimal(corpo["total"]) == Decimal("1000.00"), "prevista não é saldo"
