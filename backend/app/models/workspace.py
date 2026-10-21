@@ -3,7 +3,7 @@ from datetime import datetime, UTC
 from enum import Enum
 from typing import Optional, List
 
-from sqlalchemy import Boolean, Column, Index, Integer, String, true
+from sqlalchemy import Boolean, Column, DateTime, Index, Integer, String, true
 from sqlmodel import SQLModel, Field, Relationship
 
 
@@ -78,9 +78,9 @@ class Workspace(SQLModel, table=True):
         sa_column=Column(Boolean, nullable=False, server_default=true()),
     )
 
-    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
-    updated_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
-    deleted_at: Optional[datetime] = Field(default=None)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC), sa_type=DateTime)
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(UTC), sa_type=DateTime)
+    deleted_at: Optional[datetime] = Field(default=None, sa_type=DateTime)
 
     memberships: List["WorkspaceMembership"] = Relationship(back_populates="workspace")
 
@@ -113,8 +113,8 @@ class WorkspaceMembership(SQLModel, table=True):
         sa_column=Column(String(20), nullable=False, server_default="involved_only"),
     )
 
-    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
-    updated_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC), sa_type=DateTime)
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(UTC), sa_type=DateTime)
 
     workspace: Workspace = Relationship(back_populates="memberships")
 
@@ -145,8 +145,8 @@ class WorkspaceInvite(SQLModel, table=True):
         default=InviteStatus.pending,
         sa_column=Column(String(20), nullable=False, server_default="pending"),
     )
-    expires_at: datetime
+    expires_at: datetime = Field(sa_type=DateTime)
     max_uses: Optional[int] = Field(default=None)  # apenas convites por link
     uses: int = Field(default=0)
 
-    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC), sa_type=DateTime)

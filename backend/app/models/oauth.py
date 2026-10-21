@@ -24,7 +24,7 @@ Enum exige `ALTER TYPE` à mão e nenhum gate enxerga a divergência.
 from datetime import datetime, UTC
 from typing import Optional
 
-from sqlalchemy import Column, Index, String, Text
+from sqlalchemy import Column, DateTime, Index, String, Text
 from sqlmodel import JSON, Field, SQLModel
 
 
@@ -54,11 +54,11 @@ class OAuthClient(SQLModel, table=True):
     software_id: Optional[str] = Field(default=None, sa_column=Column(String(120), nullable=True))
     software_version: Optional[str] = Field(default=None, sa_column=Column(String(60), nullable=True))
     #: Validade do documento CIMD em cache (respeita Cache-Control, 5 min a 24 h).
-    metadata_expires_at: Optional[datetime] = Field(default=None)
-    created_at: datetime = Field(default_factory=_agora)
-    updated_at: datetime = Field(default_factory=_agora)
-    last_used_at: Optional[datetime] = Field(default=None)
-    disabled_at: Optional[datetime] = Field(default=None)
+    metadata_expires_at: Optional[datetime] = Field(default=None, sa_type=DateTime)
+    created_at: datetime = Field(default_factory=_agora, sa_type=DateTime)
+    updated_at: datetime = Field(default_factory=_agora, sa_type=DateTime)
+    last_used_at: Optional[datetime] = Field(default=None, sa_type=DateTime)
+    disabled_at: Optional[datetime] = Field(default=None, sa_type=DateTime)
 
 
 class OAuthGrant(SQLModel, table=True):
@@ -75,9 +75,9 @@ class OAuthGrant(SQLModel, table=True):
     client_name: str = Field(sa_column=Column(String(120), nullable=False))
     scopes: str = Field(sa_column=Column(String(512), nullable=False))
     resource: str = Field(sa_column=Column(String(512), nullable=False))
-    created_at: datetime = Field(default_factory=_agora)
-    last_used_at: Optional[datetime] = Field(default=None)
-    revoked_at: Optional[datetime] = Field(default=None)
+    created_at: datetime = Field(default_factory=_agora, sa_type=DateTime)
+    last_used_at: Optional[datetime] = Field(default=None, sa_type=DateTime)
+    revoked_at: Optional[datetime] = Field(default=None, sa_type=DateTime)
     #: `user` | `refresh_reuse` | `code_reuse` | `password_change` | `admin` | `client` | `account_disabled`
     revoked_reason: Optional[str] = Field(default=None, sa_column=Column(String(32), nullable=True))
 
@@ -93,11 +93,11 @@ class OAuthAuthorizationCode(SQLModel, table=True):
     scopes: str = Field(sa_column=Column(String(512), nullable=False))
     resource: str = Field(sa_column=Column(String(512), nullable=False))
     code_challenge: str = Field(sa_column=Column(String(128), nullable=False))
-    expires_at: datetime
-    used_at: Optional[datetime] = Field(default=None)
+    expires_at: datetime = Field(sa_type=DateTime)
+    used_at: Optional[datetime] = Field(default=None, sa_type=DateTime)
     #: Concessão criada na troca — é o que o reuso do código revoga.
     grant_id: Optional[int] = Field(default=None, foreign_key="oauthgrant.id", index=True)
-    created_at: datetime = Field(default_factory=_agora)
+    created_at: datetime = Field(default_factory=_agora, sa_type=DateTime)
 
 
 class OAuthToken(SQLModel, table=True):
@@ -109,8 +109,8 @@ class OAuthToken(SQLModel, table=True):
     kind: str = Field(sa_column=Column(String(8), nullable=False))
     token_hash: str = Field(sa_column=Column(String(64), nullable=False, unique=True, index=True))
     scopes: str = Field(sa_column=Column(String(512), nullable=False))
-    expires_at: datetime = Field(index=True)
+    expires_at: datetime = Field(index=True, sa_type=DateTime)
     #: Refresh já trocado por outro. Reapresentado depois disto = roubo.
-    rotated_at: Optional[datetime] = Field(default=None)
-    revoked_at: Optional[datetime] = Field(default=None)
-    created_at: datetime = Field(default_factory=_agora)
+    rotated_at: Optional[datetime] = Field(default=None, sa_type=DateTime)
+    revoked_at: Optional[datetime] = Field(default=None, sa_type=DateTime)
+    created_at: datetime = Field(default_factory=_agora, sa_type=DateTime)

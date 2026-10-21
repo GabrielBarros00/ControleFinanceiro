@@ -2,7 +2,7 @@ from datetime import datetime, date, UTC
 from enum import Enum
 from typing import Optional, List, TYPE_CHECKING
 from decimal import Decimal
-from sqlalchemy import Column, Integer, event, Index, text
+from sqlalchemy import Column, DateTime, Index, Integer, event, text
 from sqlalchemy.orm import attributes
 from sqlmodel import SQLModel, Field, Relationship, UniqueConstraint
 
@@ -65,7 +65,7 @@ class TransactionBase(SQLModel):
     description: Optional[str] = None
     currency: str = Field(default="BRL")
     total_amount: Decimal = Field(decimal_places=2, max_digits=20)
-    transaction_date: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    transaction_date: datetime = Field(default_factory=lambda: datetime.now(UTC), sa_type=DateTime)
     billing_month: Optional[str] = Field(default=None, index=True) # Formato YYYY-MM
     status: TransactionStatus = Field(default=TransactionStatus.confirmed)
     split_mode: SplitMode = Field(default=SplitMode.transaction)
@@ -221,14 +221,14 @@ class Transaction(TransactionBase, table=True):
     #
     # Quem decide o valor inicial é `app.domain.settlement.resolve_settled_at`,
     # ponto único chamado por todos os caminhos de criação.
-    settled_at: Optional[datetime] = None
+    settled_at: Optional[datetime] = Field(default=None, sa_type=DateTime)
 
-    confirmed_at: Optional[datetime] = None
-    paid_at: Optional[datetime] = None
-    cancelled_at: Optional[datetime] = None
-    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
-    updated_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
-    deleted_at: Optional[datetime] = None
+    confirmed_at: Optional[datetime] = Field(default=None, sa_type=DateTime)
+    paid_at: Optional[datetime] = Field(default=None, sa_type=DateTime)
+    cancelled_at: Optional[datetime] = Field(default=None, sa_type=DateTime)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC), sa_type=DateTime)
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(UTC), sa_type=DateTime)
+    deleted_at: Optional[datetime] = Field(default=None, sa_type=DateTime)
 
     # Relacionamentos
     payers: List["TransactionPayer"] = Relationship(back_populates="transaction")
@@ -252,8 +252,8 @@ class TransactionAdjustment(SQLModel, table=True):
     description: Optional[str] = None
     amount: Decimal = Field(decimal_places=2, max_digits=20)
 
-    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
-    updated_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC), sa_type=DateTime)
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(UTC), sa_type=DateTime)
 
     transaction: Transaction = Relationship(back_populates="adjustments")
 
@@ -275,8 +275,8 @@ class TransactionItem(SQLModel, table=True):
     position: int = Field(default=0)
     category_id: Optional[int] = Field(default=None, foreign_key="category.id", index=True)
 
-    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
-    updated_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC), sa_type=DateTime)
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(UTC), sa_type=DateTime)
 
     transaction: Transaction = Relationship(back_populates="items")
     shares: List["TransactionItemShare"] = Relationship(back_populates="item")
@@ -291,8 +291,8 @@ class TransactionItemShare(SQLModel, table=True):
     input_value: Decimal = Field(decimal_places=2, max_digits=20)  # % ou valor fixo
     computed_amount: Decimal = Field(decimal_places=2, max_digits=20)  # parte real do item
 
-    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
-    updated_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC), sa_type=DateTime)
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(UTC), sa_type=DateTime)
 
     item: TransactionItem = Relationship(back_populates="shares")
 
@@ -327,8 +327,8 @@ class TransactionPayer(SQLModel, table=True):
     payment_method: Optional[PaymentMethod] = Field(default=None)
     account_id: Optional[int] = Field(default=None, foreign_key="paymentaccount.id")
 
-    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
-    updated_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC), sa_type=DateTime)
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(UTC), sa_type=DateTime)
 
     transaction: Transaction = Relationship(back_populates="payers")
 
@@ -341,8 +341,8 @@ class TransactionSplit(SQLModel, table=True):
     input_value: Decimal = Field(decimal_places=2, max_digits=20) # Porcentagem ou Valor fixo
     computed_amount: Decimal = Field(decimal_places=2, max_digits=20) # Valor real em dinheiro
 
-    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
-    updated_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC), sa_type=DateTime)
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(UTC), sa_type=DateTime)
 
     transaction: Transaction = Relationship(back_populates="splits")
 
