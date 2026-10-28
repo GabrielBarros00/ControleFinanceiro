@@ -4,7 +4,7 @@
 #
 #    pip-compile --no-index --output-file=requirements.txt --strip-extras requirements.in
 #
-alembic==1.20.0
+alembic==1.20.1
     # via -r requirements.in
 annotated-doc==0.0.5
     # via fastapi
@@ -39,7 +39,7 @@ cffi==2.1.1
     #   cryptography
 click==8.4.2
     # via uvicorn
-cryptography==50.0.1
+cryptography==50.0.2
     # via
     #   -r requirements.in
     #   http-ece
@@ -48,10 +48,8 @@ dnspython==2.8.0
     # via email-validator
 email-validator==2.3.0
     # via pydantic
-fastapi==0.141.1
+fastapi==0.162.0
     # via -r requirements.in
-greenlet==3.5.5
-    # via sqlalchemy
 h11==0.16.0
     # via
     #   httpcore
@@ -83,19 +81,21 @@ mako==1.4.1
     # via alembic
 markupsafe==3.0.3
     # via mako
-mcp==2.2.0
+mcp==2.3.0
     # via -r requirements.in
-mcp-types==2.2.0
+mcp-types==2.3.0
     # via mcp
 opentelemetry-api==1.44.0
-    # via mcp
+    # via
+    #   fastapi
+    #   mcp
 passlib==1.7.4
     # via -r requirements.in
 psycopg2-binary==2.9.13
     # via -r requirements.in
 pycparser==3.0
     # via cffi
-pydantic==2.13.5
+pydantic==2.14.1
     # via
     #   -r requirements.in
     #   fastapi
@@ -103,16 +103,16 @@ pydantic==2.13.5
     #   mcp-types
     #   pydantic-settings
     #   sqlmodel
-pydantic-core==2.46.5
+pydantic-core==2.50.1
     # via pydantic
-pydantic-settings==2.15.0
+pydantic-settings==2.16.1
     # via -r requirements.in
-pyjwt==2.14.0
+pyjwt==2.15.1
     # via
     #   -r requirements.in
     #   mcp
     #   pyjwt
-python-dotenv==1.2.3
+python-dotenv==1.2.4
     # via
     #   -r requirements.in
     #   pydantic-settings
@@ -131,16 +131,16 @@ rpds-py==2026.6.3
     # via
     #   jsonschema
     #   referencing
-sqlalchemy==2.0.54
+sqlalchemy==2.1.6
     # via
     #   -r requirements.in
     #   alembic
     #   sqlmodel
-sqlmodel==0.0.42
+sqlmodel==0.0.48
     # via -r requirements.in
 sse-starlette==3.4.11
     # via mcp
-starlette==1.6.0
+starlette==1.10.0
     # via
     #   -r requirements.in
     #   fastapi
@@ -162,6 +162,7 @@ typing-extensions==4.16.0
     #   opentelemetry-api
     #   pydantic
     #   pydantic-core
+    #   pydantic-settings
     #   sqlalchemy
     #   sqlmodel
     #   typing-inspection
@@ -171,9 +172,9 @@ typing-inspection==0.4.4
     #   mcp
     #   pydantic
     #   pydantic-settings
-tzdata==2026.4
+tzdata==2026.5
     # via -r requirements.in
-uvicorn==0.53.0
+uvicorn==0.54.0
     # via
     #   -r requirements.in
     #   mcp
