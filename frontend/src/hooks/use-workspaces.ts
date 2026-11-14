@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { queryOptions, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { apiClient } from '@/api/client';
 import { useUIStore } from '@/stores';
 import { invalidateForEvent } from '@/lib/ws-events';
@@ -23,17 +23,19 @@ export interface Workspace {
   member_count?: number;
 }
 
+export const workspacesQueryOptions = queryOptions({
+  queryKey: ['workspaces'],
+  queryFn: async (): Promise<Workspace[]> => {
+    const response = await apiClient.get('/workspaces/');
+    return response.data;
+  },
+});
+
 export function useWorkspaces() {
   const queryClient = useQueryClient();
   const { currentWorkspaceId, setCurrentWorkspaceId } = useUIStore();
 
-  const listQuery = useQuery({
-    queryKey: ['workspaces'],
-    queryFn: async (): Promise<Workspace[]> => {
-      const response = await apiClient.get('/workspaces/');
-      return response.data;
-    },
-  });
+  const listQuery = useQuery(workspacesQueryOptions);
 
   // Semente do "último visitado": sem ela, quem acabou de se cadastrar cai em
   // /overview com a barra lateral só com a camada global — e não teria como

@@ -11,13 +11,18 @@ import { InviteAcceptPage } from '../InviteAcceptPage';
 const API = 'http://localhost:8000/api/v1';
 
 describe('aceitar convite com a lista de espaços em cache', () => {
-  it('atualiza a participação antes de entrar no espaço, mesmo com consulta inativa e rede lenta', async () => {
+  it.each(['consulta inativa', 'bootstrap sem queryFn'])('atualiza a participação com %s e rede lenta antes de entrar no espaço', async (origem) => {
     const client = new QueryClient({ defaultOptions: { queries: { retry: false, staleTime: 30_000 } } });
     // A tela de convite fica fora do layout: esta consulta existe, mas está inativa.
-    await client.fetchQuery({
-      queryKey: ['workspaces'],
-      queryFn: async () => (await apiClient.get('/workspaces/')).data,
-    });
+    if (origem === 'bootstrap sem queryFn') {
+      // useAuth semeia a lista antes que useWorkspaces tenha sido montado.
+      client.setQueryData(['workspaces'], [{ id: 1, name: 'Main Workspace' }]);
+    } else {
+      await client.fetchQuery({
+        queryKey: ['workspaces'],
+        queryFn: async () => (await apiClient.get('/workspaces/')).data,
+      });
+    }
     let liberar!: () => void;
     const resposta = new Promise<void>((resolve) => { liberar = resolve; });
     let consultou = false;
