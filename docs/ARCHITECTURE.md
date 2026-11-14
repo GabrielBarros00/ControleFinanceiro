@@ -19,6 +19,11 @@ Em **produção** só o container do frontend (nginx) é exposto ao host; backen
 
 ## Backend — camadas
 
+O driver PostgreSQL é **Psycopg 3**, explicitado em `postgresql+psycopg://`.
+A configuração também aceita URLs antigas e preserva credenciais/opções
+(ADR 0043). Engine, sessões e pool do SQLAlchemy permanecem síncronos;
+API, Alembic e tarefas periódicas usam a mesma configuração.
+
 O backend é FastAPI + SQLModel, organizado em camadas com dependências apontando “para dentro”:
 
 | Camada | Pasta | Responsabilidade | Regras |

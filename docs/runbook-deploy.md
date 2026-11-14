@@ -49,7 +49,7 @@ primeiro:
 docker compose exec -T db createdb -U "${POSTGRES_USER:-cf4}" ensaio
 docker compose exec -T db pg_restore -U "${POSTGRES_USER:-cf4}" -d ensaio < backup-....dump
 docker compose run --rm \
-  -e DATABASE_URL="postgresql://cf4:$POSTGRES_PASSWORD@db:5432/ensaio" \
+  -e DATABASE_URL="postgresql+psycopg://cf4:$POSTGRES_PASSWORD@db:5432/ensaio" \
   backend alembic upgrade head
 ```
 

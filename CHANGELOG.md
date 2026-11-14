@@ -11,6 +11,12 @@ segue [SemVer](https://semver.org/lang/pt-BR/).
 
 ## [Não lançado]
 
+### Driver PostgreSQL atualizado para Psycopg 3
+
+- API, migrações e tarefas periódicas passam a usar Psycopg 3, mantendo as
+  sessões síncronas e as mesmas regras financeiras. URLs antigas de conexão
+  continuam aceitas; não há alteração de schema ou conversão de dados.
+
 ### Dependências e verificações de integração atualizadas
 
 - Atualizadas as dependências do backend e do frontend, incluindo as correções

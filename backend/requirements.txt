@@ -94,8 +94,10 @@ opentelemetry-api==1.45.2
     #   mcp
 passlib==1.7.4
     # via -r requirements.in
-psycopg2-binary==2.9.13
+psycopg==3.3.9
     # via -r requirements.in
+psycopg-binary==3.3.9
+    # via psycopg
 pycparser==3.0
     # via cffi
 pydantic==2.14.3
