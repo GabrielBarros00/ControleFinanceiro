@@ -16,6 +16,8 @@ segue [SemVer](https://semver.org/lang/pt-BR/).
 - API, migrações e tarefas periódicas passam a usar Psycopg 3, mantendo as
   sessões síncronas e as mesmas regras financeiras. URLs antigas de conexão
   continuam aceitas; não há alteração de schema ou conversão de dados.
+- Aceitar um convite aguarda a atualização dos espaços antes de abrir o destino,
+  evitando um redirecionamento incorreto quando a lista anterior está em cache.
 
 ### Dependências e verificações de integração atualizadas
 

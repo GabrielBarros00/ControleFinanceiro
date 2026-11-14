@@ -39,6 +39,12 @@ export function InviteAcceptPage() {
     try {
       const response = await apiClient.post(`/invites/accept/${token}`);
       const workspaceId = response.data.workspace_id as number;
+      // O convite fica fora do layout: a lista pode estar em cache e inativa.
+      // O guard precisa enxergar a nova participação antes da navegação.
+      await queryClient.invalidateQueries(
+        { queryKey: ['workspaces'], refetchType: 'all' },
+        { throwOnError: true },
+      );
       setCurrentWorkspaceId(workspaceId);
       queryClient.invalidateQueries();
       // Direto para o workspace que acabou de aceitar (ADR 0020) — antes ia para
