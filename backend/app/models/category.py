@@ -1,6 +1,6 @@
 from datetime import datetime, UTC
 from typing import Optional
-from sqlalchemy import Index
+from sqlalchemy import DateTime, Index
 from sqlmodel import SQLModel, Field
 
 
@@ -20,6 +20,6 @@ class Category(CategoryBase, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
     workspace_id: int = Field(foreign_key="workspace.id", index=True)
 
-    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
-    updated_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
-    deleted_at: Optional[datetime] = Field(default=None)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC), sa_type=DateTime)
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(UTC), sa_type=DateTime)
+    deleted_at: Optional[datetime] = Field(default=None, sa_type=DateTime)

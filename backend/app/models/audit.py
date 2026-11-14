@@ -1,7 +1,7 @@
 from datetime import datetime, UTC
 from enum import Enum
 from typing import Optional, Dict, Any
-from sqlalchemy import Column, String
+from sqlalchemy import Column, DateTime, String
 from sqlmodel import SQLModel, Field, JSON
 
 class ActionType(str, Enum):
@@ -34,4 +34,4 @@ class AuditLog(AuditLogBase, table=True):
     # = um agente de IA pela integração MCP. Texto livre e curto, não Enum — a
     # lista de clientes muda sem migração.
     origin: Optional[str] = Field(default=None, sa_column=Column(String(80), nullable=True))
-    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC), index=True)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC), index=True, sa_type=DateTime)

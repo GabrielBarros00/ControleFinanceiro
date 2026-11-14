@@ -1,7 +1,7 @@
 from datetime import datetime, UTC
 from typing import Optional
 
-from sqlalchemy import UniqueConstraint
+from sqlalchemy import DateTime, UniqueConstraint
 from sqlmodel import SQLModel, Field
 
 
@@ -20,4 +20,4 @@ class SyncEvent(SQLModel, table=True):
     resource_type: Optional[str] = None
     resource_id: Optional[int] = None
     actor_user_id: Optional[int] = Field(default=None, foreign_key="user.id")
-    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC), sa_type=DateTime)

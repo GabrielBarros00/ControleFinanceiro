@@ -2,7 +2,7 @@ from datetime import datetime, date, UTC
 from enum import Enum
 from typing import Optional, List, TYPE_CHECKING
 from decimal import Decimal
-from sqlalchemy import JSON, Boolean, Column, Integer, false, true
+from sqlalchemy import Boolean, Column, DateTime, Integer, JSON, false, true
 from sqlmodel import SQLModel, Field, Relationship
 
 from app.models.transaction import PaymentMethod
@@ -96,8 +96,8 @@ class RecurringExpense(RecurringExpenseBase, table=True):
     # Lista de {user_id, split_method, input_value}; None → divisão 100% ao pagador
     split_snapshot: Optional[list] = Field(default=None, sa_column=Column(JSON))
 
-    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
-    updated_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC), sa_type=DateTime)
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(UTC), sa_type=DateTime)
 
     transactions: List["Transaction"] = Relationship(back_populates="recurring_expense")
 
@@ -144,5 +144,5 @@ class RecurringIncome(RecurringIncomeBase, table=True):
     # declarada: a renda conta no caixa, mas não move saldo de conta nenhuma.
     account_id: Optional[int] = Field(default=None, foreign_key="paymentaccount.id")
 
-    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
-    updated_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC), sa_type=DateTime)
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(UTC), sa_type=DateTime)

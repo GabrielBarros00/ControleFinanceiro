@@ -7,6 +7,7 @@ só para mostrar que a tool chegou ao MESMO comando.
 """
 from __future__ import annotations
 
+from datetime import timedelta
 from decimal import Decimal
 from uuid import uuid4
 
@@ -565,8 +566,10 @@ def test_data_nova_de_compra_convertida_usa_a_cotacao_do_dia(mcp_client, db_sess
 
     tid = _compra_em_dolar(mcp_client, c, monkeypatch)
     monkeypatch.setattr(CurrencyService, "get_rate_sync", lambda *a, **k: (Decimal("6.00"), "ptax"))
+    # ONTEM, e não o dia 1º do mês: a compra nasce hoje, e no dia 1º a data
+    # "nova" era a mesma — nada a reconverter, e o teste caía todo início de mês.
     tx = ok(call_tool(mcp_client, c.token, "transactions_update", {
-        "transaction_id": tid, "date": c.hoje.replace(day=1).isoformat(),
+        "transaction_id": tid, "date": (c.hoje - timedelta(days=1)).isoformat(),
     }))["transaction"]
     assert tx["amount"] == "300.00" and tx["foreign"]["exchange_rate"].startswith("6.00")
     assert tx["foreign"]["original_amount"] == "50.00"
@@ -610,8 +613,9 @@ def test_compra_convertida_com_divisao_fixa_reconverte_na_mesma_proporcao(mcp_cl
         "payment_method": "pix", "split": [{"person": "Alice", "amount": "30.00"}, {"person": "João", "amount": "20.00"}],
     }))["transaction"]
     monkeypatch.setattr(CurrencyService, "get_rate_sync", lambda *a, **k: (Decimal("6.00"), "ptax"))
+    # Ontem, sempre diferente de hoje (ver o teste da cotação do dia, acima).
     reconvertido = ok(call_tool(mcp_client, c.token, "transactions_update", {
-        "transaction_id": tx["id"], "date": c.hoje.replace(day=1).isoformat(),
+        "transaction_id": tx["id"], "date": (c.hoje - timedelta(days=1)).isoformat(),
     }))["transaction"]
     assert reconvertido["amount"] == "300.00" and reconvertido["foreign"]["original_amount"] == "50.00"
     assert sorted(p["amount"] for p in reconvertido["split"]) == ["120.00", "180.00"]

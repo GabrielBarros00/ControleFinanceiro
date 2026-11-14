@@ -1,7 +1,7 @@
 from datetime import datetime, UTC
 from enum import Enum
 from typing import Optional
-from sqlalchemy import Boolean, Column, false
+from sqlalchemy import Boolean, Column, DateTime, false
 from sqlmodel import SQLModel, Field, UniqueConstraint
 
 
@@ -55,6 +55,6 @@ class PaymentAccount(PaymentAccountBase, table=True):
         sa_column=Column(Boolean, nullable=False, server_default=false()),
     )
 
-    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
-    updated_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
-    deleted_at: Optional[datetime] = Field(default=None)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC), sa_type=DateTime)
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(UTC), sa_type=DateTime)
+    deleted_at: Optional[datetime] = Field(default=None, sa_type=DateTime)

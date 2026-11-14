@@ -11,6 +11,15 @@ segue [SemVer](https://semver.org/lang/pt-BR/).
 
 ## [Não lançado]
 
+### Dependências e verificações de integração atualizadas
+
+- Atualizadas as dependências do backend e do frontend, incluindo as correções
+  de segurança de dnspython, Zod e follow-redirects. O banco mantém as datas
+  sem fuso do ADR 0025 ao atualizar o SQLModel; a plataforma segue em Python 3.14.
+- Botões recuperam o contraste imediatamente ao terminar uma ação pendente,
+  sem permanecer esmaecidos enquanto já estão habilitados.
+- O componente das conversas com IA foi reconstruído com as dependências novas.
+
 ### Agentes de IA conectam à sua conta (MCP)
 
 Dá para usar o app conversando: "quanto gastei com alimentação este mês?",
@@ -136,6 +145,23 @@ Por dentro: servidor MCP em `/mcp` (SDK oficial 2.2), OAuth 2.1 com PKCE e
 registro por CIMD/DCR, 59 tools documentadas em `docs/mcp/TOOLS.md` (geradas do
 código), e as escritas das rotas REST passaram a morar em comandos
 compartilhados (`app/services/commands/`) — sem mudança de comportamento.
+
+### Segurança: PyJWT 2.15.0
+
+- **`PyJWT 2.14.0` reprovava o `pip-audit --strict`** (CVE-2026-101918) e bloqueava o
+  CI do backend em todo PR desde 30/09. Um token com o conteúdo aninhado fundo o
+  bastante fazia a leitura estourar um `RecursionError` em vez de ser recusado como
+  token inválido; a 2.15.0 o recusa como `DecodeError`. Nada muda para quem usa o
+  app: as sessões continuam as mesmas.
+
+### Segurança: certifi, follow-redirects e fast-uri
+
+- **O gate de dependências ficou vermelho de novo em todo PR a partir de 19/10**,
+  independente do que o PR mudasse: `certifi 2026.7.22` (PYSEC-2026-4320, via
+  `httpx`) no `pip-audit --strict`, e `follow-redirects`/`fast-uri` (transitivas de
+  `axios`/`ajv`) no `npm run audit`. As três subiram para a versão corrigida — um
+  piso em `requirements.in` e dois `overrides` no `package.json`, já que nenhuma
+  tem range própria para mover sozinha. Nada muda para quem usa o app.
 
 ### Voltar ao app depois de um tempo não deixa mais a tela escura carregando
 

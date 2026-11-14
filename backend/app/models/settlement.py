@@ -1,6 +1,7 @@
 from datetime import datetime, UTC
 from typing import Optional
 from decimal import Decimal
+from sqlalchemy import DateTime
 from sqlmodel import SQLModel, Field
 
 
@@ -20,7 +21,7 @@ class Settlement(SQLModel, table=True):
     # Mês (YYYY-MM) que este acerto quita quando registrado a partir do ledger
     # mensal ("Dívidas do mês"). None = acerto global (só afeta o balanço geral).
     billing_month: Optional[str] = Field(default=None, index=True)
-    settled_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    settled_at: datetime = Field(default_factory=lambda: datetime.now(UTC), sa_type=DateTime)
 
     # De/para qual CONTA o acerto se moveu (ADR 0034). Duas colunas, e não uma,
     # porque **cada lado só pode ser preenchido pelo seu dono**: quem registra o
@@ -38,6 +39,6 @@ class Settlement(SQLModel, table=True):
 
     created_by_user_id: Optional[int] = Field(default=None, foreign_key="user.id")
 
-    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
-    updated_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
-    deleted_at: Optional[datetime] = None
+    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC), sa_type=DateTime)
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(UTC), sa_type=DateTime)
+    deleted_at: Optional[datetime] = Field(default=None, sa_type=DateTime)

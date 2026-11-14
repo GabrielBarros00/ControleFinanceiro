@@ -17,7 +17,7 @@
 from datetime import datetime, UTC
 from typing import Optional
 
-from sqlalchemy import Column, Index, String, UniqueConstraint
+from sqlalchemy import Column, DateTime, Index, String, UniqueConstraint
 from sqlmodel import JSON, Field, SQLModel
 
 
@@ -30,7 +30,7 @@ class McpToolCall(SQLModel, table=True):
     __table_args__ = (Index("ix_mcptoolcall_user_criado", "user_id", "created_at"),)
 
     id: Optional[int] = Field(default=None, primary_key=True)
-    created_at: datetime = Field(default_factory=_agora, index=True)
+    created_at: datetime = Field(default_factory=_agora, index=True, sa_type=DateTime)
     user_id: Optional[int] = Field(default=None, foreign_key="user.id")
     grant_id: Optional[int] = Field(default=None, foreign_key="oauthgrant.id", index=True)
     client_name: Optional[str] = Field(default=None, sa_column=Column(String(120), nullable=True))
@@ -66,8 +66,8 @@ class McpOperation(SQLModel, table=True):
     grant_id: Optional[int] = Field(default=None, foreign_key="oauthgrant.id")
     #: Referências do resultado (`{"kind": ..., "ids": [...]}`), nunca o conteúdo.
     result_ref: Optional[dict] = Field(default=None, sa_column=Column(JSON, nullable=True))
-    created_at: datetime = Field(default_factory=_agora)
-    expires_at: datetime = Field(index=True)
+    created_at: datetime = Field(default_factory=_agora, sa_type=DateTime)
+    expires_at: datetime = Field(index=True, sa_type=DateTime)
 
 
 class McpConfirmation(SQLModel, table=True):
@@ -82,8 +82,8 @@ class McpConfirmation(SQLModel, table=True):
     #: IDs exatos mostrados na prévia, ordenados.
     target_ids: list = Field(default_factory=list, sa_column=Column(JSON, nullable=False))
     params: Optional[dict] = Field(default=None, sa_column=Column(JSON, nullable=True))
-    expires_at: datetime = Field(index=True)
-    used_at: Optional[datetime] = Field(default=None)
+    expires_at: datetime = Field(index=True, sa_type=DateTime)
+    used_at: Optional[datetime] = Field(default=None, sa_type=DateTime)
     #: Resultado da execução — um segundo envio do mesmo token devolve isto.
     result: Optional[dict] = Field(default=None, sa_column=Column(JSON, nullable=True))
-    created_at: datetime = Field(default_factory=_agora)
+    created_at: datetime = Field(default_factory=_agora, sa_type=DateTime)

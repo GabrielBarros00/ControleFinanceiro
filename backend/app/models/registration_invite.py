@@ -2,7 +2,7 @@ import secrets
 from datetime import datetime, UTC
 from typing import Optional
 
-from sqlalchemy import Column, String
+from sqlalchemy import Column, DateTime, String
 from sqlmodel import SQLModel, Field
 
 from app.models.workspace import InviteStatus
@@ -45,7 +45,7 @@ class RegistrationInvite(SQLModel, table=True):
         default=InviteStatus.pending,
         sa_column=Column(String(20), nullable=False, server_default="pending"),
     )
-    expires_at: datetime
+    expires_at: datetime = Field(sa_type=DateTime)
     # Nulo = uso único. Só faz sentido em convite por link; num convite nominal o
     # e-mail já é o teto.
     max_uses: Optional[int] = Field(default=None)
@@ -55,4 +55,4 @@ class RegistrationInvite(SQLModel, table=True):
     # de Admin responder "de quem veio esta pessoa" sem varrer a auditoria.
     accepted_by_user_id: Optional[int] = Field(default=None, foreign_key="user.id")
 
-    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC), sa_type=DateTime)

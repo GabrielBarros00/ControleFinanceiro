@@ -1,7 +1,7 @@
 from datetime import datetime, UTC
 from typing import Optional
 from decimal import Decimal
-from sqlalchemy import Index
+from sqlalchemy import DateTime, Index
 from sqlmodel import SQLModel, Field
 
 class MonthlyEstimateBase(SQLModel):
@@ -40,6 +40,6 @@ class MonthlyEstimate(MonthlyEstimateBase, table=True):
     owner_user_id: Optional[int] = Field(default=None, foreign_key="user.id", index=True)
     category_id: Optional[int] = Field(default=None, foreign_key="category.id", index=True)
 
-    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
-    updated_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
-    deleted_at: Optional[datetime] = Field(default=None)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC), sa_type=DateTime)
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(UTC), sa_type=DateTime)
+    deleted_at: Optional[datetime] = Field(default=None, sa_type=DateTime)

@@ -29,7 +29,7 @@ from decimal import Decimal
 from enum import Enum
 from typing import Optional
 
-from sqlalchemy import CheckConstraint, Index, text
+from sqlalchemy import CheckConstraint, DateTime, Index, text
 from sqlmodel import Field, SQLModel
 
 
@@ -70,13 +70,13 @@ class AccountEntry(SQLModel, table=True):
     amount: Decimal = Field(decimal_places=2, max_digits=20)
     #: Instante da abertura/ajuste. Data civil escrita com `civil_instant` — meia-noite
     #: crua recuaria um dia em fuso negativo (ADR 0025).
-    occurred_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    occurred_at: datetime = Field(default_factory=lambda: datetime.now(UTC), sa_type=DateTime)
     description: Optional[str] = Field(default=None)
 
     created_by_user_id: Optional[int] = Field(default=None, foreign_key="user.id")
-    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
-    updated_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
-    deleted_at: Optional[datetime] = Field(default=None)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC), sa_type=DateTime)
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(UTC), sa_type=DateTime)
+    deleted_at: Optional[datetime] = Field(default=None, sa_type=DateTime)
 
 
 class AccountTransfer(SQLModel, table=True):
@@ -117,10 +117,10 @@ class AccountTransfer(SQLModel, table=True):
     #: `None` quando as duas contas estão na mesma moeda (aí os valores são iguais).
     exchange_rate: Optional[Decimal] = Field(default=None, decimal_places=6, max_digits=20)
 
-    occurred_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    occurred_at: datetime = Field(default_factory=lambda: datetime.now(UTC), sa_type=DateTime)
     note: Optional[str] = Field(default=None)
 
     created_by_user_id: Optional[int] = Field(default=None, foreign_key="user.id")
-    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
-    updated_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
-    deleted_at: Optional[datetime] = Field(default=None)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC), sa_type=DateTime)
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(UTC), sa_type=DateTime)
+    deleted_at: Optional[datetime] = Field(default=None, sa_type=DateTime)

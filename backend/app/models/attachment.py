@@ -1,6 +1,6 @@
 from datetime import datetime, UTC
 from typing import Optional
-from sqlalchemy import Column, LargeBinary
+from sqlalchemy import Column, DateTime, LargeBinary
 from sqlmodel import SQLModel, Field
 
 
@@ -31,4 +31,4 @@ class Attachment(SQLModel, table=True):
     data: Optional[bytes] = Field(default=None, sa_column=Column(LargeBinary, nullable=True))
     uploaded_by_user_id: Optional[int] = Field(default=None, foreign_key="user.id")
 
-    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC), sa_type=DateTime)
