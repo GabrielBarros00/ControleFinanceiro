@@ -20,12 +20,14 @@ segue [SemVer](https://semver.org/lang/pt-BR/).
   evitando um redirecionamento incorreto quando a lista anterior está em cache.
 - FastAPI, SQLModel e SQLAlchemy atualizados sobre o driver novo, mantendo os
   tipos das colunas de data, a precisão dos valores e as transações existentes.
+- Backend e verificações de integração passam para Python 3.15, com compilado
+  regenerado nessa plataforma e dependências nativas compatíveis.
 
 ### Dependências e verificações de integração atualizadas
 
 - Atualizadas as dependências do backend e do frontend, incluindo as correções
   de segurança de dnspython, Zod e follow-redirects. O banco mantém as datas
-  sem fuso do ADR 0025 ao atualizar o SQLModel; a plataforma segue em Python 3.14.
+  sem fuso do ADR 0025 ao atualizar o SQLModel.
 - Botões recuperam o contraste imediatamente ao terminar uma ação pendente,
   sem permanecer esmaecidos enquanto já estão habilitados.
 - O componente das conversas com IA foi reconstruído com as dependências novas.
