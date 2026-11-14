@@ -11,6 +11,15 @@ segue [SemVer](https://semver.org/lang/pt-BR/).
 
 ## [Não lançado]
 
+### Dependências e verificações de integração atualizadas
+
+- Atualizadas as dependências do backend e do frontend, incluindo as correções
+  de segurança de dnspython, Zod e follow-redirects. O banco mantém as datas
+  sem fuso do ADR 0025 ao atualizar o SQLModel; a plataforma segue em Python 3.14.
+- Botões recuperam o contraste imediatamente ao terminar uma ação pendente,
+  sem permanecer esmaecidos enquanto já estão habilitados.
+- O componente das conversas com IA foi reconstruído com as dependências novas.
+
 ### Agentes de IA conectam à sua conta (MCP)
 
 Dá para usar o app conversando: "quanto gastei com alimentação este mês?",

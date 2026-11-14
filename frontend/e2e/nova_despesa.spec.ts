@@ -164,7 +164,8 @@ test('duplicar repete o lançamento sem herdar a data do original', async ({ bro
   await dialogo.getByRole('button', { name: 'Salvar despesa' }).click();
   await expect(dialogo).toBeHidden();
 
-  await page.goto(`/w/${wsId}/transactions`);
+  // No dia 1º, ontem pertence ao mês anterior. Procure no mês da despesa.
+  await page.goto(`/w/${wsId}/transactions?month=${ontem.slice(0, 7)}`);
   await page.getByText('Mercado da semana').first().click();
 
   const detalhe = page.getByRole('dialog');

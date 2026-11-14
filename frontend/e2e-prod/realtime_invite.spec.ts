@@ -287,6 +287,9 @@ test.describe('Stack de produção: tempo real e convite por link', () => {
     const pageC = await contextC.newPage();
     await pageC.goto(`/invite/${token}`);
     await pageC.getByRole('button', { name: 'Aceitar Convite' }).click();
+    // O clique dispara o POST; sair da página antes da navegação de sucesso
+    // pode abortá-lo e consultar a lista sem a nova associação.
+    await expect(pageC).toHaveURL(new RegExp(`/w/${wsA.id}$`));
 
     // Depois de aceitar, o workspace convidado aparece para Carla
     await pageC.goto('/');

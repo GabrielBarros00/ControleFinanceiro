@@ -378,7 +378,7 @@ services:
   # Ferramenta de administração do banco — apenas em desenvolvimento
   # (docker compose --profile dev up)
   pgadmin:
-    image: dpage/pgadmin4:9.17
+    image: dpage/pgadmin4:9.19
     profiles: ["dev"]
     restart: unless-stopped
     logging: *log_rotativo

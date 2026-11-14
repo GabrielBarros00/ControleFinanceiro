@@ -4,13 +4,13 @@
 #
 #    pip-compile --output-file=requirements.txt --strip-extras requirements.in
 #
-alembic==1.20.0
+alembic==1.20.1
     # via -r requirements.in
 annotated-doc==0.0.5
     # via fastapi
 annotated-types==0.8.0
     # via pydantic
-anyio==4.15.1
+anyio==4.16.0
     # via
     #   -r requirements.in
     #   httpx
@@ -45,11 +45,11 @@ cryptography==50.0.2
     #   -r requirements.in
     #   http-ece
     #   pyjwt
-dnspython==2.8.0
+dnspython==2.9.2
     # via email-validator
 email-validator==2.3.0
     # via pydantic
-fastapi==0.143.3
+fastapi==0.162.2
     # via -r requirements.in
 greenlet==3.5.5
     # via sqlalchemy
@@ -88,7 +88,7 @@ mcp==2.3.0
     # via -r requirements.in
 mcp-types==2.3.0
     # via mcp
-opentelemetry-api==1.44.0
+opentelemetry-api==1.45.2
     # via
     #   fastapi
     #   mcp
@@ -98,7 +98,7 @@ psycopg2-binary==2.9.13
     # via -r requirements.in
 pycparser==3.0
     # via cffi
-pydantic==2.14.1
+pydantic==2.14.3
     # via
     #   -r requirements.in
     #   fastapi
@@ -106,11 +106,11 @@ pydantic==2.14.1
     #   mcp-types
     #   pydantic-settings
     #   sqlmodel
-pydantic-core==2.50.1
+pydantic-core==2.50.4
     # via pydantic
-pydantic-settings==2.16.0
+pydantic-settings==2.16.2
     # via -r requirements.in
-pyjwt==2.15.0
+pyjwt==2.15.1
     # via
     #   -r requirements.in
     #   mcp
@@ -120,7 +120,7 @@ python-dotenv==1.2.4
     #   -r requirements.in
     #   pydantic-settings
     #   uvicorn
-python-multipart==0.0.32
+python-multipart==0.0.33
     # via
     #   -r requirements.in
     #   mcp
@@ -134,7 +134,7 @@ rpds-py==2026.6.3
     # via
     #   jsonschema
     #   referencing
-sqlalchemy==2.0.55
+sqlalchemy==2.0.57
     # via
     #   -r requirements.in
     #   alembic
@@ -143,7 +143,7 @@ sqlmodel==0.0.48
     # via -r requirements.in
 sse-starlette==3.4.11
     # via mcp
-starlette==1.8.0
+starlette==1.10.0
     # via
     #   -r requirements.in
     #   fastapi
@@ -175,7 +175,7 @@ typing-inspection==0.4.4
     #   mcp
     #   pydantic
     #   pydantic-settings
-tzdata==2026.5
+tzdata==2026.6
     # via -r requirements.in
 uvicorn==0.54.0
     # via

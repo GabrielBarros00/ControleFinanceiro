@@ -16,10 +16,10 @@
 # (`pip install -r requirements.txt`), que é o que o Dockerfile faz.
 -r requirements.in
 
-pytest==9.1.1
-pytest-asyncio==1.4.0
+pytest==9.2.0
+pytest-asyncio==1.4.1.post1
 pytest-cov==7.1.0
-ruff==0.17.1
+ruff==0.17.4
 # Gera o `requirements.txt` compilado e é o que o gate "Compilado de dependências
 # em dia" do CI executa. FIXADO porque o gate compara a saída dele com o versionado:
 # instalado sem versão, uma release que mude o cabeçalho gerado ou a estratégia

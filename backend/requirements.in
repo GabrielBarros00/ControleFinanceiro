@@ -30,23 +30,20 @@
 # `requirements-dev.txt`, não o compilado.
 
 # --- Web ---
-fastapi==0.143.3
+fastapi==0.162.2
 uvicorn[standard]==0.54.0
-starlette==1.8.0
-python-multipart==0.0.32
+starlette==1.10.0
+python-multipart==0.0.33
 
 # --- Modelos e validação ---
-pydantic[email]==2.14.1
-pydantic-settings==2.16.0
-# 0.0.42 -> 0.0.48 trouxe uma mudança de comportamento: um campo `datetime`
-# passou a mapear para `UTCDateTime` (exige tzinfo na escrita, coluna
-# TIMESTAMPTZ) em vez do `DateTime` de sempre. Isso quebraria a invariante do
-# ADR 0025 (nenhuma coluna usa timezone=True) em toda tabela do schema. Os
-# models fixam `sa_type=DateTime` em cada campo de data — ver
-# `tests/test_colunas_de_data.py`, que reprova o campo novo que esquecer.
+pydantic[email]==2.14.3
+pydantic-settings==2.16.2
+# O sqlmodel 0.0.48 infere UTCDateTime para campos datetime. Os models fixam
+# sa_type=DateTime para manter UTC sem tzinfo no banco (ADR 0025), sem migração.
+# tests/test_colunas_de_data.py protege também os campos adicionados depois.
 sqlmodel==0.0.48
-SQLAlchemy==2.0.55
-alembic==1.20.0
+SQLAlchemy==2.0.57
+alembic==1.20.1
 
 # --- Banco ---
 psycopg2-binary==2.9.13
@@ -55,7 +52,7 @@ psycopg2-binary==2.9.13
 # PyJWT no lugar de python-jose: o jose está praticamente sem manutenção e
 # acumula CVEs (confusão de algoritmo, "JWT bomb"). PyJWT é mantido e exige
 # `algorithms=` explícito na verificação.
-PyJWT[crypto]==2.15.0
+PyJWT[crypto]==2.15.1
 # Piso da `cryptography`, que entra pelo extra `[crypto]` acima e não tinha
 # restrição própria: o resolvedor congelou a 49.0.0 e o `pip-audit --strict` do
 # CI passou a reprovar por PYSEC-2026-3552 (oracle Bleichenbacher na
@@ -88,13 +85,13 @@ httpx==0.28.1
 # pela mesma razão da `cryptography` logo acima.
 certifi>=2026.10.19
 structlog==26.1.0
-anyio==4.15.1
+anyio==4.16.0
 python-dotenv==1.2.4
 # Base de fusos para `zoneinfo`. O calendário do app é `APP_TIMEZONE`
 # (America/Sao_Paulo por padrão) e o Windows não tem base de fusos do sistema —
 # sem este pacote, `ZoneInfo` levanta ModuleNotFoundError no desenvolvimento
 # local e o backend degradava para UTC justamente onde a diferença importa.
-tzdata==2026.5
+tzdata==2026.6
 # Criptografia do payload do Web Push (aes128gcm, RFC 8291/8188). É a ÚNICA peça
 # nova do aviso de vencimento (ADR 0033), e de propósito:
 #
