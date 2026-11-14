@@ -18,6 +18,8 @@ segue [SemVer](https://semver.org/lang/pt-BR/).
   continuam aceitas; não há alteração de schema ou conversão de dados.
 - Aceitar um convite aguarda a atualização dos espaços antes de abrir o destino,
   evitando um redirecionamento incorreto quando a lista anterior está em cache.
+- FastAPI, SQLModel e SQLAlchemy atualizados sobre o driver novo, mantendo os
+  tipos das colunas de data, a precisão dos valores e as transações existentes.
 
 ### Dependências e verificações de integração atualizadas
 
