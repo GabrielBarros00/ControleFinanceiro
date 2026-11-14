@@ -45,7 +45,7 @@ permissions:
 env:
   SECRET_KEY: ci-secret-key-only-for-tests-0123456789abcdef
   DATABASE_URL: sqlite:///./ci.db
-  PYTHON_VERSION: '3.14'
+  PYTHON_VERSION: '3.15'
 
 jobs:
   # A matriz do GitHub não aceita um número como tamanho, só uma lista. Este job
