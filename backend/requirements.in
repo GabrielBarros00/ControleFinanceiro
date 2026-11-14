@@ -46,7 +46,8 @@ SQLAlchemy==2.0.57
 alembic==1.20.1
 
 # --- Banco ---
-psycopg2-binary==2.9.13
+# Driver síncrono do PostgreSQL, com a extensão e libpq empacotadas (ADR 0043).
+psycopg[binary]==3.3.9
 
 # --- Segurança ---
 # PyJWT no lugar de python-jose: o jose está praticamente sem manutenção e

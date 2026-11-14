@@ -44,7 +44,7 @@ idempotência concorrente, pagamento de fatura) só aparecem de verdade no
 Postgres. Rode a suíte contra um banco descartável **recriado** (há colunas novas):
 
 ```bash
-TEST_DATABASE_URL=postgresql://…/cf_test ../.venv/Scripts/python.exe -m pytest tests/mcp -q
+TEST_DATABASE_URL=postgresql+psycopg://…/cf_test ../.venv/Scripts/python.exe -m pytest tests/mcp -q
 ```
 
 ## Frontend

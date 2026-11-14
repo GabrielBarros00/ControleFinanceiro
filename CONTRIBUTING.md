@@ -48,7 +48,7 @@ O CI e a validação de produção usam Postgres. Para reproduzir localmente:
 ```bash
 docker run -d --rm --name cf_pg -e POSTGRES_PASSWORD=dev -p 5432:5432 postgres:16
 # aguarde o banco aceitar conexões, então:
-TEST_DATABASE_URL=postgresql+psycopg2://postgres:dev@localhost:5432/postgres \
+TEST_DATABASE_URL=postgresql+psycopg://postgres:dev@localhost:5432/postgres \
   APP_ENV=test python -m pytest
 ```
 

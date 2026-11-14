@@ -20,7 +20,7 @@ python -m pytest                     # SQLite em memória
 ruff check app                      # lint (formatação NÃO: ver nota abaixo)
 
 # contra Postgres (como no CI):
-TEST_DATABASE_URL=postgresql+psycopg2://user:pass@localhost:5432/db APP_ENV=test python -m pytest
+TEST_DATABASE_URL=postgresql+psycopg://user:pass@localhost:5432/db APP_ENV=test python -m pytest
 ```
 
 > **Não rode `ruff format`.** O backend nunca foi formatado com ele: hoje o

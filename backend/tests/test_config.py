@@ -35,7 +35,7 @@ def test_settings_override(monkeypatch):
 
     settings = Settings(_env_file=None)
     assert settings.APP_ENV == "production"
-    assert settings.DATABASE_URL == "postgresql://user:pass@localhost/db"
+    assert settings.DATABASE_URL == "postgresql+psycopg://user:pass@localhost/db"
     assert settings.SECRET_KEY == STRONG_SECRET
     assert settings.COOKIE_SECURE is True
 

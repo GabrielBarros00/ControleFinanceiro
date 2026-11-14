@@ -8,6 +8,7 @@ import { apiClient } from '@/api/client';
 import { getApiErrorMessage } from '@/lib/api-error';
 import { useUIStore } from '@/stores';
 import { useQueryClient } from '@tanstack/react-query';
+import { workspacesQueryOptions } from '@/hooks/use-workspaces';
 
 export function InviteAcceptPage() {
   const { token } = useParams<{ token: string }>();
@@ -39,6 +40,10 @@ export function InviteAcceptPage() {
     try {
       const response = await apiClient.post(`/invites/accept/${token}`);
       const workspaceId = response.data.workspace_id as number;
+      // O convite fica fora do layout: a lista pode estar inativa ou ter sido
+      // semeada pelo login sem queryFn. Buscá-la explicitamente também cobre
+      // esse primeiro acesso, antes que o guard avalie a nova participação.
+      await queryClient.fetchQuery({ ...workspacesQueryOptions, staleTime: 0 });
       setCurrentWorkspaceId(workspaceId);
       queryClient.invalidateQueries();
       // Direto para o workspace que acabou de aceitar (ADR 0020) — antes ia para

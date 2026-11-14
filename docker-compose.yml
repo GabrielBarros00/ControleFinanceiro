@@ -80,7 +80,7 @@ services:
       # explícita, e vale também para quem roda o backend fora do compose.
       APP_TIMEZONE: ${APP_TIMEZONE:-${TZ:-America/Sao_Paulo}}
       APP_ENV: ${APP_ENV:-production}
-      DATABASE_URL: postgresql://${POSTGRES_USER:-cf4}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-controle_financeiro}
+      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-cf4}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-controle_financeiro}
       SECRET_KEY: ${SECRET_KEY:?defina SECRET_KEY no .env}
       # Ajustes operacionais que o Settings declara como configuráveis. Mantê-los
       # explícitos aqui é o que faz uma alteração no `.env` realmente chegar ao
@@ -222,7 +222,7 @@ services:
       # backend. Sem esta linha, mudar APP_TIMEZONE no `.env` só alterava a API.
       APP_TIMEZONE: ${APP_TIMEZONE:-${TZ:-America/Sao_Paulo}}
       APP_ENV: ${APP_ENV:-production}
-      DATABASE_URL: postgresql://${POSTGRES_USER:-cf4}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-controle_financeiro}
+      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-cf4}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-controle_financeiro}
       SECRET_KEY: ${SECRET_KEY:?defina SECRET_KEY no .env}
       DB_POOL_SIZE: ${DB_POOL_SIZE:-10}
       DB_MAX_OVERFLOW: ${DB_MAX_OVERFLOW:-20}

@@ -4,8 +4,10 @@ from typing import List, Optional
 from urllib.parse import urlsplit
 from zoneinfo import ZoneInfo
 
-from pydantic import model_validator
+from pydantic import field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+from app.core.database_url import normalizar_url_banco
 
 
 def _endereco_unico(valor: str, *, cabecalho: str, campo: str) -> str:
@@ -66,6 +68,11 @@ class Settings(BaseSettings):
 
     DATABASE_URL: str
     SECRET_KEY: str
+
+    @field_validator("DATABASE_URL", mode="before")
+    @classmethod
+    def escolher_driver_postgres(cls, valor):
+        return normalizar_url_banco(valor) if isinstance(valor, str) else valor
 
     # Pool de conexões (só vale para Postgres). pool_pre_ping descarta conexão
     # morta antes de usá-la — sem ele, um reinício do banco derrubava a API em

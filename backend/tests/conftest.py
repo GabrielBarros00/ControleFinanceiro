@@ -19,6 +19,7 @@ from sqlmodel import Session, SQLModel, create_engine
 from app.db.session import get_session
 from app.main import app
 from app.core.config import settings
+from app.core.database_url import normalizar_url_banco
 from app.core.rate_limit import account_limiter, auth_limiter
 
 # Todos os models, para a metadata estar completa antes do create_all
@@ -31,7 +32,10 @@ from sqlalchemy.pool import StaticPool
 
 # Default: SQLite em memória (StaticPool compartilha a conexão).
 # TEST_DATABASE_URL permite rodar a MESMA suíte contra Postgres (leg do CI).
-test_db_url = os.environ.get("TEST_DATABASE_URL", "sqlite:///:memory:")
+test_db_url = normalizar_url_banco(os.environ.get("TEST_DATABASE_URL", "sqlite:///:memory:"))
+if "TEST_DATABASE_URL" in os.environ:
+    # As fixtures de concorrência abrem engines próprios a partir desta URL.
+    os.environ["TEST_DATABASE_URL"] = test_db_url
 if test_db_url.startswith("sqlite"):
     engine = create_engine(
         test_db_url,
