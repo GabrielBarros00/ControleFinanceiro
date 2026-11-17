@@ -17,7 +17,8 @@ para uma submissão, se o dono decidir submeter.
 - **Reautorização por escopo**: sem o escopo da tool, o resultado traz
   `_meta["mcp/www_authenticate"]` com `error="insufficient_scope"` e o escopo que
   falta; o ChatGPT reabre o OAuth pedindo só isso.
-- **Componente de UI** (`ui://controle-financeiro/widget-v4.html`,
+- **Componente de UI** (`ui://controle-financeiro/widget-vN.html`, versão em
+  `backend/app/mcp/ui/__init__.py`,
   `text/html;profile=mcp-app`): vinculado por `_meta.ui.resourceUri` e pelo alias
   `openai/outputTemplate` nas tools de exibição (`transactions_show`,
   `statements_show`, `reports_show`, `view_show`), em `transactions_bulk_preview` e
@@ -62,6 +63,25 @@ gzip; teto de 160/48 KiB no build). A primeira versão tinha 460 KB: a ponte ofi
 2. ChatGPT Plugins › **+** › endpoint público `https://<site>/mcp` › criar.
 3. Autorizar na tela do app, escolhendo permissões.
 4. Depois de mudar tools: **Refresh** na conexão e conversa nova.
+
+### Erro ao abrir o widget depois de um deploy
+
+O host pode guardar o descritor da tool (com `resourceUri` / `outputTemplate`)
+mesmo sem ter o HTML em cache. Antes, ao mudar de v8 para v9, por exemplo, o
+servidor removia a URI v8: `resources/read` respondia `Unknown resource` antes
+mesmo de executar o JavaScript do componente.
+
+O servidor mantém as URIs publicadas (`v1` até a versão anterior) como aliases
+para o HTML atual, com o mesmo MIME, autenticação e CSP. As tools anunciam somente
+a URI atual. Isso é compatibilidade de carregamento, não um arquivo histórico dos
+bundles: os envelopes das tools precisam continuar aceitos pelo componente. Uma
+mudança incompatível de envelope exige preservar um renderer compatível, não só
+incrementar a versão. O cliente que já tem um HTML antigo em cache ainda deve
+atualizar a conexão e iniciar uma conversa nova para receber a versão atual.
+
+`tests/mcp/test_widget_cache.py` reproduz a leitura das URIs publicadas nos dois
+protocolos suportados. Ele não substitui a verificação visual no ChatGPT após o
+deploy; um sucesso em `tools/call` sozinho também não prova que o widget carregou.
 
 ## Casos de teste para a submissão
 

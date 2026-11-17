@@ -21,7 +21,7 @@ from pydantic import ConfigDict
 
 from app.core.config import settings
 from app.mcp import instructions, invoke, registry
-from app.mcp.ui import WIDGET_URI
+from app.mcp.ui import WIDGET_URI, WIDGET_VERSION
 from app.mcp.version import SERVER_VERSION  # noqa: F401 (reexportado: docs e tela de integrações)
 
 SERVER_NAME = "controle-financeiro"
@@ -80,24 +80,33 @@ def get_server() -> MCPServer:
     # `openai/widgetCSP.redirect_domains`, e é por ele que sai o botão "Abrir no
     # Controle Financeiro". A CSP continua vazia: o componente não busca nada fora
     # (os dados chegam pelo resultado da tool e pela ponte do host).
-    apps.add_resource(
-        TextResource(
-            uri=WIDGET_URI,
-            name="controle-financeiro-widget",
-            title="Controle Financeiro",
-            description="Cartões de lançamento, fatura, resumo do mês e prévia de ações em massa.",
-            mime_type=APP_MIME_TYPE,
-            meta={
-                "ui": {"csp": {"connectDomains": [], "resourceDomains": []}, "prefersBorder": True},
-                "openai/widgetCSP": {
-                    "connect_domains": [],
-                    "resource_domains": [],
-                    "redirect_domains": [settings.oauth_issuer],
-                },
+    recurso = TextResource(
+        uri=WIDGET_URI,
+        name="controle-financeiro-widget",
+        title="Controle Financeiro",
+        description="Cartões de lançamento, fatura, resumo do mês e prévia de ações em massa.",
+        mime_type=APP_MIME_TYPE,
+        meta={
+            "ui": {"csp": {"connectDomains": [], "resourceDomains": []}, "prefersBorder": True},
+            "openai/widgetCSP": {
+                "connect_domains": [],
+                "resource_domains": [],
+                "redirect_domains": [settings.oauth_issuer],
             },
-            text=widget_html(),
-        )
+        },
+        text=widget_html(),
     )
+    apps.add_resource(recurso)
+    # O host pode guardar o descritor da tool por mais tempo que o HTML. Remover
+    # a URI anterior no deploy quebrava resources/read ANTES de o iframe nascer.
+    # Os envelopes de resultado continuam compatíveis: URIs já publicadas ficam
+    # como aliases para o componente atual. Tools novas anunciam só WIDGET_URI.
+    # Lista finita: não aceita versões futuras nem caminhos arbitrários.
+    for versao in range(1, WIDGET_VERSION):
+        apps.add_resource(recurso.model_copy(update={
+            "uri": f"ui://controle-financeiro/widget-v{versao}.html",
+            "name": f"controle-financeiro-widget-v{versao}-compat",
+        }))
     return MCPServer(
         name=SERVER_NAME,
         title="Controle Financeiro",
