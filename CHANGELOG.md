@@ -11,6 +11,14 @@ segue [SemVer](https://semver.org/lang/pt-BR/).
 
 ## [Não lançado]
 
+### Widget de IA após atualizar o servidor
+
+- Endereços de versões anteriores do widget continuam disponíveis como aliases
+  para o componente atual. Isso evita erro de recurso inexistente quando o
+  ChatGPT mantém em cache o descritor de uma tool após o deploy.
+- A descoberta continua vinculando as tools à versão atual; autenticação e CSP
+  permanecem iguais para os endereços anteriores.
+
 ### Driver PostgreSQL atualizado para Psycopg 3
 
 - API, migrações e tarefas periódicas passam a usar Psycopg 3, mantendo as
