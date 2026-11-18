@@ -6,7 +6,7 @@
  * Tudo lê as variáveis do host (via `widget.css`), então o componente fica com a
  * cara do app de chat — com o visual próprio como reserva.
  */
-import type { ComponentChildren, JSX } from 'preact';
+import type { ButtonHTMLAttributes, ComponentChildren, JSX } from 'preact';
 import { useState } from 'preact/hooks';
 import { iniciais, matiz, money, percent } from '../format';
 import { IconChevron } from './icons';
@@ -57,7 +57,7 @@ type Variante = 'primary' | 'secondary' | 'ghost' | 'danger';
 
 export function Button({ children, variante = 'secondary', icone, carregando, disabled, class: cls = '', ...resto }: {
   children?: ComponentChildren; variante?: Variante; icone?: JSX.Element; carregando?: boolean; disabled?: boolean; class?: string;
-} & Omit<JSX.HTMLAttributes<HTMLButtonElement>, 'icon'>) {
+} & Omit<ButtonHTMLAttributes<HTMLButtonElement>, 'icon'>) {
   return (
     <button type="button" {...resto} disabled={carregando || disabled} class={`w-btn w-btn-${variante} ${cls}`}>
       {carregando ? <span class="size-3.5 animate-spin rounded-full border-2 border-current border-t-transparent" aria-hidden="true" /> : icone}
@@ -66,7 +66,7 @@ export function Button({ children, variante = 'secondary', icone, carregando, di
   );
 }
 
-export function IconButton({ rotulo, children, ...resto }: { rotulo: string; children: ComponentChildren } & JSX.HTMLAttributes<HTMLButtonElement>) {
+export function IconButton({ rotulo, children, ...resto }: { rotulo: string; children: ComponentChildren } & ButtonHTMLAttributes<HTMLButtonElement>) {
   return (
     <button type="button" aria-label={rotulo} title={rotulo} {...resto} class="w-icon-btn">
       {children}
