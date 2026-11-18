@@ -71,6 +71,15 @@ export default defineConfig({
   test: {
     globals: true,
     environment: 'jsdom',
+    /*
+     * A página de teste fica na MESMA origem da API (`localhost:8000`), como em
+     * produção, onde o nginx serve o front e a API juntos. Desde o MSW 3 o XHR
+     * do jsdom roda de verdade (só a camada HTTP é interceptada) e aplica CORS
+     * por inteiro: na origem padrão (`localhost:3000`) todo PATCH/PUT/DELETE
+     * dispararia um preflight `OPTIONS` e toda resposta precisaria dos
+     * cabeçalhos CORS, que os handlers do MSW não mandam.
+     */
+    environmentOptions: { jsdom: { url: 'http://localhost:8000/' } },
     setupFiles: './src/test/setup.ts',
     // Fuso fixo: os bugs de data só aparecem em offset negativo, e o CI roda em
     // UTC. Sem fixar, o teste passaria na máquina do dev e não pegaria nada lá.

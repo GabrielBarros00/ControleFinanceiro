@@ -206,6 +206,12 @@ describe('useAuth', () => {
     // Numa máquina compartilhada, isto ficava em memória e aparecia na tela do
     // próximo usuário no intervalo até o refetch.
     expect(queryClient.getQueryData(['transactions', 1])).toBeUndefined();
+
+    // O `clear()` faz o hook, ainda montado, sondar /auth/me de novo. Desde o
+    // MSW 3 essa requisição passa pelo XHR real do jsdom e só chega ao handler
+    // depois do fim do teste. Se ficasse em voo, cairia no handler do teste
+    // seguinte e seria contada lá ("não sonda /auth/me na tela de cadastro").
+    await waitFor(() => expect(queryClient.isFetching()).toBe(0));
   });
 
   describe('rota pública', () => {
