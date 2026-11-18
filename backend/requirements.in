@@ -30,10 +30,10 @@
 # `requirements-dev.txt`, não o compilado.
 
 # --- Web ---
-fastapi==0.163.0
+fastapi==0.165.0
 uvicorn[standard]==0.54.0
 starlette==1.10.0
-python-multipart==0.0.33
+python-multipart==0.0.34
 
 # --- Modelos e validação ---
 pydantic[email]==2.14.3
@@ -42,7 +42,7 @@ pydantic-settings==2.16.3
 # sa_type=DateTime para manter UTC sem tzinfo no banco (ADR 0025), sem migração.
 # tests/test_colunas_de_data.py protege também os campos adicionados depois.
 sqlmodel==0.0.50
-SQLAlchemy==2.1.8
+SQLAlchemy==2.1.9
 alembic==1.20.1
 
 # --- Banco ---

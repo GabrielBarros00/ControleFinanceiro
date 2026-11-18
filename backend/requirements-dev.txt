@@ -37,7 +37,7 @@ ruff==0.17.5
 # O pip PASSOU a ser fixado no workflow (`pip==...` no ci.yml e no relock.sh),
 # que era a saída sugerida aqui. `test_nenhum_pip_install_sem_versao_no_ci`
 # impede que ele volte a ficar solto.
-pip-tools==7.6.2
+pip-tools==7.7.0
 
 # Roda o gate "Audit dependencies (pip)" do CI e o alvo `backend-audit` do
 # Makefile. FIXADO pela mesma razão do pip-tools: solto, uma release que mude a
