@@ -82,16 +82,28 @@ export const server = setupServer(...handlers);
  * componente cai no estado de erro e o teste segue verde. Foi assim que a
  * suíte chegou a ~100 requisições sem handler por execução sem ninguém notar.
  * Aqui cada uma é anotada e o `afterEach` falha o teste que a disparou, com a
- * lista. `print.error()` mantém o comportamento de antes para a requisição:
+ * lista. `defaults.error()` mantém o comportamento de antes para a requisição:
  * ela falha, e nunca escapa para um backend de verdade na porta 8000.
+ *
+ * Desde o MSW 3 o gancho é `onUnhandledFrame` e recebe um "frame" de rede, que
+ * pode ser HTTP (`data.request`) ou WebSocket (`data.connection`).
  */
 const naoTratadas: string[] = [];
 
+function descreverFrame(protocolo: string, dados: unknown): string {
+  const { request, connection } = dados as {
+    request?: Request;
+    connection?: { client?: { url?: URL } };
+  };
+  if (request) return `${request.method} ${request.url}`;
+  return `${protocolo.toUpperCase()} ${connection?.client?.url?.href ?? '(endereço desconhecido)'}`;
+}
+
 beforeAll(() =>
   server.listen({
-    onUnhandledRequest(request, print) {
-      naoTratadas.push(`${request.method} ${request.url}`);
-      print.error();
+    onUnhandledFrame({ frame, defaults }) {
+      naoTratadas.push(descreverFrame(frame.protocol, frame.data));
+      defaults.error();
     },
   }),
 );
