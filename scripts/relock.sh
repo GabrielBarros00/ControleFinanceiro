@@ -84,7 +84,7 @@ echo "==> Python: $PYTHON_VERSION (lido de backend/Dockerfile)"
 
 docker run --rm -v "$BACKEND_DIR:/w" -w /w "python:$PYTHON_VERSION" sh -c "
     set -e
-    python -m pip install --upgrade pip==26.2.1 -q --root-user-action=ignore
+    python -m pip install --upgrade pip==26.3 -q --root-user-action=ignore
     pip install -q --root-user-action=ignore '$PIP_TOOLS_PIN'
     pip-compile $MODO_UPGRADE --output-file=requirements.txt --strip-extras --quiet requirements.in
 "

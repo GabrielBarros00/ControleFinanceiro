@@ -74,7 +74,7 @@ jobs:
           # dependência (ver o comentário em requirements-dev.txt). Fixar as
           # ferramentas e deixar o pip solto era proteger a porta e deixar a
           # janela aberta.
-          python -m pip install --upgrade pip==26.2.1
+          python -m pip install --upgrade pip==26.3
           pip install -r backend/requirements-dev.txt
       - name: Run lint
         run: |
@@ -166,7 +166,7 @@ jobs:
           # dependência (ver o comentário em requirements-dev.txt). Fixar as
           # ferramentas e deixar o pip solto era proteger a porta e deixar a
           # janela aberta.
-          python -m pip install --upgrade pip==26.2.1
+          python -m pip install --upgrade pip==26.3
           pip install -r backend/requirements-dev.txt
       - name: Run migrations (Postgres)
         run: |
