@@ -36,4 +36,5 @@ types/        # tipos manuais + api.gen.ts (gerado do OpenAPI)
 - **Tempo real**: `hooks/use-workspace-events.ts` mantém o WebSocket e invalida as *query keys* conforme o evento; lacuna de sequência → resync total.
 - **Erros da API**: leia `err.response?.data?.error?.message` (helper em `lib/api-error.ts`).
 - **Formulários**: validação com Zod espelha as regras do backend (ex.: percentuais somam exatamente 100 em centésimos; sem tolerância de float).
+- **Componentes de UI novos**: `npx shadcn@latest add <componente>`, que lê o `components.json`. A CLI não fica nas dependências do projeto: ela não é usada no build nem nos testes, e trazia o `ts-morph` com um `minimatch` vulnerável.
 - **Diálogos de detalhe** derivam do cache por **ID** — nunca de snapshots do objeto — para refletir sempre o dado atual.
