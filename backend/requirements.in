@@ -36,7 +36,7 @@ starlette==1.10.0
 python-multipart==0.0.34
 
 # --- Modelos e validação ---
-pydantic[email]==2.14.3
+pydantic[email]==2.14.4
 pydantic-settings==2.16.3
 # O sqlmodel 0.0.48 infere UTCDateTime para campos datetime. Os models fixam
 # sa_type=DateTime para manter UTC sem tzinfo no banco (ADR 0025), sem migração.
@@ -84,7 +84,7 @@ httpx==0.28.1
 # o resolvedor congelou a 2026.7.22 e o `pip-audit --strict` do CI passou a
 # reprovar por PYSEC-2026-4320 (corrigida na 2026.10.19). Piso, não pin exato,
 # pela mesma razão da `cryptography` logo acima.
-certifi>=2026.10.23
+certifi>=2026.11.20
 structlog==26.1.0
 anyio==4.16.0
 python-dotenv==1.2.4
