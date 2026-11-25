@@ -30,7 +30,7 @@ attrs==26.1.0
     #   referencing
 bcrypt==5.0.0
     # via -r requirements.in
-certifi==2026.10.23
+certifi==2026.11.20
     # via
     #   -r requirements.in
     #   httpcore
@@ -99,7 +99,7 @@ psycopg-binary==3.3.9
     # via psycopg
 pycparser==3.12
     # via cffi
-pydantic==2.14.3
+pydantic==2.14.4
     # via
     #   -r requirements.in
     #   fastapi
@@ -107,7 +107,7 @@ pydantic==2.14.3
     #   mcp-types
     #   pydantic-settings
     #   sqlmodel
-pydantic-core==2.50.4
+pydantic-core==2.50.5
     # via pydantic
 pydantic-settings==2.16.3
     # via -r requirements.in
